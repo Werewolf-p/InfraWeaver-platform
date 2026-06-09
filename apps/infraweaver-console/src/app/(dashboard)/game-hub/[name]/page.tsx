@@ -626,6 +626,10 @@ function FilesTab({
       fetchJson<{ files: FileEntry[] }>(
         `/api/game-hub/servers/${name}/files?path=${encodeURIComponent(currentPath)}`,
       ),
+    // The file browser reads files by exec'ing into the running pod. A stopped
+    // server has been scaled to 0 replicas, so there is no pod to read from —
+    // skip the request and show a call-to-action instead of a failing fetch.
+    enabled: status !== "stopped",
     retry: 1,
   });
 
@@ -984,18 +988,22 @@ function FilesTab({
         </div>
       )}
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
-        {isLoading ? (
+        {status === "stopped" ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-8 px-4 text-center text-gray-400 dark:text-[#555]">
+            <FolderOpen className="w-7 h-7" />
+            <p className="text-xs">
+              Start the server to browse its files. The file browser reads from
+              the running server, so it is unavailable while it is offline.
+            </p>
+          </div>
+        ) : isLoading ? (
           <div className="flex items-center justify-center h-20">
             <Loader2 className="w-4 h-4 animate-spin text-gray-400 dark:text-[#555]" />
           </div>
         ) : isError ? (
           <div className="flex flex-col items-center justify-center gap-3 py-8 px-4 text-center text-gray-400 dark:text-[#555]">
             <FolderOpen className="w-7 h-7" />
-            <p className="text-xs">
-              {status === "stopped"
-                ? "Files are unavailable while the server is offline."
-                : "Unable to load files right now."}
-            </p>
+            <p className="text-xs">Unable to load files right now.</p>
             <button
               onClick={() => void refetch()}
               className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-1.5 text-[11px] text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-white transition-colors"
