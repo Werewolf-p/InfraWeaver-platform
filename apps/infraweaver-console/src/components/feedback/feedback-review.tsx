@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Clock, ExternalLink, Loader2, MessageSquarePlus, Rocket, Settings2, ThumbsDown, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, ExternalLink, ListOrdered, Loader2, MessageSquarePlus, Rocket, Settings2, ThumbsDown, XCircle } from "lucide-react";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { ConfirmDialog } from "@/components/ui";
 import { apiClient, toApiErrorMessage } from "@/lib/api-client";
@@ -14,6 +14,7 @@ import { StagingBanner } from "@/components/feedback/staging-banner";
 import { StatusLegend } from "@/components/feedback/status-legend";
 import { StatusPill } from "@/components/feedback/status-pill";
 import { AgentStudioModal } from "@/components/feedback/automation/agent-studio-modal";
+import { QueueMenu } from "@/components/feedback/queue-menu";
 import {
   STAGING_ENV_URL,
   STATUS_COPY,
@@ -82,6 +83,8 @@ export function FeedbackReview() {
   const [pipelinePending, setPipelinePending] = useState(false);
   // Agent Studio (the editable auto-fix pipeline) modal visibility.
   const [studioOpen, setStudioOpen] = useState(false);
+  // Approval-queue manager popup (view + reorder queued approvals) visibility.
+  const [queueOpen, setQueueOpen] = useState(false);
   // The id of an approve we just fired but whose `approved` state we haven't yet
   // observed in refetched data. WITHOUT this, the pipeline looks idle in the gap
   // between the (fast) approve call returning and the next 10s poll, so a second
@@ -237,6 +240,36 @@ export function FeedbackReview() {
     [],
   );
 
+  // Reorder a queued approval by swapping it with its neighbour (immutable).
+  // `delta` is -1 (earlier) or +1 (later). Fails closed: if the id isn't in the
+  // queue or the swap would fall off either end, the order is left untouched.
+  const moveQueued = useCallback(
+    (id: string, delta: -1 | 1) =>
+      setQueuedApprovals((prev) => {
+        const index = prev.indexOf(id);
+        const target = index + delta;
+        if (index === -1 || target < 0 || target >= prev.length) return prev;
+        const next = [...prev];
+        [next[index], next[target]] = [next[target], next[index]];
+        return next;
+      }),
+    [],
+  );
+  const moveQueuedUp = useCallback((id: string) => moveQueued(id, -1), [moveQueued]);
+  const moveQueuedDown = useCallback((id: string) => moveQueued(id, 1), [moveQueued]);
+
+  // Queued entries resolved to their feedback records, in dispatch order. Ids
+  // whose entry has dropped out of the list (e.g. already processed) are omitted
+  // so the menu only ever shows actionable items.
+  const queuedItems = useMemo(
+    () =>
+      queuedApprovals.flatMap((id) => {
+        const entry = entries.find((e) => e.id === id);
+        return entry ? [{ id, summary: summarize(entry.description) }] : [];
+      }),
+    [queuedApprovals, entries],
+  );
+
   // Drain the queue one entry at a time. When nothing is running, dispatch the
   // first queued id that is still awaiting review; dispatching re-arms
   // `pipelineBusy` synchronously, so this effect bails until the run completes.
@@ -289,6 +322,20 @@ export function FeedbackReview() {
       actions={
         canManage ? (
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="relative inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
+              onClick={() => setQueueOpen(true)}
+              title="View and reorder the approval queue"
+            >
+              <ListOrdered className="h-4 w-4" />
+              Queue
+              {queuedItems.length > 0 && (
+                <span className="ml-0.5 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[11px] font-semibold text-white">
+                  {queuedItems.length}
+                </span>
+              )}
+            </button>
             <button
               type="button"
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
@@ -521,6 +568,17 @@ export function FeedbackReview() {
         confirmText="Revert & retry"
         danger
       />
+      {canManage && (
+        <QueueMenu
+          open={queueOpen}
+          onClose={() => setQueueOpen(false)}
+          items={queuedItems}
+          pipelineBusy={pipelineBusy}
+          onMoveUp={moveQueuedUp}
+          onMoveDown={moveQueuedDown}
+          onCancel={cancelQueued}
+        />
+      )}
       {canManage && <AgentStudioModal open={studioOpen} onClose={() => setStudioOpen(false)} />}
     </PageScaffold>
   );
