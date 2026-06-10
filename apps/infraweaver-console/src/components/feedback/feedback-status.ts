@@ -43,7 +43,6 @@ export interface StatusCopy {
 }
 
 /** Plain-language wording so a non-expert sees where each entry is. */
-// Note: 'dispatched' entry renders as 'Ready to test' in the UI.
 export const STATUS_COPY: Record<FeedbackStatus, StatusCopy> = {
   new: { label: "Awaiting review", hint: "Submitted — an admin needs to approve it." },
   approved: { label: "Claude is fixing this…", hint: "Claude is planning and implementing the change." },
