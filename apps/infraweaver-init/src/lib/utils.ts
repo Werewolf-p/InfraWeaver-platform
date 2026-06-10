@@ -30,7 +30,7 @@ export const fadeUpItem = {
 }
 
 export const controlClassName =
-  'w-full rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-[var(--az-text)] placeholder:text-[var(--az-text-secondary)] shadow-inner shadow-black/20 outline-none transition focus:border-[var(--az-primary)] focus:ring-2 focus:ring-[rgba(0,120,212,0.25)] disabled:cursor-not-allowed disabled:opacity-50'
+  'w-full rounded-[var(--az-radius-sm)] border border-[var(--az-border)] bg-[var(--az-control-bg)] px-4 py-2.5 text-sm text-[var(--az-text)] placeholder:text-[var(--az-text-tertiary)] outline-none transition-all duration-150 focus:border-[var(--az-border-focus)] focus:bg-[var(--az-control-bg-focus)] focus:ring-2 focus:ring-[var(--az-primary-dim)] disabled:cursor-not-allowed disabled:opacity-40'
 
 export const textareaClassName = cn(controlClassName, 'min-h-32 resize-y font-mono text-xs leading-6')
 
