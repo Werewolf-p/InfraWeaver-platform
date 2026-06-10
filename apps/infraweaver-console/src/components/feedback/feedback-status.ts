@@ -13,8 +13,12 @@ import { Bug, Lightbulb, StickyNote } from "lucide-react";
 export type FeedbackType = "bug" | "feature-request" | "note";
 export type FeedbackStatus = "new" | "approved" | "dispatched" | "accepted" | "done" | "rejected";
 
-/** Single shared staging/dev environment every accepted fix accumulates on. */
-export const STAGING_ENV_URL = "https://infraweaver-console-preview.int.rlservers.com";
+/**
+ * Fallback "test it here" target. Fixes now ship straight to the LIVE console
+ * (the dispatch /approve bumps the prod image pin and ArgoCD rolls it out), so
+ * this points at the live console rather than a separate preview/staging env.
+ */
+export const STAGING_ENV_URL = "https://infraweaver.int.rlservers.com";
 
 export const TYPE_ICON: Record<FeedbackType, typeof Bug> = {
   bug: Bug,
@@ -42,7 +46,7 @@ export interface StatusCopy {
 export const STATUS_COPY: Record<FeedbackStatus, StatusCopy> = {
   new: { label: "Awaiting review", hint: "Submitted — an admin needs to approve it." },
   approved: { label: "Claude is fixing this…", hint: "Claude is planning and implementing the change." },
-  dispatched: { label: "Ready to test", hint: "Built on staging — test it, then Accept or Retry." },
+  dispatched: { label: "Ready to test", hint: "Built and deployed to the live console — test it, then Accept or Retry." },
   accepted: { label: "Staged for the next publish", hint: "Accepted — waiting on the next Publish to go live." },
   done: { label: "Live", hint: "Published to the live console." },
   rejected: { label: "Denied", hint: "Won't be worked on." },
