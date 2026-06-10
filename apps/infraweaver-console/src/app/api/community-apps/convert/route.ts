@@ -7,13 +7,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { z } from "zod";
 import { convertAppFeedEntry, reconcileAppPortsWithImageMetadata } from "@/lib/appfeed-converter";
 import { findAppByIdentifier } from "@/lib/appfeed-cache";
 import { safeError } from "@/lib/utils";
+import { withRoute } from "@/lib/route-utils";
 
 const ConvertBody = z.object({
   // App can be passed by name or slug (looked up from feed)
@@ -34,14 +33,7 @@ async function findAppInFeed(identifier: string) {
   return findAppByIdentifier(identifier);
 }
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "apps:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const POST = withRoute("apps:read", async (req: NextRequest) => {
   if (!checkRateLimit(rateLimitKey("community-convert", req), 30, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -76,4 +68,4 @@ export async function POST(req: NextRequest) {
       { status: 422 }
     );
   }
-}
+});

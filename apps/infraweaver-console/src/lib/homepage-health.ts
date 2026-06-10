@@ -2,10 +2,6 @@ import { getArgocdAppsCached, type ArgoApplication } from "@/lib/argocd-apps";
 import { HOMEPAGE_SERVICE_APP_MAP, type HomepageServiceHealth } from "@/lib/homepage-service-config";
 import { safeError } from "@/lib/utils";
 
-function getErrorMessage(error: unknown) {
-  return safeError(error);
-}
-
 function buildServiceHealth(name: string, appName: string, app?: ArgoApplication): HomepageServiceHealth {
   if (!app) {
     return {
@@ -64,7 +60,7 @@ export async function getHomepageServiceHealthMap(apps?: ArgoApplication[]) {
     const sourceApps = apps ?? (await getArgocdAppsCached()).apps;
     return buildHomepageServiceHealthMap(sourceApps);
   } catch (error) {
-    const reason = `Unable to query ArgoCD applications: ${getErrorMessage(error)}`;
+    const reason = `Unable to query ArgoCD applications: ${safeError(error)}`;
     return Object.fromEntries(
       Object.entries(HOMEPAGE_SERVICE_APP_MAP).map(([name, appName]) => [
         name,

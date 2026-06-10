@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse, NextRequest } from "next/server";
 import { getRole, hasPermission, type Permission } from "@/lib/rbac";
+import { withRoute } from "@/lib/route-utils";
 
 const ALL_PERMISSIONS: Permission[] = [
   "apps:read", "apps:sync", "apps:write", "config:read", "config:write",
@@ -8,9 +8,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "cluster:read", "game-hub:read", "game-hub:players", "game-hub:start", "game-hub:stop",
 ];
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const GET = withRoute(null, async (_req: NextRequest, session) => {
   const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
   const role = getRole(groups);
   const permissions = role === "admin"
@@ -23,4 +21,4 @@ export async function GET() {
     role,
     permissions,
   });
-}
+});

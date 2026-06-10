@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
-import { auth } from "@/lib/auth";
 import { loadKubeConfig } from "@/lib/k8s";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { withRoute } from "@/lib/route-utils";
 
 interface RouteSummary {
   name: string;
@@ -162,15 +161,7 @@ function dedupeRoutes(routes: RouteSummary[]) {
   ));
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withRoute("config:read", async () => {
   try {
     const kc = loadKubeConfig();
     const customApi = kc.makeApiClient(k8s.CustomObjectsApi);
@@ -215,4 +206,4 @@ export async function GET() {
     console.error("Failed to load Traefik/Ingress routes", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

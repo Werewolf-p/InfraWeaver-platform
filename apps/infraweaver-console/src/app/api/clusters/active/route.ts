@@ -1,30 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import {
   ACTIVE_CLUSTER_COOKIE,
   getActiveClusterIdFromCookieValue,
   getClusterConfig,
   serializeActiveClusterCookie,
 } from "@/lib/cluster-context";
+import { withRoute } from "@/lib/route-utils";
 
 const postBodySchema = z.object({
   clusterId: z.string().min(1),
 });
 
-export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withRoute(null, async (request: NextRequest) => {
   return NextResponse.json({
     clusterId: getActiveClusterIdFromCookieValue(request.cookies.get(ACTIVE_CLUSTER_COOKIE)?.value),
   });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const POST = withRoute(null, async (request: NextRequest) => {
   const rawBody = await request.json().catch(() => null);
   const parsed = postBodySchema.safeParse(rawBody);
   if (!parsed.success) {
@@ -47,4 +41,4 @@ export async function POST(request: NextRequest) {
   });
 
   return response;
-}
+});

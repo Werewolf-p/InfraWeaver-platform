@@ -1278,6 +1278,58 @@ def _detect_init_vm_id() -> Optional[int]:
     return None
 
 
+def _cleanup_init_server(stop_server: bool) -> Dict:
+    """Tear down the one-shot init environment after a successful deploy.
+
+    Removes /tmp/iw-* scratch artifacts and, when running inside the init VM,
+    stops and purges that VM via the Proxmox API. ``stop_server`` is echoed
+    back in the result so the caller (/api/cleanup-init) knows whether to
+    shut the init HTTP server down afterwards.
+    """
+    env = _parse_env_file(ENV_FILE)
+    vm_id = _detect_init_vm_id()
+
+    try:
+        for candidate in Path("/tmp").glob("iw-*"):
+            if candidate.is_dir():
+                shutil.rmtree(candidate, ignore_errors=True)
+            else:
+                try:
+                    candidate.unlink()
+                except FileNotFoundError:
+                    pass
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to remove temporary files: {e}"}
+
+    if vm_id is not None:
+        host = env.get("PROXMOX_HOST", "").strip()
+        token = env.get("PROXMOX_API_TOKEN", "").strip()
+        if not host or not token:
+            return {"ok": False, "error": "Detected the init VM but PROXMOX_HOST or PROXMOX_API_TOKEN is missing from .env"}
+
+        node_name = env.get("PROXMOX_NODE_NAME", "").strip() or _find_proxmox_vm_node(host, token, vm_id)
+        if not node_name:
+            return {"ok": False, "error": f"Unable to determine the Proxmox node for VM {vm_id}"}
+
+        try:
+            try:
+                _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}/status/stop", method="POST")
+            except Exception:
+                pass
+
+            for _ in range(15):
+                status = _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}/status/current") or {}
+                if status.get("status") != "running":
+                    break
+                time.sleep(2)
+
+            _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}?purge=1", method="DELETE")
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to remove init VM {vm_id}: {e}"}
+
+    return {"ok": True, "vmId": vm_id, "stopServer": stop_server}
+
+
 def _platform_version() -> Dict:
     """Return current and remote commit SHA with pending changelog."""
     try:

@@ -9,10 +9,9 @@
  */
 
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { gitListDir, gitReadFile, getGitAccessToken } from "@/lib/git-provider";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { withRoute } from "@/lib/route-utils";
 
 export interface InstalledApp {
   slug: string;
@@ -57,14 +56,7 @@ function parseSimpleYaml(yaml: string): Record<string, string | string[]> {
   return result;
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "apps:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withRoute("apps:read", async () => {
   if (!getGitAccessToken().trim()) {
     return NextResponse.json({ apps: [], total: 0, reason: "github_token_missing" });
   }
@@ -143,4 +135,4 @@ export async function GET() {
   } catch (err) {
     return NextResponse.json({ error: safeError(err) }, { status: 502 });
   }
-}
+});

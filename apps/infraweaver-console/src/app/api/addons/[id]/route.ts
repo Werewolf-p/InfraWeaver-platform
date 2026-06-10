@@ -1,23 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { ADDONS } from "@/lib/addons";
 import { getEnabledAddons, setAddonEnabled } from "@/lib/addons-server";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { withRoute } from "@/lib/route-utils";
 
 const patchBodySchema = z.object({
   enabled: z.boolean(),
 });
 
-function getErrorMessage(error: unknown) {
-  return safeError(error);
-}
-
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withRoute(null, async (_req: NextRequest, _session, _access, ctx) => {
+  const { params } = ctx;
   const { id } = await params;
 
   try {
@@ -27,19 +20,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     }
     return NextResponse.json(addon);
   } catch (error) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "config:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const PATCH = withRoute("config:write", async (req: NextRequest, _session, _access, ctx) => {
+  const { params } = ctx;
   const { id } = await params;
   if (!ADDONS.some((addon) => addon.id === id)) {
     return NextResponse.json({ error: "Addon not found" }, { status: 404 });
@@ -55,6 +41,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   try {
     return NextResponse.json(await setAddonEnabled(id, body.enabled));
   } catch (error) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

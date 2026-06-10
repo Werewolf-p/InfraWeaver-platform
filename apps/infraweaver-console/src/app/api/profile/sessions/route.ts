@@ -1,11 +1,8 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse, NextRequest } from "next/server";
 import { findUserByEmail, authentikFetch, mapAuthentikSessions } from "@/lib/authentik";
+import { withRoute } from "@/lib/route-utils";
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withRoute(null, async (_req: NextRequest, session) => {
   const email = (session.user as { email?: string }).email ?? "";
   const user = await findUserByEmail(email);
   if (!user?.username) return NextResponse.json({ sessions: [] });
@@ -16,4 +13,4 @@ export async function GET() {
   if (!r.ok) return NextResponse.json({ sessions: [] });
   const data = await r.json() as { results?: unknown[] };
   return NextResponse.json({ sessions: mapAuthentikSessions(data.results ?? []) });
-}
+});

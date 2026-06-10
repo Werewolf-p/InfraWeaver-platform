@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import * as k8s from "@kubernetes/client-node";
-import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { invalidatePodCaches } from "@/lib/performance-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { withRoute } from "@/lib/route-utils";
 
 const payloadSchema = z.object({
   pods: z.array(z.object({
@@ -16,15 +15,7 @@ const payloadSchema = z.object({
   })).min(1).max(20),
 });
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "cluster:admin")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const POST = withRoute("cluster:admin", async (req: NextRequest, session) => {
   if (!checkRateLimit(rateLimitKey("pod-bulk-restart", req), 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -79,4 +70,4 @@ export async function POST(req: NextRequest) {
       { status: 502 },
     );
   }
-}
+});

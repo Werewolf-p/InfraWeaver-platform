@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as jsYaml from "js-yaml";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { withAuth } from "@/lib/with-auth";
 import { getGitAccessToken, gitCommitFiles, gitReadFile } from "@/lib/git-provider";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
+import { withRoute } from "@/lib/route-utils";
 
 const ResourceChangeSchema = z.object({
   key: z.string().min(1).max(256),
@@ -242,13 +241,7 @@ export const GET = withAuth({ permission: "config:read" }, async () => {
   }
 });
 
-export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "config:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const PUT = withRoute("config:write", async (req: NextRequest) => {
   if (!GIT_TOKEN) {
     return NextResponse.json({ error: "Missing git provider token" }, { status: 503 });
   }
@@ -321,4 +314,4 @@ export async function PUT(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

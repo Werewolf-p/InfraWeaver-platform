@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { auditLog } from "@/lib/audit-log";
 import { makeBatchApi } from "@/lib/kube-client";
 import { z } from "zod";
+import { withRoute } from "@/lib/route-utils";
 
 const K8S_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
@@ -12,15 +11,7 @@ const TriggerCronJobBody = z.object({
   name: z.string().min(1).max(63).regex(K8S_NAME_RE, "Invalid cronjob name"),
 });
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "cluster:admin")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const POST = withRoute("cluster:admin", async (req: NextRequest, session) => {
   const result = TriggerCronJobBody.safeParse(await req.json());
   if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
 
@@ -52,4 +43,4 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
   }
-}
+});
