@@ -32,7 +32,9 @@ function logError(context: string, error: unknown): void {
 /**
  * After a long approve/redo dispatch settles, pull the newest successful run for
  * this entry and write its preview URL + run id back, advancing the entry to
- * `dispatched` (awaiting reviewer verdict). Reviewer identity is preserved.
+ * `dispatched` (awaiting reviewer verdict). Reviewer identity is preserved. If no
+ * successful run produced a preview, the entry stays in `approved` so it never
+ * gets stranded on the "Building on staging…" pill with no build to test.
  */
 async function reconcileFromRuns(entry: FeedbackEntry): Promise<void> {
   const runs = await listFeedbackRuns(entry.id);
@@ -46,11 +48,14 @@ async function reconcileFromRuns(entry: FeedbackEntry): Promise<void> {
     });
     return;
   }
-  // No successful run with a preview — surface the latest run id so the reviewer
-  // can open its log and see what failed; keep the entry as dispatched.
+  // No successful run with a preview — the build failed or produced no preview,
+  // so there is nothing to test on staging. Revert to `approved` ("Claude is
+  // fixing this…") rather than advancing to `dispatched`, which would strand the
+  // entry on the misleading "Building on staging…" pill forever. Surface the
+  // latest run id so the reviewer can open its log and see what failed.
   const newest = runs[0];
   await patchFeedbackEntry(entry.id, {
-    status: "dispatched",
+    status: "approved",
     ...(newest ? { dispatchRunId: newest.runId } : {}),
   });
 }
