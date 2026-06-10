@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
-import { getBuiltInRoles, type RoleAssignment } from "@/lib/rbac";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { assignmentExceedsGranter, getBuiltInRoles, type RoleAssignment } from "@/lib/rbac";
+import { getSessionEffectivePermissions, getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import { loadUsersConfig, normalizeRoleAssignments, saveUsersConfig } from "@/lib/users-config";
 import { randomUUID } from "crypto";
@@ -60,6 +60,15 @@ export async function POST(req: NextRequest) {
   const body = result.data;
   if (!SAFE_SCOPE_RE.test(body.scope)) return NextResponse.json({ error: "Invalid scope" }, { status: 400 });
   if (!getBuiltInRoles().some((role) => role.id === body.roleId)) return NextResponse.json({ error: "Unknown role" }, { status: 400 });
+
+  // Privilege ceiling: a granter cannot assign a role conferring permissions they
+  // do not themselves hold (no admin -> owner escalation). The mint gate above
+  // controls *who* can reach this route; this narrows *what* they can grant.
+  const granterPerms = getSessionEffectivePermissions(access, "/");
+  if (assignmentExceedsGranter(granterPerms, body.roleId)) {
+    await auditLog("rbac:assign:denied", session.user?.email ?? "unknown", `Denied granting role '${body.roleId}' to '${body.username}': exceeds granter permissions`);
+    return NextResponse.json({ error: "Cannot grant a role that exceeds your own permissions" }, { status: 403 });
+  }
 
   try {
     const file = await loadUsersConfig();

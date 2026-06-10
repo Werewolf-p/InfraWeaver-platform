@@ -1,20 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { getArgocdAppsCached } from "@/lib/argocd-apps";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { withAuth } from "@/lib/with-auth";
 
-export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "apps:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const clusterId = getRequestClusterId(request);
-  const { apps, cacheStatus, dataSource } = await getArgocdAppsCached(clusterId);
-  return NextResponse.json(apps, {
-    headers: { "X-Cache": cacheStatus, "X-Data-Source": dataSource },
-  });
-}
+export const GET = withAuth(
+  { permission: "apps:read" },
+  async ({ req }) => {
+    const clusterId = getRequestClusterId(req);
+    const { apps, cacheStatus, dataSource } = await getArgocdAppsCached(clusterId);
+    return NextResponse.json(apps, {
+      headers: { "X-Cache": cacheStatus, "X-Data-Source": dataSource },
+    });
+  },
+);

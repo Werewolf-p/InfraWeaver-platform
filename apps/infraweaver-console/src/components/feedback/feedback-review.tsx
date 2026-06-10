@@ -1,18 +1,28 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, CheckCircle2, ExternalLink, Lightbulb, Rocket, StickyNote, ThumbsDown, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, ExternalLink, ListOrdered, Loader2, MessageSquarePlus, Rocket, Settings2, ThumbsDown, XCircle } from "lucide-react";
 import { PageScaffold } from "@/components/ui/page-scaffold";
+import { ConfirmDialog } from "@/components/ui";
+import { SectionTabs } from "@/components/ui/section-tabs";
 import { apiClient, toApiErrorMessage } from "@/lib/api-client";
 import { toast } from "@/lib/notify";
-import { cn } from "@/lib/utils";
 import { useRBAC } from "@/hooks/use-rbac";
 import { RunConsole } from "@/components/feedback/run-console";
 import { PublishButton } from "@/components/feedback/publish-button";
-
-type FeedbackType = "bug" | "feature-request" | "note";
-type FeedbackStatus = "new" | "approved" | "dispatched" | "accepted" | "done" | "rejected";
+import { StagingBanner } from "@/components/feedback/staging-banner";
+import { StatusLegend } from "@/components/feedback/status-legend";
+import { StatusPill } from "@/components/feedback/status-pill";
+import { AgentStudioModal } from "@/components/feedback/automation/agent-studio-modal";
+import { QueueMenu } from "@/components/feedback/queue-menu";
+import {
+  STAGING_ENV_URL,
+  STATUS_COPY,
+  TYPE_ICON,
+  type FeedbackStatus,
+  type FeedbackType,
+} from "@/components/feedback/feedback-status";
 
 interface FeedbackEntry {
   id: string;
@@ -32,20 +42,11 @@ interface FeedbackEntry {
   publishedAt?: string;
 }
 
-const TYPE_ICON: Record<FeedbackType, typeof Bug> = {
-  bug: Bug,
-  "feature-request": Lightbulb,
-  note: StickyNote,
-};
-
-const STATUS_STYLE: Record<FeedbackStatus, string> = {
-  new: "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300",
-  approved: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
-  dispatched: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300",
-  accepted: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300",
-  done: "bg-gray-100 text-gray-600 dark:bg-[#222] dark:text-[#aaa]",
-  rejected: "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300",
-};
+/** A pending confirmation for one of the destructive/heavy actions. */
+type ConfirmState =
+  | { kind: "deny"; entry: FeedbackEntry }
+  | { kind: "retry"; entry: FeedbackEntry }
+  | null;
 
 /** Deep-link into the preview at the reported page (previewUrl + testPath). */
 function buildTestLink(entry: FeedbackEntry): string | null {
@@ -56,6 +57,37 @@ function buildTestLink(entry: FeedbackEntry): string | null {
     return entry.previewUrl;
   }
 }
+
+/** First line of a description, trimmed for compact summaries. */
+function summarize(text: string): string {
+  const firstLine = text.split("\n")[0]?.trim() ?? "";
+  return firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine || "(no description)";
+}
+
+/**
+ * Stage tabs, in pipeline order, so the board reads as a workflow. Each status
+ * is its own tab — terminal stages (`done` = published, `rejected` = denied) are
+ * tucked away on the right and never shown by default, keeping the reviewer's
+ * eyes on the entries that still need them.
+ */
+const TAB_ORDER: readonly FeedbackStatus[] = [
+  "new",
+  "approved",
+  "dispatched",
+  "accepted",
+  "done",
+  "rejected",
+];
+
+/** Per-stage tab icon, reusing the board's existing lucide vocabulary. */
+const TAB_ICON: Record<FeedbackStatus, typeof Rocket> = {
+  new: MessageSquarePlus,
+  approved: Loader2,
+  dispatched: ExternalLink,
+  accepted: CheckCircle2,
+  done: Rocket,
+  rejected: XCircle,
+};
 
 /**
  * Feedback review dashboard (client). Rendered only on the canonical console
@@ -70,6 +102,71 @@ export function FeedbackReview() {
   const canManage = can("cluster:admin") || can("rbac:admin");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [confirmState, setConfirmState] = useState<ConfirmState>(null);
+  // Local optimistic latch for heavy pipeline ops (retry / publish) between the
+  // click and the next refetch, complementing the server-derived "approved"
+  // signal below. Together they serialize the pipeline in the UI.
+  const [pipelinePending, setPipelinePending] = useState(false);
+  // Agent Studio (the editable auto-fix pipeline) modal visibility.
+  const [studioOpen, setStudioOpen] = useState(false);
+  // Approval-queue manager popup (view + reorder queued approvals) visibility.
+  const [queueOpen, setQueueOpen] = useState(false);
+  // The id of an approve we just fired but whose `approved` state we haven't yet
+  // observed in refetched data. WITHOUT this, the pipeline looks idle in the gap
+  // between the (fast) approve call returning and the next 10s poll, so a second
+  // approve would dispatch immediately instead of queuing — exactly the "queue
+  // doesn't work / things still lock" report (8dc5d87f). Holding busy until the
+  // run is confirmed running closes that gap.
+  const [dispatchingId, setDispatchingId] = useState<string | null>(null);
+  // Ids the reviewer approved while a run was in flight. Rather than locking the
+  // Approve button, we queue these and auto-dispatch one as soon as the pipeline
+  // is free (the backend serializes runs; this just mirrors "start when possible").
+  // Persisted to sessionStorage so a refresh/navigation does not silently drop a
+  // queued approval.
+  const QUEUE_STORAGE_KEY = "infraweaver:feedback-queue";
+  const [queuedApprovals, setQueuedApprovals] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = sessionStorage.getItem(QUEUE_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queuedApprovals));
+    } catch {
+      /* sessionStorage unavailable — queue stays in-memory only */
+    }
+  }, [queuedApprovals]);
+
+  // Ids whose "Not fixed → retry" verdict the reviewer fired while a run was in
+  // flight. Like approvals, we queue these instead of locking the button and
+  // auto-dispatch one once the pipeline frees up. Persisted to sessionStorage so
+  // a refresh does not silently drop a queued retry. Stored as ids only; the note
+  // is read live from `notes[id]` at drain time, mirroring the approval pattern.
+  const VALIDATION_QUEUE_STORAGE_KEY = "infraweaver:feedback-validation-queue";
+  const [queuedValidations, setQueuedValidations] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = sessionStorage.getItem(VALIDATION_QUEUE_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(VALIDATION_QUEUE_STORAGE_KEY, JSON.stringify(queuedValidations));
+    } catch {
+      /* sessionStorage unavailable — queue stays in-memory only */
+    }
+  }, [queuedValidations]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["feedback", "list"],
@@ -80,11 +177,69 @@ export function FeedbackReview() {
   });
 
   const entries = useMemo(() => data?.entries ?? [], [data]);
-  const acceptedCount = useMemo(() => entries.filter((e) => e.status === "accepted").length, [entries]);
+
+  // Which stage tab is open. Defaults to "new" (the reviewer's inbox); published
+  // ("done") and denied ("rejected") entries stay hidden until their tab is opened.
+  const [activeTab, setActiveTab] = useState<FeedbackStatus>("new");
+
+  // Entries bucketed by stage. Built fresh each pass (fresh object + fresh arrays),
+  // so no existing state is mutated.
+  const grouped = useMemo(() => {
+    const groups = Object.fromEntries(
+      TAB_ORDER.map((status) => [status, [] as FeedbackEntry[]]),
+    ) as Record<FeedbackStatus, FeedbackEntry[]>;
+    for (const entry of entries) groups[entry.status].push(entry);
+    return groups;
+  }, [entries]);
+
+  const tabs = useMemo(
+    () =>
+      TAB_ORDER.map((status) => ({
+        label: STATUS_COPY[status].label,
+        value: status,
+        icon: TAB_ICON[status],
+        badge: grouped[status].length,
+      })),
+    [grouped],
+  );
+
+  const visibleEntries = grouped[activeTab];
+
+  const acceptedEntries = useMemo(() => entries.filter((e) => e.status === "accepted"), [entries]);
+  const acceptedCount = acceptedEntries.length;
+  const acceptedTitles = useMemo(() => acceptedEntries.map((e) => summarize(e.description)), [acceptedEntries]);
+
+  // The single shared staging environment. Every accepted fix accumulates here;
+  // prefer a preview URL written back by dispatch, else the known shared URL.
+  const stagingUrl = useMemo(
+    () => entries.find((e) => e.previewUrl)?.previewUrl ?? STAGING_ENV_URL,
+    [entries],
+  );
+
+  // A pipeline op is in flight if we just started one (heavy retry/publish latch
+  // OR an approve we fired but haven't yet seen go `approved`), or any entry is
+  // mid-run ("approved" = Claude working). The backend serializes these, so we
+  // mirror that here and queue any further approvals until it frees up.
+  const pipelineBusy =
+    pipelinePending || dispatchingId !== null || entries.some((e) => e.status === "approved");
+
+  // Clear the approve latch once its run is observed in refetched data — either it
+  // reached `approved` (now covered by the entries check) or already moved past it.
+  // Prevents the latch from sticking forever if a poll is missed.
+  useEffect(() => {
+    if (!dispatchingId) return;
+    const entry = entries.find((e) => e.id === dispatchingId);
+    if (!entry || entry.status !== "new") setDispatchingId(null);
+  }, [dispatchingId, entries]);
 
   const updateStatus = useCallback(
     async (id: string, status: FeedbackStatus) => {
+      const heavy = status === "approved";
       setBusyId(id);
+      // For approve, latch on dispatchingId (held until the run is confirmed
+      // running) rather than the transient pipelinePending, so the busy state
+      // survives the gap until the next poll and the queue genuinely serializes.
+      if (heavy) setDispatchingId(id);
       try {
         const result = await apiClient.patch<{
           entry: FeedbackEntry;
@@ -96,10 +251,12 @@ export function FeedbackReview() {
           else if (d?.skipped) toast.success("Approved (dispatch not configured — run skipped)");
           else toast.error(`Approved, but dispatch failed: ${d?.error ?? "unknown error"}`);
         } else {
-          toast.success(`Marked as ${status}`);
+          toast.success(`Marked as ${STATUS_COPY[status].label.toLowerCase()}`);
         }
         await queryClient.invalidateQueries({ queryKey: ["feedback", "list"] });
       } catch (err) {
+        // The approve never landed — release the latch so the queue can retry it.
+        if (heavy) setDispatchingId(null);
         toast.error(toApiErrorMessage(err, "Failed to update feedback"));
       } finally {
         setBusyId(null);
@@ -118,7 +275,9 @@ export function FeedbackReview() {
         toast.error("Add a note describing what's still broken so Claude can retry.");
         return;
       }
+      const heavy = action === "not_fixed";
       setBusyId(id);
+      if (heavy) setPipelinePending(true);
       try {
         await apiClient.patch<{ entry: FeedbackEntry }>(`/api/feedback/${id}`, {
           json: { action, reviewNote: note },
@@ -134,26 +293,237 @@ export function FeedbackReview() {
         toast.error(toApiErrorMessage(err, "Failed to submit verdict"));
       } finally {
         setBusyId(null);
+        if (heavy) setPipelinePending(false);
       }
     },
     [notes, queryClient],
   );
 
+  // Approve now: dispatch immediately if the pipeline is idle, otherwise drop the
+  // entry into the local queue (shown with a clock icon) so it starts on its own
+  // once the current run finishes — no more hard-locked Approve button.
+  const approveOrQueue = useCallback(
+    (entry: FeedbackEntry) => {
+      if (pipelineBusy) {
+        setQueuedApprovals((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+        toast.success("Queued — starts automatically when the current run finishes");
+        return;
+      }
+      void updateStatus(entry.id, "approved");
+    },
+    [pipelineBusy, updateStatus],
+  );
+
+  const cancelQueued = useCallback(
+    (id: string) => setQueuedApprovals((prev) => prev.filter((q) => q !== id)),
+    [],
+  );
+
+  // Retry now: re-dispatch immediately if the pipeline is idle, otherwise queue
+  // the verdict so it starts on its own once the current run finishes — mirrors
+  // approveOrQueue so the "Not fixed → retry" button is no longer hard-locked
+  // while a run is in flight. The note is re-read live (and re-validated) by
+  // `validate` at drain time.
+  const validateOrQueue = useCallback(
+    (id: string) => {
+      // Defense in depth: never queue (or run) a retry without a note — it would
+      // otherwise be dropped silently when `validate` re-checks it at drain time.
+      // Mirrors the guard in `validate` and `requestRetry`.
+      if (!(notes[id] ?? "").trim()) {
+        toast.error("Add a note describing what's still broken so Claude can retry.");
+        return;
+      }
+      if (pipelineBusy) {
+        setQueuedValidations((prev) => (prev.includes(id) ? prev : [...prev, id]));
+        toast.success("Queued — retry starts automatically when the current run finishes");
+        return;
+      }
+      void validate(id, "not_fixed");
+    },
+    [notes, pipelineBusy, validate],
+  );
+
+  const cancelQueuedValidation = useCallback(
+    (id: string) => setQueuedValidations((prev) => prev.filter((q) => q !== id)),
+    [],
+  );
+
+  // Reorder a queued approval by swapping it with its neighbour (immutable).
+  // `delta` is -1 (earlier) or +1 (later). Fails closed: if the id isn't in the
+  // queue or the swap would fall off either end, the order is left untouched.
+  const moveQueued = useCallback(
+    (id: string, delta: -1 | 1) =>
+      setQueuedApprovals((prev) => {
+        const index = prev.indexOf(id);
+        const target = index + delta;
+        if (index === -1 || target < 0 || target >= prev.length) return prev;
+        const next = [...prev];
+        [next[index], next[target]] = [next[target], next[index]];
+        return next;
+      }),
+    [],
+  );
+  const moveQueuedUp = useCallback((id: string) => moveQueued(id, -1), [moveQueued]);
+  const moveQueuedDown = useCallback((id: string) => moveQueued(id, 1), [moveQueued]);
+
+  // Queued entries resolved to their feedback records, in dispatch order. Ids
+  // whose entry has dropped out of the list (e.g. already processed) are omitted
+  // so the menu only ever shows actionable items.
+  const queuedItems = useMemo(
+    () =>
+      queuedApprovals.flatMap((id) => {
+        const entry = entries.find((e) => e.id === id);
+        return entry ? [{ id, summary: summarize(entry.description) }] : [];
+      }),
+    [queuedApprovals, entries],
+  );
+
+  // Drain the queue one entry at a time. When nothing is running, dispatch the
+  // first queued id that is still awaiting review; dispatching re-arms
+  // `pipelineBusy` synchronously, so this effect bails until the run completes.
+  useEffect(() => {
+    // Bail while the initial fetch is in flight: `entries` is still `[]`, so the
+    // filter below would match nothing and wrongly prune every queued id. On
+    // refresh this would silently drop a restored queue before it can dispatch.
+    if (pipelineBusy || queuedApprovals.length === 0 || isLoading) return;
+    const stillQueued = queuedApprovals.filter((id) =>
+      entries.some((e) => e.id === id && e.status === "new"),
+    );
+    const [nextId, ...rest] = stillQueued;
+    if (nextId) {
+      setQueuedApprovals(rest);
+      void updateStatus(nextId, "approved");
+    } else if (stillQueued.length !== queuedApprovals.length) {
+      setQueuedApprovals(stillQueued); // prune entries that are no longer "new"
+    }
+  }, [pipelineBusy, queuedApprovals, entries, updateStatus, isLoading]);
+
+  // Drain the validation (retry) queue one entry at a time when nothing is
+  // running. A retry is only valid while the entry is still "dispatched" (awaiting
+  // a verdict); entries that moved on (accepted/reverted/etc.) are pruned so a
+  // stale queued retry is never applied. `validate` re-checks the live note and
+  // bails if it's empty.
+  useEffect(() => {
+    if (pipelineBusy || queuedValidations.length === 0 || isLoading) return;
+    const stillQueued = queuedValidations.filter((id) =>
+      entries.some((e) => e.id === id && e.status === "dispatched"),
+    );
+    const [nextId, ...rest] = stillQueued;
+    if (nextId) {
+      setQueuedValidations(rest);
+      void validate(nextId, "not_fixed");
+    } else if (stillQueued.length !== queuedValidations.length) {
+      setQueuedValidations(stillQueued); // prune entries no longer "dispatched"
+    }
+  }, [pipelineBusy, queuedValidations, entries, validate, isLoading]);
+
+  // Confirm gates for the destructive / heavy actions.
+  const requestDeny = useCallback((entry: FeedbackEntry) => setConfirmState({ kind: "deny", entry }), []);
+  const requestRetry = useCallback(
+    (entry: FeedbackEntry) => {
+      if (!(notes[entry.id] ?? "").trim()) {
+        toast.error("Add a note describing what's still broken so Claude can retry.");
+        return;
+      }
+      // Mirror Approve: when a run is already in flight the retry can only ever be
+      // queued, so skip the confirmation dialog (whose copy promises an immediate
+      // revert + ~15-min run) and queue it straight away. The destructive-action
+      // warning is kept for the idle case, where confirming runs it now.
+      if (pipelineBusy) {
+        validateOrQueue(entry.id);
+        return;
+      }
+      setConfirmState({ kind: "retry", entry });
+    },
+    [notes, pipelineBusy, validateOrQueue],
+  );
+
+  const runConfirm = useCallback(() => {
+    if (!confirmState) return;
+    const { kind, entry } = confirmState;
+    setConfirmState(null);
+    if (kind === "deny") void updateStatus(entry.id, "rejected");
+    else validateOrQueue(entry.id);
+  }, [confirmState, updateStatus, validateOrQueue]);
+
   return (
     <PageScaffold
       title="Developer Feedback"
       subtitle="Review"
-      description="Triage in-console reports. Approving an entry runs Claude (plan → validate → implement), builds a preview, and lets you accept or retry — then publish all accepted changes to main."
+      description="Triage in-console reports. Approving an entry runs Claude (plan → validate → implement) and updates the shared staging/dev deployment with every accepted fix so far — accept or retry, then publish all accepted changes to live at once."
       loading={isLoading}
       isError={Boolean(error)}
       errorMessage={error ? toApiErrorMessage(error) : undefined}
-      actions={canManage ? <PublishButton acceptedCount={acceptedCount} /> : undefined}
+      actions={
+        canManage ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="relative inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
+              onClick={() => setQueueOpen(true)}
+              title="View and reorder the approval queue"
+            >
+              <ListOrdered className="h-4 w-4" />
+              Queue
+              {queuedItems.length > 0 && (
+                <span className="ml-0.5 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[11px] font-semibold text-white">
+                  {queuedItems.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
+              onClick={() => setStudioOpen(true)}
+              title="Configure the steps, prompts, specialism and plugins Claude uses to fix feedback"
+            >
+              <Settings2 className="h-4 w-4" />
+              Configure Claude
+            </button>
+            <PublishButton
+              acceptedCount={acceptedCount}
+              acceptedTitles={acceptedTitles}
+              pipelineBusy={pipelineBusy}
+              onBusyChange={setPipelinePending}
+            />
+          </div>
+        ) : undefined
+      }
     >
       <div className="space-y-3">
-        {entries.length === 0 && (
-          <p className="py-10 text-center text-sm text-gray-400 dark:text-[#555]">No feedback submitted yet.</p>
+        <StagingBanner stagingUrl={stagingUrl} />
+        <StatusLegend />
+
+        {canManage && pipelineBusy && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-300">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            A pipeline action is already running — new approvals queue and start automatically; retry and publish wait until it finishes.
+          </div>
         )}
-        {entries.map((entry) => {
+
+        {entries.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-12 text-center">
+            <MessageSquarePlus className="h-6 w-6 text-gray-300 dark:text-[#444]" />
+            <p className="text-sm text-gray-500 dark:text-[#888]">No feedback yet.</p>
+            <p className="max-w-sm text-xs text-gray-400 dark:text-[#555]">
+              Reports submitted from the in-console “Report” button show up here for review.
+            </p>
+          </div>
+        ) : (
+          <>
+            <SectionTabs
+              tabs={tabs}
+              activeTab={activeTab}
+              onTabChange={(value) => setActiveTab(value as FeedbackStatus)}
+            />
+
+            {visibleEntries.length === 0 && (
+              <p className="py-12 text-center text-sm text-gray-400 dark:text-[#555]">
+                No entries in “{STATUS_COPY[activeTab].label}”.
+              </p>
+            )}
+
+            {visibleEntries.map((entry) => {
           const Icon = TYPE_ICON[entry.type];
           const busy = busyId === entry.id;
           const testLink = buildTestLink(entry);
@@ -174,9 +544,7 @@ export function FeedbackReview() {
                     </span>
                   )}
                 </div>
-                <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium capitalize", STATUS_STYLE[entry.status])}>
-                  {entry.status}
-                </span>
+                <StatusPill status={entry.status} previewUrl={entry.previewUrl} />
               </div>
 
               <p className="mb-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-[#ccc]">{entry.description}</p>
@@ -192,19 +560,40 @@ export function FeedbackReview() {
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {entry.status === "new" && (
                     <>
+                      {queuedApprovals.includes(entry.id) ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-300">
+                          <Clock className="h-3.5 w-3.5" /> Queued — starts when the current run finishes
+                          <button
+                            type="button"
+                            onClick={() => cancelQueued(entry.id)}
+                            className="ml-1 text-amber-600/80 hover:text-amber-700 hover:underline dark:text-amber-300/80 dark:hover:text-amber-200"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          title={pipelineBusy ? "A run is in progress — this will be queued and start automatically" : undefined}
+                          onClick={() => approveOrQueue(entry)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {busy ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : pipelineBusy ? (
+                            <Clock className="h-3.5 w-3.5" />
+                          ) : (
+                            <Rocket className="h-3.5 w-3.5" />
+                          )}
+                          Approve → Claude
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => updateStatus(entry.id, "approved")}
-                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-60"
-                      >
-                        <Rocket className="h-3.5 w-3.5" /> Approve → Claude
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => updateStatus(entry.id, "rejected")}
-                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-[#262626] dark:text-[#888] dark:hover:bg-[#1d1d1d] disabled:opacity-60"
+                        onClick={() => requestDeny(entry)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-[#262626] dark:text-[#888] dark:hover:bg-[#1d1d1d] disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         <XCircle className="h-3.5 w-3.5" /> Deny
                       </button>
@@ -213,7 +602,7 @@ export function FeedbackReview() {
                   {entry.status === "approved" && (
                     <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-300">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-                      Claude is working — plan → validate → implement → build…
+                      {STATUS_COPY.approved.label} plan → validate → implement → build…
                     </span>
                   )}
                   {entry.status === "dispatched" && (
@@ -233,7 +622,7 @@ export function FeedbackReview() {
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-300">
                           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-                          Building preview deployment…
+                          Updating staging deployment…
                         </span>
                       )}
                       <textarea
@@ -248,25 +637,40 @@ export function FeedbackReview() {
                           type="button"
                           disabled={busy}
                           onClick={() => validate(entry.id, "validated")}
-                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-60"
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Accept (stage for publish)
+                          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                          Accept (stage for publish)
                         </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => validate(entry.id, "not_fixed")}
-                          className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10 disabled:opacity-60"
-                        >
-                          <ThumbsDown className="h-3.5 w-3.5" /> Not fixed → retry
-                        </button>
+                        {queuedValidations.includes(entry.id) ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-300">
+                            <Clock className="h-3.5 w-3.5" /> Retry queued — starts when the current run finishes
+                            <button
+                              type="button"
+                              onClick={() => cancelQueuedValidation(entry.id)}
+                              className="ml-1 text-amber-600/80 hover:text-amber-700 hover:underline dark:text-amber-300/80 dark:hover:text-amber-200"
+                            >
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            title={pipelineBusy ? "A run is in progress — this retry will be queued and start automatically" : undefined}
+                            onClick={() => requestRetry(entry)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {pipelineBusy ? <Clock className="h-3.5 w-3.5" /> : <ThumbsDown className="h-3.5 w-3.5" />} Not fixed → retry
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
                   {entry.status === "accepted" && (
                     <div className="flex w-full flex-wrap items-center gap-2">
                       <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-300">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Accepted — on feedback/staging, awaiting publish
+                        <CheckCircle2 className="h-3.5 w-3.5" /> {STATUS_COPY.accepted.label}
                       </span>
                       {testLink && (
                         <a
@@ -282,7 +686,8 @@ export function FeedbackReview() {
                   )}
                   {entry.status === "done" && entry.released && (
                     <span className="text-[11px] text-gray-500 dark:text-[#888]">
-                      Released to prod{entry.publishedAt ? ` · ${new Date(entry.publishedAt).toLocaleString()}` : ""}
+                      {STATUS_COPY.done.label}
+                      {entry.publishedAt ? ` · ${new Date(entry.publishedAt).toLocaleString()}` : ""}
                     </span>
                   )}
 
@@ -302,8 +707,41 @@ export function FeedbackReview() {
               )}
             </div>
           );
-        })}
+            })}
+          </>
+        )}
       </div>
+
+      <ConfirmDialog
+        open={confirmState?.kind === "deny"}
+        onConfirm={runConfirm}
+        onCancel={() => setConfirmState(null)}
+        title="Deny this report?"
+        description="It will be marked denied and won't be worked on. You can't undo this from here."
+        confirmText="Deny report"
+        danger
+      />
+      <ConfirmDialog
+        open={confirmState?.kind === "retry"}
+        onConfirm={runConfirm}
+        onCancel={() => setConfirmState(null)}
+        title="Send back to Claude for a retry?"
+        description="This reverts the staged change and re-runs Claude with your note (~15 min). The staging environment updates when it finishes."
+        confirmText="Revert & retry"
+        danger
+      />
+      {canManage && (
+        <QueueMenu
+          open={queueOpen}
+          onClose={() => setQueueOpen(false)}
+          items={queuedItems}
+          pipelineBusy={pipelineBusy}
+          onMoveUp={moveQueuedUp}
+          onMoveDown={moveQueuedDown}
+          onCancel={cancelQueued}
+        />
+      )}
+      {canManage && <AgentStudioModal open={studioOpen} onClose={() => setStudioOpen(false)} />}
     </PageScaffold>
   );
 }

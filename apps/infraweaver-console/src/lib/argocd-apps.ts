@@ -3,12 +3,30 @@ import { apiCache } from "@/lib/api-cache";
 import { getClusterConfig, getDefaultClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { PERFORMANCE_CACHE_KEYS } from "@/lib/performance-cache";
+import { argocdApiBase } from "@/lib/platform-config";
 import { requestDedup } from "@/lib/request-dedup";
 
 const DEFAULT_ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const DEFAULT_ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 const ARGOCD_CACHE_TTL_MS = 15_000;
 const LAST_KNOWN_APPS_TTL_MS = 600_000;
+
+/**
+ * Shared fetch against the ArgoCD API. Resolves the base URL via
+ * {@link argocdApiBase} and attaches the bearer token + JSON content-type so
+ * route handlers don't re-derive the server URL or repeat auth boilerplate.
+ * `path` must start with "/" (e.g. "/api/v1/applications").
+ */
+export function argocdFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(`${argocdApiBase()}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${DEFAULT_ARGOCD_TOKEN}`,
+      "Content-Type": "application/json",
+      ...init.headers,
+    },
+  });
+}
 
 export type ArgoAppsDataSource = "argocd-api" | "crd" | "last-known" | "unavailable";
 

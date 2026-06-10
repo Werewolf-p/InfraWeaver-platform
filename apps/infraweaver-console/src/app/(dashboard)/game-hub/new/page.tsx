@@ -14,6 +14,7 @@ import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { InfoPopover } from "@/components/game-hub/info-popover";
 import { BUILT_IN_EGGS, type GameEgg, validateEggVariable, describeEggVariableRules } from "@/lib/game-eggs";
+import { INTERNAL_DNS_DOMAIN, ROOT_DNS_DOMAIN } from "@/lib/dns";
 import type { CatalogCategory, CatalogEntry } from "@/lib/pelican-eggs";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
@@ -564,9 +565,9 @@ export default function NewGameServerPage() {
     if (dnsType === "custom") return; // let the user type freely
     const normalized = normalizeServerName(serverName);
     if (dnsType === "internal") {
-      setDnsHostname(normalized ? `${normalized}.games.int.rlservers.com` : "");
+      setDnsHostname(normalized ? `${normalized}.games.${INTERNAL_DNS_DOMAIN}` : "");
     } else {
-      setDnsHostname(normalized ? `${normalized}.games.rlservers.com` : "");
+      setDnsHostname(normalized ? `${normalized}.games.${ROOT_DNS_DOMAIN}` : "");
     }
   }, [dnsType, serverName]);
 
@@ -1248,7 +1249,7 @@ export default function NewGameServerPage() {
                             <span>🔒 <strong>Private (VPN only)</strong> — only people connected to NetBird VPN can reach this server. Good for personal or friends-only play.</span>
                           )}
                           {dnsType === "public" && (
-                            <span>🌐 <strong>Public internet</strong> — creates a DNS entry at <code className="font-mono text-[#7cc4ff]">.games.rlservers.com</code>. Anyone who knows the address can connect. Make sure your game has a password if needed.</span>
+                            <span>🌐 <strong>Public internet</strong> — creates a DNS entry at <code className="font-mono text-[#7cc4ff]">.games.{ROOT_DNS_DOMAIN}</code>. Anyone who knows the address can connect. Make sure your game has a password if needed.</span>
                           )}
                           {dnsType === "custom" && (
                             <span>✏️ <strong>Custom domain</strong> — you control the DNS record. Point your domain at the cluster IP yourself. Useful if you have an existing domain.</span>

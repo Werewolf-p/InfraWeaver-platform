@@ -103,7 +103,7 @@ export interface ResourceAssignment {
   /** username/email for users, group id for groups. */
   principalId: string;
   resourceType: ResourceType;
-  /** app name, game-server name, or *.int.rlservers.com hostname. */
+  /** app name, game-server name, or *.int.<base-domain> hostname. */
   resourceId: string;
   permissions: Permission[];
   grantedAt: string;

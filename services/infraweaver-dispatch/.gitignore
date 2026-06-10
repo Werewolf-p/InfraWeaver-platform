@@ -1,0 +1,7 @@
+# Secrets and runtime state — never committed.
+.registry-pass
+runs/
+pipeline.json
+specialists.json
+*.bak
+node_modules/

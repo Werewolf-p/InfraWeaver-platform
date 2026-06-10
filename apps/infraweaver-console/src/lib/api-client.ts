@@ -8,7 +8,32 @@ export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
   json?: unknown;
   query?: QueryParams;
   unwrap?: boolean;
+  /** Max attempts on transient failures (network error / 502 / 503 / 504). Default 3. Set 1 to disable. */
+  retries?: number;
+  /** Abort the request after this many ms. Default 20000. */
+  timeoutMs?: number;
 }
+
+// Browsers surface a transient network drop (single-replica pod restarting,
+// proxy hiccup, brief unavailability) as a bare TypeError — "Failed to fetch"
+// (Chrome) / "Load failed" (Safari). Those were the exact symptoms reported when
+// sending feedback and when clicking publish. A short bounded retry on these
+// transient conditions makes those one-off blips invisible to the user.
+const TRANSIENT_STATUSES = new Set([502, 503, 504]);
+const DEFAULT_RETRIES = 3;
+const DEFAULT_TIMEOUT_MS = 20_000;
+
+function isTransientNetworkError(error: unknown): boolean {
+  // fetch() rejects with a TypeError on network-level failure; AbortError means
+  // our own timeout fired (also worth one more try). Real app errors are thrown
+  // as plain Error from apiRequest and must NOT be retried.
+  return (
+    error instanceof TypeError ||
+    (error instanceof DOMException && error.name === "AbortError")
+  );
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Normalizes relative API paths and appends optional query parameters.
@@ -69,14 +94,66 @@ async function parseJsonResponse(response: Response) {
  * Executes a JSON API request and transparently unwraps `{ data, meta }` envelopes.
  */
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
-  const { body, json, headers, query, unwrap = true, ...init } = options;
+  const {
+    body,
+    json,
+    headers,
+    query,
+    unwrap = true,
+    retries = DEFAULT_RETRIES,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal: callerSignal,
+    ...init
+  } = options;
 
-  const response = await fetch(buildUrl(path, query), {
-    ...init,
-    headers: json === undefined ? headers : { "Content-Type": "application/json", ...headers },
-    body: json === undefined ? body : JSON.stringify(json),
-  });
+  const url = buildUrl(path, query);
+  const maxAttempts = Math.max(1, retries);
+  let lastError: unknown;
 
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    // Per-attempt timeout so a hung connection can't wedge the UI; honour any
+    // caller-provided AbortSignal too.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const onCallerAbort = () => controller.abort();
+    if (callerSignal) {
+      if (callerSignal.aborted) controller.abort();
+      else callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+    }
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+        headers: json === undefined ? headers : { "Content-Type": "application/json", ...headers },
+        body: json === undefined ? body : JSON.stringify(json),
+      });
+
+      // Retry transient gateway errors (pod/proxy momentarily unavailable).
+      if (TRANSIENT_STATUSES.has(response.status) && attempt < maxAttempts) {
+        await sleep(250 * attempt);
+        continue;
+      }
+
+      return await finalizeResponse<T>(response, unwrap);
+    } catch (error) {
+      lastError = error;
+      // A caller-initiated abort is intentional — never retry or swallow it.
+      if (callerSignal?.aborted) throw error;
+      if (isTransientNetworkError(error) && attempt < maxAttempts) {
+        await sleep(250 * attempt);
+        continue;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      if (callerSignal) callerSignal.removeEventListener("abort", onCallerAbort);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
+
+async function finalizeResponse<T>(response: Response, unwrap: boolean): Promise<T> {
   const payload = await parseJsonResponse(response);
 
   if (response.status === 401) {

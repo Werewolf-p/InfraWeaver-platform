@@ -1,6 +1,17 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+import { INTERNAL_DOMAIN } from "@/lib/domain";
+
+const ESCAPED_INTERNAL_DOMAIN = INTERNAL_DOMAIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Redacts cluster-internal hostnames (svc, cluster.local, and the platform's
+// own internal domain) from user-facing error messages. The internal domain is
+// env-derived so forks redact their own domain, not a hardcoded one.
+const INTERNAL_HOST_PATTERN = new RegExp(
+  `\\b(?:localhost|(?:[a-z0-9-]+\\.)+(?:svc(?:\\.cluster\\.local)?|cluster\\.local|${ESCAPED_INTERNAL_DOMAIN}))(?::\\d{1,5})?\\b`,
+  "gi",
+);
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -91,7 +102,7 @@ export class UserError extends Error {
 function redactErrorMessage(message: string) {
   return message
     .replace(/https?:\/\/[^\s]+/gi, "[url]")
-    .replace(/\b(?:localhost|(?:[a-z0-9-]+\.)+(?:svc(?:\.cluster\.local)?|cluster\.local|int\.rlservers\.com))(?::\d{1,5})?\b/gi, "[internal]")
+    .replace(INTERNAL_HOST_PATTERN, "[internal]")
     .replace(/\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?::\d{1,5})?\b/g, "[internal]")
     .replace(/\b(?:[A-Z]:\\|\/)[\w./\\-]+/g, "[path]")
     .replace(/\s+at\s+[^\n]+/g, "")

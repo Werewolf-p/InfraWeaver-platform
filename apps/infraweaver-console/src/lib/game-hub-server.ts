@@ -163,6 +163,36 @@ export function isKubernetesNotFoundError(error: unknown) {
   return getKubernetesErrorStatus(error) === 404 || /404|not\s*found/i.test(kubernetesErrorText(error));
 }
 
+export type ServerPowerStatus = "maintenance" | "running" | "stopping" | "stopped";
+
+/**
+ * Power-state portion of a game server's status, derived purely from the
+ * deployment's desired (spec) and observed (status) replica counts.
+ *
+ * "stopping" covers the graceful-shutdown window after a Stop: the desired
+ * count is 0 (so the in-game stop command has been sent and the workload
+ * scaled down) but pods are still terminating (status.replicas > 0). It is
+ * fully cluster-derived — there is no user-settable flag — and settles to
+ * "stopped" once the last pod exits.
+ *
+ * Returns null while the deployment wants pods but none are ready yet, so
+ * callers can layer their own transitional states (starting/installing/
+ * crash-loop) on top.
+ */
+export function derivePowerStatus(opts: {
+  maintenanceMode: boolean;
+  specReplicas: number | null | undefined;
+  statusReplicas: number;
+  readyReplicas: number;
+}): ServerPowerStatus | null {
+  if (opts.maintenanceMode) return "maintenance";
+  if ((opts.specReplicas ?? 0) === 0) {
+    return opts.statusReplicas > 0 ? "stopping" : "stopped";
+  }
+  if (opts.readyReplicas > 0) return "running";
+  return null;
+}
+
 export async function getServerDeployment(appsApi: k8s.AppsV1Api, name: string) {
   return appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
 }
@@ -823,22 +853,6 @@ export async function checkPortReachable(host: string | null, port: number | nul
   });
 }
 
-// A HorizontalPodAutoscaler reconciles the Deployment back up to its minReplicas
-// the instant we scale to 0, which makes a stopped server auto-restart
-// (stopped → starting → running). Remove it first so the stop sticks — this
-// mirrors how the "scale" action drops the HPA before changing replicas.
-// A missing HPA (404) or absent client is a harmless no-op.
-export async function removeServerAutoscaler(
-  clients: ReturnType<typeof makeGameHubClients>,
-  name: string,
-) {
-  try {
-    await clients.autoscalingApi?.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NS });
-  } catch {
-    // No autoscaler attached (or already removed) — nothing to clean up.
-  }
-}
-
 export async function gracefulStopServer(
   clients: ReturnType<typeof makeGameHubClients>,
   name: string,
@@ -859,7 +873,6 @@ export async function gracefulStopServer(
     }
   }
 
-  await removeServerAutoscaler(clients, name);
   await scaleServerWorkload(clients.appsApi, name, 0);
 
   // NOTE: we intentionally do NOT block here waiting for the pod to terminate.
@@ -875,7 +888,6 @@ export async function forceStopServer(
   name: string,
 ) {
   const pods = await clients.coreApi.listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` });
-  await removeServerAutoscaler(clients, name);
   await scaleServerWorkload(clients.appsApi, name, 0);
   await Promise.all((pods.items ?? []).map((pod) => {
     const podName = pod.metadata?.name;

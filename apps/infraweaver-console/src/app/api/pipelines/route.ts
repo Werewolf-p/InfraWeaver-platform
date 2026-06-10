@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { withAuth } from "@/lib/with-auth";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -16,13 +14,7 @@ function githubHeaders() {
   };
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const GET = withAuth({ permission: "config:read" }, async () => {
   try {
     const [workflowsRes, runsRes] = await Promise.all([
       fetch(`https://api.github.com/repos/${GITHUB_REPO}/actions/workflows`, { headers: githubHeaders(), cache: "no-store" }),
@@ -67,38 +59,35 @@ export async function GET() {
       ],
     });
   }
-}
+});
 
-export async function POST(request: Request) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  if (!checkRateLimit(rateLimitKey("pipelines-dispatch", request), 20, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
-  const PipelineDispatchBody = z.object({
-    workflowId: z.number().int().min(1),
-    ref: z.string().min(1).max(255).optional().default("main"),
-    inputs: z.record(z.string(), z.string()).optional().default({}),
-  });
-  const result = PipelineDispatchBody.safeParse(await request.json());
-  if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
-  const { workflowId, ref, inputs } = result.data;
-  try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${workflowId}/dispatches`, {
-      method: "POST",
-      headers: { ...githubHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ ref, inputs }),
+export const POST = withAuth(
+  {
+    permission: "config:write",
+    rateLimit: { name: "pipelines-dispatch", limit: 20, windowMs: 60_000 },
+  },
+  async ({ req }) => {
+    const PipelineDispatchBody = z.object({
+      workflowId: z.number().int().min(1),
+      ref: z.string().min(1).max(255).optional().default("main"),
+      inputs: z.record(z.string(), z.string()).optional().default({}),
     });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text);
+    const result = PipelineDispatchBody.safeParse(await req.json());
+    if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
+    const { workflowId, ref, inputs } = result.data;
+    try {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${workflowId}/dispatches`, {
+        method: "POST",
+        headers: { ...githubHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ ref, inputs }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text);
+      }
+      return NextResponse.json({ ok: true });
+    } catch (err) {
+      return NextResponse.json({ error: safeError(err) }, { status: 500 });
     }
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    return NextResponse.json({ error: safeError(err) }, { status: 500 });
-  }
-}
+  },
+);

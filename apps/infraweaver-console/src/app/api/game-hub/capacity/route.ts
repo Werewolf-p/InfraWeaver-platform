@@ -1,10 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { GAME_HUB_NAMESPACE, getGameHubAccessContext } from "@/lib/game-hub";
+import { GAME_HUB_NAMESPACE } from "@/lib/game-hub";
 import { parseCpuQuantity, parseMemoryBytes } from "@/lib/game-hub-server";
 import { loadKubeConfig } from "@/lib/k8s";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 import { safeError } from "@/lib/utils";
 
 type NodeTotals = {
@@ -65,15 +64,9 @@ function emptyTotals(): NodeTotals {
   };
 }
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getGameHubAccessContext(session, 30);
-  if (!hasPermission(access.groups, "game-hub:admin", access.roleAssignments, "/game-hub/", access.username)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth(
+  { permission: "game-hub:admin", scope: "/game-hub/", revalidateSeconds: 30 },
+  async ({ req }) => {
   try {
     const plannedMemoryBytes = parseMemoryBytes(req.nextUrl.searchParams.get("memory"));
     const plannedCpu = parseCpuQuantity(req.nextUrl.searchParams.get("cpu"));
@@ -238,4 +231,4 @@ export async function GET(req: NextRequest) {
     console.error("game hub capacity check failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

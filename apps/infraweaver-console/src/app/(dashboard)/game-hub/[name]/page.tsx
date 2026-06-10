@@ -618,6 +618,7 @@ function FilesTab({
   const {
     data: listing,
     isLoading,
+    isError,
     refetch,
   } = useQuery({
     queryKey: ["game-hub", "files", name, currentPath],
@@ -625,6 +626,9 @@ function FilesTab({
       fetchJson<{ files: FileEntry[] }>(
         `/api/game-hub/servers/${name}/files?path=${encodeURIComponent(currentPath)}`,
       ),
+    // The file browser reads files by exec'ing into the running pod. A stopped
+    // server has been scaled to 0 replicas, so there is no pod to read from —
+    // skip the request and show a call-to-action instead of a failing fetch.
     enabled: status !== "stopped",
     retry: 1,
   });
@@ -888,15 +892,6 @@ function FilesTab({
     )
     .slice(0, 5);
 
-  if (status === "stopped") {
-    return (
-      <div className="flex flex-col items-center justify-center h-40 gap-3 text-gray-400 dark:text-[#555]">
-        <FolderOpen className="w-8 h-8" />
-        <p className="text-sm">Start the server to browse files</p>
-      </div>
-    );
-  }
-
   const fileTree = (
     <div className="flex flex-col gap-2">
       <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-2">
@@ -993,9 +988,28 @@ function FilesTab({
         </div>
       )}
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
-        {isLoading ? (
+        {status === "stopped" ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-8 px-4 text-center text-gray-400 dark:text-[#555]">
+            <FolderOpen className="w-7 h-7" />
+            <p className="text-xs">
+              Start the server to browse its files. The file browser reads from
+              the running server, so it is unavailable while it is offline.
+            </p>
+          </div>
+        ) : isLoading ? (
           <div className="flex items-center justify-center h-20">
             <Loader2 className="w-4 h-4 animate-spin text-gray-400 dark:text-[#555]" />
+          </div>
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-8 px-4 text-center text-gray-400 dark:text-[#555]">
+            <FolderOpen className="w-7 h-7" />
+            <p className="text-xs">Unable to load files right now.</p>
+            <button
+              onClick={() => void refetch()}
+              className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-1.5 text-[11px] text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-white transition-colors"
+            >
+              Retry
+            </button>
           </div>
         ) : sortedFiles.length === 0 ? (
           <p className="text-xs text-gray-400 dark:text-[#555] text-center py-6">
@@ -3855,23 +3869,36 @@ export default function ServerDetailPage() {
     }
   }
 
+  // Trust the API's authoritative status (it derives "stopped" from the desired
+  // replica count, spec.replicas === 0) instead of re-deriving from live pod
+  // counts. readyReplicas/replicas reflect the running pod, which lingers while a
+  // just-stopped pod terminates — that lag made a stopped server flash back to
+  // "running"/"starting", looking like an auto-restart (feedback df5a9e3b). The
+  // list page already consumes server.status directly; this realigns the detail
+  // page. "stopping" is the graceful-shutdown window (in-game stop command sent,
+  // pod still terminating) and gets its own state. Other transitional API states
+  // (installing/crash-loop/crashed) collapse to "starting".
   const status = server?.maintenanceMode
     ? "maintenance"
-    : server?.readyReplicas && server.readyReplicas > 0
+    : server?.status === "running"
       ? "running"
-      : (server?.replicas ?? 0) > 0
-        ? "starting"
-        : "stopped";
+      : server?.status === "stopping"
+        ? "stopping"
+        : !server?.status || server.status === "stopped"
+          ? "stopped"
+          : "starting";
   const mountPath = server?.egg?.mountPath ?? "/data";
   const statusDot = {
     running: "bg-green-400",
     starting: "bg-yellow-400 animate-pulse",
+    stopping: "bg-amber-500 animate-pulse",
     maintenance: "bg-yellow-400",
     stopped: "bg-[#444]",
   }[status];
   const statusText = {
     running: "text-green-400",
     starting: "text-yellow-400",
+    stopping: "text-amber-500",
     maintenance: "text-yellow-400",
     stopped: "text-gray-400 dark:text-[#666]",
   }[status];

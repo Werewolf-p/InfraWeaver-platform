@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 import { loadUsersConfig } from "@/lib/users-config";
+import { BASE_DOMAIN } from "@/lib/domain";
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "users:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const GET = withAuth({ permission: "users:read" }, async () => {
   try {
     const { users } = await loadUsersConfig();
     return NextResponse.json(
@@ -20,9 +14,9 @@ export async function GET() {
     );
   } catch {
     return NextResponse.json([
-      { username: "admin", email: "admin@rlservers.com", groups: ["platform-admins", "platform-users"] },
-      { username: "operator", email: "operator@rlservers.com", groups: ["platform-operators", "platform-users"] },
-      { username: "viewer", email: "viewer@rlservers.com", groups: ["platform-users"] },
+      { username: "admin", email: `admin@${BASE_DOMAIN}`, groups: ["platform-admins", "platform-users"] },
+      { username: "operator", email: `operator@${BASE_DOMAIN}`, groups: ["platform-operators", "platform-users"] },
+      { username: "viewer", email: `viewer@${BASE_DOMAIN}`, groups: ["platform-users"] },
     ]);
   }
-}
+});

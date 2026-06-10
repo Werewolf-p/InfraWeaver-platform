@@ -9,6 +9,7 @@ import { PageScaffold } from "@/components/ui/page-scaffold";
 import { apiClient, toApiErrorMessage } from "@/lib/api-client";
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
+import { INTERNAL_DOMAIN } from "@/lib/domain";
 import { useRBAC } from "@/hooks/use-rbac";
 import type { Permission } from "@/lib/rbac";
 import {
@@ -663,7 +664,7 @@ function AssignmentEditor({ groups, onSaved }: { groups: CustomGroup[]; onSaved:
         <select value={resourceType} onChange={(e) => setResourceType(e.target.value as ResourceType)} className="rounded-lg border border-gray-200 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm">
           {(Object.keys(RESOURCE_LABELS) as ResourceType[]).map((rt) => <option key={rt} value={rt}>{RESOURCE_LABELS[rt]}</option>)}
         </select>
-        <input value={resourceId} onChange={(e) => setResourceId(e.target.value)} placeholder={resourceType === "hostname" ? "app.int.rlservers.com" : "resource name"} className="rounded-lg border border-gray-200 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm" />
+        <input value={resourceId} onChange={(e) => setResourceId(e.target.value)} placeholder={resourceType === "hostname" ? `app.${INTERNAL_DOMAIN}` : "resource name"} className="rounded-lg border border-gray-200 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm" />
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {ASSIGNABLE_PERMISSIONS.map((p) => (

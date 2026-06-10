@@ -1,8 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { NextResponse } from "next/server";
 import { getGitAccessToken, gitReadFile, gitWriteFile } from "@/lib/git-provider";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { withAuth } from "@/lib/with-auth";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -21,13 +19,7 @@ async function getPlatformFile() {
   return file;
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const GET = withAuth({ permission: "config:read" }, async () => {
   try {
     if (!GIT_TOKEN) throw new Error("Missing git provider token");
     const file = await getPlatformFile();
@@ -51,15 +43,9 @@ export async function GET() {
       },
     });
   }
-}
+});
 
-export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "config:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const PUT = withAuth({ permission: "config:write" }, async ({ req }) => {
   try {
     const parsed = PlatformUpdateSchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) {
@@ -98,4 +84,4 @@ export async function PUT(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

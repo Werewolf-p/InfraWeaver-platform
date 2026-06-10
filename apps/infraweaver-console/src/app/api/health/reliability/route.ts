@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { makeCoreApi } from "@/lib/kube-client";
 import {
   combineReliabilityComponents,
@@ -12,7 +11,7 @@ import {
   summarizeBackupVolumes,
   summarizeLonghornBackups,
 } from "@/lib/reliability";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
@@ -88,14 +87,7 @@ async function loadBackupSummary() {
   return summarizeBackupVolumes(backups.filter((volume): volume is NonNullable<typeof volume> => Boolean(volume)));
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth({ permission: "config:read" }, async () => {
   try {
     const [argocd, uptime24h, nodes, volumes, backupSummary] = await Promise.all([
       loadArgocdHealth(),
@@ -140,4 +132,4 @@ export async function GET() {
       live: false,
     }, { headers: { "Cache-Control": "no-store" } });
   }
-}
+});

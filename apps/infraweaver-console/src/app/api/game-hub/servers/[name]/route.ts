@@ -9,6 +9,7 @@ import {
   appendServerAudit,
   buildPowerScheduleCron,
   checkPortReachable,
+  derivePowerStatus,
   createCronJob,
   deleteCronJob,
   GAME_HUB_NS,
@@ -69,14 +70,15 @@ async function upsertEggConfigMap(
 }
 
 const MANIFEST_SYNC_ACTIONS = new Set([
-  // Power state MUST be written to git: ArgoCD runs with selfHeal:true, so a
-  // cluster-only `replicas: 0` (stop) is treated as drift and reverted back to
-  // the git desired state — the server "starts again even after shutdown".
-  // Persisting the replica count to git makes ArgoCD respect start/stop/scale.
-  "start",
-  "stop",
-  "force-stop",
-  "scale",
+  // Power state (start/stop/force-stop/scale) is deliberately NOT synced to git.
+  // The ArgoCD Application `catalog-game-hub-servers` lists `/spec/replicas` under
+  // `ignoreDifferences`, so a cluster-only `replicas: 0` is NOT treated as drift
+  // and selfHeal leaves it alone. Committing a manifest on every stop was actively
+  // harmful: the new git revision triggered an auto-sync that re-applied
+  // `spec.replicas` from git (ServerSideApply, no RespectIgnoreDifferences),
+  // restarting the server right after Stop — and the slow git round-trip inside
+  // the request surfaced as "TypeError: Load failed". Replica state lives only in
+  // the cluster. Only fields ArgoCD does diff (env, resources, image, ...) sync.
   "sync-to-git",
   "set-hpa",
   "remove-hpa",
@@ -306,21 +308,22 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
     const yaml = await import("js-yaml");
     deploymentYaml = yaml.dump(deployment, { skipInvalid: true });
   }
-  const status = maintenanceMode
-    ? "maintenance"
-    : deployment.spec?.replicas === 0
-      ? "stopped"
-      : (deployment.status?.readyReplicas ?? 0) > 0
-        ? "running"
-        : isCrashLoop
-          ? "crash-loop"
-          : isCrashedOnce
-            ? "crashed"
-            : hasInstallingInitContainer
-              ? "installing"
-              : (deployment.status?.replicas ?? 0) > 0
-                ? "starting"
-                : "stopped";
+  const status =
+    derivePowerStatus({
+      maintenanceMode,
+      specReplicas: deployment.spec?.replicas,
+      statusReplicas: deployment.status?.replicas ?? 0,
+      readyReplicas: deployment.status?.readyReplicas ?? 0,
+    }) ??
+    (isCrashLoop
+      ? "crash-loop"
+      : isCrashedOnce
+        ? "crashed"
+        : hasInstallingInitContainer
+          ? "installing"
+          : (deployment.status?.replicas ?? 0) > 0
+            ? "starting"
+            : "stopped");
 
   // When restart-on-crash is disabled and the server is crash-looping, auto-stop it.
   // Runs as a side-effect of status polling so the UI catches it within one poll interval.
@@ -717,9 +720,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       });
       await sendDiscordWebhook(webhookConfig, "start", `🟢 ${name} started`);
     } else if (body.action === "stop") {
+      // Delete any HPA first: an HPA with minReplicas >= 1 immediately scales the
+      // deployment back up after we scale to 0, causing the reported
+      // stopped -> starting -> running auto-restart. Matches the scale action.
+      await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
       const result = await gracefulStopServer(clients, name, egg.stopCommand, 30_000);
       await sendDiscordWebhook(webhookConfig, "stop", `⏹️ ${name} stopped${result.exitedGracefully ? " gracefully" : ""}`);
     } else if (body.action === "force-stop") {
+      // See stop: remove the HPA so it cannot re-scale the pod back from 0.
+      await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
       await forceStopServer(clients, name);
       await sendDiscordWebhook(webhookConfig, "stop", `🛑 ${name} force-stopped`);
     } else if (body.action === "restart") {

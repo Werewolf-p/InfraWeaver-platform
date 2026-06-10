@@ -117,7 +117,7 @@ Lists managed Cloudflare-backed DNS records.
   "records": [
     {
       "id": "abc123",
-      "name": "minecraft.games.int.rlservers.com",
+      "name": "minecraft.games.int.example.com",
       "shortName": "minecraft.games",
       "type": "A",
       "value": "10.10.0.90",

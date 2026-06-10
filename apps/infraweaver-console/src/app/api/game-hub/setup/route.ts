@@ -5,9 +5,13 @@ import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { BASE_DOMAIN } from "@/lib/domain";
 
 const GAME_HUB_NAMESPACE = "game-hub";
 const GAME_HUB_ROLE_NAME = "infraweaver-console-game-hub";
+// Kubernetes API group for the optional GameServer CRD. Env-overridable so it
+// can track the CRD group installed by the infra repo for a given fork.
+const GAMESERVER_CRD = process.env.GAMESERVER_CRD ?? `gameservers.infraweaver.${BASE_DOMAIN}`;
 
 function buildGameHubRole(): k8s.V1Role {
   return {
@@ -105,7 +109,7 @@ export async function GET(request: NextRequest) {
 
     let crdExists = false;
     try {
-      await apiExtApi.readCustomResourceDefinition({ name: "gameservers.infraweaver.rlservers.com" });
+      await apiExtApi.readCustomResourceDefinition({ name: GAMESERVER_CRD });
       crdExists = true;
     } catch {}
 
@@ -219,7 +223,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      await apiExtApi.readCustomResourceDefinition({ name: "gameservers.infraweaver.rlservers.com" });
+      await apiExtApi.readCustomResourceDefinition({ name: GAMESERVER_CRD });
       results.push({ resource: "GameServer CRD", status: "already exists" });
     } catch {
       results.push({ resource: "GameServer CRD", status: "not found — deployed automatically via ArgoCD" });

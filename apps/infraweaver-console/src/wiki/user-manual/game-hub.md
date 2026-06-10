@@ -106,7 +106,7 @@ Treat file edits as production changes. Save a world or stop the server before e
 
 ## DNS quick-add
 
-From the server page you can create a hostname that points at the server without opening `/dns` separately. This is ideal when you want a memorable name such as `minecraft.games.int.rlservers.com` instead of sharing a raw node address and port.
+From the server page you can create a hostname that points at the server without opening `/dns` separately. This is ideal when you want a memorable name such as `minecraft.games.int.example.com` instead of sharing a raw node address and port.
 
 ## RBAC for server access
 

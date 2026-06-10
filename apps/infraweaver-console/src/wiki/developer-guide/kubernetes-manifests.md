@@ -62,7 +62,7 @@ spec:
       serviceAccountName: infraweaver-console
       containers:
         - name: web
-          image: onedev.rlservers.com/infraweaver/infraweaver-console:main-<sha>
+          image: onedev.example.com/infraweaver/infraweaver-console:main-<sha>
           envFrom:
             - secretRef:
                 name: infraweaver-console-env

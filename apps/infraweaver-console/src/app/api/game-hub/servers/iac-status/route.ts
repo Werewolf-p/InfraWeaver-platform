@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { GAME_HUB_NAMESPACE, getGameHubAccessContext } from "@/lib/game-hub";
+import { GAME_HUB_NAMESPACE } from "@/lib/game-hub";
 import { makeGameHubClients } from "@/lib/game-hub-server";
 import { getGitAccessToken, gitListDir } from "@/lib/git-provider";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 import { safeError } from "@/lib/utils";
 
 const GIT_TOKEN = getGitAccessToken();
@@ -27,34 +26,29 @@ async function listGitServerManifests(): Promise<Set<string>> {
  * Returns which game servers currently have a manifest committed to git.
  * Response: { servers: { [name: string]: boolean } }
  */
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const GET = withAuth(
+  { permission: "game-hub:read", scope: "/game-hub/" },
+  async () => {
+    try {
+      const { appsApi } = makeGameHubClients();
+      const [deployments, gitNames] = await Promise.all([
+        appsApi.listNamespacedDeployment({
+          namespace: GAME_HUB_NAMESPACE,
+          labelSelector: "infraweaver/game=true",
+        }),
+        listGitServerManifests(),
+      ]);
 
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasPermission(access.groups, "game-hub:read", access.roleAssignments, "/game-hub/", access.username)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+      const servers: Record<string, boolean> = {};
+      for (const deployment of deployments.items ?? []) {
+        const name = deployment.metadata?.name ?? "";
+        if (name) servers[name] = gitNames.has(name);
+      }
 
-  try {
-    const { appsApi } = makeGameHubClients();
-    const [deployments, gitNames] = await Promise.all([
-      appsApi.listNamespacedDeployment({
-        namespace: GAME_HUB_NAMESPACE,
-        labelSelector: "infraweaver/game=true",
-      }),
-      listGitServerManifests(),
-    ]);
-
-    const servers: Record<string, boolean> = {};
-    for (const deployment of deployments.items ?? []) {
-      const name = deployment.metadata?.name ?? "";
-      if (name) servers[name] = gitNames.has(name);
+      return NextResponse.json({ servers });
+    } catch (error) {
+      console.error("iac-status failed", error);
+      return NextResponse.json({ error: safeError(error) }, { status: 500 });
     }
-
-    return NextResponse.json({ servers });
-  } catch (error) {
-    console.error("iac-status failed", error);
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+  },
+);

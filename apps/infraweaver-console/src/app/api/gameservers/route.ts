@@ -5,6 +5,7 @@ import { GET as getGameHubServers } from "@/app/api/game-hub/servers/route";
 import { createARecord, deleteARecord } from "@/lib/cloudflare";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { internalHost, publicHost } from "@/lib/domain";
 
 const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
 const SLUG_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
@@ -22,7 +23,7 @@ const createGameserverSchema = z.object({
   description: z.string().optional(),
 });
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
@@ -76,7 +77,7 @@ export async function GET() {
     }));
 
     if (servers.length === 0) {
-      return getGameHubServers();
+      return getGameHubServers(req, { params: Promise.resolve({}) });
     }
 
     return NextResponse.json(servers);
@@ -166,12 +167,12 @@ export async function POST(req: NextRequest) {
     const dnsIP = targetIP;
     const intDnsIP = internalIP || targetIP;
     if (publicDns) {
-      try { await deleteARecord(`${name}.rlservers.com`); } catch {}
-      try { await createARecord(`${name}.rlservers.com`, dnsIP, false); } catch {}
+      try { await deleteARecord(publicHost(name)); } catch {}
+      try { await createARecord(publicHost(name), dnsIP, false); } catch {}
     }
     if (internalDns) {
-      try { await deleteARecord(`${name}.int.rlservers.com`); } catch {}
-      try { await createARecord(`${name}.int.rlservers.com`, intDnsIP, false); } catch {}
+      try { await deleteARecord(internalHost(name)); } catch {}
+      try { await createARecord(internalHost(name), intDnsIP, false); } catch {}
     }
 
     return NextResponse.json({ success: true, name });

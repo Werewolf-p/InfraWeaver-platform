@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Network, Wifi, WifiOff, ExternalLink } from "lucide-react";
 import { timeAgo, cn } from "@/lib/utils";
+import { internalHost } from "@/lib/domain";
 import { type ArgoApp } from "@/hooks/use-argocd";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { PageHeader } from "@/components/ui/page-header";
@@ -186,7 +187,7 @@ export default function NetworkPage() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Netbird VPN mesh peers</p>
         </div>
         <a
-          href="https://netbird.int.rlservers.com"
+          href={`https://${internalHost("netbird")}`}
           target="_blank"
           rel="noopener noreferrer"
           className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white active:scale-95 touch-manipulation sm:w-auto"

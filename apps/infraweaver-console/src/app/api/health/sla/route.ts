@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 
 const GATUS_URL = process.env.GATUS_URL ?? "http://gatus.gatus.svc.cluster.local:8080";
 
@@ -22,13 +21,7 @@ function calcUptime(results: Array<{ success: boolean; timestamp?: string }>, wi
   return Math.round((ok / filtered.length) * 10000) / 100;
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const GET = withAuth({ permission: "config:read" }, async () => {
   try {
     const res = await fetch(`${GATUS_URL}/api/v1/endpoints/statuses?page=1&pageSize=100`, { cache: "no-store" });
     if (!res.ok) throw new Error("Gatus unavailable");
@@ -54,4 +47,4 @@ export async function GET() {
       overall: { uptime24h: 100, uptime7d: 99.82, uptime30d: 99.93 },
     });
   }
-}
+});

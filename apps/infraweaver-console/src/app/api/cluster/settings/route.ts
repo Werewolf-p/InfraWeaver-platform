@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as jsYaml from "js-yaml";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 import { getGitAccessToken, gitCommitFiles, gitReadFile } from "@/lib/git-provider";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
@@ -216,13 +216,7 @@ function setNestedPath(obj: Record<string, unknown>, path: string, value: unknow
   current[segments[segments.length - 1]] = value;
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const GET = withAuth({ permission: "config:read" }, async () => {
   if (!GIT_TOKEN) {
     return NextResponse.json({ error: "Missing git provider token" }, { status: 503 });
   }
@@ -246,7 +240,7 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
 export async function PUT(req: NextRequest) {
   const session = await auth();

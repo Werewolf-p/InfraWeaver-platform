@@ -32,7 +32,9 @@ function logError(context: string, error: unknown): void {
 /**
  * After a long approve/redo dispatch settles, pull the newest successful run for
  * this entry and write its preview URL + run id back, advancing the entry to
- * `dispatched` (awaiting reviewer verdict). Reviewer identity is preserved.
+ * `dispatched` (awaiting reviewer verdict). Reviewer identity is preserved. If no
+ * successful run produced a preview, the entry stays in `approved` so it never
+ * gets stranded on the "Building on staging…" pill with no build to test.
  */
 async function reconcileFromRuns(entry: FeedbackEntry): Promise<void> {
   const runs = await listFeedbackRuns(entry.id);
@@ -46,11 +48,14 @@ async function reconcileFromRuns(entry: FeedbackEntry): Promise<void> {
     });
     return;
   }
-  // No successful run with a preview — surface the latest run id so the reviewer
-  // can open its log and see what failed; keep the entry as dispatched.
+  // No successful run with a preview — the build failed or produced no preview,
+  // so there is nothing to test on staging. Revert to `approved` ("Claude is
+  // fixing this…") rather than advancing to `dispatched`, which would strand the
+  // entry on the misleading "Building on staging…" pill forever. Surface the
+  // latest run id so the reviewer can open its log and see what failed.
   const newest = runs[0];
   await patchFeedbackEntry(entry.id, {
-    status: "dispatched",
+    status: "approved",
     ...(newest ? { dispatchRunId: newest.runId } : {}),
   });
 }
@@ -96,6 +101,49 @@ export function startPublish(actor: string): void {
       logError("publish dispatch failed", result.error);
     }
   }, "publish");
+}
+
+/**
+ * An entry is stranded mid-pipeline — needing a reconcile-on-read — when it is
+ * still `approved` (write-back never ran) OR it was advanced to `dispatched` but
+ * carries no `previewUrl`. The latter happens when the console process is
+ * restarted or crashes (the exit-139 bursts) after `reconcileFromRuns` flipped
+ * the status to `dispatched` but before/while the preview URL was persisted,
+ * leaving the entry stuck on the "Building on staging…" pill with nothing to
+ * test. Both cases are healed from the authoritative dispatch run history.
+ */
+export function needsReconcile(entry: FeedbackEntry): boolean {
+  return entry.status === "approved" || (entry.status === "dispatched" && !entry.previewUrl);
+}
+
+/**
+ * Self-heal entries stranded mid-pipeline. The approve/redo write-back runs as a
+ * detached promise inside the (single-replica) console process; if that process
+ * is restarted or crashes (the exit-139 bursts) mid-run, an entry can stay stuck
+ * — either in `approved` forever, or in `dispatched` with no preview URL — even
+ * though the dispatch run finished on the runner. The dispatch run history is the
+ * authoritative source that survives restarts, so on every list read we reconcile
+ * any such entry whose run has since settled, backfilling its preview URL / test
+ * path / run id. Best-effort and fail-safe: never throws, never blocks the list
+ * response.
+ */
+export async function reconcileStaleEntries(entries: FeedbackEntry[]): Promise<void> {
+  const stuck = entries.filter(needsReconcile);
+  if (stuck.length === 0) return;
+  await Promise.all(
+    stuck.map(async (entry) => {
+      try {
+        const runs = await listFeedbackRuns(entry.id);
+        if (runs.length === 0) return; // never dispatched / dispatch unreachable
+        // Only advance once the latest run for this entry has actually settled —
+        // a still-running approve must stay `approved`.
+        if (runs.some((r) => r.status === "running")) return;
+        await reconcileFromRuns(entry);
+      } catch (error) {
+        logError(`reconcile ${entry.id}`, error);
+      }
+    }),
+  );
 }
 
 /** Quick accepted-verdict path: mark accepted + tell dispatch to keep the commit. */

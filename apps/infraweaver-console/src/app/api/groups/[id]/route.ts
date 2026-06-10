@@ -1,7 +1,15 @@
 import { NextRequest } from "next/server";
-import type { Permission } from "@/lib/rbac";
+import { isGroupAllowedPermission, type Permission } from "@/lib/rbac";
 import { apiError, apiSuccess, requireRoutePermissions, routeErrorResponse } from "@/lib/route-utils";
 import { deleteGroup, updateGroup } from "@/lib/access-store";
+
+/**
+ * Reject any permission a custom group is not allowed to confer (see
+ * GROUP_DENIED_PERMISSIONS). Returns the first disallowed permission, or null.
+ */
+function firstDisallowedPermission(permissions: Permission[]): Permission | null {
+  return permissions.find((permission) => !isGroupAllowedPermission(permission)) ?? null;
+}
 
 const MANAGE: Permission[] = ["rbac:admin", "cluster:admin"];
 
@@ -18,6 +26,10 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   try {
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as PatchGroupBody;
+    if (Array.isArray(body.permissions)) {
+      const disallowed = firstDisallowedPermission(body.permissions);
+      if (disallowed) return apiError(`Permission ${disallowed} cannot be granted via custom groups`, { status: 400 });
+    }
     const group = await updateGroup(id, {
       name: body.name,
       description: body.description,

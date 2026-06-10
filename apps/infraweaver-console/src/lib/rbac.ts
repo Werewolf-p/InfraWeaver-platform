@@ -14,6 +14,59 @@ export type Permission =
   | "game-hub:console" | "game-hub:files" | "game-hub:start" | "game-hub:stop" | "game-hub:scale"
   | "wiki:read" | "wiki:edit";
 
+/**
+ * Runtime registry of every Permission in the union above. Kept next to the
+ * `Permission` type so the two stay in sync; the compile-time guard below fails
+ * `tsc` if a union member is added without being listed here (or vice versa).
+ */
+export const ALL_PERMISSIONS = [
+  "*",
+  "apps:read", "apps:write", "apps:sync", "apps:delete",
+  "config:read", "config:write",
+  "catalog:write", "catalog:delete",
+  "users:read", "users:write", "users:invite",
+  "cluster:read", "cluster:drain", "cluster:scale", "cluster:admin",
+  "security:read", "security:write",
+  "nas:read", "nas:write",
+  "infra:read", "infra:write", "rbac:admin",
+  "platform:update",
+  "game-hub:read", "game-hub:write", "game-hub:admin",
+  "game-hub:players",
+  "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop", "game-hub:scale",
+  "wiki:read", "wiki:edit",
+] as const satisfies readonly Permission[];
+
+// Compile-time exhaustiveness: every Permission must appear in ALL_PERMISSIONS.
+type _PermissionsCovered = Exclude<Permission, (typeof ALL_PERMISSIONS)[number]> extends never ? true : never;
+const _allPermissionsCovered: _PermissionsCovered = true;
+void _allPermissionsCovered;
+
+/**
+ * Deny-list of permissions a custom group may NOT contain. Deny-list (not
+ * allow-list) chosen deliberately: new resource-level permissions (apps:*,
+ * game-hub:*, wiki:*, *:read, etc.) should be groupable by default, so only the
+ * platform-level escalation tier needs explicit listing here. This stops an
+ * rbac:admin/cluster:admin holder — including a time-boxed PIM cluster-admin —
+ * from minting a *permanent* platform-level grant by authoring a custom group
+ * (see pim.ts computeExtraPermissions, which folds group perms in cluster-wide).
+ */
+export const GROUP_DENIED_PERMISSIONS = [
+  "*",
+  "users:write",
+  "users:invite",
+  "rbac:admin",
+  "platform:update",
+  "cluster:admin",
+  "security:write",
+] as const satisfies readonly Permission[];
+
+const GROUP_DENIED_PERMISSION_SET = new Set<Permission>(GROUP_DENIED_PERMISSIONS);
+
+/** True if `permission` is allowed to appear in a custom group's permission set. */
+export function isGroupAllowedPermission(permission: Permission): boolean {
+  return !GROUP_DENIED_PERMISSION_SET.has(permission);
+}
+
 export type BuiltInRoleId =
   | "platform-owner"
   | "platform-admin"
@@ -244,6 +297,24 @@ export function resolveRoleDefinition(roleId: RoleId): RoleDefinition | null {
 
 export function roleHasPermission(role: RoleDefinition | null, permission: Permission): boolean {
   return Boolean(role && (role.permissions.includes("*") || role.permissions.includes(permission)));
+}
+
+/**
+ * Privilege-ceiling check for role assignment. Returns true if granting `roleId`
+ * would confer a permission the granter does not themselves hold — i.e. the
+ * assignment would escalate the grantee beyond the granter's own privilege level
+ * (e.g. a platform-admin granting platform-owner's "*").
+ *
+ * A granter holding "*" covers everything. Otherwise every permission in the
+ * target role must be present in `granterPerms`; a target role that contains "*"
+ * therefore requires the granter to also hold "*". Unknown roles are rejected
+ * earlier in the route, so a missing definition is treated as nothing to grant.
+ */
+export function assignmentExceedsGranter(granterPerms: Set<Permission>, roleId: RoleId): boolean {
+  if (granterPerms.has("*")) return false;
+  const role = resolveRoleDefinition(roleId);
+  if (!role) return false;
+  return role.permissions.some((permission) => !granterPerms.has(permission));
 }
 
 /**

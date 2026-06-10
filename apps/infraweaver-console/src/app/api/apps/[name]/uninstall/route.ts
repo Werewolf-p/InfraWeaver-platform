@@ -25,8 +25,9 @@ import { auditLog } from "@/lib/audit-log";
 import { gitCommitFiles, gitDeleteDir, gitReadFile } from "@/lib/git-provider";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { internalHost } from "@/lib/domain";
 
-const ARGOCD_URL = process.env.ARGOCD_URL ?? "https://argocd.int.rlservers.com";
+const ARGOCD_URL = process.env.ARGOCD_URL ?? `https://${internalHost("argocd")}`;
 const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 
 const SAFE_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;

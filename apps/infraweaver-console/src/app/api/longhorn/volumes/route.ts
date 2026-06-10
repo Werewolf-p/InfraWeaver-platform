@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 
 const LONGHORN_API = process.env.LONGHORN_API ?? "http://longhorn-frontend.longhorn-system.svc.cluster.local:80";
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const GET = withAuth({ permission: "config:read" }, async () => {
   try {
     const res = await fetch(`${LONGHORN_API}/v1/volumes`, {
       headers: { Accept: "application/json" },
@@ -37,4 +30,4 @@ export async function GET() {
       { name: "pvc-grafana-data", size: 2147483648, actualSize: 268435456, robustness: "degraded", numberOfReplicas: 1, state: "attached" },
     ]);
   }
-}
+});

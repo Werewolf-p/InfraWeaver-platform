@@ -1,5 +1,7 @@
 import "server-only";
 
+import { internalHost } from "@/lib/domain";
+
 /**
  * Domain gate for the feedback REVIEW dashboard.
  *
@@ -11,9 +13,9 @@ import "server-only";
  *
  * The report/submit button stays available everywhere; only the review surface
  * is gated. Gate is host-based: compare the request Host against
- * FEEDBACK_DASHBOARD_HOST (default `infraweaver.int.rlservers.com`).
+ * FEEDBACK_DASHBOARD_HOST (default `infraweaver.int.<base-domain>`).
  */
-const FEEDBACK_DASHBOARD_HOST = process.env.FEEDBACK_DASHBOARD_HOST ?? "infraweaver.int.rlservers.com";
+const FEEDBACK_DASHBOARD_HOST = process.env.FEEDBACK_DASHBOARD_HOST ?? internalHost("infraweaver");
 
 /** Strip any `:port` and lowercase so `Host: foo:443` matches `foo`. */
 function normalizeHost(host: string | null | undefined): string {

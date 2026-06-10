@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getHomepageServiceHealthMap } from "@/lib/homepage-health";
 import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
 import { safeError } from "@/lib/utils";
+import { INTERNAL_DOMAIN } from "@/lib/domain";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
   if (url) {
     const allowedUrl = parseAllowedInternalUrl(url);
     if (!allowedUrl) {
-      return NextResponse.json({ error: "Only *.int.rlservers.com and approved internal service URLs are allowed" }, { status: 400 });
+      return NextResponse.json({ error: `Only *.${INTERNAL_DOMAIN} and approved internal service URLs are allowed` }, { status: 400 });
     }
 
     const startedAt = Date.now();

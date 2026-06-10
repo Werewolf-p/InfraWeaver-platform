@@ -23,7 +23,7 @@ InfraWeaver Console is a Next.js application that acts as the management interfa
 - each node sized for mixed platform and game workloads
 - Longhorn configured for replicated block storage
 - MetalLB used for LoadBalancer IP assignment
-- NetBird used for private access to internal `*.int.rlservers.com` endpoints
+- NetBird used for private access to internal `*.int.example.com` endpoints
 
 ### High-level request flow
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as jsYaml from "js-yaml";
 import { auth } from "@/lib/auth";
 import { getGitAccessToken, gitReadFile, gitWriteFile } from "@/lib/git-provider";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
@@ -317,17 +317,7 @@ function setNestedPath(obj: Record<string, unknown>, path: string, value: unknow
   current[segments[segments.length - 1]] = value;
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const groups: string[] = (session.user as { groups?: string[] } | undefined)?.groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth({ permission: "config:read" }, async () => {
   const now = Date.now();
   if (_platformEditorCache && now - _platformEditorCache.fetchedAt < PLATFORM_EDITOR_CACHE_MS) {
     return NextResponse.json(_platformEditorCache.data);
@@ -355,7 +345,7 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
 export async function PUT(req: NextRequest) {
   const session = await auth();

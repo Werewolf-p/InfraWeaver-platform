@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { type LonghornBackupVolumeStatus, normalizeLonghornCollection, summarizeBackupVolumes, summarizeLonghornBackups } from "@/lib/reliability";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 
 const LONGHORN_API = process.env.LONGHORN_API ?? "http://longhorn-frontend.longhorn-system.svc.cluster.local:80";
 const MAX_BACKUP_AGE_HOURS = 36;
@@ -36,14 +35,7 @@ async function loadBackupVolumes() {
   });
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth({ permission: "config:read" }, async () => {
   try {
     const volumes = await loadBackupVolumes();
     return NextResponse.json({
@@ -66,4 +58,4 @@ export async function GET() {
       live: false,
     }, { headers: { "Cache-Control": "no-store" } });
   }
-}
+});

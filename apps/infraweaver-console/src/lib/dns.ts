@@ -1,5 +1,7 @@
-export const ROOT_DNS_DOMAIN = "rlservers.com";
-export const INTERNAL_DNS_DOMAIN = `int.${ROOT_DNS_DOMAIN}`;
+import { BASE_DOMAIN, INTERNAL_DOMAIN } from "@/lib/domain";
+
+export const ROOT_DNS_DOMAIN = BASE_DOMAIN;
+export const INTERNAL_DNS_DOMAIN = INTERNAL_DOMAIN;
 export const MANAGED_RECORD_TYPES = ["A", "CNAME", "TXT"] as const;
 
 export type ManagedRecordType = (typeof MANAGED_RECORD_TYPES)[number];

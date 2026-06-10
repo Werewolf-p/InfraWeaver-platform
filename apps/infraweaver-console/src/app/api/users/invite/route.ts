@@ -4,6 +4,7 @@ import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rb
 import { authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
 import { z } from "zod";
+import { publicHost } from "@/lib/domain";
 
 const InviteBody = z.object({
   email: z.string().email().max(254),
@@ -39,7 +40,8 @@ export async function POST(req: NextRequest) {
   const inv = await r.json();
   const token = inv.pk ?? inv.token ?? "";
   await auditLog("users:invite", session.user?.email ?? "unknown", `Invited ${email}`);
+  const authentikBaseUrl = process.env.AUTHENTIK_PUBLIC_URL ?? `https://${publicHost("auth")}`;
   return NextResponse.json({
-    url: `https://auth.rlservers.com/if/flow/default-invitation-flow/?itoken=${token}`,
+    url: `${authentikBaseUrl}/if/flow/default-invitation-flow/?itoken=${token}`,
   });
 }
