@@ -1,36 +1,26 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 import { auditLog } from "@/lib/audit-log";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
-import { safeError } from "@/lib/utils";
 
 const userPutSchema = z.record(z.string(), z.unknown());
 
 // Authentik username: alphanumeric, dots, hyphens, underscores, @-sign
 const SAFE_USERNAME_RE = /^[\w.@+-]{1,150}$/;
 
-
 // PUT /api/users-config/[username] — update single user
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ username: string }> }) {
-  const { username } = await params;
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!SAFE_USERNAME_RE.test(username)) {
-    return NextResponse.json({ error: "Invalid username" }, { status: 400 });
-  }
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "users:write")) {
-    return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
-  }
+export const PUT = withAuth<{ username: string }>(
+  {
+    permission: "users:write",
+    rateLimit: { name: "users-config-put", limit: 20, windowMs: 60_000 },
+  },
+  async ({ req, session, params }) => {
+    const { username } = params;
+    if (!SAFE_USERNAME_RE.test(username)) {
+      return NextResponse.json({ error: "Invalid username" }, { status: 400 });
+    }
 
-  if (!checkRateLimit(rateLimitKey("users-config-put", req), 20, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
-
-  try {
     const rawBody = await req.json().catch(() => ({}));
     const parsedBody = userPutSchema.safeParse(rawBody);
     if (!parsedBody.success) {
@@ -66,29 +56,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ user
     await auditLog("users-config:update", currentUser.email ?? "unknown", `Updated user ${username}`);
 
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+  },
+);
 
 // DELETE /api/users-config/[username] — delete single user
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ username: string }> }) {
-  const { username } = await params;
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!SAFE_USERNAME_RE.test(username)) {
-    return NextResponse.json({ error: "Invalid username" }, { status: 400 });
-  }
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "users:write")) {
-    return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
-  }
+export const DELETE = withAuth<{ username: string }>(
+  {
+    permission: "users:write",
+    rateLimit: { name: "users-config-delete", limit: 10, windowMs: 60_000 },
+  },
+  async ({ session, params }) => {
+    const { username } = params;
+    if (!SAFE_USERNAME_RE.test(username)) {
+      return NextResponse.json({ error: "Invalid username" }, { status: 400 });
+    }
 
-  if (!checkRateLimit(rateLimitKey("users-config-delete", req), 10, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
-
-  try {
     const { users: rawUsers, sha } = await loadUsersConfig();
 
     if (!rawUsers[username]) {
@@ -121,7 +103,5 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ u
     await auditLog("users-config:delete", currentUser.email ?? "unknown", `Deleted user ${username}`);
 
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+  },
+);

@@ -1,5 +1,6 @@
 import type { Session } from "next-auth";
 import {
+  getEffectivePermissions,
   hasAssignedPermissionForScope,
   hasPermission,
   type Permission,
@@ -61,6 +62,25 @@ export function hasSessionPermission(
     scope,
     context.username,
   );
+}
+
+/**
+ * The granter's full effective permission set at `scope`, folding in custom-group
+ * and active-PIM elevations (extraPermissions) on top of role assignments. Used
+ * for privilege-ceiling checks (see assignmentExceedsGranter).
+ */
+export function getSessionEffectivePermissions(
+  context: SessionRBACContext,
+  scope = "/",
+): Set<Permission> {
+  const perms = getEffectivePermissions(
+    context.groups,
+    context.username,
+    context.roleAssignments,
+    scope,
+  );
+  for (const permission of context.extraPermissions) perms.add(permission);
+  return perms;
 }
 
 export function hasAnySessionPermission(
