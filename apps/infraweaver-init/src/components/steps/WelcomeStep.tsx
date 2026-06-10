@@ -37,7 +37,7 @@ const setupItems = [
   { icon: Server, title: 'Proxmox discovery', copy: 'Validate the API token, discover the node, storage pools, and next free VMIDs.' },
   { icon: Boxes, title: 'Cluster topology', copy: 'Shape the Talos control plane, MetalLB VIPs, and ping-check node addresses before deploy.' },
   { icon: UserRound, title: 'Identity & access', copy: 'Bootstrap your immutable admin identity, SSH key, DNS provider credentials, and SMTP credentials.' },
-  { icon: Settings2, title: 'Feature flags', copy: 'Toggle NetBird, monitoring, external DNS, backups, and LAN or VPN-only access.' },
+  { icon: Settings2, title: 'Feature flags', copy: 'Toggle monitoring, external DNS, backups, and LAN access.' },
   { icon: Rocket, title: 'Review & deploy', copy: 'Save the .env file, run pre-flight checks, and stream deploy progress in a live terminal.' },
 ]
 
@@ -53,14 +53,14 @@ const presets: Array<{
     title: '🏠 Homelab Dev',
     accent: 'text-white',
     summary: 'Single control-plane node with the lightest footprint for local labs.',
-    specs: ['1 node', '2C / 4 GB / 50 GB', 'Monitoring off', 'NetBird off', 'External DNS off'],
+    specs: ['1 node', '2C / 4 GB / 50 GB', 'Monitoring off', 'External DNS off'],
   },
   {
     key: 'standard',
     title: '⚡ Standard',
     accent: 'text-[var(--az-primary)]',
-    summary: 'Balanced default: 3-node control plane with monitoring and secure remote access.',
-    specs: ['3 control-plane nodes', '4C / 8 GB / 100 GB', 'Monitoring on', 'NetBird on', 'External DNS off'],
+    summary: 'Balanced default: 3-node control plane with monitoring enabled.',
+    specs: ['3 control-plane nodes', '4C / 8 GB / 100 GB', 'Monitoring on', 'External DNS off'],
   },
   {
     key: 'power',

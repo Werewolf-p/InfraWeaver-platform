@@ -314,7 +314,6 @@ function NodeSpecsEditorContent({ data, canWrite }: { data: NodeSpecsResponse; c
 
   useEffect(() => {
     setLocal(Object.fromEntries(data.nodes.map((n) => [n.name, { cpu: n.cpu, memory_mb: n.memory_mb }])));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   const [showConfirm, setShowConfirm] = useState(false);
@@ -561,7 +560,6 @@ function ResourceEditorContent({
 
   useEffect(() => {
     setLocal(Object.fromEntries(data.schema.map((def) => [def.key, String(data.values[def.key] ?? "")])));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   const [showConfirm, setShowConfirm] = useState(false);

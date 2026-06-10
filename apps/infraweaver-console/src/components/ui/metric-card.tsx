@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Minus, TrendingDown, TrendingUp } from "lucide-react";
-import { springs } from "@/lib/spring";
 import { cn } from "@/lib/utils";
 
 const MetricCardSparkline = dynamic(

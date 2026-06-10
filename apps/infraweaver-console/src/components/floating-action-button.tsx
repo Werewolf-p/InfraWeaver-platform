@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, RefreshCw, Bell, X, UserPlus, Globe, Layers,
-  Server, FileText, Shield, MessageSquarePlus, ChevronUp,
+  FileText, Shield, MessageSquarePlus, ChevronUp,
   HardDrive, Upload,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";

@@ -820,7 +820,6 @@ export function DashboardTab({
       };
     });
   const primaryConnection = connectionRows[0];
-  const primaryAddress = primaryConnection?.address ?? host;
   const primaryConnectivityStatus: ConnectivityStatus = primaryConnection?.externalStatus ?? "unknown";
   const primaryConnectivityTone = getConnectivityTone(primaryConnectivityStatus);
   const primaryConnectivityLabel = primaryConnection

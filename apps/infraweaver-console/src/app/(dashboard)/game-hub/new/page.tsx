@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, ServerCrash, CheckCircle2,
-  ChevronDown, Download, Upload, Dices, Zap, Flame, Leaf, Crown, Terminal, Rocket, Save,
-  XCircle, AlertCircle, Users, Bookmark, Clock, CheckCheck, Server, Cpu, MemoryStick, HardDrive,
+  ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, CheckCircle2,
+  ChevronDown, Download, Upload, Dices, Terminal, Rocket, Save,
+  XCircle, AlertCircle, Users, Bookmark, CheckCheck, Server, Cpu, MemoryStick, HardDrive,
 } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
@@ -366,7 +366,6 @@ export default function NewGameServerPage() {
   const [selectedRemoteEntry, setSelectedRemoteEntry] = useState<CatalogEntry | null>(null);
   const [serverName, setServerName] = useState("");
   const [dnsHostname, setDnsHostname] = useState("");
-  const [dnsTouched, setDnsTouched] = useState(false);
   const [dnsType, setDnsType] = useState<"internal" | "public" | "custom">("internal");
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [memoryMi, setMemoryMi] = useState(2048);

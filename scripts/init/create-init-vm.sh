@@ -786,10 +786,6 @@ NET_OPTS="virtio,bridge=${BRIDGE}"
 [[ -n "$VLAN_TAG" ]] && NET_OPTS="${NET_OPTS},tag=${VLAN_TAG}"
 qm set "$VMID" --net0 "$NET_OPTS"
 
-# Capture the MAC Proxmox auto-assigned to net0 — used for ARP-based IP detection later
-VM_MAC=$(qm config "$VMID" 2>/dev/null | grep '^net0:' \
-  | grep -oP '(?<=virtio=)[^,]+' | tr '[:upper:]' '[:lower:]')
-
 # Set cluster network (net1) — only if requested
 if [[ "$CLUSTER_NIC" == "yes" ]]; then
   CLUSTER_NET_OPTS="virtio,bridge=${CLUSTER_BRIDGE:-$BRIDGE},tag=${CLUSTER_VLAN}"

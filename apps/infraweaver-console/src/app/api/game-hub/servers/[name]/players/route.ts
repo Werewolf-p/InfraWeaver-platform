@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { banCommandForGame, kickCommandForGame, listCommandForGame, parsePlayerIpMap, parsePlayerNames, resolveCountryCode } from "@/lib/game-hub-players";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, getServerDeployment, makeGameHubClients, parsePlayerHistory, readServerEgg, runServerCommand, trimPlayerHistory } from "@/lib/game-hub-server";
+import { appendServerAudit, getServerDeployment, makeGameHubClients, parsePlayerHistory, runServerCommand, trimPlayerHistory } from "@/lib/game-hub-server";
 import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";

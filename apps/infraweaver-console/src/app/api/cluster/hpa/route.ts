@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { iwApiFetch } from "@/lib/iw-api";
 import { withRoute } from "@/lib/route-utils";

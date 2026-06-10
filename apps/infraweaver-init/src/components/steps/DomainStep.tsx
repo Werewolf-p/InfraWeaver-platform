@@ -6,7 +6,7 @@ import { GlassCard } from '@/components/ui/GlassCard'
 import { FormField } from '@/components/ui/FormField'
 import { StepHeader } from '@/components/ui/StepHeader'
 import { useWizardStore } from '@/lib/store'
-import { controlClassName, fadeUpItem, isDomain, isEmail, staggerContainer } from '@/lib/utils'
+import { controlClassName, fadeUpItem, isDomain, isEmail, isIPv4, staggerContainer } from '@/lib/utils'
 
 export function DomainStep() {
   const data = useWizardStore((state) => state.data)
@@ -64,6 +64,26 @@ export function DomainStep() {
                 className={controlClassName}
               />
             </FormField>
+
+            <FormField
+              label="PUBLIC_INGRESS_IP"
+              htmlFor="PUBLIC_INGRESS_IP"
+              error={data.PUBLIC_INGRESS_IP && !isIPv4(data.PUBLIC_INGRESS_IP) ? 'Enter a valid public IPv4 address or leave blank.' : undefined}
+              hint={
+                <>
+                  Optional. Public IPv4 of your home/office ingress — used as the DNS A-record target for <code>*.int.yourdomain.com</code> and remote-access endpoints. Leave blank for LAN-only deployments.
+                </>
+              }
+              className="md:col-span-2"
+            >
+              <input
+                id="PUBLIC_INGRESS_IP"
+                value={data.PUBLIC_INGRESS_IP}
+                onChange={(event) => setField('PUBLIC_INGRESS_IP', event.target.value)}
+                placeholder="203.0.113.10"
+                className={controlClassName}
+              />
+            </FormField>
           </div>
         </GlassCard>
 
@@ -84,7 +104,7 @@ export function DomainStep() {
                 Admin username
               </div>
               <div className="mt-2 text-lg font-semibold text-white">{data.ADMIN_USERNAME || emailPrefix.toLowerCase().replace(/[^a-z0-9_-]/g, '')}</div>
-              <div className="mt-1 text-xs text-[var(--az-text-secondary)]">Lowercase login used by Authentik, ArgoCD, and NetBird.</div>
+              <div className="mt-1 text-xs text-[var(--az-text-secondary)]">Lowercase login used by Authentik and ArgoCD.</div>
             </motion.div>
             <motion.div variants={fadeUpItem} className="rounded-2xl border border-white/8 bg-black/20 p-4">
               <div className="flex items-center gap-3 text-sm font-medium text-white">

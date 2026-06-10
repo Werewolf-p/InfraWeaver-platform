@@ -250,36 +250,18 @@ else:
 EOF
 }
 
-_set_platform_flag "groups.core-platform.apps.netbird.enabled" "$ENABLE_NETBIRD"
-
-# Update Traefik routes: switch private routes between netbird-vpn-only and internal-only
-# The file 10-routes-vpn-only.yaml is the source of truth for VPN-tier private routes.
-# When NetBird is disabled, routes fall back to internal-only (LAN-accessible from homelab).
-# The access-tier: vpn LABEL is preserved regardless — it reflects the policy intent.
+# Private routes always use the internal-only middleware. The NetBird VPN tier
+# was removed; remote access is provided by Authentik forward-auth on
+# public-proxied DNS, so *.int stays protected without a VPN-only middleware.
 if [[ -f "$VPN_ROUTES" ]]; then
-    if [[ "$ENABLE_NETBIRD" == "true" ]]; then
-        echo "  NetBird enabled → private routes use netbird-vpn-only middleware"
-        # Replace any internal-only fallback back to netbird-vpn-only
-        # Only in route middleware references (not in comments or other contexts)
-        python3 -c "
-import re, sys
+    echo "  Private routes use internal-only middleware"
+    python3 -c "
+import re
 content = open('$VPN_ROUTES').read()
-# Replace only middleware name references (indented list items)
-content = re.sub(r'(\s+- name: )internal-only\b', r'\1netbird-vpn-only', content)
-open('$VPN_ROUTES', 'w').write(content)
-print('  routes: netbird-vpn-only')
-"
-    else
-        echo "  NetBird disabled → private routes fall back to internal-only middleware"
-        python3 -c "
-import re, sys
-content = open('$VPN_ROUTES').read()
-# Replace netbird-vpn-only middleware references with internal-only fallback
 content = re.sub(r'(\s+- name: )netbird-vpn-only\b', r'\1internal-only', content)
 open('$VPN_ROUTES', 'w').write(content)
-print('  routes: internal-only (fallback)')
+print('  routes: internal-only')
 "
-    fi
 fi
 
 # ── 2. Monitoring ────────────────────────────────────────────────────────────

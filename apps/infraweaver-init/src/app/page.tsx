@@ -27,7 +27,7 @@ import { WelcomeStep } from '@/components/steps/WelcomeStep'
 import { RestoreStep } from '@/components/steps/RestoreStep'
 import { connectDeployEvents, getStatus, loadEnv, selfUpdate, type DeployEvent } from '@/lib/api'
 import { initialDeployStages, initialWizardData, isWizardDataPristine, useWizardStore } from '@/lib/store'
-import { classifyLog, isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger } from '@/lib/utils'
+import { classifyLog, isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger, isVipRange } from '@/lib/utils'
 import type { DnsProvider } from '@/lib/store'
 
 function hasDnsProviderCredentials(data: typeof initialWizardData): boolean {
@@ -65,17 +65,31 @@ const BASE_STEPS: Array<WizardStepMeta & { icon: React.ComponentType<{ className
   { title: 'Features', icon: Settings2 },
 ]
 
-function isStepValid(step: number, data: typeof initialWizardData, nodes: ReturnType<typeof useWizardStore.getState>['nodes'], localIpRanges: string[], vpnOnly: boolean, hasRestoreStep = false) {
+function isStepValid(step: number, data: typeof initialWizardData, nodes: ReturnType<typeof useWizardStore.getState>['nodes'], localIpRanges: string[], hasRestoreStep = false) {
   const controlPlaneCount = nodes.filter((node) => node.role === 'control-plane').length
 
   switch (step) {
     case 0:
       return true
     case 1:
-      return isDomain(data.BASE_DOMAIN) && isEmail(data.ADMIN_EMAIL)
+      return (
+        isDomain(data.BASE_DOMAIN) &&
+        isEmail(data.ADMIN_EMAIL) &&
+        (!data.PUBLIC_INGRESS_IP.trim() || isIPv4(data.PUBLIC_INGRESS_IP))
+      )
     case 2:
       return isIPv4(data.PROXMOX_HOST) && data.PROXMOX_API_TOKEN.trim().length > 0 && data.PROXMOX_NODE_NAME.trim().length > 0
-    case 3:
+    case 3: {
+      const vipValues = [
+        data.METALLB_TRAEFIK_VIP,
+        data.METALLB_COREDNS_VIP,
+        data.METALLB_VIP_205,
+      ].map((value) => value.trim())
+      const vmids = nodes.map((node) => node.vmid.trim())
+      const nodeIps = nodes.map((node) => node.ip.trim())
+      const allAddresses = [...nodeIps, ...vipValues].filter(Boolean)
+      const uniqueVmids = new Set(vmids).size === vmids.length
+      const uniqueAddresses = new Set(allAddresses).size === allAddresses.length
       return (
         data.K8S_CLUSTER_NAME.trim().length > 0 &&
         data.TALOS_DATASTORE.trim().length > 0 &&
@@ -84,14 +98,13 @@ function isStepValid(step: number, data: typeof initialWizardData, nodes: Return
         nodes.length > 0 &&
         controlPlaneCount >= 1 &&
         nodes.every((node) => isIPv4(node.ip) && isPositiveInteger(node.vmid)) &&
-        data.METALLB_VIP_RANGE.trim().length > 0 &&
-        isIPv4(data.METALLB_TRAEFIK_VIP) &&
-        isIPv4(data.METALLB_COREDNS_VIP) &&
-        isIPv4(data.METALLB_NETBIRD_MGMT_VIP) &&
-        isIPv4(data.METALLB_NETBIRD_SIGNAL_VIP) &&
-        isIPv4(data.METALLB_NETBIRD_RELAY_VIP) &&
+        uniqueVmids &&
+        uniqueAddresses &&
+        isVipRange(data.METALLB_VIP_RANGE) &&
+        vipValues.every((value) => isIPv4(value)) &&
         data.CLUSTER_LOCAL_DOMAIN.trim().length > 0
       )
+    }
     case 4:
       return /^[a-z0-9_-]+$/.test(data.ADMIN_USERNAME.trim()) && data.ADMIN_NAME.trim().length > 0
     case 5:
@@ -105,7 +118,7 @@ function isStepValid(step: number, data: typeof initialWizardData, nodes: Return
         data.GIT_REPO_URL.trim().length > 0
       )
     case 6:
-      return vpnOnly || localIpRanges.filter((range) => range.trim()).every((range) => isCIDR(range))
+      return localIpRanges.filter((range) => range.trim()).every((range) => isCIDR(range))
     case 7:
       return true
     case 8:
@@ -171,7 +184,6 @@ export default function HomePage() {
   const data = useWizardStore((state) => state.data)
   const nodes = useWizardStore((state) => state.nodes)
   const localIpRanges = useWizardStore((state) => state.localIpRanges)
-  const vpnOnly = useWizardStore((state) => state.vpnOnly)
   const status = useWizardStore((state) => state.status)
   const deployStarted = useWizardStore((state) => state.deployStarted)
   const deployRunning = useWizardStore((state) => state.deployRunning)
@@ -323,8 +335,8 @@ export default function HomePage() {
   const restoreStepIndex = hasRestoreStep ? deployStepIndex - 1 : -1
 
   const canGoNext = useMemo(
-    () => isStepValid(currentStep, data, nodes, localIpRanges, vpnOnly, hasRestoreStep),
-    [currentStep, data, localIpRanges, nodes, vpnOnly, hasRestoreStep],
+    () => isStepValid(currentStep, data, nodes, localIpRanges, hasRestoreStep),
+    [currentStep, data, localIpRanges, nodes, hasRestoreStep],
   )
 
   const nextLabel =

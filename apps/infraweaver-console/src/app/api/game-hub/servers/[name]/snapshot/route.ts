@@ -13,8 +13,6 @@ const snapshotBodySchema = z.object({
   label: z.string().optional(),
 });
 
-const LONGHORN_GROUP = "longhorn.io";
-const LONGHORN_VERSION = "v1beta2";
 const SNAPSHOT_PLURAL = "volumesnapshots";
 const SNAPSHOT_GROUP = "snapshot.storage.k8s.io";
 const SNAPSHOT_API_VERSION = "v1";

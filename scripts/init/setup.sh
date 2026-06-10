@@ -19,16 +19,15 @@
 # =============================================================================
 set -euo pipefail
 
-REPO_URL="${IW_REPO_URL:-https://github.com/Werewolf-p/InfraWeaver-platform}"
 REPO_BRANCH="${IW_REPO_BRANCH:-main}"
 RAW_BASE="https://raw.githubusercontent.com/Werewolf-p/InfraWeaver-platform/${REPO_BRANCH}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 if [[ -t 1 && "${TERM:-dumb}" != "dumb" ]]; then
   G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; C='\033[0;36m'
-  D='\033[2m'; NC='\033[0m'; B='\033[1m'; M='\033[0;35m'
+  D='\033[2m'; NC='\033[0m'; B='\033[1m'
 else
-  G=''; Y=''; R=''; C=''; D=''; NC=''; B=''; M=''
+  G=''; Y=''; R=''; C=''; D=''; NC=''; B=''
 fi
 
 # Disable bracketed paste (Proxmox noVNC/shell artefact)

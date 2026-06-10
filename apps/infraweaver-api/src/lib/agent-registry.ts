@@ -83,10 +83,6 @@ export function getConnectedAgents(): AgentConnection[] {
   return Array.from(_agents.values());
 }
 
-export function getAgent(clusterId: string): AgentConnection | undefined {
-  return _agents.get(clusterId);
-}
-
 export function getPendingDiscoveries(): Omit<DiscoveryRequest, 'ws'>[] {
   return Array.from(_pendingDiscovery.values()).map(({ ws, ...rest }) => rest);
 }

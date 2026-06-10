@@ -16,8 +16,6 @@ trap cleanup EXIT
 ENV=${ENV_NAME:?ENV_NAME required}
 KB=~/.kube/config-platform-$ENV
 LOCAL_OPENBAO="http://127.0.0.1:8200"
-# In-cluster OpenBao address (ClusterIP service, accessible via NetBird)
-OPENBAO_ADDR="http://openbao.openbao.svc.cluster.local:8200"
 
 # Apply RBAC so the autounseal sidecar can read the openbao-unseal secret
 kubectl --kubeconfig "$KB" apply -f kubernetes/core/openbao/manifests/rbac.yaml 2>/dev/null || true

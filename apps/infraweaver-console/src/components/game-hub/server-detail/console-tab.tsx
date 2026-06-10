@@ -6,11 +6,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   Circle,
-  Copy,
-  Download,
   Loader2,
   Play,
-  RefreshCw,
   Save,
   Search,
   Send,

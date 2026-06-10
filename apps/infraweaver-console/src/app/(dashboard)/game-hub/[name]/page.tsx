@@ -7,9 +7,7 @@ import {
   useRef,
   useCallback,
   useMemo,
-  type ChangeEvent,
   type ElementType,
-  type ReactNode,
 } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -95,20 +93,12 @@ type TabId =
   | "files"
   | "settings"
   | "activity";
-type ConsoleHistoryDepth = "1h" | "6h" | "1d" | "3d" | "7d";
 type RuntimeSavedCommand = SavedCommand & {
   id?: string;
   cmd?: string;
   command?: string;
   color?: string;
   description?: string;
-};
-type RuntimeQuickCommand = {
-  label: string;
-  command?: string;
-  cmd?: string;
-  description?: string;
-  color?: string;
 };
 type EditablePort = {
   id: string;
@@ -152,9 +142,6 @@ function buildFallbackConnectivity(message: string): ConnectivityDetails {
   };
 }
 
-const ISO_TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\s*/;
-const CONSOLE_PREFS_KEY = "infraweaver:console-prefs";
-const CONSOLE_HISTORY_KEY = "infraweaver:console-history";
 const RECENT_FILES_KEY = "infraweaver:recent-files";
 const ICON_OPTIONS = [
   "🎮",
@@ -202,64 +189,7 @@ function normalizeSavedCommands(
   }));
 }
 
-function normalizeQuickCommands(
-  entries:
-    | Array<{ label: string; command?: string; description?: string }>
-    | undefined,
-): Array<{ label: string; command: string; description?: string }> {
-  return ((entries ?? []) as RuntimeQuickCommand[])
-    .map((entry) => ({
-      label: entry.label,
-      command: normalizeCommandValue(entry),
-      description: entry.description,
-    }))
-    .filter((entry) => entry.command.trim().length > 0);
-}
-
-function readConsolePrefs() {
-  if (typeof window === "undefined")
-    return {} as Partial<{
-      autoScroll: boolean;
-      showTimestamps: boolean;
-      wordWrap: boolean;
-      levelFilter: "all" | "error" | "warn" | "info";
-      regexMode: boolean;
-      historyDepth: ConsoleHistoryDepth;
-    }>;
-  try {
-    return JSON.parse(sessionStorage.getItem(CONSOLE_PREFS_KEY) ?? "{}");
-  } catch {
-    return {} as Partial<{
-      autoScroll: boolean;
-      showTimestamps: boolean;
-      wordWrap: boolean;
-      levelFilter: "all" | "error" | "warn" | "info";
-      regexMode: boolean;
-      historyDepth: ConsoleHistoryDepth;
-    }>;
-  }
-}
-
-const HISTORY_DEPTH_MAX_LINES: Record<ConsoleHistoryDepth, number> = {
-  "1h": 2000,
-  "6h": 5000,
-  "1d": 10000,
-  "3d": 20000,
-  "7d": 20000,
-};
 const GAME_HUB_TAB_STORAGE_PREFIX = "infraweaver:game-hub:tab";
-
-function readConsoleHistory(name: string) {
-  if (typeof window === "undefined") return [] as string[];
-  try {
-    const stored = JSON.parse(
-      localStorage.getItem(`${CONSOLE_HISTORY_KEY}:${name}`) ?? "[]",
-    ) as string[];
-    return stored.filter((entry) => typeof entry === "string").slice(0, 50);
-  } catch {
-    return [] as string[];
-  }
-}
 
 function readRecentFiles(name: string) {
   if (typeof window === "undefined") return [] as string[];
@@ -310,10 +240,6 @@ function buildSchedulePayload(
     days: days.length > 0 ? days : ALL_SCHEDULE_DAYS,
     timezone: timezone.trim() || "UTC",
   };
-}
-
-function stringifyEnv(env: ServerDetail["env"]) {
-  return env.map((entry) => `${entry.name}=${entry.value ?? ""}`).join("\n");
 }
 
 function countContentLines(value: string | null) {
@@ -488,34 +414,6 @@ function nextCronRuns(cronExpr: string, count = 3) {
   return runs;
 }
 
-function highlightLogMatch(text: string, query: string) {
-  if (!query.trim()) return text;
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  const parts: ReactNode[] = [];
-  let start = 0;
-  let index = lowerText.indexOf(lowerQuery);
-  while (index >= 0) {
-    if (index > start) {
-      parts.push(text.slice(start, index));
-    }
-    parts.push(
-      <mark
-        key={`${index}-${start}`}
-        className="rounded-sm bg-yellow-500/30 text-yellow-200"
-      >
-        {text.slice(index, index + lowerQuery.length)}
-      </mark>,
-    );
-    start = index + lowerQuery.length;
-    index = lowerText.indexOf(lowerQuery, start);
-  }
-  if (start < text.length) {
-    parts.push(text.slice(start));
-  }
-  return parts;
-}
-
 type DiffLine = {
   type: "context" | "added" | "removed";
   value: string;
@@ -634,25 +532,6 @@ function FilesTab({
   });
 
   const fileExt = selectedFile?.name.split(".").pop()?.toLowerCase() ?? "";
-  const editorLang =
-    (
-      {
-        json: "json",
-        yaml: "yaml",
-        yml: "yaml",
-        properties: "ini",
-        conf: "ini",
-        cfg: "ini",
-        log: "plaintext",
-        txt: "plaintext",
-        sh: "shell",
-        py: "python",
-        js: "javascript",
-        ts: "typescript",
-        xml: "xml",
-        toml: "toml",
-      } as Record<string, string>
-    )[fileExt] ?? "plaintext";
   const isImageFile = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(
     fileExt,
   );
@@ -1860,7 +1739,6 @@ function SettingsAccordion({
 
 function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const queryClient = useQueryClient();
-  const envImportRef = useRef<HTMLInputElement>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const defaultEgg = getEggForGameType(server.gameType);
   const defaultEnv = Object.fromEntries(
@@ -1912,20 +1790,12 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [hpaCpu, setHpaCpu] = useState(server.hpa.cpuTarget ?? 70);
   const [scaleSaving, setScaleSaving] = useState(false);
   const autoRestart = server.restartPolicy === "Always";
-  const [notes, setNotes] = useState(server.notes ?? "");
-  const [savingNotes, setSavingNotes] = useState(false);
   const [memLimit, setMemLimit] = useState(parseMemoryMi(server.memory));
   const [cpuLimit, setCpuLimit] = useState(parseCpuMillicores(server.cpu));
   const [savingResources, setSavingResources] = useState(false);
-  const [editingEnv, setEditingEnv] = useState(false);
-  const [envStr, setEnvStr] = useState(stringifyEnv(server.env));
-  const [savingEnv, setSavingEnv] = useState(false);
   const [description, setDescription] = useState(server.description ?? "");
   const [icon, setIcon] = useState(server.icon ?? "🎮");
   const [accentColor, setAccentColor] = useState(normalizeAccentColor(server.annotations?.[ACCENT_ANNOTATION_KEY]));
-  const [tags, setTags] = useState<string[]>(server.tags ?? []);
-  const [tagInput, setTagInput] = useState("");
-  const [savingTags, setSavingTags] = useState(false);
   const [groupsStr, setGroupsStr] = useState((server.groups ?? []).join(", "));
   const [image, setImage] = useState(server.image ?? "");
   const [imagePullPolicy, setImagePullPolicy] = useState(
@@ -2086,16 +1956,6 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     toast.info("Crash restart is always enabled for deployment-backed Game Hub servers.");
   }
 
-  async function saveNotes() {
-    setSavingNotes(true);
-    try {
-      await patchServer({ action: "set-notes", notes }, "Server notes saved");
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setSavingNotes(false);
-    }
-  }
 
   async function saveResources() {
     setSavingResources(true);
@@ -2213,27 +2073,6 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     }
   }
 
-  async function saveEnv() {
-    setSavingEnv(true);
-    try {
-      const env: Record<string, string> = {};
-      for (const line of envStr.split("\n")) {
-        const index = line.indexOf("=");
-        if (index < 0) continue;
-        env[line.slice(0, index).trim()] = line.slice(index + 1).trim();
-      }
-      await patchServer(
-        { action: "update-env", env },
-        "Saved — restart the server to apply changes",
-      );
-      setEditingEnv(false);
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setSavingEnv(false);
-    }
-  }
-
   async function applyUnsetEnvVar(entry: { name: string; defaultValue: string }, customValue?: string) {
     const valueToApply = customValue ?? entry.defaultValue;
     setUnsetApplyState((prev) => ({ ...prev, [entry.name]: "loading" }));
@@ -2263,27 +2102,6 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     }
   }
 
-  function exportEnv() {
-    downloadTextFile(
-      `${name}.env`,
-      editingEnv ? envStr : stringifyEnv(server.env),
-    );
-  }
-
-  async function importEnvFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      setEnvStr(await file.text());
-      setEditingEnv(true);
-      toast.success(".env imported");
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      event.target.value = "";
-    }
-  }
-
   async function saveIdentity() {
     try {
       await patchServer(
@@ -2305,33 +2123,6 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     } catch (error) {
       toast.error(String(error));
     }
-  }
-
-  async function saveTags(nextTags: string[]) {
-    setSavingTags(true);
-    try {
-      await patchServer(
-        { action: "update-identity", tags: nextTags },
-        nextTags.length > 0 ? "Tags updated" : "Tags cleared",
-      );
-      setTags(nextTags);
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setSavingTags(false);
-    }
-  }
-
-  function addTag() {
-    const nextTag = tagInput.trim();
-    if (!nextTag) return;
-    const nextTags = [...new Set([...tags, nextTag])];
-    setTagInput("");
-    if (nextTags.length !== tags.length) void saveTags(nextTags);
-  }
-
-  function removeTag(tag: string) {
-    void saveTags(tags.filter((entry) => entry !== tag));
   }
 
   async function saveImage() {

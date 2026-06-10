@@ -797,7 +797,6 @@ kubectl --kubeconfig "$KB_FILE" label namespace metallb-system \
   pod-security.kubernetes.io/enforce-version=latest \
   --overwrite 2>/dev/null || true
 kubectl --kubeconfig "$KB_FILE" rollout restart daemonset/metallb-speaker -n metallb-system 2>/dev/null || true
-kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/core/traefik/manifests/middleware-netbird.yaml 2>/dev/null || true
 ok "Step 12: MetalLB + Traefik middleware applied"
 
 # ── Step 13: Configure certificate issuers ────────────────────────────────────
@@ -825,12 +824,6 @@ if [[ "$LETSENCRYPT_ENV" == "staging" ]]; then
   done
 fi
 ok "Step 13: TLS configured"
-
-# ── Step 14: Reconnect NetBird ────────────────────────────────────────────────
-log "Step 14: Reconnecting NetBird router VM..."
-ENV_NAME="$ENV_NAME" bash scripts/deploy/reconnect-netbird.sh 2>/dev/null || warn "NetBird reconnect failed (continuing)"
-ENV_NAME="$ENV_NAME" bash scripts/deploy/populate-netbird.sh 2>/dev/null  || warn "NetBird populate failed (continuing)"
-ok "Step 14: NetBird reconnected"
 
 # ── Step 15: Fix ingress-nginx admission webhook ──────────────────────────────
 log "Step 15: Fixing ingress-nginx admission webhook CA bundle..."

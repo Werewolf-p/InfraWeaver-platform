@@ -240,8 +240,6 @@ remove_bootstrap() {
 log ""
 log "=== Syncing enabled apps ==="
 
-CHANGES_MADE=false
-
 # For each enabled app: ensure bootstrap files exist and are up to date
 while IFS= read -r app; do
   [[ -z "$app" ]] && continue
@@ -281,7 +279,6 @@ print('yes' if d.get('helm') else 'no')
         log "  $app: no helm section and no manifests/ directory — skipping bootstrap"
       fi
     fi
-    CHANGES_MADE=true
   fi
 done <<< "$ENABLED_APPS"
 
@@ -306,7 +303,6 @@ for f in "$BOOTSTRAP_DIR"/catalog-*.yaml; do
     else
       rm "$f"
       log "  Deleted: $f"
-      CHANGES_MADE=true
     fi
   fi
 done

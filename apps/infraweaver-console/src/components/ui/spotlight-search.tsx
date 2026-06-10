@@ -4,7 +4,6 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, X, Clock, Box, Server } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
 import { useResourceSearch } from "@/hooks/use-resource-search";
 import { ALL_NAV_ITEMS } from "@/lib/nav-config";
 

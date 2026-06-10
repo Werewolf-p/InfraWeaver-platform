@@ -34,8 +34,6 @@ export const controlClassName =
 
 export const textareaClassName = cn(controlClassName, 'min-h-32 resize-y font-mono text-xs leading-6')
 
-export const smallMutedTextClassName = 'text-xs leading-5 text-[var(--az-text-secondary)]'
-
 const ipv4Segment = '(25[0-5]|2[0-4]\\d|1?\\d?\\d)'
 const ipv4Regex = new RegExp(`^${ipv4Segment}(\\.${ipv4Segment}){3}$`)
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/

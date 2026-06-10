@@ -231,8 +231,6 @@ function AppAccessBadges({ access, netbirdInstalled }: { access?: AppRouteAccess
 
 function SwipeableAppCard({
   row,
-  syncingApp,
-  deletingApp,
   onSync,
   onDelete,
   isOptimisticSyncing,
@@ -242,8 +240,6 @@ function SwipeableAppCard({
   netbirdInstalled,
 }: {
   row: AppRow;
-  syncingApp: string | null;
-  deletingApp: string | null;
   onSync: (name: string) => void;
   onDelete: (name: string) => void;
   isOptimisticSyncing?: boolean;
@@ -1306,8 +1302,6 @@ function AllInstalledTab() {
               </div>
               <SwipeableAppCard
                 row={row}
-                syncingApp={syncingApp}
-                deletingApp={deletingApp}
                 onSync={requestSync}
                 onDelete={handleDelete}
                 isOptimisticSyncing={optimisticSyncing.has(row.name)}

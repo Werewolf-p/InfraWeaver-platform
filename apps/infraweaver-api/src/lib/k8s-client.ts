@@ -41,8 +41,3 @@ export const getBatchApiForCluster      = (id: string) => makeApiClient(id, k8s.
 export const getNetworkApiForCluster    = (id: string) => makeApiClient(id, k8s.NetworkingV1Api);
 export const getAutoscalingApiForCluster = (id: string) => makeApiClient(id, k8s.AutoscalingV2Api);
 export const getPolicyApiForCluster     = (id: string) => makeApiClient(id, k8s.PolicyV1Api);
-
-export async function getMetricsApiForCluster(clusterId: string) {
-  const kc = await getKcForCluster(clusterId);
-  return new k8s.Metrics(kc);
-}

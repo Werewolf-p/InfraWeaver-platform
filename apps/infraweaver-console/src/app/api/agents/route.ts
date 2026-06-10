@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { iwApiFetch } from "@/lib/iw-api";
 import { requireRoutePermissions } from "@/lib/route-utils";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { auth } from "@/lib/auth";
 import { safeError } from "@/lib/utils";
 
 // GET /api/agents — returns connected agents + pending discovery requests

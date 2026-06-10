@@ -56,7 +56,6 @@ ALL_VOLUMES=(
   "onedev-data"
   "vaultwarden-data"
   "n8n-data"
-  "netbird-management-data"
   "minio-velero-data"
   "data-wiki-postgresql-0"   # wiki Helm chart PVC name
 )

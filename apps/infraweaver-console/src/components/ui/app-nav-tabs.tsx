@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { LayoutGrid, Package, Store, CheckCircle2 } from "lucide-react";
+import { LayoutGrid, Package, Store } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [

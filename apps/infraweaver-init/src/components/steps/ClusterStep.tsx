@@ -20,14 +20,12 @@ import { GlassCard } from '@/components/ui/GlassCard'
 import { PingDot } from '@/components/ui/PingDot'
 import { StepHeader } from '@/components/ui/StepHeader'
 import { useWizardStore, type NodeConfig } from '@/lib/store'
-import { controlClassName, fadeUpItem, isIPv4, staggerContainer } from '@/lib/utils'
+import { controlClassName, fadeUpItem, isIPv4, isVipRange, staggerContainer } from '@/lib/utils'
 
 const vipRows = [
   { key: 'METALLB_TRAEFIK_VIP', label: 'Traefik ingress' },
   { key: 'METALLB_COREDNS_VIP', label: 'CoreDNS' },
-  { key: 'METALLB_NETBIRD_MGMT_VIP', label: 'NetBird management' },
-  { key: 'METALLB_NETBIRD_SIGNAL_VIP', label: 'NetBird signal' },
-  { key: 'METALLB_NETBIRD_RELAY_VIP', label: 'NetBird relay' },
+  { key: 'METALLB_VIP_205', label: 'Authentik LDAP outpost' },
 ] as const
 
 function dsValue(ds: NodeDatastore | string): string {
@@ -177,6 +175,32 @@ export function ClusterStep() {
     () => nodes.reduce((sum, node) => sum + Number(node.disk || 0), 0),
     [nodes],
   )
+
+  // Validation guards — catch config that silently breaks OpenTofu/MetalLB downstream.
+  // VM IDs must be unique cluster-wide; node IPs and VIPs must not collide.
+  const duplicateVmids = useMemo(() => {
+    const counts = new Map<string, number>()
+    nodes.forEach((node) => {
+      const value = node.vmid.trim()
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1)
+    })
+    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([value]) => value))
+  }, [nodes])
+
+  const addressCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    nodes.forEach((node) => {
+      const value = node.ip.trim()
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1)
+    })
+    vipRows.forEach((row) => {
+      const value = data[row.key].trim()
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1)
+    })
+    return counts
+  }, [nodes, data])
+
+  const vipRangeInvalid = data.METALLB_VIP_RANGE.trim().length > 0 && !isVipRange(data.METALLB_VIP_RANGE)
 
   const pingNode = useCallback(async (nodeData: { id: string; ip: string }) => {
     const ip = nodeData.ip.trim()
@@ -426,7 +450,12 @@ export function ClusterStep() {
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-[1.15fr_0.85fr]">
-                  <FormField label="Node IP" htmlFor={`${node.id}-ip`} hint="Green = free, red = already in use.">
+                  <FormField
+                    label="Node IP"
+                    htmlFor={`${node.id}-ip`}
+                    hint="Green = free, red = already in use."
+                    error={node.ip.trim() && (addressCounts.get(node.ip.trim()) ?? 0) > 1 ? 'Address already used by another node or VIP — pick a unique IP.' : undefined}
+                  >
                     <div className="flex items-center gap-3">
                       <PingDot state={nodePing[node.id] ?? null} />
                       <input
@@ -446,7 +475,12 @@ export function ClusterStep() {
                       />
                     </div>
                   </FormField>
-                  <FormField label="VMID" htmlFor={`${node.id}-vmid`} hint="Must be unique inside the Proxmox cluster.">
+                  <FormField
+                    label="VMID"
+                    htmlFor={`${node.id}-vmid`}
+                    hint="Must be unique inside the Proxmox cluster."
+                    error={duplicateVmids.has(node.vmid.trim()) ? 'Duplicate VMID — Proxmox VM IDs must be unique cluster-wide.' : undefined}
+                  >
                     <input
                       id={`${node.id}-vmid`}
                       value={node.vmid}
@@ -708,7 +742,12 @@ export function ClusterStep() {
         </div>
 
         <div className="space-y-4">
-          <FormField label="METALLB_VIP_RANGE" htmlFor="METALLB_VIP_RANGE" hint="Full pool range that covers every VIP below.">
+          <FormField
+            label="METALLB_VIP_RANGE"
+            htmlFor="METALLB_VIP_RANGE"
+            hint="Full pool range that covers every VIP below. Format: start-end (e.g. 10.10.0.200-10.10.0.210)."
+            error={vipRangeInvalid ? 'Enter a valid range as start-end, with start ≤ end (e.g. 10.10.0.200-10.10.0.210).' : undefined}
+          >
             <input
               id="METALLB_VIP_RANGE"
               value={data.METALLB_VIP_RANGE}
@@ -718,9 +757,18 @@ export function ClusterStep() {
           </FormField>
 
           <div className="grid gap-4 md:grid-cols-2">
-            {vipRows.map((row) => (
+            {vipRows.map((row) => {
+              const vipValue = data[row.key].trim()
+              const vipCollision = vipValue.length > 0 && (addressCounts.get(vipValue) ?? 0) > 1
+              const vipInvalid = vipValue.length > 0 && !isIPv4(vipValue)
+              return (
               <motion.div key={row.key} variants={fadeUpItem} className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                <FormField label={row.key} htmlFor={row.key} hint={row.label}>
+                <FormField
+                  label={row.key}
+                  htmlFor={row.key}
+                  hint={row.label}
+                  error={vipInvalid ? 'Enter a valid IPv4 address.' : vipCollision ? 'Duplicate VIP — already used by a node or another VIP.' : undefined}
+                >
                   <div className="flex items-center gap-3">
                     <PingDot state={vipPing[row.key]} />
                     <input
@@ -733,7 +781,8 @@ export function ClusterStep() {
                   </div>
                 </FormField>
               </motion.div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </GlassCard>

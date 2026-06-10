@@ -7,7 +7,6 @@ import { toast } from "@/lib/notify";
 import { Save, Code, ToggleLeft, ToggleRight, GitCommit, Loader2, CheckCircle2, XCircle, Lock, Cog } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
-import dynamic from "next/dynamic";
 import * as jsYaml from "js-yaml";
 
 

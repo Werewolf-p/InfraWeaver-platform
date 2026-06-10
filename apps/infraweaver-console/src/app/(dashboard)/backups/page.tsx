@@ -61,9 +61,8 @@ function timeAgo(iso: string | null) {
   return `${d}d ago`;
 }
 
-function BackupRow({ backup, volumeName, onRestore }: {
+function BackupRow({ backup, onRestore }: {
   backup: LonghornBackup;
-  volumeName: string;
   onRestore: (url: string) => void;
 }) {
   const isReady = backup.state === "Completed";
@@ -164,7 +163,6 @@ function VolumeCard({ volume }: { volume: LonghornBackupVolume }) {
                   <BackupRow
                     key={b.name}
                     backup={b}
-                    volumeName={volume.volumeName}
                     onRestore={(url) => { setConfirmRestore(url); setRestoreTarget(""); }}
                   />
                 ))}

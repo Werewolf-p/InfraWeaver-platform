@@ -122,7 +122,7 @@ export async function GET(req: NextRequest) {
         clearTimeout(timer);
         if (!res.ok) return { status: "fail", message: `Health endpoint returned HTTP ${res.status}` };
         return { status: "pass", message: "Health endpoint OK" };
-      } catch (err) {
+      } catch {
         clearTimeout(timer);
         // In-cluster call may not work from Next.js — skip gracefully
         return { status: "skip", message: "In-cluster health check not available from this context" };

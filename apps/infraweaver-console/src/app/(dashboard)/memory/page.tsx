@@ -98,7 +98,6 @@ export default function MemoryPage() {
     queryFn: async () => {
       const response = await fetch("/api/cluster/memory-heatmap");
       if (!response.ok) throw new Error("Failed to load namespace memory data");
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       return response.json();
     },
     refetchInterval: 15_000,
@@ -110,7 +109,6 @@ export default function MemoryPage() {
     queryFn: async () => {
       const response = await fetch("/api/cluster/top-consumers");
       if (!response.ok) throw new Error("Failed to load top consumers");
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       return response.json();
     },
     refetchInterval: 15_000,

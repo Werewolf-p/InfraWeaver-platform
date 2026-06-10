@@ -42,7 +42,6 @@ fi
 
 ENV_DIR="$REPO_ROOT/envs/$ENVIRONMENT"
 BACKEND_HCL="$ENV_DIR/backend.hcl"
-TFVARS="$ENV_DIR/terraform.tfvars"
 GENERATED_DIR="$ENV_DIR/generated"
 GENERATED_KUBECONFIG="$GENERATED_DIR/kubeconfig"
 

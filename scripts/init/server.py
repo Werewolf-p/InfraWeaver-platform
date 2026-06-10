@@ -112,7 +112,7 @@ DNS_ENV_FIELDS = [
 ]
 
 OPTIONAL_ENV_FIELDS = [
-    "SMTP_TO", "NETBIRD_API_TOKEN", "GITHUB_PAT",
+    "SMTP_TO", "GITHUB_PAT",
     "RUNNER_REGISTRATION_TOKEN", "ENV_NAME", "LETSENCRYPT_ENV"
 ]
 
@@ -148,7 +148,6 @@ CLUSTER_DEFAULTS = {
 # Infrastructure VIP and admin fields
 INFRA_ENV_FIELDS = [
     "METALLB_VIP_RANGE", "METALLB_TRAEFIK_VIP", "METALLB_COREDNS_VIP",
-    "METALLB_NETBIRD_MGMT_VIP", "METALLB_NETBIRD_SIGNAL_VIP", "METALLB_NETBIRD_RELAY_VIP",
     "CLUSTER_LOCAL_DOMAIN", "ADMIN_USERNAME", "ADMIN_NAME",
 ]
 
@@ -156,9 +155,6 @@ INFRA_DEFAULTS = {
     "METALLB_VIP_RANGE": "10.10.0.200-10.10.0.210",
     "METALLB_TRAEFIK_VIP": "10.10.0.200",
     "METALLB_COREDNS_VIP": "10.10.0.201",
-    "METALLB_NETBIRD_MGMT_VIP": "10.10.0.202",
-    "METALLB_NETBIRD_SIGNAL_VIP": "10.10.0.203",
-    "METALLB_NETBIRD_RELAY_VIP": "10.10.0.204",
     "CLUSTER_LOCAL_DOMAIN": "prod.local",
     "ADMIN_USERNAME": "admin",
     "ADMIN_NAME": "Platform Admin",
@@ -166,7 +162,7 @@ INFRA_DEFAULTS = {
 
 # Feature flag fields — written to .env and read by configure-platform.sh
 FEATURE_ENV_FIELDS = [
-    "ENABLE_NETBIRD", "ENABLE_MONITORING", "MONITORING_STACK", "ENABLE_EXTERNAL_DNS", "BACKUP_PROVIDER",
+    "ENABLE_MONITORING", "MONITORING_STACK", "ENABLE_EXTERNAL_DNS", "BACKUP_PROVIDER",
     "ENABLE_WAZUH", "ENABLE_LONGHORN", "ENABLE_KYVERNO", "ENABLE_GRAFANA",
     "ENABLE_LOKI", "ENABLE_AUTHENTIK_LDAP",
     "LOCAL_IP_RANGES",
@@ -174,7 +170,6 @@ FEATURE_ENV_FIELDS = [
 
 # Default values for feature flags
 FEATURE_DEFAULTS = {
-    "ENABLE_NETBIRD": "false",
     "ENABLE_MONITORING": "true",
     "MONITORING_STACK": "kube-prometheus-stack",
     "ENABLE_EXTERNAL_DNS": "false",
@@ -291,9 +286,6 @@ def _suggest_vips(gateway: str, prefix: int) -> Dict:
         vip_names = [
             ("METALLB_TRAEFIK_VIP",        "Traefik ingress"),
             ("METALLB_COREDNS_VIP",         "CoreDNS"),
-            ("METALLB_NETBIRD_MGMT_VIP",    "NetBird management"),
-            ("METALLB_NETBIRD_SIGNAL_VIP",  "NetBird signal"),
-            ("METALLB_NETBIRD_RELAY_VIP",   "NetBird relay"),
         ]
 
         # Compute IPs; fall back to broadcast-N if they exceed broadcast
@@ -932,47 +924,6 @@ def _generate_ssh_key() -> Dict:
 
 
 
-def _check_netbird_token(token: str, base_domain: str) -> Dict:
-    import urllib.request
-    import urllib.error
-
-    token = token.strip()
-    base_domain = (base_domain or "").strip().rstrip(".")
-    if not token:
-        return {"ok": False, "error": "No NetBird API token provided"}
-    if not base_domain:
-        return {"ok": False, "error": "BASE_DOMAIN not set — cannot resolve NetBird management URL"}
-
-    management_url = f"https://api-netbird.{base_domain}/api/accounts"
-    req = urllib.request.Request(management_url, headers={"Authorization": f"Token {token}"})
-    try:
-        with urllib.request.urlopen(req, context=_proxmox_context(), timeout=10) as resp:
-            body = json.loads(resp.read())
-        accounts = body if isinstance(body, list) else []
-        account_id = accounts[0].get("id", "unknown") if accounts else "unknown"
-        return {
-            "ok": True,
-            "status": "active",
-            "account_id": account_id,
-            "management_url": management_url,
-        }
-    except urllib.error.HTTPError as exc:
-        status = exc.code
-        try:
-            msg = json.loads(exc.read()).get("message", exc.reason)
-        except Exception:
-            msg = exc.reason
-        if status == 401:
-            return {"ok": False, "error": f"Token rejected (HTTP 401) — check NETBIRD_API_TOKEN at {management_url}"}
-        if status == 403:
-            return {"ok": False, "error": f"Token lacks permissions (HTTP 403) at {management_url}: {msg}"}
-        if status == 404:
-            return {"ok": False, "error": f"NetBird management API not found at {management_url} (HTTP 404) — check BASE_DOMAIN and that NetBird is deployed"}
-        return {"ok": False, "error": f"NetBird API returned HTTP {status}: {msg}"}
-    except Exception as exc:
-        return {"ok": False, "error": f"Cannot reach NetBird management API at {management_url}: {exc}"}
-
-
 def _normalize_dns_provider(provider: str) -> str:
     provider = (provider or "cloudflare").strip().lower()
     return provider if provider in DNS_PROVIDER_FIELDS else "cloudflare"
@@ -1511,7 +1462,6 @@ def _run_deploy(mode: str, deployment_id: int):
         ("Bootstrap OpenBao", 65, "Bootstrapping OpenBao"),
         ("Ensuring DNS records", 70, "Configuring DNS"),
         ("Apply MetalLB", 75, "Applying MetalLB"),
-        ("Reconnect NetBird", 80, "NetBird reconnect"),
         ("Patch cluster CoreDNS", 82, "Patching CoreDNS"),
         ("Configure certificate", 85, "TLS certificates"),
         ("Set Authentik admin", 90, "Configuring Authentik"),
@@ -1767,7 +1717,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     {"name": "onedev-data", "label": "OneDev", "icon": "🧑‍💻"},
                     {"name": "vaultwarden-data", "label": "Vaultwarden", "icon": "🔑"},
                     {"name": "n8n-data", "label": "n8n", "icon": "🔄"},
-                    {"name": "netbird-management-data", "label": "NetBird", "icon": "🌐"},
                     {"name": "minio-velero-data", "label": "MinIO", "icon": "🪣"},
                     {"name": "data-wiki-postgresql-0", "label": "Wiki.js", "icon": "📚"},
                 ],
@@ -1972,11 +1921,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json(_check_dns_provider(provider, credentials))
             return
 
-        if path == "/api/check-netbird-token":
-            token = str(payload.get("token", "")).strip()
-            base_domain = str(payload.get("base_domain", "")).strip()
-            self._send_json(_check_netbird_token(token, base_domain))
-            return
 
 
         if path in ("/api/deploy", "/api/redeploy"):

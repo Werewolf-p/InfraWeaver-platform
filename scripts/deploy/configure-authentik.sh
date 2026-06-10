@@ -30,9 +30,8 @@ $KT wait pod -n authentik -l app.kubernetes.io/component=worker \
   --for=condition=Ready --timeout=120s 2>/dev/null || true
 echo "  ✅ Authentik worker ready"
 
-# Use deploy/authentik-worker -c worker instead of pod name throughout this step.
-# This always routes to a live pod even if the pod restarts during this step.
-AK_EXEC="$KT exec -n authentik deploy/authentik-worker -c worker --"
+# All authentik exec calls below use `deploy/authentik-worker -c worker` instead
+# of a pod name, so they always route to a live pod even if it restarts mid-step.
 
 # Wait for all users defined in users.yaml to be created (parallel checks).
 # Blueprints create users async; worker may be ready before users exist.
