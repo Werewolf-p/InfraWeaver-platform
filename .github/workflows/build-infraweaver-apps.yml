@@ -28,6 +28,12 @@ jobs:
             ghcr.io/werewolf-p/infraweaver-api:latest
             ghcr.io/werewolf-p/infraweaver-api:${{ github.sha }}
 
+  # NOTE: the console is built in-cluster (BuildKit -> Zot) by the feedback
+  # dispatch pipeline, and the live console deployment is pinned to that Zot
+  # image. Building it here too produced a duplicate, orphaned GHCR image (and
+  # collided with the now-removed build-console.yml). Console builds are
+  # intentionally NOT part of this workflow.
+
   build-node:
     runs-on: ubuntu-latest
     permissions:
