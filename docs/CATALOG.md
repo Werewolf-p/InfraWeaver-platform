@@ -22,24 +22,24 @@ Then push to main — ArgoCD will auto-deploy or remove the app.
 
 | App | URL | Auth | Storage | Description |
 |-----|-----|------|---------|-------------|
-| `wiki` | wiki.int.rlservers.com | Authentik OIDC | 5Gi | Wiki.js documentation wiki |
-| `uptime-kuma` | uptime-kuma.int.rlservers.com | Forward-auth | 1Gi | Status/uptime monitoring |
-| `gitea` | gitea.int.rlservers.com | Native OIDC | 5Gi PG | Self-hosted Git forge |
-| `vaultwarden` | vaultwarden.int.rlservers.com | Forward-auth | 1Gi | Bitwarden-compatible passwords |
-| `it-tools` | it-tools.int.rlservers.com | Forward-auth | none | IT/Dev tool collection |
-| `stirling-pdf` | stirling-pdf.int.rlservers.com | Forward-auth | none | PDF manipulation tools |
-| `excalidraw` | excalidraw.int.rlservers.com | Forward-auth | none | Collaborative whiteboard |
-| `actual` | actual.int.rlservers.com | Forward-auth | 2Gi | Personal finance / budgeting |
-| `n8n` | n8n.int.rlservers.com | Forward-auth | 5Gi | Workflow automation |
-| `forgejo` | forgejo.int.rlservers.com | Native OIDC | 10Gi PG | Community Git forge (Gitea fork) |
+| `wiki` | wiki.int.example.com | Authentik OIDC | 5Gi | Wiki.js documentation wiki |
+| `uptime-kuma` | uptime-kuma.int.example.com | Forward-auth | 1Gi | Status/uptime monitoring |
+| `gitea` | gitea.int.example.com | Native OIDC | 5Gi PG | Self-hosted Git forge |
+| `vaultwarden` | vaultwarden.int.example.com | Forward-auth | 1Gi | Bitwarden-compatible passwords |
+| `it-tools` | it-tools.int.example.com | Forward-auth | none | IT/Dev tool collection |
+| `stirling-pdf` | stirling-pdf.int.example.com | Forward-auth | none | PDF manipulation tools |
+| `excalidraw` | excalidraw.int.example.com | Forward-auth | none | Collaborative whiteboard |
+| `actual` | actual.int.example.com | Forward-auth | 2Gi | Personal finance / budgeting |
+| `n8n` | n8n.int.example.com | Forward-auth | 5Gi | Workflow automation |
+| `forgejo` | forgejo.int.example.com | Native OIDC | 10Gi PG | Community Git forge (Gitea fork) |
 
 ### Defined but not yet enabled
 
 | App | URL | Auth | Description |
 |-----|-----|------|-------------|
-| `mealie` | mealie.int.rlservers.com | OIDC | Recipe manager |
-| `changedetection` | changedetection.int.rlservers.com | Forward-auth | Website change monitor |
-| `paperless-ngx` | paperless.int.rlservers.com | OIDC | Document management (complex) |
+| `mealie` | mealie.int.example.com | OIDC | Recipe manager |
+| `changedetection` | changedetection.int.example.com | Forward-auth | Website change monitor |
+| `paperless-ngx` | paperless.int.example.com | OIDC | Document management (complex) |
 
 ---
 

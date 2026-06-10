@@ -20,7 +20,7 @@ set -euo pipefail
 ROUTER_IP="10.10.0.10"
 ROUTER_USER="ubuntu"
 SETUP_KEY="A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
-MGMT_URL="https://netbird.rlservers.com"
+MGMT_URL="https://netbird.example.com"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -i ~/.ssh/deployer_ed25519"
 
 echo "==> Checking SSH connectivity to router VM at $ROUTER_IP..."

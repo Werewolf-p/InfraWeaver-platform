@@ -61,7 +61,7 @@ lines = [
 for username in new_usernames:
     udata = all_users.get(username, {})
     name = udata.get("name", username)
-    email = udata.get("email", f"{username}@rlservers.com")
+    email = udata.get("email", f"{username}@example.com")
     secret_key = f"{username}-password"
     pw = get_k8s_secret_value(kubeconfig, "authentik-secrets", "authentik", secret_key)
     pw_b64 = base64.b64encode(pw.encode()).decode() if pw else ""

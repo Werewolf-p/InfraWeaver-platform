@@ -22,7 +22,7 @@ jobs:
         #!/usr/bin/env bash
         set -euo pipefail
         SHORT_SHA=$(git rev-parse --short HEAD)
-        REGISTRY="onedev.rlservers.com/infraweaver-platform"
+        REGISTRY="onedev.example.com/infraweaver-platform"
 
         echo "Updating deployment manifests to tag main-${SHORT_SHA}..."
 

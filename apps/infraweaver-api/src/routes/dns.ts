@@ -3,6 +3,12 @@ import { getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
 import type { AppBindings } from '../types/index.js';
 
+// Deployment-specific values come from the API process env; generic defaults
+// keep the public template free of real domains/IPs.
+const BASE_DOMAIN = process.env.BASE_DOMAIN || "example.com";
+const INT_DOMAIN = process.env.INTERNAL_DOMAIN || `int.${BASE_DOMAIN}`;
+const TRAEFIK_VIP = process.env.TRAEFIK_VIP || "10.0.0.200";
+
 /**
  * DNS route — Traefik IngressRoute inspection and DNS preset catalogue
  *
@@ -18,7 +24,7 @@ type AccessTier = "internal" | "external" | "vpn" | "unknown";
 
 /** A host extracted from an IngressRoute match rule */
 interface TraefikHost {
-  /** The full FQDN, e.g. "adguard.int.rlservers.com" */
+  /** The full FQDN, e.g. "adguard.int.example.com" */
   fqdn: string;
   /** "internal", "external", "vpn", or "unknown" */
   accessTier: AccessTier;
@@ -94,11 +100,11 @@ const PRESETS: DnsPreset[] = [
       ],
       tlsSecret: "platform-wildcard-int-tls",
       accessTierLabel: "internal",
-      domainSuffix: "int.rlservers.com",
+      domainSuffix: INT_DOMAIN,
     },
     dns: {
       type: "A",
-      targetPlaceholder: "10.10.0.200",
+      targetPlaceholder: TRAEFIK_VIP,
       ttl: 120,
       proxied: false,
     },
@@ -117,7 +123,7 @@ const PRESETS: DnsPreset[] = [
       ],
       tlsSecret: "platform-wildcard-tls",
       accessTierLabel: "external",
-      domainSuffix: "rlservers.com",
+      domainSuffix: BASE_DOMAIN,
     },
     dns: {
       type: "A",
@@ -140,7 +146,7 @@ const PRESETS: DnsPreset[] = [
       ],
       tlsSecret: "platform-wildcard-int-tls",
       accessTierLabel: "vpn",
-      domainSuffix: "int.rlservers.com",
+      domainSuffix: INT_DOMAIN,
     },
     dns: {
       type: "A",
@@ -163,11 +169,11 @@ const PRESETS: DnsPreset[] = [
       ],
       tlsSecret: "platform-wildcard-int-tls",
       accessTierLabel: "internal",
-      domainSuffix: "int.rlservers.com",
+      domainSuffix: INT_DOMAIN,
     },
     dns: {
       type: "A",
-      targetPlaceholder: "10.10.0.200",
+      targetPlaceholder: TRAEFIK_VIP,
       ttl: 120,
       proxied: false,
     },
@@ -183,7 +189,7 @@ const PRESETS: DnsPreset[] = [
       middlewares: [],
       tlsSecret: "",
       accessTierLabel: "external",
-      domainSuffix: "rlservers.com",
+      domainSuffix: BASE_DOMAIN,
     },
     dns: {
       type: "A",
@@ -207,11 +213,11 @@ const PRESETS: DnsPreset[] = [
       ],
       tlsSecret: "platform-wildcard-int-tls",
       accessTierLabel: "internal",
-      domainSuffix: "dev.int.rlservers.com",
+      domainSuffix: `dev.${INT_DOMAIN}`,
     },
     dns: {
       type: "A",
-      targetPlaceholder: "10.10.0.200",
+      targetPlaceholder: TRAEFIK_VIP,
       ttl: 60,
       proxied: false,
     },
@@ -231,7 +237,7 @@ const PRESETS: DnsPreset[] = [
       ],
       tlsSecret: "platform-wildcard-tls",
       accessTierLabel: "external",
-      domainSuffix: "rlservers.com",
+      domainSuffix: BASE_DOMAIN,
     },
     dns: {
       type: "A",
@@ -382,7 +388,7 @@ dnsRoute.post("/from-traefik", async (c) => {
     externalIp?: string;
   };
 
-  const internalIp = body.internalIp ?? "10.10.0.200";
+  const internalIp = body.internalIp ?? TRAEFIK_VIP;
   const externalIp = body.externalIp ?? "";
 
   try {

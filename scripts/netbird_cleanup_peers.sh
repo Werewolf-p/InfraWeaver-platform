@@ -8,7 +8,7 @@
 # Arguments:
 #   cluster_pattern  Grep-compatible pattern to match peer hostnames
 #                    Example: "talos-prod" or "talos-ontwikkel"
-#   netbird_api_url  Optional. Defaults to https://netbird.rlservers.com
+#   netbird_api_url  Optional. Defaults to https://netbird.example.com
 #
 # Environment:
 #   NETBIRD_API_TOKEN  Required. Personal Access Token for NetBird API.
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 CLUSTER_PATTERN="${1:?Usage: $0 <cluster_pattern> [api_url]}"
-NETBIRD_API="${2:-https://netbird.rlservers.com}"
+NETBIRD_API="${2:-https://netbird.example.com}"
 
 if [ -z "${NETBIRD_API_TOKEN:-}" ]; then
   echo "❌ NETBIRD_API_TOKEN is not set" >&2

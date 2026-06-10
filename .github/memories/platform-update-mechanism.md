@@ -49,7 +49,7 @@
 - Build: `cd apps/infraweaver-api && npm run build` (uses node --max_old_space_size=512)
 - Container: `buildah bud --no-cache -f Dockerfile.prebuilt` (**always use --no-cache**)
   - Without --no-cache, buildah may use a cached layer with corrupt npm packages
-- Push: `buildah push onedev.rlservers.com/infraweaver-platform/infraweaver-api:main-<sha>`
+- Push: `buildah push onedev.example.com/infraweaver-platform/infraweaver-api:main-<sha>`
 
 ## OpenBao Autounseal
 - OpenBao uses Shamir with 1 share, autounseal sidecar in pod

@@ -372,7 +372,7 @@ d = {
   'name': 'LDAP Provider',
   'authorization_flow': '${AUTH_FLOW_PK}',
   'invalidation_flow': '${INVAL_FLOW_PK:-}',
-  'base_dn': '${LDAP_BASE_DN:-DC=ldap,DC=rlservers,DC=com}',
+  'base_dn': '${LDAP_BASE_DN:-DC=ldap,DC=example,DC=com}',
   'uid_start_number': 2000,
   'gid_start_number': 4000,
 }

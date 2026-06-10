@@ -46,12 +46,12 @@ EXISTING=$(curl -s "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns
 if [ -z "$EXISTING" ]; then
   curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
     -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
-    -d "{\"type\":\"A\",\"name\":\"api-netbird.${BASE_DOMAIN}\",\"content\":\"84.82.69.110\",\"ttl\":1,\"proxied\":false}" | \
-    python3 -c "import sys,json; d=json.load(sys.stdin); print('Created: api-netbird.${BASE_DOMAIN} -> 84.82.69.110 (DNS-only)' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
+    -d "{\"type\":\"A\",\"name\":\"api-netbird.${BASE_DOMAIN}\",\"content\":\"${PUBLIC_INGRESS_IP}\",\"ttl\":1,\"proxied\":false}" | \
+    python3 -c "import sys,json; d=json.load(sys.stdin); print('Created: api-netbird.${BASE_DOMAIN} -> ${PUBLIC_INGRESS_IP} (DNS-only)' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
 else
   curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${EXISTING}" \
     -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
-    -d "{\"type\":\"A\",\"name\":\"api-netbird.${BASE_DOMAIN}\",\"content\":\"84.82.69.110\",\"ttl\":1,\"proxied\":false}" | \
+    -d "{\"type\":\"A\",\"name\":\"api-netbird.${BASE_DOMAIN}\",\"content\":\"${PUBLIC_INGRESS_IP}\",\"ttl\":1,\"proxied\":false}" | \
     python3 -c "import sys,json; d=json.load(sys.stdin); print('Updated: api-netbird.${BASE_DOMAIN} -> proxied=false (DNS-only)' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
 fi
 

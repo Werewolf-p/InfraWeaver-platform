@@ -2,7 +2,7 @@
 # INTERNAL IngressRoute — only accessible via NetBird VPN
 #
 # Rename this file from .yaml.example → .yaml to activate it.
-# URL: https://APP_NAME.int.rlservers.com  (only reachable when connected to NetBird)
+# URL: https://APP_NAME.int.example.com  (only reachable when connected to NetBird)
 #
 # The `netbird-vpn-only` middleware allows only VPN traffic through.
 # The `secure-headers` middleware adds browser security headers (HSTS, X-Frame-Options, etc.)
@@ -16,7 +16,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`APP_NAME.int.rlservers.com`)
+    - match: Host(`APP_NAME.int.example.com`)
       kind: Rule
       middlewares:
         - name: secure-headers
@@ -29,7 +29,7 @@ spec:
   tls:
     secretName: APP_NAME-int-tls
 ---
-# Certificate for APP_NAME.int.rlservers.com
+# Certificate for APP_NAME.int.example.com
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -41,4 +41,4 @@ spec:
     name: letsencrypt-dns
     kind: ClusterIssuer
   dnsNames:
-    - APP_NAME.int.rlservers.com
+    - APP_NAME.int.example.com

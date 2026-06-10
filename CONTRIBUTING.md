@@ -160,4 +160,4 @@ make install-dev-tools  # Install yamllint, kubeconform, pre-commit
 - Check `README.md` for platform architecture overview
 - Check `.github/memories/` for known gotchas and patterns
 - Check `apply-changes.yml` for the incremental deployment flow
-- ArgoCD UI: `https://argo.int.rlservers.com` (requires NetBird VPN)
+- ArgoCD UI: `https://argo.int.example.com` (requires NetBird VPN)

@@ -34,13 +34,13 @@ bash scripts/new-app.sh my-app --helm https://charts.example.com my-chart
 ### Internal only (default — accessed via NetBird VPN):
 ```bash
 cp manifests/ingressroute-internal.yaml.example manifests/ingressroute-internal.yaml
-# URL: https://APP_NAME.int.rlservers.com  (only reachable on VPN)
+# URL: https://APP_NAME.int.example.com  (only reachable on VPN)
 ```
 
 ### Public internet access (opt-in):
 ```bash
 cp manifests/ingressroute-public.yaml.example manifests/ingressroute-public.yaml
-# URL: https://APP_NAME.rlservers.com  (⚠️ world-reachable!)
+# URL: https://APP_NAME.example.com  (⚠️ world-reachable!)
 ```
 
 ---

@@ -388,6 +388,6 @@ Platform brand assets: logo, banner, favicon. Used by the console and README.
 
 4. **Secrets never in git.** OpenBao (Vault) holds all secrets. ExternalSecret resources pull them into K8s at deploy time. `.sops.yaml` encrypts any secrets that must live in git.
 
-5. **ArgoCD pulls from Onedev (in-cluster), not GitHub.** After bootstrap, ArgoCD's `repoURL` should point to `onedev.rlservers.com`. The console's `GIT_PROVIDER` env var should be `onedev`. GitHub is the source for initial clone only.
+5. **ArgoCD pulls from Onedev (in-cluster), not GitHub.** After bootstrap, ArgoCD's `repoURL` should point to `onedev.example.com`. The console's `GIT_PROVIDER` env var should be `onedev`. GitHub is the source for initial clone only.
 
 6. **Memory-first development.** Before touching any component, read the relevant `.github/memories/` files. After discovering anything new, write a memory file immediately.

@@ -11,13 +11,13 @@ All shared Traefik middlewares live in:
 |------|-----------|---------|
 | `redirect-to-https` | traefik | HTTP → HTTPS permanent redirect (applied to all port-80 traffic) |
 | `internal-only` | traefik | Allow homelab LAN + VPN, block public internet |
-| `netbird-vpn-only` | traefik | Allow ONLY NetBird VPN traffic (used for all `*.int.rlservers.com` routes) |
+| `netbird-vpn-only` | traefik | Allow ONLY NetBird VPN traffic (used for all `*.int.example.com` routes) |
 | `add-https-headers` | traefik | Sets `X-Forwarded-Proto: https` for backends |
 | `secure-headers` | traefik | Browser security headers (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) |
 | `forward-auth` | traefik | Authentik proxy auth — any logged-in Authentik user passes |
 | `forward-auth-admin` | traefik | Authentik proxy auth — `platform-admins` group required |
 | `rate-limit-auth` | traefik | Brute-force protection on auth endpoints |
-| `cors-authentik` | traefik | CORS headers for `auth.rlservers.com` OIDC endpoints |
+| `cors-authentik` | traefik | CORS headers for `auth.example.com` OIDC endpoints |
 
 ---
 
@@ -29,7 +29,7 @@ middlewares:
   - name: netbird-vpn-only
     namespace: traefik
 ```
-> Use for all `*.int.rlservers.com` routes. VPN is the authentication layer.
+> Use for all `*.int.example.com` routes. VPN is the authentication layer.
 
 ### Authentik Proxy Auth (any logged-in user) {#any-auth}
 ```yaml
@@ -37,7 +37,7 @@ middlewares:
   - name: forward-auth
     namespace: traefik
 ```
-> Users are redirected to `auth.rlservers.com` to log in, then returned to the app.
+> Users are redirected to `auth.example.com` to log in, then returned to the app.
 > Add label `infraweaver.io/auth: proxy` to your Deployment for visibility.
 
 ### Authentik Proxy Auth (admin-only) {#admin-auth}
@@ -154,9 +154,9 @@ bash scripts/new-app.sh my-app --public
 ```
 Browser → Traefik → forward-auth middleware
                         ↓
-              https://auth.rlservers.com/outpost.goauthentik.io/auth/traefik
+              https://auth.example.com/outpost.goauthentik.io/auth/traefik
                         ↓ (not authenticated)
-              Redirect to auth.rlservers.com → login
+              Redirect to auth.example.com → login
                         ↓ (authenticated)
               Traefik passes request to backend
               with X-authentik-* headers set

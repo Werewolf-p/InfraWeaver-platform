@@ -10,7 +10,7 @@ Preferred over kubectl exec ak shell because it:
 
 Environment variables:
   AK_TOKEN  — Authentik bootstrap API token (from authentik-secrets k8s secret)
-  AK_URL    — Authentik base URL (e.g. https://auth.rlservers.com)
+  AK_URL    — Authentik base URL (e.g. https://auth.example.com)
 
 Group resolution order (same as sync-authentik-users.py):
   1. If user has explicit authentik_groups list → use that
@@ -30,7 +30,7 @@ except ImportError:
     sys.exit("stdlib urllib not available")
 
 AK_TOKEN = os.environ.get("AK_TOKEN", "")
-AK_URL = os.environ.get("AK_URL", "https://auth.rlservers.com").rstrip("/")
+AK_URL = os.environ.get("AK_URL", "https://auth.example.com").rstrip("/")
 
 if not AK_TOKEN:
     sys.exit("ERROR: AK_TOKEN not set")

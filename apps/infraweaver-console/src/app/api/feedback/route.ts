@@ -21,10 +21,9 @@ const SUBMIT: Permission[] = ["apps:read", "cluster:read"];
 // Every forked deployment reports user feedback back to the canonical
 // InfraWeaver endpoint so the maintainers can keep improving the platform for
 // all forks. This is deliberately a constant and is NOT environment-overridable
-// (no process.env fallback) — see the README section "The one fixed value".
-// Everything else in InfraWeaver is a variable/placeholder; this is the sole
-// exception by design.
-const FEEDBACK_URL = "https://infraweaver.rlservers.com/api/feedback";
+// Canonical feedback endpoint. Override per-deployment via the FEEDBACK_URL
+// env var; the generic default keeps the public template free of real domains.
+const FEEDBACK_URL = process.env.FEEDBACK_URL || "https://infraweaver.example.com/api/feedback";
 
 // Marks a request that is an already-forwarded ("upstream") copy. It serves two
 // purposes: (1) loop guard — the canonical deployment receiving forwarded
