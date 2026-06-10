@@ -92,4 +92,30 @@ describe("reconcileFromRuns (via reconcileStaleEntries)", () => {
 
     expect(patchFeedbackEntry).not.toHaveBeenCalled();
   });
+
+  test("heals a dispatched entry that has no preview URL by backfilling from its successful run", async () => {
+    // Stranded by a console restart: advanced to `dispatched` but the preview URL
+    // write-back never landed. The successful run is the authoritative source.
+    listFeedbackRuns.mockResolvedValue([
+      makeRun({ status: "success", previewUrl: "https://preview.example.com", runId: "run-ok" }),
+    ]);
+
+    await reconcileStaleEntries([makeEntry({ status: "dispatched", previewUrl: undefined })]);
+
+    expect(patchFeedbackEntry).toHaveBeenCalledWith("fb-1", {
+      status: "dispatched",
+      previewUrl: "https://preview.example.com",
+      testPath: "/feedback",
+      dispatchRunId: "run-ok",
+    });
+  });
+
+  test("does NOT re-reconcile a dispatched entry that already has a preview URL", async () => {
+    await reconcileStaleEntries([
+      makeEntry({ status: "dispatched", previewUrl: "https://existing.example.com" }),
+    ]);
+
+    expect(listFeedbackRuns).not.toHaveBeenCalled();
+    expect(patchFeedbackEntry).not.toHaveBeenCalled();
+  });
 });

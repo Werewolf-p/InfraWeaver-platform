@@ -104,16 +104,31 @@ export function startPublish(actor: string): void {
 }
 
 /**
+ * An entry is stranded mid-pipeline — needing a reconcile-on-read — when it is
+ * still `approved` (write-back never ran) OR it was advanced to `dispatched` but
+ * carries no `previewUrl`. The latter happens when the console process is
+ * restarted or crashes (the exit-139 bursts) after `reconcileFromRuns` flipped
+ * the status to `dispatched` but before/while the preview URL was persisted,
+ * leaving the entry stuck on the "Building on staging…" pill with nothing to
+ * test. Both cases are healed from the authoritative dispatch run history.
+ */
+export function needsReconcile(entry: FeedbackEntry): boolean {
+  return entry.status === "approved" || (entry.status === "dispatched" && !entry.previewUrl);
+}
+
+/**
  * Self-heal entries stranded mid-pipeline. The approve/redo write-back runs as a
  * detached promise inside the (single-replica) console process; if that process
  * is restarted or crashes (the exit-139 bursts) mid-run, an entry can stay stuck
- * in `approved` forever even though the dispatch run finished on the runner. The
- * dispatch run history is the authoritative source that survives restarts, so on
- * every list read we reconcile any `approved` entry whose run has since settled.
- * Best-effort and fail-safe: never throws, never blocks the list response.
+ * — either in `approved` forever, or in `dispatched` with no preview URL — even
+ * though the dispatch run finished on the runner. The dispatch run history is the
+ * authoritative source that survives restarts, so on every list read we reconcile
+ * any such entry whose run has since settled, backfilling its preview URL / test
+ * path / run id. Best-effort and fail-safe: never throws, never blocks the list
+ * response.
  */
 export async function reconcileStaleEntries(entries: FeedbackEntry[]): Promise<void> {
-  const stuck = entries.filter((e) => e.status === "approved");
+  const stuck = entries.filter(needsReconcile);
   if (stuck.length === 0) return;
   await Promise.all(
     stuck.map(async (entry) => {
