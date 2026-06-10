@@ -10,7 +10,9 @@
     "scaffold:page": "node ./scripts/scaffold-page.mjs",
     "test": "jest",
     "test:e2e": "playwright test",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "prebuild": "node ./scripts/build-addon-registry.mjs",
+    "predev": "node ./scripts/build-addon-registry.mjs"
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.4.0",

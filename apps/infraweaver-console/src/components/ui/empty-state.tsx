@@ -2,7 +2,7 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { springs } from "@/lib/spring";
 
 interface EmptyStateAction {
@@ -24,6 +24,7 @@ function isActionConfig(action: EmptyStateProps["action"]): action is EmptyState
 }
 
 export function EmptyState({ icon: Icon, title, description, action, secondaryAction, className }: EmptyStateProps) {
+  const reducedMotion = useReducedMotion();
   const renderedAction = React.isValidElement(action) ? (
     action
   ) : isActionConfig(action) ? (
@@ -64,12 +65,12 @@ export function EmptyState({ icon: Icon, title, description, action, secondaryAc
     >
       {Icon ? (
         <motion.div
-          animate={{ y: [0, -5, 0] }}
+          animate={reducedMotion ? {} : { y: [0, -5, 0] }}
           transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
-          className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0f0f0f] text-gray-500 dark:text-[#888]"
+          className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0f0f0f] text-[var(--az-primary)] dark:text-[var(--az-primary)]"
           aria-hidden="true"
         >
-          <Icon className="h-6 w-6" />
+          <Icon className="h-6 w-6 opacity-70" />
         </motion.div>
       ) : null}
       <h3 className="text-base font-medium text-gray-900 dark:text-[#f2f2f2]">{title}</h3>

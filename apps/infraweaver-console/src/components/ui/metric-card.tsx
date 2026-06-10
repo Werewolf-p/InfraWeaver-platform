@@ -76,8 +76,8 @@ export function MetricCard({
       transition={{ type: "spring", stiffness: 260, damping: 24, mass: 1, delay: (index ?? 0) * 0.06 }}
       whileHover={{ y: -2, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
       className={cn(
-        "group flex h-full flex-col justify-between rounded-3xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-5 shadow-sm transition-all duration-200",
-        href && "hover:-translate-y-0.5 hover:border-[rgb(var(--color-border-strong))] hover:shadow-lg",
+        "group flex h-full flex-col justify-between rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-5 shadow-sm transition-all duration-200",
+        href && "cursor-pointer hover:-translate-y-0.5 hover:border-[rgb(var(--color-border-strong))] hover:shadow-md",
         className,
       )}
     >

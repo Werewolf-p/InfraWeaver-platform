@@ -124,3 +124,11 @@ apps/infraweaver-node/dist/
 # Cluster-specific configs (managed in OneDev only)
 # ---------------------------------------------------------------------------
 .infra-repo/
+
+# ---------------------------------------------------------------------------
+# params/ — master folder for all per-deployment secrets/personal config
+# (kubeconfig, .env copies, any credential files)
+# Create your own; never commit. See params.example/ for required files.
+# ---------------------------------------------------------------------------
+params/
+generated/

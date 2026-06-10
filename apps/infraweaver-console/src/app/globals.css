@@ -6,67 +6,82 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  /* ── Foreground / background legacy (body text/bg) ───────── */
   --foreground-rgb: 255, 255, 255;
   --background-start-rgb: 15, 15, 15;
   --background-end-rgb: 15, 15, 15;
-  --az-bg: #0f0f0f;
-  --az-surface: #1a1a1a;
-  --az-card: #262626;
-  --az-border: #333333;
-  --az-border-subtle: #2a2a2a;
+
+  /* ── Brand / primary ─────────────────────────────────────── */
   --az-primary: #0078D4;
-  --az-primary-hover: #1a86d9;
-  --az-primary-muted: rgba(0, 120, 212, 0.15);
-  --az-text: #f2f2f2;
-  --az-text-secondary: #9e9e9e;
-  --az-text-muted: #666666;
+  --az-primary-hover: #1a8fe0;
+  --az-primary-muted: rgba(0, 120, 212, 0.14);
+  --az-primary-ring: rgba(0, 120, 212, 0.5);
 
-  /* Surface tokens (aliases for homepage/layout) */
-  --surface-1: #1a1a1a;
-  --surface-2: #2a2a2a;
-  --surface-3: #333;
-  --text-primary: #f2f2f2;
-  --text-secondary: #9e9e9e;
-  --text-muted: #666;
-  --az-success: #57a300;
-  --az-warning: #d47500;
-  --az-danger: #d13438;
-  --az-info: #0078D4;
-  --az-sidebar-width: 220px;
+  /* ── Semantic status ─────────────────────────────────────── */
+  --az-success: #22c55e;
+  --az-warning: #f59e0b;
+  --az-danger:  #ef4444;
+  --az-info:    #0078D4;
+
+  /* ── Dark-mode surface stack (defaults) ─────────────────── */
+  --az-bg:             #0a0a0a;
+  --az-surface:        #141414;
+  --az-card:           #1c1c1c;
+  --az-border:         #2a2a2a;
+  --az-border-subtle:  #1e1e1e;
+
+  /* ── Dark-mode text ──────────────────────────────────────── */
+  --az-text:           #f2f2f2;
+  --az-text-secondary: #a3a3a3;
+  --az-text-muted:     #666666;
+
+  /* ── Surface aliases (used by page shells / layout) ─────── */
+  --surface-1: var(--az-surface);
+  --surface-2: var(--az-card);
+  --surface-3: var(--az-border);
+  --text-primary:    var(--az-text);
+  --text-secondary:  var(--az-text-secondary);
+  --text-muted:      var(--az-text-muted);
+
+  /* ── Layout ──────────────────────────────────────────────── */
+  --az-sidebar-width:     220px;
   --az-sidebar-collapsed: 48px;
+  --sidebar-width:        240px;
+  --sidebar-collapsed-width: 56px;
 
+  /* ── Semantic color scale (rgb triples for Tailwind) ─────── */
   /* Brand */
-  --color-brand-50: 239 246 255;
+  --color-brand-50:  239 246 255;
   --color-brand-100: 219 234 254;
   --color-brand-500: 59 130 246;
   --color-brand-600: 37 99 235;
   --color-brand-700: 29 78 216;
 
-  /* Surface layers (light) */
-  --color-surface-base: 255 255 255;
-  --color-surface-raised: 249 250 251;
-  --color-surface-overlay: 243 244 246;
-  --color-surface-inset: 229 231 235;
-
   /* Semantic */
-  --color-success: 16 185 129;
+  --color-success: 34 197 94;
   --color-warning: 245 158 11;
-  --color-danger: 239 68 68;
-  --color-info: 59 130 246;
+  --color-danger:  239 68 68;
+  --color-info:    59 130 246;
 
-  /* Text (light) */
-  --color-text-primary: 17 24 39;
+  /* Surface layers — light defaults (overridden in .dark) */
+  --color-surface-base:    255 255 255;
+  --color-surface-raised:  249 250 251;
+  --color-surface-overlay: 243 244 246;
+  --color-surface-inset:   229 231 235;
+
+  /* Text — light defaults */
+  --color-text-primary:   17 24 39;
   --color-text-secondary: 107 114 128;
-  --color-text-tertiary: 156 163 175;
-  --color-text-disabled: 209 213 219;
+  --color-text-tertiary:  156 163 175;
+  --color-text-disabled:  209 213 219;
 
-  /* Border (light) */
-  --color-border: 229 231 235;
+  /* Border — light defaults */
+  --color-border:       229 231 235;
   --color-border-strong: 156 163 175;
 
-  /* Sidebar */
-  --sidebar-width: 240px;
-  --sidebar-collapsed-width: 56px;
+  /* ── Focus ring ──────────────────────────────────────────── */
+  --focus-ring-color: rgba(0, 120, 212, 0.55);
+  --focus-ring-offset-bg: #0a0a0a;
 }
 
 body {
@@ -76,33 +91,37 @@ body {
 }
 
 .light {
-  --color-surface-base: 255 255 255;
-  --color-surface-raised: 249 250 251;
+  --color-surface-base:    255 255 255;
+  --color-surface-raised:  249 250 251;
   --color-surface-overlay: 243 244 246;
-  --color-surface-inset: 229 231 235;
+  --color-surface-inset:   229 231 235;
 
-  --color-text-primary: 17 24 39;
+  --color-text-primary:   17 24 39;
   --color-text-secondary: 107 114 128;
-  --color-text-tertiary: 156 163 175;
-  --color-text-disabled: 209 213 219;
+  --color-text-tertiary:  156 163 175;
+  --color-text-disabled:  209 213 219;
 
-  --color-border: 229 231 235;
+  --color-border:        229 231 235;
   --color-border-strong: 156 163 175;
+
+  --focus-ring-offset-bg: #ffffff;
 }
 
 .dark {
-  --color-surface-base: 10 10 10;
-  --color-surface-raised: 18 18 18;
+  --color-surface-base:    10 10 10;
+  --color-surface-raised:  18 18 18;
   --color-surface-overlay: 26 26 26;
-  --color-surface-inset: 38 38 38;
+  --color-surface-inset:   38 38 38;
 
-  --color-text-primary: 250 250 250;
+  --color-text-primary:   250 250 250;
   --color-text-secondary: 163 163 163;
-  --color-text-tertiary: 115 115 115;
-  --color-text-disabled: 64 64 64;
+  --color-text-tertiary:  115 115 115;
+  --color-text-disabled:  64 64 64;
 
-  --color-border: 38 38 38;
+  --color-border:        38 38 38;
   --color-border-strong: 64 64 64;
+
+  --focus-ring-offset-bg: #0a0a0a;
 }
 
 /* Landscape phone: hide bottom nav via media query backup */
@@ -125,11 +144,22 @@ body {
   background: #333;
 }
 
-/* Focus ring system */
+/* Focus ring system — WCAG AA visible, theme-aware */
 *:focus-visible {
-  outline: 2px solid rgba(0, 120, 212, 0.6);
+  outline: 2px solid var(--focus-ring-color, rgba(0, 120, 212, 0.55));
   outline-offset: 2px;
   border-radius: 4px;
+}
+/* Ensure ring is visible against both light and dark surfaces */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--focus-ring-color, rgba(0, 120, 212, 0.55));
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--az-primary) 15%, transparent);
 }
 
 /* Smooth font rendering */
@@ -159,15 +189,31 @@ body {
 .scrollbar-none::-webkit-scrollbar { display: none; }
 
 @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+/* Dark shimmer (default) */
 @utility shimmer-bg {
-  background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%);
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.04) 25%,
+    rgba(255,255,255,0.10) 50%,
+    rgba(255,255,255,0.04) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.6s ease-in-out infinite;
 }
 @utility shimmer {
-  background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%);
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.04) 25%,
+    rgba(255,255,255,0.10) 50%,
+    rgba(255,255,255,0.04) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+/* Light-mode shimmer override */
+html.light .shimmer-bg,
+html.light .shimmer {
+  background: linear-gradient(90deg,
+    rgba(0,0,0,0.04) 25%,
+    rgba(0,0,0,0.09) 50%,
+    rgba(0,0,0,0.04) 75%);
+  background-size: 200% 100%;
 }
 
 /* Custom scrollbar utility */
@@ -250,23 +296,24 @@ html.light {
   --background-start-rgb: 248, 250, 252;
   --background-end-rgb: 241, 245, 249;
 
-  /* Legacy surface/text tokens default to dark values in :root.
-     Override them for light mode so cards and text adapt correctly. */
-  --az-bg: #f8fafc;
-  --az-surface: #ffffff;
-  --az-card: #ffffff;
-  --az-border: #e5e7eb;
-  --az-border-subtle: #eef2f7;
-  --az-text: #111827;
-  --az-text-secondary: #4b5563;
-  --az-text-muted: #6b7280;
+  --az-bg:            #f8fafc;
+  --az-surface:       #ffffff;
+  --az-card:          #ffffff;
+  --az-border:        #e5e7eb;
+  --az-border-subtle: #f0f4f8;
 
-  --surface-1: #ffffff;
-  --surface-2: #f3f4f6;
-  --surface-3: #e5e7eb;
-  --text-primary: #111827;
+  --az-text:           #111827;
+  --az-text-secondary: #4b5563;
+  --az-text-muted:     #6b7280;
+
+  --surface-1:    #ffffff;
+  --surface-2:    #f3f4f6;
+  --surface-3:    #e5e7eb;
+  --text-primary:   #111827;
   --text-secondary: #4b5563;
-  --text-muted: #6b7280;
+  --text-muted:     #6b7280;
+
+  --focus-ring-offset-bg: #ffffff;
 }
 html.light body {
   color: rgb(var(--foreground-rgb));
@@ -302,13 +349,23 @@ html.light ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.25); }
   background-clip: text;
 }
 
-/* Micro-animations */
+/* Micro-animations — only when user hasn't opted out */
 @media (prefers-reduced-motion: no-preference) {
   button, a, [role="button"] {
-    transition: transform 0.1s ease, opacity 0.1s ease;
+    transition: transform 0.12s ease, opacity 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
   }
   button:active, [role="button"]:active {
     transform: scale(0.97);
+  }
+}
+
+/* Respect prefers-reduced-motion: disable all animations/transitions */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
