@@ -12,6 +12,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { INTERNAL_DNS_DOMAIN, ROOT_DNS_DOMAIN } from "@/lib/dns";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "@/lib/notify";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
@@ -117,7 +118,7 @@ function DnsStatusCell({ name, targetIP, internalIP, publicDns, internalDns }: {
           <span className={data?.public?.exists ? "text-green-400" : "text-slate-600"}>
             {data?.public?.exists ? "✓" : "✗"}
           </span>
-          <span className="text-slate-500 dark:text-slate-400">{name}.rlservers.com</span>
+          <span className="text-slate-500 dark:text-slate-400">{name}.{ROOT_DNS_DOMAIN}</span>
           <span className="text-slate-600">→ {targetIP}</span>
         </div>
       )}
@@ -126,7 +127,7 @@ function DnsStatusCell({ name, targetIP, internalIP, publicDns, internalDns }: {
           <span className={data?.internal?.exists ? "text-green-400" : "text-slate-600"}>
             {data?.internal?.exists ? "✓" : "✗"}
           </span>
-          <span className="text-slate-500 dark:text-slate-400">{name}.int.rlservers.com</span>
+          <span className="text-slate-500 dark:text-slate-400">{name}.{INTERNAL_DNS_DOMAIN}</span>
           <span className="text-slate-600">→ {effectiveIntIP}</span>
         </div>
       )}
@@ -158,7 +159,7 @@ function HowItWorksPanel() {
             <div className="px-4 pb-4 space-y-4">
               <p className="text-sm text-slate-700 dark:text-slate-300">
                 <strong className="text-gray-900 dark:text-white">DNS Routing</strong> — each game server gets its own hostname pointing to its own public IP. 
-                Two servers can use the same port (e.g. 25565) because <code className="text-blue-300">mc1.rlservers.com</code> and <code className="text-blue-300">mc2.rlservers.com</code> resolve to different IPs.
+                Two servers can use the same port (e.g. 25565) because <code className="text-blue-300">mc1.{ROOT_DNS_DOMAIN}</code> and <code className="text-blue-300">mc2.{ROOT_DNS_DOMAIN}</code> resolve to different IPs.
                 Your router forwards traffic based on the destination IP.
               </p>
               <div className="flex items-center gap-2 text-xs font-mono text-slate-500 dark:text-slate-400 flex-wrap">
@@ -174,12 +175,12 @@ function HowItWorksPanel() {
               </div>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800/50 border border-gray-200 dark:border-white/5">
-                  <p className="font-semibold text-gray-900 dark:text-white mb-1">mc1.rlservers.com :25565</p>
+                  <p className="font-semibold text-gray-900 dark:text-white mb-1">mc1.{ROOT_DNS_DOMAIN} :25565</p>
                   <p className="text-slate-500">→ DNS: 1.2.3.4</p>
                   <p className="text-slate-500">→ Router forwards to MC server 1</p>
                 </div>
                 <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800/50 border border-gray-200 dark:border-white/5">
-                  <p className="font-semibold text-gray-900 dark:text-white mb-1">mc2.rlservers.com :25565</p>
+                  <p className="font-semibold text-gray-900 dark:text-white mb-1">mc2.{ROOT_DNS_DOMAIN} :25565</p>
                   <p className="text-slate-500">→ DNS: 5.6.7.8</p>
                   <p className="text-slate-500">→ Router forwards to MC server 2</p>
                 </div>
@@ -201,7 +202,7 @@ function RouterConfigTable({ servers }: { servers: GameServer[] }) {
 
   const rows = servers.flatMap(s =>
     s.ports.map(p => ({
-      hostname: `${s.name}.rlservers.com`,
+      hostname: `${s.name}.${ROOT_DNS_DOMAIN}`,
       protocol: p.protocol,
       externalIP: s.targetIP,
       extPort: p.port,
@@ -543,7 +544,7 @@ function AddServerDrawer({
                       placeholder="mc1"
                       className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                     />
-                    {name && <p className="text-xs text-slate-500 mt-1">→ {name}.rlservers.com</p>}
+                    {name && <p className="text-xs text-slate-500 mt-1">→ {name}.{ROOT_DNS_DOMAIN}</p>}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Display name</label>
@@ -591,7 +592,7 @@ function AddServerDrawer({
                       <span className="text-2xl">{selectedType?.icon}</span>
                       <div>
                         <p className="text-sm font-bold text-gray-900 dark:text-white">{displayName}</p>
-                        <p className="text-xs text-slate-500 font-mono">{name}.rlservers.com</p>
+                        <p className="text-xs text-slate-500 font-mono">{name}.{ROOT_DNS_DOMAIN}</p>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
@@ -617,8 +618,8 @@ function AddServerDrawer({
                     <div>
                       <p className="text-xs text-slate-500 mb-1.5">DNS Records <span className="text-indigo-400">(default: both enabled)</span></p>
                       <div className="flex flex-col gap-1.5">
-                        <span className="text-xs font-mono text-green-400 bg-green-500/10 border border-green-500/20 rounded-md px-2 py-1">✓ {name}.rlservers.com → {targetIP}</span>
-                        <span className="text-xs font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md px-2 py-1">✓ {name}.int.rlservers.com → {targetIP}</span>
+                        <span className="text-xs font-mono text-green-400 bg-green-500/10 border border-green-500/20 rounded-md px-2 py-1">✓ {name}.{ROOT_DNS_DOMAIN} → {targetIP}</span>
+                        <span className="text-xs font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md px-2 py-1">✓ {name}.{INTERNAL_DNS_DOMAIN} → {targetIP}</span>
                       </div>
                     </div>
                   </div>
@@ -638,7 +639,7 @@ function AddServerDrawer({
                       placeholder="mc1"
                       className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
                     />
-                    {name && <p className="text-xs text-slate-500 mt-1">→ {name}.rlservers.com</p>}
+                    {name && <p className="text-xs text-slate-500 mt-1">→ {name}.{ROOT_DNS_DOMAIN}</p>}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Display name</label>
@@ -739,7 +740,7 @@ function AddServerDrawer({
                 <div className="space-y-5">
                   <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
                     <Globe className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                    <p className="text-xs text-blue-300">DNS Routing Configuration — set the IP that {name || "this server"}.rlservers.com will resolve to.</p>
+                    <p className="text-xs text-blue-300">DNS Routing Configuration — set the IP that {name || "this server"}.{ROOT_DNS_DOMAIN} will resolve to.</p>
                   </div>
 
                   <div>
@@ -760,7 +761,7 @@ function AddServerDrawer({
                       </button>
                     </div>
                     {name && targetIP && (
-                      <p className="text-xs text-slate-500 mt-1 font-mono">{name}.rlservers.com → {targetIP}</p>
+                      <p className="text-xs text-slate-500 mt-1 font-mono">{name}.{ROOT_DNS_DOMAIN} → {targetIP}</p>
                     )}
                   </div>
 
@@ -782,13 +783,13 @@ function AddServerDrawer({
                       <div className="space-y-2 text-xs font-mono">
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-green-500" />
-                          <span className="text-slate-700 dark:text-slate-300">{name || "<name>"}.rlservers.com</span>
+                          <span className="text-slate-700 dark:text-slate-300">{name || "<name>"}.{ROOT_DNS_DOMAIN}</span>
                           <span className="text-slate-600">→</span>
                           <span className="text-green-300">{targetIP}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-blue-500" />
-                          <span className="text-slate-700 dark:text-slate-300">{name || "<name>"}.int.rlservers.com</span>
+                          <span className="text-slate-700 dark:text-slate-300">{name || "<name>"}.{INTERNAL_DNS_DOMAIN}</span>
                           <span className="text-slate-600">→</span>
                           <span className="text-blue-300">{effectiveIntIP}</span>
                         </div>
@@ -798,7 +799,7 @@ function AddServerDrawer({
                         <div className="flex items-center gap-1.5 flex-wrap text-xs text-slate-500 font-mono">
                           <span>Player</span>
                           <span>→</span>
-                          <span className="text-indigo-300">{name || "<name>"}.rlservers.com</span>
+                          <span className="text-indigo-300">{name || "<name>"}.{ROOT_DNS_DOMAIN}</span>
                           <span>→ DNS →</span>
                           <span className="text-green-300">{targetIP}</span>
                           <span>→ Router →</span>
@@ -816,8 +817,8 @@ function AddServerDrawer({
                   <p className="text-xs text-slate-500">Configure DNS records via Cloudflare API</p>
                   <div className="space-y-3">
                     {([
-                      { key: "publicDns" as const, label: "Public DNS", record: `${name}.rlservers.com`, ip: targetIP, description: `Points to ${targetIP || "target IP"}`, value: publicDns, setter: setPublicDns },
-                      { key: "internalDns" as const, label: "Internal DNS", record: `${name}.int.rlservers.com`, ip: effectiveIntIP, description: `Points to ${effectiveIntIP || "internal IP (or target IP)"}`, value: internalDns, setter: setInternalDns },
+                      { key: "publicDns" as const, label: "Public DNS", record: `${name}.${ROOT_DNS_DOMAIN}`, ip: targetIP, description: `Points to ${targetIP || "target IP"}`, value: publicDns, setter: setPublicDns },
+                      { key: "internalDns" as const, label: "Internal DNS", record: `${name}.${INTERNAL_DNS_DOMAIN}`, ip: effectiveIntIP, description: `Points to ${effectiveIntIP || "internal IP (or target IP)"}`, value: internalDns, setter: setInternalDns },
                     ]).map(({ key, label, record, ip, description: desc, value, setter }) => (
                       <div key={key} className="p-4 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5">
                         <div className="flex items-center justify-between mb-2">
@@ -853,7 +854,7 @@ function AddServerDrawer({
                       <span className="text-2xl">{selectedType?.icon}</span>
                       <div>
                         <p className="text-sm font-bold text-gray-900 dark:text-white">{displayName}</p>
-                        <p className="text-xs text-slate-500 font-mono">{name}.rlservers.com</p>
+                        <p className="text-xs text-slate-500 font-mono">{name}.{ROOT_DNS_DOMAIN}</p>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
@@ -885,8 +886,8 @@ function AddServerDrawer({
                     <div>
                       <p className="text-xs text-slate-500 mb-1.5">DNS Records</p>
                       <div className="flex flex-col gap-1.5">
-                        {publicDns && <span className="text-xs font-mono text-green-400 bg-green-500/10 border border-green-500/20 rounded-md px-2 py-1">✓ {name}.rlservers.com → {targetIP}</span>}
-                        {internalDns && <span className="text-xs font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md px-2 py-1">✓ {name}.int.rlservers.com → {effectiveIntIP}</span>}
+                        {publicDns && <span className="text-xs font-mono text-green-400 bg-green-500/10 border border-green-500/20 rounded-md px-2 py-1">✓ {name}.{ROOT_DNS_DOMAIN} → {targetIP}</span>}
+                        {internalDns && <span className="text-xs font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md px-2 py-1">✓ {name}.{INTERNAL_DNS_DOMAIN} → {effectiveIntIP}</span>}
                         {!publicDns && !internalDns && <span className="text-xs text-slate-500">No DNS records</span>}
                       </div>
                     </div>
@@ -1172,11 +1173,11 @@ export default function GameServersPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="space-y-0.5 text-xs font-mono">
-                          <div className="text-slate-700 dark:text-slate-300">{server.name}.rlservers.com</div>
+                          <div className="text-slate-700 dark:text-slate-300">{server.name}.{ROOT_DNS_DOMAIN}</div>
                           <div className="text-slate-600">→ {server.targetIP || "—"}</div>
                           {server.internalIP && (
                             <>
-                              <div className="text-slate-500 dark:text-slate-400">{server.name}.int.rlservers.com</div>
+                              <div className="text-slate-500 dark:text-slate-400">{server.name}.{INTERNAL_DNS_DOMAIN}</div>
                               <div className="text-slate-600">→ {server.internalIP}</div>
                             </>
                           )}
@@ -1245,8 +1246,8 @@ export default function GameServersPage() {
                     <div>
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">DNS Records</p>
                       <div className="space-y-1 text-xs font-mono text-slate-500 dark:text-slate-400">
-                        {server.publicDns && <p>{server.name}.rlservers.com → {server.targetIP}</p>}
-                        {server.internalDns && <p>{server.name}.int.rlservers.com → {effectiveIntIP}</p>}
+                        {server.publicDns && <p>{server.name}.{ROOT_DNS_DOMAIN} → {server.targetIP}</p>}
+                        {server.internalDns && <p>{server.name}.{INTERNAL_DNS_DOMAIN} → {effectiveIntIP}</p>}
                       </div>
                     </div>
                     <div>

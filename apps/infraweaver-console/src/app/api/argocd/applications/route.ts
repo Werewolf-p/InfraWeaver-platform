@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/with-auth";
 
 interface ArgoApplication {
   metadata?: { name?: string; namespace?: string };
@@ -19,40 +18,35 @@ interface ArgoApplication {
   };
 }
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const GET = withAuth(
+  { permission: "apps:read" },
+  async () => {
+    try {
+      // Fetch applications from Kubernetes API using the built-in cluster
+      const kubeConfig = process.env.KUBECONFIG || "/.kube/config";
+      const { KubeConfig } = await import("@kubernetes/client-node");
+      const kc = new KubeConfig();
+      kc.loadFromFile(kubeConfig);
+      kc.loadFromDefault();
 
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+      const { CustomObjectsApi } = await import("@kubernetes/client-node");
+      const customApi = kc.makeApiClient(CustomObjectsApi);
 
-  try {
-    // Fetch applications from Kubernetes API using the built-in cluster
-    const kubeConfig = process.env.KUBECONFIG || "/.kube/config";
-    const { KubeConfig } = await import("@kubernetes/client-node");
-    const kc = new KubeConfig();
-    kc.loadFromFile(kubeConfig);
-    kc.loadFromDefault();
+      const response = await customApi.listNamespacedCustomObject({
+        group: "argoproj.io",
+        version: "v1alpha1",
+        namespace: "argocd",
+        plural: "applications",
+      }) as { items?: ArgoApplication[] };
 
-    const { CustomObjectsApi } = await import("@kubernetes/client-node");
-    const customApi = kc.makeApiClient(CustomObjectsApi);
-
-    const response = await customApi.listNamespacedCustomObject({
-      group: "argoproj.io",
-      version: "v1alpha1",
-      namespace: "argocd",
-      plural: "applications",
-    }) as { items?: ArgoApplication[] };
-
-    const items = Array.isArray(response.items) ? response.items : [];
-    return NextResponse.json({ items });
-  } catch (error) {
-    console.error("Failed to fetch applications from Kubernetes API:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch applications", details: String(error) },
-      { status: 500 }
-    );
-  }
-}
+      const items = Array.isArray(response.items) ? response.items : [];
+      return NextResponse.json({ items });
+    } catch (error) {
+      console.error("Failed to fetch applications from Kubernetes API:", error);
+      return NextResponse.json(
+        { error: "Failed to fetch applications", details: String(error) },
+        { status: 500 }
+      );
+    }
+  },
+);

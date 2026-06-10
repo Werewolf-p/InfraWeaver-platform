@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as jsYaml from "js-yaml";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 import { getGitAccessToken, gitReadFile, gitWriteFile } from "@/lib/git-provider";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
@@ -80,13 +80,7 @@ async function dispatchWorkflow(workflowFile: string, inputs: Record<string, str
 
 // ── GET — return current node specs ──────────────────────────────────────────
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const GET = withAuth({ permission: "config:read" }, async () => {
   if (!GIT_TOKEN) return NextResponse.json({ error: "Missing git provider token" }, { status: 503 });
 
   try {
@@ -112,7 +106,7 @@ export async function GET() {
   } catch (err) {
     return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
-}
+});
 
 // ── PUT — commit changes + dispatch rolling-update workflow ───────────────────
 

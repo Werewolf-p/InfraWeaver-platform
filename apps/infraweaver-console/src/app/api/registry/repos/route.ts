@@ -1,16 +1,8 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 import { getRegistryConfig, listRepositories } from "@/lib/registry";
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth({ permission: "config:read" }, async () => {
   const cfg = getRegistryConfig();
   if (!cfg.configured) {
     return NextResponse.json(
@@ -28,4 +20,4 @@ export async function GET() {
       { status: 503 },
     );
   }
-}
+});

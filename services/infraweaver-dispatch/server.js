@@ -43,7 +43,7 @@ const RUNS_DIR = path.join(__dirname, 'runs');
 
 // Pipeline settings.
 const FEEDBACK_BRANCH = process.env.FEEDBACK_BRANCH || 'feedback/staging';
-const REGISTRY = process.env.REGISTRY || 'registry.int.rlservers.com';
+const REGISTRY = process.env.REGISTRY || 'registry.int.example.com';
 const IMAGE = process.env.CONSOLE_IMAGE || `${REGISTRY}/infraweaver-console`;
 // Workspace push target for the console *source* pipeline. GitHub `origin` is
 // canonical: the leaf manifest ArgoCD apps + the image-pin bump read it, and
@@ -51,7 +51,7 @@ const IMAGE = process.env.CONSOLE_IMAGE || `${REGISTRY}/infraweaver-console`;
 // only watches kubernetes/* (untouched here), so sourcing app fixes from GitHub
 // does not affect deployed cluster state.
 const GIT_REMOTE = process.env.GIT_REMOTE || 'origin';
-const PREVIEW_HOST = process.env.PREVIEW_HOST || 'infraweaver-console-preview.int.rlservers.com';
+const PREVIEW_HOST = process.env.PREVIEW_HOST || 'infraweaver-console-preview.int.example.com';
 const PREVIEW_SCRIPT = path.join(__dirname, 'preview.sh');
 const BUILDKIT_NODEPORT = process.env.BUILDKIT_NODEPORT || '31234';
 const BUILDCTL = process.env.BUILDCTL || '/home/runner/.local/bin/buildctl';

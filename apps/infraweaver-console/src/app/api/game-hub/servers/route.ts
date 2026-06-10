@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
@@ -9,8 +8,8 @@ import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manif
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
 import { derivePowerStatus, getNodeIp, getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
 import { getPelicanGameEgg } from "@/lib/pelican-eggs";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 import { safeError } from "@/lib/utils";
 
 const createServerBodySchema = z.object({
@@ -564,10 +563,7 @@ async function cloneServer(source: string, newName: string) {
   return { name: slug, source, status: "creating" };
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withAuth({}, async ({ session }) => {
   const access = await getGameHubAccessContext(session, 60);
   const scopedServers = new Set(getScopedGameServerNames(access.roleAssignments));
   const canReadAll = hasPermission(access.groups, "game-hub:read", access.roleAssignments, "/game-hub/", access.username);
@@ -731,21 +727,15 @@ export async function GET() {
     console.error("game hub server list failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: NextRequest) {
-  if (!checkRateLimit(rateLimitKey("game-hub-servers-post", req), 10, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
-
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasPermission(access.groups, "game-hub:admin", access.roleAssignments, "/game-hub/", access.username)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const POST = withAuth(
+  {
+    permission: "game-hub:admin",
+    scope: "/game-hub/",
+    rateLimit: { name: "game-hub-servers-post", limit: 10, windowMs: 60_000 },
+  },
+  async ({ req, session }) => {
   try {
     const rawBody = await req.json().catch(() => ({}));
     const parsed = createServerBodySchema.safeParse(rawBody);
@@ -788,4 +778,4 @@ export async function POST(req: NextRequest) {
     console.error("game hub server create failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

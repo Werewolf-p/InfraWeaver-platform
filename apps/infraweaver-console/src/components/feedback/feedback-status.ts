@@ -1,5 +1,7 @@
 import { Bug, Lightbulb, StickyNote } from "lucide-react";
 
+import { internalHost } from "@/lib/domain";
+
 /**
  * Shared status/type vocabulary for the Developer Feedback review surface.
  *
@@ -18,7 +20,7 @@ export type FeedbackStatus = "new" | "approved" | "dispatched" | "accepted" | "d
  * (the dispatch /approve bumps the prod image pin and ArgoCD rolls it out), so
  * this points at the live console rather than a separate preview/staging env.
  */
-export const STAGING_ENV_URL = "https://infraweaver.int.rlservers.com";
+export const STAGING_ENV_URL = `https://${internalHost("infraweaver")}`;
 
 export const TYPE_ICON: Record<FeedbackType, typeof Bug> = {
   bug: Bug,

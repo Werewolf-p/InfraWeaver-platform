@@ -15,7 +15,7 @@ The DNS page shows managed records with their:
 
 InfraWeaver uses two practical DNS zones:
 
-### Internal DNS — `*.int.rlservers.com`
+### Internal DNS — `*.int.example.com`
 
 Internal records are intended for trusted access paths such as NetBird-connected clients, internal dashboards, and private game endpoints.
 
@@ -25,7 +25,7 @@ Use internal DNS when:
 - you are testing a service before public exposure
 - you want a stable internal hostname for operators and automation
 
-### Public DNS — `*.rlservers.com`
+### Public DNS — `*.example.com`
 
 Public records are for services intentionally exposed outside the VPN.
 

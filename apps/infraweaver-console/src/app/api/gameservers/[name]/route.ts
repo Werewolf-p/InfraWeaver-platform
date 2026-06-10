@@ -4,6 +4,7 @@ import { deleteARecord } from "@/lib/cloudflare";
 import { validateK8sName } from "@/lib/api-security";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { internalHost, publicHost } from "@/lib/domain";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
@@ -81,8 +82,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     } catch {}
 
     // Delete DNS records
-    if (publicDns) { try { await deleteARecord(`${name}.rlservers.com`); } catch {} }
-    if (internalDns) { try { await deleteARecord(`${name}.int.rlservers.com`); } catch {} }
+    if (publicDns) { try { await deleteARecord(publicHost(name)); } catch {} }
+    if (internalDns) { try { await deleteARecord(internalHost(name)); } catch {} }
 
     // Delete ConfigMap
     try { await coreApi.deleteNamespacedConfigMap({ name, namespace: "game-servers" }); } catch {}

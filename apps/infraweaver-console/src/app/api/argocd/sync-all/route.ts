@@ -1,32 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasPermission } from "@/lib/rbac";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { NextResponse } from "next/server";
+import { argocdFetch } from "@/lib/argocd-apps";
 import { auditLog } from "@/lib/audit-log";
 import { invalidateArgocdCaches } from "@/lib/performance-cache";
 import { safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 
-const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
-const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
-
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "apps:sync")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  if (!checkRateLimit(rateLimitKey("argocd-sync-all", req), 10, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
-
-  try {
-    const listRes = await fetch(`${ARGOCD_SERVER}/api/v1/applications?limit=500`, {
-      headers: {
-        Authorization: `Bearer ${ARGOCD_TOKEN}`,
-        "Content-Type": "application/json",
-      },
+export const POST = withAuth(
+  { permission: "apps:sync", rateLimit: { name: "argocd-sync-all", limit: 10, windowMs: 60_000 } },
+  async ({ session }) => {
+    const listRes = await argocdFetch("/api/v1/applications?limit=500", {
       cache: "no-store",
       signal: AbortSignal.timeout(4000),
     });
@@ -45,14 +27,10 @@ export async function POST(req: NextRequest) {
     await Promise.all(
       outOfSync.map(async (app) => {
         try {
-          const syncRes = await fetch(
-            `${ARGOCD_SERVER}/api/v1/applications/${app.metadata.name}/sync`,
+          const syncRes = await argocdFetch(
+            `/api/v1/applications/${app.metadata.name}/sync`,
             {
               method: "POST",
-              headers: {
-                Authorization: `Bearer ${ARGOCD_TOKEN}`,
-                "Content-Type": "application/json",
-              },
               body: JSON.stringify({}),
               signal: AbortSignal.timeout(5000),
             }
@@ -72,7 +50,5 @@ export async function POST(req: NextRequest) {
     );
     if (synced.length > 0) invalidateArgocdCaches();
     return NextResponse.json({ synced, errors, total: outOfSync.length });
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+  },
+);

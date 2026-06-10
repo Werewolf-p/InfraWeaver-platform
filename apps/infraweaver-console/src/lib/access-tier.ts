@@ -1,3 +1,5 @@
+import { DEFAULT_ACCESS_TIER_MIDDLEWARES, tlsSecretForHost } from "@/lib/platform-config";
+
 export type AccessTier = "vpn" | "internal" | "public";
 
 export const ACCESS_TIERS: AccessTier[] = ["vpn", "internal", "public"];
@@ -8,10 +10,9 @@ export const ACCESS_TIER_LABELS: Record<AccessTier, string> = {
   public: "Public",
 };
 
-export const ACCESS_TIER_MIDDLEWARES = {
-  vpn: "netbird-vpn-only",
-  internal: "internal-only",
-} as const;
+// Defined once in platform-config (the single source of truth for fork-specific
+// values); re-exported here for back-compat with existing import sites.
+export const ACCESS_TIER_MIDDLEWARES = DEFAULT_ACCESS_TIER_MIDDLEWARES;
 
 export function normalizeMiddlewareName(value: string | null | undefined) {
   return (value ?? "").split("/").pop()?.trim().toLowerCase() ?? "";
@@ -37,11 +38,7 @@ export function accessTierDescription(tier: AccessTier) {
 }
 
 export function defaultTlsSecretForHost(host: string) {
-  const normalized = host.trim().toLowerCase();
-  if (!normalized) return "platform-wildcard-int-tls";
-  if (normalized.includes(".int.")) return "platform-wildcard-int-tls";
-  if (normalized === "rlservers.com" || normalized.endsWith(".rlservers.com")) return "rlservers-com-wildcard-tls";
-  return "platform-wildcard-int-tls";
+  return tlsSecretForHost(host);
 }
 
 export function accessTierTabs() {

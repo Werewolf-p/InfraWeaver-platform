@@ -16,7 +16,9 @@ import {
 import { toast } from "@/lib/notify";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
+  INTERNAL_DNS_DOMAIN,
   MANAGED_RECORD_TYPES,
+  ROOT_DNS_DOMAIN,
   type ManagedDnsRecord,
   type ManagedRecordType,
 } from "@/lib/dns";
@@ -309,7 +311,7 @@ export function DnsRecordDialog({
                     )}
                   />
                   <p className="mt-1 text-xs text-gray-500 dark:text-[#888]">
-                    {form.internal ? "Creates *.int.rlservers.com for NetBird/VPN" : "Creates *.rlservers.com for public access"}
+                    {form.internal ? `Creates *.${INTERNAL_DNS_DOMAIN} for NetBird/VPN` : `Creates *.${ROOT_DNS_DOMAIN} for public access`}
                   </p>
                   {errors.name ? <p className="mt-1 text-xs text-red-400">{errors.name}</p> : null}
                 </div>

@@ -7,8 +7,10 @@
 // Per-repository tags and per-tag digest/size are then read from the Docker
 // Registry v2 API (`/v2/<path>/tags/list` and `/v2/<path>/manifests/<ref>`).
 
+import { publicHost } from "@/lib/domain";
+
 const DEFAULT_ONEDEV_URL = "http://onedev.onedev.svc.cluster.local";
-const DEFAULT_PUBLIC_HOST = "onedev.rlservers.com";
+const DEFAULT_PUBLIC_HOST = publicHost("onedev");
 const DEFAULT_PROJECT_PATH = "InfraWeaver-platform";
 
 const CONTAINER_IMAGE_TYPE = "Container Image";

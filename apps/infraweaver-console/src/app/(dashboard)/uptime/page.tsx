@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { TrendingUp, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Clock, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { publicHost } from "@/lib/domain";
 
 interface GatusResult {
   success: boolean;
@@ -241,8 +242,8 @@ export default function UptimePage() {
 
       <p className="text-xs text-slate-600 text-center">
         Data sourced from Gatus ·{" "}
-        <a href="https://status.rlservers.com" target="_blank" rel="noopener noreferrer" className="hover:text-slate-700 dark:hover:text-slate-400 underline">
-          status.rlservers.com
+        <a href={`https://${publicHost("status")}`} target="_blank" rel="noopener noreferrer" className="hover:text-slate-700 dark:hover:text-slate-400 underline">
+          {publicHost("status")}
         </a>
       </p>
     </div>

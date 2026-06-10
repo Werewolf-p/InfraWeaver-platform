@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { getServerDeployment, makeGameHubClients, readServerEgg } from "@/lib/game-hub-server";
+import { withAuth } from "@/lib/with-auth";
 import { safeError } from "@/lib/utils";
 
 interface ModrinthSearchResponse {
@@ -15,10 +15,7 @@ interface ModrinthSearchResponse {
   }>;
 }
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withAuth({}, async ({ req, session }) => {
   const serverName = req.nextUrl.searchParams.get("server")?.trim() ?? "";
   const access = await getGameHubAccessContext(session, 60);
 
@@ -69,4 +66,4 @@ export async function GET(req: NextRequest) {
     console.error("modrinth search failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

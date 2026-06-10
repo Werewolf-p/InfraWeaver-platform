@@ -1,8 +1,8 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { getGitAccessToken, gitListDir, gitReadFile } from "@/lib/git-provider";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
+import { DEFAULT_CATALOG_APPS } from "@/lib/platform-config";
 
 const GIT_TOKEN = getGitAccessToken();
 
@@ -13,13 +13,7 @@ export interface CatalogApp {
   namespace: string;
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const GET = withAuth({ permission: "config:read" }, async () => {
   try {
     if (!GIT_TOKEN) throw new Error("Missing git provider token");
 
@@ -48,14 +42,6 @@ export async function GET() {
 
     return NextResponse.json(apps);
   } catch {
-    return NextResponse.json([
-      { name: "gatus", description: "Status monitoring", host: "gatus.int.rlservers.com", namespace: "gatus" },
-      { name: "stirling-pdf", description: "PDF tools", host: "stirling-pdf.int.rlservers.com", namespace: "stirling-pdf" },
-      { name: "onedev", description: "Git forge + CI", host: "onedev.rlservers.com", namespace: "onedev" },
-      { name: "vaultwarden", description: "Password manager", host: "vaultwarden.int.rlservers.com", namespace: "vaultwarden" },
-      { name: "jellyfin", description: "Media server", host: "jellyfin.int.rlservers.com", namespace: "jellyfin" },
-      { name: "n8n", description: "Workflow automation", host: "n8n.int.rlservers.com", namespace: "n8n" },
-      { name: "actual", description: "Personal finance", host: "actual.int.rlservers.com", namespace: "actual" },
-    ] as CatalogApp[]);
+    return NextResponse.json(DEFAULT_CATALOG_APPS as CatalogApp[]);
   }
-}
+});

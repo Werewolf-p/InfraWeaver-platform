@@ -16,7 +16,7 @@
 #     allowCrossNamespace=true, verified on-cluster).
 #   - forward-auth (Authentik SSO): DROPPED by default. Authentik's embedded
 #     outpost is application-scoped, not a domain-level provider for
-#     *.int.rlservers.com, so an unknown preview host gets a 404 lockout instead
+#     *.int.example.com, so an unknown preview host gets a 404 lockout instead
 #     of an SSO gate. Ephemeral previews are short-lived and internal-only, so the
 #     pragmatic default is to drop the forward-auth middleware (secure-headers +
 #     strip-rsc are always kept). Once a preview/wildcard Authentik application is
@@ -38,7 +38,7 @@
 #                        image prod is currently running (always pullable), so a
 #                        standalone/manual preview never ErrImagePulls on a tag
 #                        that was never built.                       (live prod image)
-#   PREVIEW_HOST         hostname for the preview route (infraweaver-console-preview.int.rlservers.com)
+#   PREVIEW_HOST         hostname for the preview route (infraweaver-console-preview.int.example.com)
 #   SRC_NAME             name of the deploy/svc to clone (infraweaver-console)
 #   ROUTE_NS             namespace of the IngressRoute   (traefik)
 #   ROUTE_NAME           name of the IngressRoute to clone (infraweaver-console-int)
@@ -56,7 +56,7 @@ ID="$(printf '%s' "${2:?feedback id required}" | tr -cd 'a-zA-Z0-9._-' | cut -c1
 
 NS="${PREVIEW_NS:-infraweaver-console}"
 PREVIEW_IMAGE="${PREVIEW_IMAGE:-}"
-HOST="${PREVIEW_HOST:-infraweaver-console-preview.int.rlservers.com}"
+HOST="${PREVIEW_HOST:-infraweaver-console-preview.int.example.com}"
 SRC="${SRC_NAME:-infraweaver-console}"
 ROUTE_NS="${ROUTE_NS:-traefik}"
 ROUTE_NAME="${ROUTE_NAME:-infraweaver-console-int}"

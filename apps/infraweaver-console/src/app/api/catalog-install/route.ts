@@ -1,38 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { getGitAccessToken, gitCommitFiles, gitReadFile } from "@/lib/git-provider";
-import { hasPermission } from "@/lib/rbac";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 import { z } from "zod";
 
 const GIT_TOKEN = getGitAccessToken();
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+const CatalogInstallBody = z.object({
+  appName: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/),
+  yaml: z.string().min(1).max(50_000),
+  namespace: z.string().min(1).max(63).regex(/^[a-z0-9-]+$/),
+  commitMessage: z.string().max(200).optional(),
+});
 
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "catalog:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  if (!checkRateLimit(rateLimitKey("catalog-install", req), 5, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
+export const POST = withAuth(
+  {
+    permission: "catalog:write",
+    rateLimit: { name: "catalog-install", limit: 5, windowMs: 60_000 },
+  },
+  async ({ req }) => {
+    const result = CatalogInstallBody.safeParse(await req.json());
+    if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
 
-  const CatalogInstallBody = z.object({
-    appName: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/),
-    yaml: z.string().min(1).max(50_000),
-    namespace: z.string().min(1).max(63).regex(/^[a-z0-9-]+$/),
-    commitMessage: z.string().max(200).optional(),
-  });
+    const { appName, yaml, commitMessage } = result.data;
 
-  const result = CatalogInstallBody.safeParse(await req.json());
-  if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
-
-  const { appName, yaml, commitMessage } = result.data;
-
-  try {
     if (!GIT_TOKEN) throw new Error("Missing git provider token");
 
     const filesToWrite = [
@@ -62,7 +52,5 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+  },
+);

@@ -59,7 +59,7 @@ export const authConfig: NextAuthConfig = {
     maxAge: SESSION_MAX_AGE,
   },
   // Trust the X-Forwarded-* headers from Traefik so NextAuth derives the correct
-  // public origin (https://infraweaver.int.rlservers.com) for the callback URL.
+  // public origin (https://infraweaver.int.<base-domain>) for the callback URL.
   // Without this, the OIDC redirect_uri/callback can be computed wrong behind the
   // reverse proxy, breaking the first-attempt flow correlation.
   trustHost: true,

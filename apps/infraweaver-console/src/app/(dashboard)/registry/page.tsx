@@ -9,8 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CopyButton } from "@/components/ui/copy-button";
 import { formatBytes } from "@/lib/utils";
+import { publicHost } from "@/lib/domain";
 
-const DEFAULT_REGISTRY_HOST = "onedev.rlservers.com";
+const DEFAULT_REGISTRY_HOST = publicHost("onedev");
 const DEFAULT_PROJECT_PATH = "infraweaver-platform";
 
 function TagRow({ registryPath, tag, onDelete, isAdmin }: {

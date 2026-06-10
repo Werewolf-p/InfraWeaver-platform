@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
-import { auth } from "@/lib/auth";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { apiCache } from "@/lib/api-cache";
 import { loadKubeConfig } from "@/lib/k8s";
 import { PERFORMANCE_CACHE_KEYS } from "@/lib/performance-cache";
-import { hasPermission } from "@/lib/rbac";
+import { withAuth } from "@/lib/with-auth";
 
 const METRICS_CACHE_TTL_MS = 20_000;
 
@@ -69,15 +68,8 @@ async function loadMetrics(clusterId: string): Promise<MetricsResponse> {
   }
 }
 
-export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const groups: string[] = (session.user as { groups?: string[] }).groups ?? [];
-  if (!hasPermission(groups, "config:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const clusterId = getRequestClusterId(request);
+export const GET = withAuth({ permission: "config:read" }, async ({ req }) => {
+  const clusterId = getRequestClusterId(req);
   const cacheKey = `${PERFORMANCE_CACHE_KEYS.clusterMetrics}:${clusterId}`;
   const cached = apiCache.get<MetricsResponse>(cacheKey);
   if (cached) {
@@ -87,4 +79,4 @@ export async function GET(request: NextRequest) {
   const response = await loadMetrics(clusterId);
   apiCache.set(cacheKey, response, METRICS_CACHE_TTL_MS);
   return NextResponse.json(response, { headers: { "X-Cache": "MISS" } });
-}
+});

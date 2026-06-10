@@ -2,6 +2,8 @@ import dns from "node:dns/promises";
 import https from "node:https";
 import net from "node:net";
 
+import { INTERNAL_DOMAIN } from "@/lib/domain";
+
 const BLOCKED_HOSTS = new Set([
   "localhost",
   "localhost.localdomain",
@@ -9,7 +11,7 @@ const BLOCKED_HOSTS = new Set([
 
 const BLOCKED_SUFFIXES = [
   ".cluster.local",
-  ".int.rlservers.com",
+  `.${INTERNAL_DOMAIN}`,
   ".internal",
   ".lan",
   ".local",
