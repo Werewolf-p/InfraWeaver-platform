@@ -11,7 +11,6 @@ All shared Traefik middlewares live in:
 |------|-----------|---------|
 | `redirect-to-https` | traefik | HTTP → HTTPS permanent redirect (applied to all port-80 traffic) |
 | `internal-only` | traefik | Allow homelab LAN + VPN, block public internet |
-| `netbird-vpn-only` | traefik | Allow ONLY NetBird VPN traffic (used for all `*.int.example.com` routes) |
 | `add-https-headers` | traefik | Sets `X-Forwarded-Proto: https` for backends |
 | `secure-headers` | traefik | Browser security headers (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) |
 | `forward-auth` | traefik | Authentik proxy auth — any logged-in Authentik user passes |
@@ -23,13 +22,13 @@ All shared Traefik middlewares live in:
 
 ## Usage Examples
 
-### VPN-only Internal Route (default)
+### Internal Route (default)
 ```yaml
 middlewares:
-  - name: netbird-vpn-only
+  - name: forward-auth
     namespace: traefik
 ```
-> Use for all `*.int.example.com` routes. VPN is the authentication layer.
+> Use for all `*.int.example.com` routes. Authentik forward-auth is the authentication layer.
 
 ### Authentik Proxy Auth (any logged-in user) {#any-auth}
 ```yaml
@@ -73,7 +72,7 @@ middlewares:
 middlewares:
   - name: secure-headers
     namespace: traefik
-  - name: netbird-vpn-only   # or forward-auth / cors-authentik etc
+  - name: forward-auth   # or cors-authentik etc
     namespace: traefik
 ```
 > `secure-headers` is applied to **all HTTP-serving routes** by default (via `new-app.sh` and platform routes).
@@ -85,7 +84,6 @@ middlewares:
 > - `Permissions-Policy: camera=(), microphone=(), geolocation=()` — disables browser APIs
 > - `X-XSS-Protection: 0` — disables legacy XSS filter (modern browsers use CSP instead)
 >
-> ⚠️ **NOT applied to gRPC routes** (NetBird management, signal, relay) — HTTP headers don't apply to gRPC.
 > ⚠️ **CSP is intentionally omitted** — Content-Security-Policy is highly app-specific and breaks most apps.
 
 ---
@@ -101,7 +99,7 @@ kubectl get deploy -A -L infraweaver.io/auth
 
 | Label Value | Meaning |
 |-------------|---------|
-| `vpn` | VPN-only (NetBird, internal access) — default |
+| `vpn` | VPN-only (internal access) — default |
 | `proxy` | Authentik proxy auth (any logged-in user) |
 | `admin` | Authentik proxy auth (platform-admins group only) |
 | `sso` | App uses native OIDC/SSO |
@@ -114,7 +112,7 @@ kubectl get deploy -A -L infraweaver.io/auth
 Use `new-app.sh` flags to auto-generate the correct IngressRoute and set the label:
 
 ```bash
-# Default: VPN-only internal access
+# Default: internal access (forward-auth)
 bash scripts/new-app.sh my-app
 
 # Authentik proxy: any logged-in user

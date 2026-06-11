@@ -31,7 +31,7 @@ bash scripts/new-app.sh my-app --helm https://charts.example.com my-chart
 
 ## Making Your App Accessible
 
-### Internal only (default — accessed via NetBird VPN):
+### Internal only (default — accessed via VPN / internal network):
 ```bash
 cp manifests/ingressroute-internal.yaml.example manifests/ingressroute-internal.yaml
 # URL: https://APP_NAME.int.example.com  (only reachable on VPN)

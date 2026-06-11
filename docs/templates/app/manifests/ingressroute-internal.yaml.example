@@ -1,10 +1,10 @@
 ---
-# INTERNAL IngressRoute — only accessible via NetBird VPN
+# INTERNAL IngressRoute — only accessible via VPN / internal network
 #
 # Rename this file from .yaml.example → .yaml to activate it.
-# URL: https://APP_NAME.int.example.com  (only reachable when connected to NetBird)
+# URL: https://APP_NAME.int.example.com  (only reachable from the internal network or VPN)
 #
-# The `netbird-vpn-only` middleware allows only VPN traffic through.
+# The `vpn-only` middleware allows only internal/VPN traffic through.
 # The `secure-headers` middleware adds browser security headers (HSTS, X-Frame-Options, etc.)
 # No Authentik login required — the VPN itself is the authentication layer.
 apiVersion: traefik.io/v1alpha1
@@ -21,7 +21,7 @@ spec:
       middlewares:
         - name: secure-headers
           namespace: traefik
-        - name: netbird-vpn-only
+        - name: vpn-only
           namespace: traefik
       services:
         - name: APP_NAME

@@ -267,7 +267,6 @@ Your router / firewall (port 443 → MetalLB Traefik VIP)
 Traefik (MetalLB IP)
     │
     ├── auth.yourdomain.com        → Authentik (SSO)
-    ├── netbird.yourdomain.com     → NetBird VPN dashboard (if enabled)
     ├── console.yourdomain.com     → InfraWeaver Console
     │
     └── *.int.yourdomain.com       → Internal-only (LAN or VPN only)
@@ -281,9 +280,8 @@ Traefik (MetalLB IP)
 
 | Tier | Subdomain pattern | Who can reach it |
 |---|---|---|
-| Public | `auth.yourdomain.com`, `netbird.yourdomain.com` | Anyone on the internet |
+| Public | `auth.yourdomain.com` | Anyone on the internet |
 | Internal | `*.int.yourdomain.com` | Your local network IP ranges (configured at init) |
-| VPN-only | `*.int.yourdomain.com` | Only via NetBird VPN (if NetBird enabled) |
 
 ---
 
@@ -312,7 +310,6 @@ Traefik (MetalLB IP)
 
 | Component | Default | Description |
 |---|---|---|
-| **NetBird VPN** | off | Zero-trust mesh VPN for secure remote access |
 | **Monitoring Stack** | off | Prometheus + Loki + Alertmanager (+ Grafana) |
 | **External DNS** | off | Auto-creates DNS records via your DNS provider API |
 | **Velero + MinIO** | off | Kubernetes-level backup to local S3-compatible storage |
@@ -377,7 +374,6 @@ DNS_PROVIDER=cloudflare              # See supported providers below
 CLOUDFLARE_API_TOKEN=...
 
 # ── Features ───────────────────────────────────────────────────────────────
-ENABLE_NETBIRD=false                 # Zero-trust VPN
 ENABLE_MONITORING=false              # Prometheus + Loki + Grafana
 ENABLE_EXTERNAL_DNS=false            # Auto DNS record management
 BACKUP_PROVIDER=longhorn             # longhorn | velero | none
@@ -411,8 +407,6 @@ groups:
 
   core-platform:
     apps:
-      netbird:
-        enabled: true    # Deploys NetBird VPN
       external-dns:
         enabled: true    # Auto-manages DNS records
 ```
@@ -442,8 +436,7 @@ InfraWeaver-platform/
 │   │   ├── talos-cluster/        # Creates 3 Talos VMs + bootstraps K8s
 │   │   ├── platform-bootstrap/   # Installs ArgoCD + root ApplicationSet
 │   │   ├── cloud-init-template/  # Ubuntu cloud-init VM template
-│   │   ├── openbao/              # OpenBao VM (secrets vault)
-│   │   └── netbird-router/       # NetBird router peer VM
+│   │   └── openbao/              # OpenBao VM (secrets vault)
 │   └── envs/productie/           # Environment-specific Terraform variables
 │
 ├── kubernetes/
@@ -456,7 +449,7 @@ InfraWeaver-platform/
 │   │   ├── metallb/
 │   │   ├── openbao/
 │   │   └── traefik/
-│   ├── platform/                 # Platform services (Authentik, NetBird, DNS, etc.)
+│   ├── platform/                 # Platform services (Authentik, DNS, etc.)
 │   ├── monitoring/               # Prometheus, Loki, Alertmanager (optional group)
 │   ├── catalog/                  # On-demand apps (Vaultwarden, Immich, etc.)
 │   └── external-routes/          # Traefik IngressRoutes + TLS Certificates
@@ -478,18 +471,12 @@ InfraWeaver-platform/
    - All services and their health status are visible here
 
 2. **Access internal services** — `https://*.int.yourdomain.com`
-   - Accessible from your local network (or via VPN if NetBird is enabled)
+   - Accessible from your local network
    - ArgoCD: `https://argocd.int.yourdomain.com`
    - OpenBao: `https://openbao.int.yourdomain.com`
    - Onedev: `https://onedev.int.yourdomain.com`
 
-3. **Connect to NetBird VPN** (if enabled)
-   ```bash
-   netbird up --management-url https://api-netbird.yourdomain.com
-   # Browser opens → log in with Authentik SSO → VPN connects
-   ```
-
-4. **Retrieve a credential**
+3. **Retrieve a credential**
    ```bash
    # Via kubectl on any node, or OpenBao UI at openbao.int.yourdomain.com
    vault kv get -field=bootstrap-password secret/platform/authentik
@@ -524,8 +511,7 @@ Routes served on `*.int.yourdomain.com` are protected by a Traefik middleware th
 ### If using Cloudflare as your DNS proxy
 
 - **SSL mode: Full** (required — Flexible breaks TLS termination)
-- **HTTP/2: enabled** (required for NetBird gRPC connections)
-- gRPC works on the Cloudflare Free plan with HTTP/2 + Full SSL
+- **HTTP/2: enabled**
 
 ### CoreDNS internal resolution
 
