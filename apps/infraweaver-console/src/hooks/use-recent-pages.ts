@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import { useServerPreferences } from "@/hooks/use-server-preferences";
 import { MAX_RECENTLY_VISITED, type RecentlyVisitedPage } from "@/lib/user-preferences";
 
-export interface RecentPage extends RecentlyVisitedPage {}
+export type RecentPage = RecentlyVisitedPage;
 
 export function useRecentPages() {
   const { preferences, setPreferences } = useServerPreferences();

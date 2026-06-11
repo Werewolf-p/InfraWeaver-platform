@@ -6,7 +6,7 @@ process.env.TZ = "UTC";
 const config = {
   preset: "ts-jest",
   testEnvironment: "jsdom",
-  setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
+  setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   testMatch: ["**/tests/unit/**/*.test.{ts,tsx}"],
   testPathIgnorePatterns: ["/node_modules/", "/.next/"],
   moduleNameMapper: {

@@ -1718,7 +1718,7 @@ export default function NewGameServerPage() {
                     <div className="flex items-center gap-1.5">
                       <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">CPU</p>
                       <HelpTooltip>
-                        CPU cores available to your server. 1 core handles most small-medium servers. Add more if you see lag spikes or console warnings about high tick time. Kubernetes can share CPU across servers — a 1-core limit doesn't prevent brief bursts above that.
+                        CPU cores available to your server. 1 core handles most small-medium servers. Add more if you see lag spikes or console warnings about high tick time. Kubernetes can share CPU across servers — a 1-core limit doesn&apos;t prevent brief bursts above that.
                       </HelpTooltip>
                     </div>
                     <div className="text-right">
@@ -1754,7 +1754,7 @@ export default function NewGameServerPage() {
                     <div className="flex items-center gap-1.5">
                       <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{targetNode ? "Node capacity" : "Cluster capacity"}</h3>
                       <HelpTooltip>
-                        Live scheduling context for this deployment. Choose a node to see that node's real CPU and memory headroom, or leave scheduling automatic to view the overall cluster picture.
+                        Live scheduling context for this deployment. Choose a node to see that node&apos;s real CPU and memory headroom, or leave scheduling automatic to view the overall cluster picture.
                       </HelpTooltip>
                     </div>
                     <span className={cn(
