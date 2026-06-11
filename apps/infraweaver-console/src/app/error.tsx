@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 
 interface ErrorPageProps {
@@ -8,7 +8,7 @@ interface ErrorPageProps {
 }
 
 export default function ErrorPage({ error, reset }: ErrorPageProps) {
-  const requestId = error.digest ?? `err_${Date.now().toString(36)}`;
+  const [requestId] = useState(() => error.digest ?? `err_${Date.now().toString(36)}`);
 
   useEffect(() => {
     // ChunkLoadError means stale JS chunks after a new deploy — hard reload recovers
