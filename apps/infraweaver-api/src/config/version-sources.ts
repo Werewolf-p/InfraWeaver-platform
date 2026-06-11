@@ -23,5 +23,4 @@ export const VERSION_SOURCES: Record<string, VersionSource> = {
   openbao: { type: 'helm', repoUrl: 'https://openbao.github.io/openbao-helm', chartName: 'openbao' },
   // n8n helm chart versions match n8n app versions; charts.n8n.io is IPv6-only so use Docker Hub
   n8n: { type: 'docker', image: 'n8nio/n8n' },
-  netbird: { type: 'ghcr', owner: 'netbirdio', repo: 'netbird', packageName: 'management' },
 };

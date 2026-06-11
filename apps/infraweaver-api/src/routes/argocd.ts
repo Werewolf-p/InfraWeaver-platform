@@ -26,8 +26,6 @@ const mockAppsSeed = [
   { name: 'core-external-secrets-manifests', namespace: 'external-secrets', project: 'platform', health: 'Healthy', sync: 'Synced' },
   { name: 'core-longhorn', namespace: 'longhorn-system', project: 'platform', health: 'Healthy', sync: 'Synced' },
   { name: 'platform-authentik', namespace: 'authentik', project: 'platform', health: 'Healthy', sync: 'Synced' },
-  { name: 'platform-netbird', namespace: 'netbird', project: 'platform', health: 'Healthy', sync: 'Synced' },
-  { name: 'apps-netbird', namespace: 'netbird', project: 'platform', health: 'Healthy', sync: 'Synced' },
   { name: 'platform-homepage', namespace: 'homepage', project: 'platform', health: 'Healthy', sync: 'Synced' },
   { name: 'platform-grafana', namespace: 'grafana', project: 'platform', health: 'Healthy', sync: 'Synced' },
   { name: 'catalog-wiki-manifests', namespace: 'wiki', project: 'platform', health: 'Healthy', sync: 'Synced' },
