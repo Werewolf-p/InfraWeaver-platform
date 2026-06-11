@@ -28,6 +28,7 @@
  * `project_feedback_image_pipeline` for the build/registry gotchas.
  */
 const { spawn, execSync } = require('child_process');
+const crypto = require('crypto');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
@@ -35,7 +36,49 @@ const os = require('os');
 const pipelineStore = require('./pipeline-store');
 const specialists = require('./specialists');
 
+// ── HMAC request authentication (C-3) ───────────────────────────────────────
+// Canonical scheme (must match the console signer exactly):
+//   secret  = env DISPATCH_SECRET
+//   headers = X-IW-Timestamp (Date.now() ms as string), X-IW-Signature (hex)
+//   signing input = `${timestamp}.${rawBody}` where rawBody is the EXACT bytes
+//                   received (do NOT re-serialize before verifying)
+//   signature = lowercase hex HMAC-SHA256, compared constant-time
+//   replay window = reject if |now - timestamp| > 5 min
+const HMAC_WINDOW_MS = 300000; // 5 minutes
+
+function signHmac(message, secret) {
+  return crypto.createHmac('sha256', secret).update(message).digest('hex');
+}
+
+// Verify the canonical HMAC over `${timestamp}.${rawBody}`. Returns
+// { ok, error }. Fails closed on any malformed/missing/expired input.
+function verifyHmac(rawBody, timestamp, signature, secret) {
+  if (!secret) return { ok: false, error: 'no secret' };
+  if (!timestamp || !signature) return { ok: false, error: 'missing signature headers' };
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > HMAC_WINDOW_MS) {
+    return { ok: false, error: 'expired or invalid timestamp' };
+  }
+  const expected = signHmac(`${timestamp}.${rawBody}`, secret);
+  if (typeof signature !== 'string' || signature.length !== expected.length) {
+    return { ok: false, error: 'invalid signature' };
+  }
+  const a = Buffer.from(expected, 'hex');
+  const b = Buffer.from(signature, 'hex');
+  if (a.length !== b.length) return { ok: false, error: 'invalid signature' };
+  if (!crypto.timingSafeEqual(a, b)) return { ok: false, error: 'invalid signature' };
+  return { ok: true };
+}
+
 const PORT = process.env.DISPATCH_PORT || 9876;
+// HMAC shared secret for request auth. Fail-open (HMAC disabled, IP allowlist
+// only) when empty so the pipeline keeps working until ops provisions it; fail
+// closed (strict enforcement) once set.
+const DISPATCH_SECRET = process.env.DISPATCH_SECRET || '';
+// Default tool allowlist for the claude agent (bounded; was previously run with
+// --dangerously-skip-permissions). Env-overridable; per-step allowlists win.
+const DEFAULT_ALLOWED_TOOLS = (process.env.DISPATCH_ALLOWED_TOOLS || 'Read,Edit,Write,Glob,Grep,Bash')
+  .split(',').map(s => s.trim()).filter(Boolean);
 const WORKSPACE = process.env.WORKSPACE_DIR || '/home/runner/InfraWeaver-platform';
 const CONSOLE_DIR = path.join(WORKSPACE, 'apps/infraweaver-console');
 const CONFIG_FILE = path.join(__dirname, 'config.json');
@@ -161,9 +204,12 @@ function runAgent(agent, task, run, workDir = WORKSPACE, opts = {}) {
       args = ['-p', task, '--autopilot', '--allow-all-tools'];
     } else if (agent === 'claude') {
       cmd = '/home/runner/.local/bin/claude';
-      args = ['-p', task, '--output-format', 'text', '--dangerously-skip-permissions'];
+      args = ['-p', task, '--output-format', 'text'];
+      // Always bound the agent with an explicit tool allowlist (replaces the
+      // removed --dangerously-skip-permissions). Per-step list wins if provided.
+      const tools = allowedTools.length ? allowedTools : DEFAULT_ALLOWED_TOOLS;
+      args.push('--allowedTools', ...tools);
       if (appendSystemPrompt) args.push('--append-system-prompt', appendSystemPrompt);
-      if (allowedTools.length) args.push('--allowedTools', ...allowedTools);
       if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath, '--strict-mcp-config');
       if (model) args.push('--model', model);
     } else {
@@ -332,6 +378,36 @@ function parseBody(req) {
     req.on('data', c => body += c);
     req.on('end', () => { try { resolve(body ? JSON.parse(body) : {}); } catch (e) { reject(e); } });
   });
+}
+// Read the raw request body as a string (no parsing). Used for mutation routes
+// so the HMAC is verified against the EXACT received bytes before JSON.parse.
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
+// Read+verify+parse a mutation request body in one step. Returns
+// { ok:true, body } when authorized (or when HMAC is disabled), or
+// { ok:false, status, error } to send back. Fail-open only when no secret.
+async function authedBody(req) {
+  const raw = await readRawBody(req);
+  if (DISPATCH_SECRET) {
+    const result = verifyHmac(
+      raw,
+      req.headers['x-iw-timestamp'],
+      req.headers['x-iw-signature'],
+      DISPATCH_SECRET,
+    );
+    if (!result.ok) return { ok: false, status: 401, error: 'invalid signature' };
+  }
+  let body;
+  try { body = raw ? JSON.parse(raw) : {}; }
+  catch { return { ok: false, status: 400, error: 'invalid JSON body' }; }
+  return { ok: true, body };
 }
 
 // ── Pipeline serialization ──────────────────────────────────────────────────
@@ -519,19 +595,28 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/config') {
       if (req.method === 'GET') return json(200, loadConfig());
-      if (req.method === 'PUT') { const b = await parseBody(req); const cfg = loadConfig(); if (b.agents) cfg.agents = b.agents; if (b.defaultAgent) cfg.defaultAgent = b.defaultAgent; saveConfig(cfg); return json(200, { ok: true, config: cfg }); }
+      if (req.method === 'PUT') {
+        const auth = await authedBody(req);
+        if (!auth.ok) return json(auth.status, { error: auth.error });
+        const b = auth.body; const cfg = loadConfig();
+        if (b.agents) cfg.agents = b.agents; if (b.defaultAgent) cfg.defaultAgent = b.defaultAgent;
+        saveConfig(cfg); return json(200, { ok: true, config: cfg });
+      }
     }
 
     // ── Agent Studio: editable pipeline, specialist library, and UI catalogs ──
     if (url.pathname === '/pipeline') {
       if (req.method === 'GET') return json(200, pipelineStore.loadPipeline());
       if (req.method === 'PUT') {
-        const b = await parseBody(req);
-        try { return json(200, { ok: true, pipeline: pipelineStore.savePipeline(b) }); }
+        const auth = await authedBody(req);
+        if (!auth.ok) return json(auth.status, { error: auth.error });
+        try { return json(200, { ok: true, pipeline: pipelineStore.savePipeline(auth.body) }); }
         catch (e) { return json(400, { ok: false, error: String(e && e.message || e) }); }
       }
     }
     if (req.method === 'POST' && url.pathname === '/pipeline/reset') {
+      const auth = await authedBody(req);
+      if (!auth.ok) return json(auth.status, { error: auth.error });
       return json(200, { ok: true, pipeline: pipelineStore.resetPipeline() });
     }
     if (req.method === 'GET' && url.pathname === '/specialists') {
@@ -580,16 +665,24 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/approve') {
-      const b = await parseBody(req);
+      const auth = await authedBody(req);
+      if (!auth.ok) return json(auth.status, { error: auth.error });
+      const b = auth.body;
       if (!b.feedbackId || !b.description) return json(400, { error: 'feedbackId and description required' });
       return json(200, await withLock(() => doApprove(b)));
     }
     if (req.method === 'POST' && url.pathname === '/validate') {
-      const b = await parseBody(req);
+      const auth = await authedBody(req);
+      if (!auth.ok) return json(auth.status, { error: auth.error });
+      const b = auth.body;
       if (!b.feedbackId || !b.action) return json(400, { error: 'feedbackId and action required' });
       return json(200, await doValidate(b));
     }
     if (req.method === 'POST' && url.pathname === '/publish') {
+      // Empty-bodied route: the console sends JSON.stringify({}) = "{}" so the
+      // signed/verified rawBody is "{}". authedBody reads+verifies that.
+      const auth = await authedBody(req);
+      if (!auth.ok) return json(auth.status, { error: auth.error });
       return json(200, await withLock(() => doPublish()));
     }
 
@@ -599,6 +692,15 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`InfraWeaver Dispatch (single-branch) on :${PORT} — branch=${FEEDBACK_BRANCH} registry=${REGISTRY}`);
-});
+// Only start the server when run directly (`node server.js`); requiring the
+// module for tests must NOT bind a port.
+if (require.main === module) {
+  if (DISPATCH_SECRET === '') {
+    console.warn('[SECURITY] DISPATCH_SECRET not set — HMAC auth DISABLED, IP allowlist only');
+  }
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`InfraWeaver Dispatch (single-branch) on :${PORT} — branch=${FEEDBACK_BRANCH} registry=${REGISTRY}`);
+  });
+}
+
+module.exports = { signHmac, verifyHmac, HMAC_WINDOW_MS };

@@ -61,9 +61,13 @@ function generateNonce(): string {
  * while 'unsafe-inline' remains as fallback for CSP1/2 browsers.
  */
 function buildCSP(nonce: string): string {
+  // Next.js dev mode needs 'unsafe-eval'; production must NOT allow it.
+  const scriptSrc = `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline'${
+    process.env.NODE_ENV !== "production" ? " 'unsafe-eval'" : ""
+  }`;
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline' 'unsafe-eval'`,
+    scriptSrc,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "connect-src 'self' wss: ws:",
@@ -174,15 +178,29 @@ export default auth(async (req) => {
 
     if (isLoggedIn && (pathname === "/login" || pathname === "/auth/signin")) {
       const callbackUrl = nextUrl.searchParams.get("callbackUrl");
-      // Guard: reject callbackUrls that would loop back into the auth flow or chain redirects
-      const isValidCallback =
+      // Guard: reject callbackUrls that would loop back into the auth flow,
+      // chain redirects, or escape the origin. The "//" check blocks
+      // protocol-relative URLs (e.g. //evil.com) that startsWith("/") lets
+      // through as an open redirect.
+      const passesCheapChecks =
         callbackUrl != null &&
         callbackUrl.startsWith("/") &&
+        !callbackUrl.startsWith("//") &&
         !callbackUrl.startsWith("/login") &&
         !callbackUrl.startsWith("/auth/signin") &&
         !callbackUrl.startsWith("/api/auth") &&
         !callbackUrl.includes("callbackUrl=");
-      const target = isValidCallback ? new URL(callbackUrl, nextUrl) : new URL("/", nextUrl);
+      // Defense in depth: resolve against the request origin and confirm it does
+      // not escape it before trusting the redirect target.
+      let isValidCallback = false;
+      if (passesCheapChecks) {
+        try {
+          isValidCallback = new URL(callbackUrl, nextUrl).origin === nextUrl.origin;
+        } catch {
+          isValidCallback = false;
+        }
+      }
+      const target = isValidCallback ? new URL(callbackUrl as string, nextUrl) : new URL("/", nextUrl);
       return withSecurityHeaders(NextResponse.redirect(target), nonce, requestId);
     }
 
