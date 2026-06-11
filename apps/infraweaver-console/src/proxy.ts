@@ -50,7 +50,8 @@ function withApiCacheControl(pathname: string, response: NextResponse) {
 
 /**
  * Generates a cryptographically random nonce for CSP.
- * Uses Web Crypto API (globalThis.crypto) — safe in edge runtime.
+ * Uses Web Crypto API (globalThis.crypto) — available in the Node.js runtime
+ * that Proxy always runs on (Next.js 16+).
  */
 function generateNonce(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
