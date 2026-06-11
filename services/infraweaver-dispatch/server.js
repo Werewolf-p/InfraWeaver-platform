@@ -623,8 +623,16 @@ const server = http.createServer(async (req, res) => {
       return json(200, specialists.loadSpecialists());
     }
     if (req.method === 'POST' && url.pathname === '/specialists/refresh') {
-      const b = await parseBody(req).catch(() => ({}));
-      const result = await specialists.refreshSpecialists(b.repo || undefined);
+      // Mutating + drives outbound GitHub fetches whose URL embeds `repo`, and
+      // the result replaces the specialist prompt library used in agent runs.
+      // Gate it like the other mutation routes and validate the repo shape.
+      const auth = await authedBody(req);
+      if (!auth.ok) return json(auth.status, { error: auth.error });
+      const repo = auth.body.repo;
+      if (repo !== undefined && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
+        return json(400, { error: 'invalid repo format (expected owner/name)' });
+      }
+      const result = await specialists.refreshSpecialists(repo || undefined);
       return json(result.ok ? 200 : 502, result);
     }
     if (req.method === 'GET' && url.pathname === '/catalog') {
