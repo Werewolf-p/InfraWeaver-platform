@@ -8,7 +8,7 @@ GitHub is only used as the source to clone this template — after that, everyth
 ## Flow
 
 1. **Clone** this repo to your Proxmox init VM
-2. **Configure** via the init website (`bash scripts/init/start.sh`)
+2. **Configure** via the init website (`bash scripts/init/setup.sh`)
 3. **Deploy** — the init website triggers `scripts/deploy-local.sh` which:
    - Provisions VMs on Proxmox via OpenTofu
    - Bootstraps the Talos Kubernetes cluster
