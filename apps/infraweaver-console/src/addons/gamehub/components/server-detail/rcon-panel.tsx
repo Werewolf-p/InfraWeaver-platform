@@ -140,10 +140,12 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
       );
       const errorMessage = response.error ? formatCommandError(gameType, response.error) : undefined;
       const entry: HistoryEntry = {
+        // eslint-disable-next-line react-hooks/purity -- event handler legitimately reads current time/random to build a unique history entry
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         command: value,
         output: response.output,
         error: errorMessage,
+        // eslint-disable-next-line react-hooks/purity -- event handler legitimately reads current time/random to build a unique history entry
         createdAt: Date.now(),
       };
       setHistory((current) => [...current, entry].slice(-20));

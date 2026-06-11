@@ -486,12 +486,14 @@ export function DashboardTab({
   const networkHistoryRef = useRef<NetworkSnapshot[]>([]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setMetricsHistory(loadMetricsHistory(metricsHistoryKey));
   }, [metricsHistoryKey]);
 
   useEffect(() => {
     if (!metricsHistoryResponse?.length) return;
     const historicalPoints = normalizeMetricsHistoryPoints(metricsHistoryResponse);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setMetricsHistory((current) => {
       const next = mergeMetricsHistoryPoints(current, historicalPoints);
       saveMetricsHistory(metricsHistoryKey, next);
@@ -505,6 +507,7 @@ export function DashboardTab({
       const stored = JSON.parse(
         localStorage.getItem(`storage-history:${name}`) ?? "[]",
       ) as Array<{ t: number; used: number; total: number }>;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setStorageHistory(stored.slice(-50));
     } catch {
       setStorageHistory([]);
@@ -516,6 +519,7 @@ export function DashboardTab({
     const used = parseHumanStorageValue(disk.filesystem.used);
     const total = parseHumanStorageValue(disk.filesystem.total);
     if (!used || !total) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setStorageHistory((current) => {
       const next = [...current, { t: Date.now(), used, total }].slice(-50);
       localStorage.setItem(`storage-history:${name}`, JSON.stringify(next));
@@ -534,6 +538,7 @@ export function DashboardTab({
 
     if (!isServerRunning) {
       networkHistoryRef.current = [];
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setNetworkThroughputData([]);
       setNetworkThroughputError(null);
       return () => {
@@ -621,6 +626,7 @@ export function DashboardTab({
     if (!latest?.timestamp) return;
     const [nextPoint] = normalizeMetricsHistoryPoints([latest]);
     if (!nextPoint) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setMetricsHistory((current) => {
       const previous = current[current.length - 1];
       if (

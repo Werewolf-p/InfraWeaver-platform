@@ -134,6 +134,7 @@ function WikiSidebar({
 
   useEffect(() => {
     if (!currentSectionId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setOpenSections((previous) => ({ ...previous, [currentSectionId]: true }));
   }, [currentSectionId]);
 

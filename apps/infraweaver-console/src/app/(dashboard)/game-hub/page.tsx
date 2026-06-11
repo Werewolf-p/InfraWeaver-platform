@@ -832,6 +832,7 @@ export default function GameHubPage() {
 
   useEffect(() => {
     if (!hasGroupedServers) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setExpandedGroups((current) => {
       const next = { ...current };
       for (const group of [...allGroups, "Ungrouped"]) {

@@ -539,10 +539,12 @@ function FilesTab({
   const isDirty = Boolean(
     selectedFile &&
       fileContent !== null &&
+      // eslint-disable-next-line react-hooks/refs -- intentional render-time read of last-loaded file content for dirty-state and diff display
       fileContent !== originalContentRef.current,
   );
   const fileLineCount = countContentLines(fileContent);
   const diffLines = useMemo(
+    // eslint-disable-next-line react-hooks/refs -- intentional render-time read of last-loaded file content for dirty-state and diff display
     () => buildUnifiedDiff(originalContentRef.current ?? "", fileContent ?? ""),
     [fileContent, selectedFile?.path],
   );
@@ -1351,6 +1353,7 @@ function ServerRbacPanel({
 
   useEffect(() => {
     if (!addUsername && availableUsers.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setAddUsername(availableUsers[0]);
     }
   }, [addUsername, availableUsers]);

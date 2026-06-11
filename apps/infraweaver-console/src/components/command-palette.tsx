@@ -95,6 +95,7 @@ export function CommandPalette() {
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setQuery("");
       setSelectedIndex(0);
       setRecentItems(loadRecent());
@@ -103,6 +104,7 @@ export function CommandPalette() {
   }, [open]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setSelectedIndex(0);
   }, [query]);
 

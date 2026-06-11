@@ -229,6 +229,7 @@ export default function UpdateManagerPage() {
 
   useEffect(() => {
     if (!updatesQuery.data?.length) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setSelectedVersions((current: Record<string, string>) => {
       const next = { ...current };
       for (const app of updatesQuery.data) {

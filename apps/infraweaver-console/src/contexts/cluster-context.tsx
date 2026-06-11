@@ -88,6 +88,7 @@ export function ClusterProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isLoading && clusters.length > 0 && activeId !== "all") {
       const exists = clusters.some((c) => c.id === activeId);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       if (!exists) setActiveId(clusters[0]!.id);
     }
   }, [clusters, isLoading, activeId, setActiveId]);

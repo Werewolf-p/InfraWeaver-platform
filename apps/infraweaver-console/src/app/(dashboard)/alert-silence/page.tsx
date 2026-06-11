@@ -22,7 +22,7 @@ export default function AlertSilencePage() {
   const canManageSilences = can("config:write");
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", matchers: "", comment: "", endsAt: new Date(Date.now() + 3600000).toISOString().slice(0, 16) });
+  const [form, setForm] = useState(() => ({ name: "", matchers: "", comment: "", endsAt: new Date(Date.now() + 3600000).toISOString().slice(0, 16) }));
 
   const { data, isLoading } = useQuery({
     queryKey: ["alert-silences"],

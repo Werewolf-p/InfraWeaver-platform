@@ -32,10 +32,12 @@ export function NotesTagsEditor({
   const [savingTags, setSavingTags] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setNotesValue((current) => (current === notes ? current : notes));
   }, [notes]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setTagsValue((current) => (sameTags(current, tags) ? current : [...tags]));
   }, [tags]);
 

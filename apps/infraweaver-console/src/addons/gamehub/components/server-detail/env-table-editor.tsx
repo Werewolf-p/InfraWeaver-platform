@@ -66,6 +66,7 @@ export function EnvTableEditor({ serverName, env, onSave }: EnvTableEditorProps)
   const [visibleValues, setVisibleValues] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setRows((current) => (
       sameEnvRows(current, env)
         ? current

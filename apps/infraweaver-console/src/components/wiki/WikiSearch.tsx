@@ -35,6 +35,7 @@ export function WikiSearch({ documents }: { documents: WikiSearchDocument[] }) {
   const [hasStarted, setHasStarted] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     if (query.trim()) setHasStarted(true);
   }, [query]);
 

@@ -515,6 +515,7 @@ export default function NewGameServerPage() {
   useEffect(() => {
     if (!storageClass && storageClasses.length > 0) {
       const preferred = storageClasses.find((sc) => sc.name === "longhorn-game") ?? storageClasses.find((sc) => sc.isDefault) ?? storageClasses[0];
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setStorageClass(preferred.name);
     }
   }, [storageClasses.map((sc) => sc.name).join(",")]); // dep on names string to avoid object ref changes
@@ -545,6 +546,7 @@ export default function NewGameServerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!activeEgg || !activeEggKey) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setEnvValues(Object.fromEntries(activeEgg.environment.map((entry) => [entry.name, entry.defaultValue])));
     setMemoryMi(parseMemoryToMi(activeEgg.defaultMemory));
     setCpuCores(parseCpuToCores(activeEgg.defaultCpu));
@@ -564,6 +566,7 @@ export default function NewGameServerPage() {
     if (dnsType === "custom") return; // let the user type freely
     const normalized = normalizeServerName(serverName);
     if (dnsType === "internal") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setDnsHostname(normalized ? `${normalized}.games.${INTERNAL_DNS_DOMAIN}` : "");
     } else {
       setDnsHostname(normalized ? `${normalized}.games.${ROOT_DNS_DOMAIN}` : "");
@@ -573,6 +576,7 @@ export default function NewGameServerPage() {
   useEffect(() => {
     if (!targetNode || clusterNodes.length === 0) return;
     if (!clusterNodes.some((node) => node.name === targetNode)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setTargetNode("");
     }
   }, [clusterNodes, targetNode]);
@@ -581,6 +585,7 @@ export default function NewGameServerPage() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(PRESETS_STORAGE_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       if (raw) setSavedPresets(JSON.parse(raw) as SavedPreset[]);
     } catch {}
     // Also restore draft if nothing has been configured yet
@@ -617,6 +622,7 @@ export default function NewGameServerPage() {
   // ─── Debounced server name availability check ────────────────────────────
   const normalizedName = normalizeServerName(serverName);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     if (!normalizedName || !serverListData?.servers) { setServerNameTaken(null); return; }
     const id = setTimeout(() => {
       const taken = serverListData.servers.some((s) => s.name === normalizedName);

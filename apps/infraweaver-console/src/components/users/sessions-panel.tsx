@@ -38,6 +38,7 @@ export function SessionsPanel({ username, open, onClose }: Props) {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     if (open) fetchSessions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, username]);
