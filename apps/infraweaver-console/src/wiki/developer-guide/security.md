@@ -18,7 +18,7 @@ InfraWeaver treats the console as a privileged internal application and layers c
 
 ### Network security
 
-- internal services are expected to live behind NetBird where possible
+- internal services are expected to live behind authenticated ingress where possible
 - external access should pass through Traefik and Authentik-aware ingress controls
 - session and CSRF protections are enforced in middleware and route helpers
 

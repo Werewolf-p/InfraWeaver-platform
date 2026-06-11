@@ -212,19 +212,19 @@ function countRoutesUsingBackend(routeManifests: ManifestFile[], backendServiceN
     .some((block) => routeServiceRefs(block.data!).some((service) => service.name === backendServiceName && service.namespace === TRAEFIK_NAMESPACE));
 }
 
-function preferredSecurityMiddleware(accessTier: AccessTier, netbirdEnabled: boolean) {
-  if (accessTier === "vpn") return netbirdEnabled ? ACCESS_TIER_MIDDLEWARES.vpn : ACCESS_TIER_MIDDLEWARES.internal;
+function preferredSecurityMiddleware(accessTier: AccessTier) {
+  if (accessTier === "vpn") return ACCESS_TIER_MIDDLEWARES.vpn;
   if (accessTier === "internal") return ACCESS_TIER_MIDDLEWARES.internal;
   return null;
 }
 
-function buildRouteMiddlewares(accessTier: AccessTier, enableAuth: boolean, netbirdEnabled: boolean) {
-  const security = preferredSecurityMiddleware(accessTier, netbirdEnabled);
+function buildRouteMiddlewares(accessTier: AccessTier, enableAuth: boolean) {
+  const security = preferredSecurityMiddleware(accessTier);
   const names = uniqueStrings(["secure-headers", security, enableAuth ? "forward-auth" : null]);
   return names.map((name) => ({ name, namespace: TRAEFIK_NAMESPACE }));
 }
 
-function buildRouteDocument(input: ExternalRouteMutationInput, backendServiceName: string, netbirdEnabled: boolean): ManifestResource {
+function buildRouteDocument(input: ExternalRouteMutationInput, backendServiceName: string): ManifestResource {
   const scheme = input.scheme === "https" ? "https" : "http";
   const skipTlsVerify = Boolean(input.skipTlsVerify && scheme === "https");
   const routeService = {
@@ -250,7 +250,7 @@ function buildRouteDocument(input: ExternalRouteMutationInput, backendServiceNam
       routes: [{
         match: `Host(\`${input.host}\`)`,
         kind: "Rule",
-        middlewares: buildRouteMiddlewares(input.accessTier, Boolean(input.enableAuth), netbirdEnabled),
+        middlewares: buildRouteMiddlewares(input.accessTier, Boolean(input.enableAuth)),
         services: [routeService],
       }],
       ...(input.tlsSecret ? { tls: { secretName: input.tlsSecret } } : {}),
@@ -333,19 +333,6 @@ function removeBlock(manifest: ManifestFile, kind: string, namespace: string, na
   manifest.blocks = manifest.blocks.filter((block) => block.key !== key);
 }
 
-async function isNetbirdEnabled(repoDir: string) {
-  try {
-    const platformPath = path.join(repoDir, "platform.yaml");
-    const raw = await fs.readFile(platformPath, "utf8");
-    const parsed = (yaml.load(raw) as { groups?: Record<string, { enabled?: boolean; apps?: Record<string, { enabled?: boolean }> }> }) ?? {};
-    const groups = parsed.groups ?? {};
-    const corePlatformEnabled = groups["core-platform"]?.enabled !== false;
-    return corePlatformEnabled && groups["core-platform"]?.apps?.netbird?.enabled !== false;
-  } catch {
-    return true;
-  }
-}
-
 function parseRouteItem(routeBlock: ParsedBlock, index: BackendIndex): ExternalRouteItem | null {
   if (!routeBlock.data || routeBlock.kind !== "IngressRoute" || !routeBlock.name || !routeBlock.namespace) return null;
   const route = routeBlock.data;
@@ -400,7 +387,7 @@ function parseRouteItem(routeBlock: ParsedBlock, index: BackendIndex): ExternalR
     scheme,
     skipTlsVerify,
     backendServiceName,
-    hasNetbirdFallback: accessTier === "vpn" && securityMiddleware !== ACCESS_TIER_MIDDLEWARES.vpn,
+    hasVpnFallback: accessTier === "vpn" && securityMiddleware !== ACCESS_TIER_MIDDLEWARES.vpn,
   };
 }
 
@@ -409,7 +396,7 @@ async function loadState(repoDir: string) {
   const clusterBackends = await loadManifest(repoDir, CLUSTER_BACKENDS_FILE);
   const baremetalBackends = await loadManifest(repoDir, BAREMETAL_BACKENDS_FILE);
   const backendIndex = buildBackendIndex(clusterBackends, baremetalBackends);
-  return { routeManifests, clusterBackends, baremetalBackends, backendIndex, netbirdEnabled: await isNetbirdEnabled(repoDir) };
+  return { routeManifests, clusterBackends, baremetalBackends, backendIndex };
 }
 
 function findRouteLocation(routeManifests: ManifestFile[], name: string): RouteBlockLocation | null {
@@ -459,7 +446,7 @@ export async function createExternalRoute(input: ExternalRouteMutationInput, rep
   if (!targetManifest) throw new Error(`Unable to resolve manifest for ${input.accessTier}`);
 
   const backendServiceName = input.targetType === "baremetal" ? `bm-${input.name}` : `ext-${input.name}`;
-  const routeDocument = buildRouteDocument(input, backendServiceName, state.netbirdEnabled);
+  const routeDocument = buildRouteDocument(input, backendServiceName);
   targetManifest.blocks.push(parseManifestDocument(stringifyDocument(routeDocument), targetManifest.file));
 
   if (input.targetType === "baremetal") {
@@ -493,7 +480,7 @@ export async function updateExternalRoute(name: string, input: ExternalRouteMuta
   }
 
   const backendServiceName = current.backendServiceName || (input.targetType === "baremetal" ? `bm-${name}` : `ext-${name}`);
-  const routeDocument = buildRouteDocument({ ...input, name }, backendServiceName, state.netbirdEnabled);
+  const routeDocument = buildRouteDocument({ ...input, name }, backendServiceName);
   const destinationManifest = state.routeManifests.find((manifest) => manifest.file === ROUTE_FILES[input.accessTier]);
   if (!destinationManifest) throw new Error(`Unable to resolve manifest for ${input.accessTier}`);
 

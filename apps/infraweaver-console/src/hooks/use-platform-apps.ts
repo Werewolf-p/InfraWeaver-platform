@@ -10,7 +10,6 @@ interface PlatformApps {
   traefik: boolean;
   grafana: boolean;
   authentik: boolean;
-  netbird: boolean;
   velero: boolean;
   falco: boolean;
   loki: boolean;
@@ -48,7 +47,6 @@ export function usePlatformApps(): PlatformApps {
       authentik: corePlatformEnabled,
       // Core-platform optional apps
       grafana: appEnabled("grafana"),
-      netbird: appEnabled("netbird"),
       velero: appEnabled("velero"),
       falco: appEnabled("falco"),
       // Core-monitoring group (entirely optional)

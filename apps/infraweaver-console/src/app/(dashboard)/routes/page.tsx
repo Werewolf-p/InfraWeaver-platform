@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle,
   Globe,
   Info,
   Plus,
@@ -23,7 +22,6 @@ import { accessTierTabs, defaultTlsSecretForHost, type AccessTier } from "@/lib/
 import type { ExternalRouteItem, ExternalRouteTargetType, ExternalRoutesResponse } from "@/lib/external-routes";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
-import { usePlatformApps } from "@/hooks/use-platform-apps";
 import { useRBAC } from "@/hooks/use-rbac";
 
 interface RouteFormState {
@@ -80,17 +78,9 @@ function buildTargetSummary(route: ExternalRouteItem) {
   return `${route.targetNamespace}/${route.targetService}:${route.targetPort}`;
 }
 
-function accessWarning(route: { accessTier: AccessTier }, netbirdInstalled: boolean) {
-  return route.accessTier === "vpn" && !netbirdInstalled
-    ? "VPN required — NetBird not installed"
-    : null;
-}
-
 export default function RoutesPage() {
   const { can } = useRBAC();
   const canWrite = can("infra:write");
-  const platformApps = usePlatformApps();
-  const netbirdInstalled = platformApps.netbird;
 
   const [search, setSearch] = useState("");
   const [accessTierFilter, setAccessTierFilter] = useState<"all" | AccessTier>("all");
@@ -295,13 +285,6 @@ export default function RoutesPage() {
 
           <ToolbarSearchInput value={search} onChange={setSearch} placeholder="Search hostnames, backends, namespaces, or middleware…" />
 
-          {!netbirdInstalled ? (
-            <div className="flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
-              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-              <div>NetBird is not installed. VPN-tier routes keep their VPN label but use <span className="font-mono">internal-only</span> middleware until NetBird is enabled.</div>
-            </div>
-          ) : null}
-
           {error ? (
             <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
               {error instanceof Error ? error.message : "External routes could not be loaded."}
@@ -348,7 +331,7 @@ export default function RoutesPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <AccessTierBadge tier={route.accessTier} warning={accessWarning(route, netbirdInstalled)} />
+                        <AccessTierBadge tier={route.accessTier} />
                       </td>
                       <td className="px-4 py-3 align-top text-slate-700 dark:text-slate-300">
                         <div className="font-medium">{route.targetType === "baremetal" ? "Bare-metal" : "K8s Service"}</div>
@@ -446,15 +429,10 @@ export default function RoutesPage() {
                   )}
                 >
                   <AccessTierBadge tier={tier} />
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{tier === "vpn" ? "NetBird only" : tier === "internal" ? "LAN only" : "Internet"}</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">{tier === "vpn" ? "VPN only" : tier === "internal" ? "LAN only" : "Internet"}</span>
                 </button>
               ))}
             </div>
-            {form.accessTier === "vpn" && !netbirdInstalled ? (
-              <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-200">
-                NetBird not installed — routes will use internal-only until NetBird is enabled.
-              </div>
-            ) : null}
           </div>
 
           <div>

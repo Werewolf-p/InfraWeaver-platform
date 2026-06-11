@@ -41,7 +41,7 @@ secret names, allowlists, and the homepage service map from it.
 | `authentikIssuer` | `https://auth.<baseDomain>/application/o/infraweaver-console/` | `AUTHENTIK_ISSUER` |
 | `defaultCluster` | `homelab-prod` | `DEFAULT_CLUSTER_ID` |
 | `tlsSecrets.{public,internal}` | `platform-wildcard-tls` / `platform-wildcard-int-tls` | — |
-| `accessTierMiddlewares.{vpn,internal}` | `netbird-vpn-only` / `internal-only` | — |
+| `accessTierMiddlewares.{vpn,internal}` | `vpn-only` / `internal-only` | — |
 | `internalHostAllowlist[]` | cluster svc hosts + NAS IPs (see platform-config) | — |
 | `externalRouteDomains[]` | `[]` | — |
 | `homepageServiceMap{}` | built-in label→app map | — |

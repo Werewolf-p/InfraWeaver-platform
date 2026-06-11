@@ -1251,7 +1251,7 @@ export default function NewGameServerPage() {
                         {/* Contextual hint per DNS type */}
                         <div className="rounded-xl border border-gray-100 dark:border-[#1e1e1e] bg-gray-50 dark:bg-[#0d0d0d] px-3 py-2 text-xs text-gray-500 dark:text-[#777]">
                           {dnsType === "internal" && (
-                            <span>🔒 <strong>Private (VPN only)</strong> — only people connected to NetBird VPN can reach this server. Good for personal or friends-only play.</span>
+                            <span>🔒 <strong>Private (VPN only)</strong> — only people connected to the VPN can reach this server. Good for personal or friends-only play.</span>
                           )}
                           {dnsType === "public" && (
                             <span>🌐 <strong>Public internet</strong> — creates a DNS entry at <code className="font-mono text-[#7cc4ff]">.games.{ROOT_DNS_DOMAIN}</code>. Anyone who knows the address can connect. Make sure your game has a password if needed.</span>
