@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 InfraWeaver deployment summary email — styled with InfraWeaver Prime dark theme.
-Sections: Authentik SSO → NetBird VPN → Homelab Dashboard → OpenBao Vault.
+Sections: Authentik SSO → Homelab Dashboard → OpenBao Vault.
 
 Reads user list from users.yaml dynamically — no hardcoded usernames.
 
@@ -53,8 +53,6 @@ admin_email     = os.environ.get("ADMIN_EMAIL", f"admin@{base_domain}")
 
 homepage_url     = f"https://home.int.{base_domain}"
 auth_url         = f"https://auth.{base_domain}"
-netbird_url      = f"https://netbird.{base_domain}"
-netbird_mgmt_url = f"https://api-netbird.{base_domain}"
 openbao_url      = f"https://openbao.int.{base_domain}"
 
 deploy_type = os.environ.get("DEPLOY_TYPE", "full-redeploy")
@@ -159,7 +157,7 @@ def build_user_rows():
         '<p style="margin:0;background:#001a06;border:1px solid #003312;border-radius:6px;'
         'padding:10px 14px;color:#9fef00;font-size:12px;line-height:1.6;">'
         '&#8505; This account has <strong>Platform Owner</strong> RBAC &#x2014; '
-        'full access to all platform services (ArgoCD, NetBird, Wiki, etc). '
+        'full access to all platform services (ArgoCD, Wiki, etc). '
         'Use this for all daily management.'
         '</p></td></tr>'
     )
@@ -270,7 +268,7 @@ html = f"""\
 
       <!-- STEP 1: Authentik SSO -->
       <p style="margin:0 0 8px;color:#00d8ff;font-size:11px;font-family:'Courier New',monospace;
-                letter-spacing:2px;">STEP 1 OF 3</p>
+                letter-spacing:2px;">STEP 1 OF 2</p>
       <table width="100%" cellpadding="0" cellspacing="0"
              style="background:#111827;border:1px solid #1e2d45;border-radius:10px;
                     margin-bottom:20px;overflow:hidden;border-top:2px solid #00d8ff;">
@@ -279,7 +277,7 @@ html = f"""\
           <td style="padding:20px;">
             <p style="margin:0 0 16px;color:#94a3b8;font-size:13px;line-height:1.6;">
               All services authenticate via Authentik SSO.
-              Log in here first to access NetBird VPN and the homelab dashboard.
+              Log in here first to access the homelab dashboard.
             </p>
             <table width="100%" cellpadding="0" cellspacing="0">
               {user_rows}
@@ -288,40 +286,9 @@ html = f"""\
         </tr>
       </table>
 
-      <!-- STEP 2: NetBird VPN -->
+      <!-- STEP 2: Homelab Dashboard -->
       <p style="margin:0 0 8px;color:#00d8ff;font-size:11px;font-family:'Courier New',monospace;
-                letter-spacing:2px;">STEP 2 OF 3</p>
-      <table width="100%" cellpadding="0" cellspacing="0"
-             style="background:#111827;border:1px solid #1e2d45;border-radius:10px;
-                    margin-bottom:20px;overflow:hidden;border-top:2px solid #9fef00;">
-        {section_header("🌐", "NetBird VPN — Connect to Homelab", "Required for all internal services")}
-        <tr>
-          <td style="padding:20px;">
-            <p style="margin:0 0 16px;color:#94a3b8;font-size:13px;line-height:1.6;">
-              After logging in to Authentik, open the NetBird dashboard and connect the client.<br>
-              All <code style="background:#060c18;color:#00d8ff;padding:2px 5px;border-radius:3px;
-                               font-size:12px;">*.int.{base_domain}</code> services require NetBird VPN.
-            </p>
-            <table width="100%" cellpadding="0" cellspacing="0">
-              {field_row("NetBird Dashboard",
-                         f'<a href="{netbird_url}" style="color:#9fef00;text-decoration:none;">'
-                         f'{netbird_url}</a>')}
-              {field_row("Login Method", 'Click &quot;Log in with SSO&quot; → Authentik')}
-              {field_row("NetBird Management URL (for client setup)",
-                         netbird_mgmt_url)}
-            </table>
-            <p style="margin:12px 0 0;color:#475569;font-size:11px;">
-              &#128230; Download NetBird client:
-              <a href="https://netbird.io/docs/installation"
-                 style="color:#00d8ff;text-decoration:none;">netbird.io/docs/installation</a>
-            </p>
-          </td>
-        </tr>
-      </table>
-
-      <!-- STEP 3: Homelab Dashboard -->
-      <p style="margin:0 0 8px;color:#00d8ff;font-size:11px;font-family:'Courier New',monospace;
-                letter-spacing:2px;">STEP 3 OF 3</p>
+                letter-spacing:2px;">STEP 2 OF 2</p>
       <table width="100%" cellpadding="0" cellspacing="0"
              style="background:#111827;border:1px solid #1e2d45;border-radius:10px;
                     margin-bottom:20px;overflow:hidden;border-top:2px solid #7c3aed;">
@@ -329,7 +296,7 @@ html = f"""\
         <tr>
           <td style="padding:20px;text-align:center;">
             <p style="margin:0 0 16px;color:#94a3b8;font-size:13px;">
-              After connecting to NetBird VPN, open the dashboard to access all services.
+              Open the dashboard to access all services.
             </p>
             <a href="{homepage_url}"
                style="display:inline-block;background:#00d8ff;color:#060c18;font-size:14px;
@@ -399,13 +366,7 @@ Run         : {run_url}
 STEP 1: Log in to Authentik SSO
 {user_plain}
 
-STEP 2: Connect NetBird VPN
-  Dashboard : {netbird_url}
-  Login via : SSO (Authentik)
-  Mgmt URL  : {netbird_mgmt_url}
-  Client    : https://netbird.io/docs/installation
-
-STEP 3: Open Homelab Dashboard (requires VPN)
+STEP 2: Open Homelab Dashboard (requires VPN)
   URL : {homepage_url}
 
 OPENBAO VAULT — all other credentials stored here

@@ -136,7 +136,7 @@ const PRESETS: DnsPreset[] = [
   {
     id: "vpn-only",
     label: "VPN-Only Service",
-    description: "Service accessible exclusively via NetBird VPN — not reachable from LAN or internet.",
+    description: "Service accessible exclusively via VPN — not reachable from LAN or internet.",
     category: "vpn",
     template: {
       entryPoints: ["websecure"],
@@ -154,7 +154,7 @@ const PRESETS: DnsPreset[] = [
       ttl: 120,
       proxied: false,
     },
-    notes: "VPN IP range is 100.64.0.0/10 (NetBird). Verify the vpn-only middleware exists in Traefik.",
+    notes: "VPN IP range is 100.64.0.0/10. Verify the vpn-only middleware exists in Traefik.",
   },
   {
     id: "media-service",

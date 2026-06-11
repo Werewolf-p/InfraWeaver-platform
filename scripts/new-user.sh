@@ -10,8 +10,8 @@
 #   bash scripts/new-user.sh bob "Bob Jones" bob@example.com platform-user
 #
 # ACCESS LEVELS:
-#   admin         → all services (openbao, argocd, grafana, longhorn, netbird, homepage)
-#   platform-user → homepage, netbird (VPN access), argocd (read-only)
+#   admin         → all services (openbao, argocd, grafana, longhorn, homepage)
+#   platform-user → homepage, argocd (read-only)
 #
 # IMPORTANT: This script generates the users.yaml entry and shows you the
 # remaining 4 manual steps. It does NOT modify blueprint-users.yaml,

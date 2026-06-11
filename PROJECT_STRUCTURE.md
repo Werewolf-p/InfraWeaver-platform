@@ -54,7 +54,6 @@ Each file is named `<topic>.md` and documents a pattern, gotcha, or decision:
 - `pve-prod1-oom-kill-pattern.md` — Proxmox OOM kill patterns on the production node
 - `orphan-vm-9300-swap-exhaustion.md` — zombie QEMU process eating 5.7GB swap (needs reboot)
 - `authentik-oidc-sso.md` — OIDC SSO setup patterns for services
-- `netbird-*.md` — NetBird VPN architecture and configuration gotchas
 - `openbao-*.md` — OpenBao (Vault fork) seal/unseal and secret path patterns
 - `talos-*.md` — Talos Linux cluster management patterns
 - `iac-best-practices.md` — IaC conventions used in this repo
@@ -69,7 +68,6 @@ Utility scripts that are GitHub-specific or used in Actions workflows.
 | `create-new-users.py` | Provisions new users in Authentik + OpenBao from `users.yaml`. |
 | `extract_kubeconfig.py` | Extracts kubeconfig from Talos after bootstrap for use in CI. |
 | `seed-openbao-authentik.sh` | Seeds initial OIDC clients into OpenBao for Authentik SSO. |
-| `netbird_cleanup_peers.sh` | Removes stale NetBird peers that no longer exist. |
 
 ### `.github/agent-hooks/`
 Scripts that AI agents (GitHub Copilot CLI, Claude) should run at session start.
@@ -149,7 +147,7 @@ All GitOps manifests. ArgoCD watches this directory and reconciles the cluster t
 | `core-*.yaml` | Core infrastructure: MetalLB, Traefik, cert-manager, Longhorn, external-secrets, Kyverno |
 | `app-*.yaml` | Platform services: Authentik, ArgoCD image updater, DNS, monitoring alerts, Grafana |
 | `monitoring-*.yaml` | Monitoring stack: kube-prometheus-stack, Loki |
-| `platform-*.yaml` | Platform extras: Falco, Wazuh, Velero, NetBird |
+| `platform-*.yaml` | Platform extras: Falco, Wazuh, Velero |
 | `catalog-*.yaml` | **Community apps (installed).** Presence = installed. Deleting = uninstalling. |
 
 **Bootstrap settings:** `selfHeal: true` + `prune: true` — ArgoCD will recreate anything in this folder and delete anything no longer in this folder. Always delete the ArgoCD Application object BEFORE deleting a bootstrap file.
@@ -196,7 +194,6 @@ Platform services that sit above core infrastructure but below user-facing apps.
 | `falco/` | Runtime security alerts |
 | `wazuh/` | SIEM — log aggregation and intrusion detection |
 | `grafana/` | Grafana instance (separate from kube-prometheus-stack) |
-| `netbird/` | NetBird VPN management server |
 | `velero/` | Cluster backup and restore |
 | `minio-velero/` | MinIO instance used as Velero's S3 backend |
 | `argocd-image-updater/` | Auto-bumps Docker image tags in git when new builds are pushed |
@@ -249,7 +246,6 @@ OpenTofu (Terraform-compatible) infrastructure-as-code for provisioning the Prox
 | `modules/talos-cluster/` | Creates all Talos control-plane and worker VMs on Proxmox |
 | `modules/cloud-init-template/` | Builds the Proxmox VM template used by talos-cluster |
 | `modules/github-runner/` | Provisions an optional self-hosted GitHub Actions runner VM |
-| `modules/netbird-router/` | Provisions the NetBird router VM (Proxmox LXC or VM) |
 | `modules/openbao/` | Provisions the OpenBao VM (runs outside the cluster for HA) |
 | `modules/platform-bootstrap/` | Post-VM provisioning: runs scripts to seed secrets and bootstrap ArgoCD |
 
@@ -310,7 +306,6 @@ Run in order during a fresh cluster deploy. Called by `scripts/deploy-local.sh` 
 | `check-argocd-health.sh` | Waits for all ArgoCD apps to reach Healthy/Synced or times out |
 | `sync-argocd-app.sh` | Forces a hard refresh + sync for a specific ArgoCD app |
 | `notify-discord.sh` | Posts a deploy status message to the Discord webhook |
-| `populate-netbird.sh` | Creates NetBird setup keys and peers for all VMs |
 | `generate-recovery-links.sh` | Generates time-limited recovery links for each user |
 | `send-welcome-emails.sh` | Sends welcome emails with credentials to new users |
 | `refresh-tls-backup.sh` | Backs up all TLS certs to TrueNAS via SMB |

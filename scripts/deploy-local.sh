@@ -25,13 +25,12 @@
 #   9.  Ensure DNS records (Cloudflare only)
 #   10. Apply MetalLB IP pool + Traefik middleware
 #   11. Configure TLS certificate issuers
-#   12. Reconnect NetBird router VM
-#   13. Fix ingress-nginx admission webhook
-#   14. Patch cluster CoreDNS for internal zones
-#   15. Configure Authentik (admin privileges + user passwords)
-#   16. Configure OIDC for ArgoCD and OpenBao
-#   17. Run post-deploy tests
-#   18. Send deployment summary email
+#   12. Fix ingress-nginx admission webhook
+#   13. Patch cluster CoreDNS for internal zones
+#   14. Configure Authentik (admin privileges + user passwords)
+#   15. Configure OIDC for ArgoCD and OpenBao
+#   16. Run post-deploy tests
+#   17. Send deployment summary email
 #
 # PREREQUISITES:
 #   - .env file with required values (see .env.example)

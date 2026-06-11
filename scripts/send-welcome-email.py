@@ -57,16 +57,14 @@ smtp_pass = os.environ["SMTP_PASSWORD"]
 timestamp    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 base_domain  = os.environ.get("BASE_DOMAIN", "yourdomain.com")
 auth_url     = f"https://auth.{base_domain}"
-netbird_url  = f"https://netbird.{base_domain}"
 homepage_url = f"https://home.int.{base_domain}"
-netbird_docs = "https://netbird.io/docs/installation"
 first_name   = user_name.split()[0]
 subject      = f"🎉 Welcome to InfraWeaver — your account is ready, {first_name}"
 
 if access_level == "admin":
     access_desc = "Full admin access — all services including ArgoCD, OpenBao, Grafana, Longhorn"
 else:
-    access_desc = "Platform user — Homepage dashboard, NetBird VPN, ArgoCD (read-only)"
+    access_desc = "Platform user — Homepage dashboard, ArgoCD (read-only)"
 
 # ── Helpers (same InfraWeaver Prime theme as send-deploy-email.py) ────────────
 def mono_block(value, color="#00d8ff"):
@@ -174,7 +172,7 @@ html = f"""\
       </table>
 
       <!-- STEP 1: Set password -->
-      {step_header(1, 3, "🔑", "Set Your Password", "#00d8ff")}
+      {step_header(1, 2, "🔑", "Set Your Password", "#00d8ff")}
         <tr>
           <td style="padding:20px;">
             <p style="margin:0 0 14px;color:#94a3b8;font-size:13px;line-height:1.6;">
@@ -194,35 +192,8 @@ html = f"""\
         </tr>
       </table>
 
-      <!-- STEP 2: NetBird -->
-      {step_header(2, 3, "🌐", "Connect NetBird VPN", "#9fef00")}
-        <tr>
-          <td style="padding:20px;">
-            <p style="margin:0 0 14px;color:#94a3b8;font-size:13px;line-height:1.6;">
-              All internal services
-              (<code style="background:#060c18;color:#00d8ff;padding:2px 6px;border-radius:3px;
-                            font-size:12px;">*.int.{base_domain}</code>)
-              require a NetBird VPN connection.
-            </p>
-            <ol style="margin:0 0 16px;padding-left:20px;color:#94a3b8;font-size:13px;line-height:2.2;">
-              <li>Download client:
-                <a href="{netbird_docs}" style="color:#00d8ff;">{netbird_docs}</a>
-              </li>
-              <li>Open client → click <strong style="color:#e2e8f0;">"Log in with SSO"</strong></li>
-              <li>Enter management URL:
-                <code style="background:#060c18;color:#00d8ff;padding:2px 6px;border-radius:3px;
-                             font-size:12px;">https://api.netbird.{base_domain}</code>
-              </li>
-              <li>Authenticate with your Authentik credentials</li>
-            </ol>
-            {label("NetBird Dashboard")}
-            {mono_block(f'<a href="{netbird_url}" style="color:#9fef00;text-decoration:none;">{netbird_url}</a>', "#9fef00")}
-          </td>
-        </tr>
-      </table>
-
-      <!-- STEP 3: Dashboard -->
-      {step_header(3, 3, "🏠", "Open Your Dashboard", "#7c3aed")}
+      <!-- STEP 2: Dashboard -->
+      {step_header(2, 2, "🏠", "Open Your Dashboard", "#7c3aed")}
         <tr>
           <td style="padding:20px;text-align:center;">
             <p style="margin:0 0 16px;color:#94a3b8;font-size:13px;">
@@ -277,14 +248,7 @@ STEP 1 — Set Your Password
   Set password: {args.recovery_link}
   (Link expires in 30 minutes)
 
-STEP 2 — Connect NetBird VPN
-  1. Download client  : {netbird_docs}
-  2. Click "Log in with SSO"
-  3. Management URL   : https://api.netbird.{base_domain}
-  4. Authenticate with your Authentik credentials
-  NetBird Dashboard   : {netbird_url}
-
-STEP 3 — Open Dashboard (requires VPN)
+STEP 2 — Open Dashboard (requires VPN)
   URL : {homepage_url}
 """
 

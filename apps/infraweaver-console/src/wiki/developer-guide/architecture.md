@@ -23,7 +23,7 @@ InfraWeaver Console is a Next.js application that acts as the management interfa
 - each node sized for mixed platform and game workloads
 - Longhorn configured for replicated block storage
 - MetalLB used for LoadBalancer IP assignment
-- NetBird used for private access to internal `*.int.example.com` endpoints
+- Authentik forward-auth gates private access to internal `*.int.example.com` endpoints
 
 ### High-level request flow
 
@@ -42,7 +42,7 @@ InfraWeaver Console (Next.js)
 
 ### Security Model
 
-- internal routes are expected to sit behind NetBird or authenticated ingress
+- internal routes are expected to sit behind authenticated ingress
 - API routes start by verifying the session and then checking RBAC where appropriate
 - secrets are loaded from the environment, not from git
 - Kyverno and related cluster policy controls provide a second guardrail at the cluster layer

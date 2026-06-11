@@ -296,9 +296,6 @@ COMPANIONS = {
     "core-platform.falco": [
         "app-falco-manifests.yaml",
     ],
-    "core-platform.netbird": [
-        "app-netbird.yaml",
-    ],
     "core-platform.velero": [
         "app-velero.yaml",
     ],

@@ -19,15 +19,6 @@ if [ -z "$CF_ZONE_ID" ]; then
   echo "⚠ Could not find ${BASE_DOMAIN} zone — skipping"
   exit 0
 fi
-# Delete old api.netbird.${BASE_DOMAIN} record if it exists
-OLD_ID=$(curl -s "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=api.netbird.${BASE_DOMAIN}" \
-  -H "Authorization: Bearer $CF_TOKEN" | \
-  python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')" 2>/dev/null)
-if [ -n "$OLD_ID" ]; then
-  curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${OLD_ID}" \
-    -H "Authorization: Bearer $CF_TOKEN" | \
-    python3 -c "import sys,json; d=json.load(sys.stdin); print('Deleted: api.netbird.${BASE_DOMAIN}' if d.get('success') else 'Delete error: ' + str(d.get('errors','')))"
-fi
 # Delete argocd.${BASE_DOMAIN} public DNS record (ArgoCD is now VPN-only at argocd.int.${BASE_DOMAIN})
 ARGOCD_PUB_ID=$(curl -s "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?name=argocd.${BASE_DOMAIN}" \
   -H "Authorization: Bearer $CF_TOKEN" | \
@@ -38,20 +29,5 @@ if [ -n "$ARGOCD_PUB_ID" ]; then
     python3 -c "import sys,json; d=json.load(sys.stdin); print('Deleted: argocd.${BASE_DOMAIN} (moved to argocd.int.${BASE_DOMAIN})' if d.get('success') else 'Delete argocd: ' + str(d.get('errors','')))"
 else
   echo "  argocd.${BASE_DOMAIN} not in Cloudflare (already removed or never existed)"
-fi
-# Create or update api-netbird.${BASE_DOMAIN} (DNS-only for gRPC reliability)
-EXISTING=$(curl -s "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records?type=A&name=api-netbird.${BASE_DOMAIN}" \
-  -H "Authorization: Bearer $CF_TOKEN" | \
-  python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['id'] if d.get('result') else '')" 2>/dev/null)
-if [ -z "$EXISTING" ]; then
-  curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records" \
-    -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
-    -d "{\"type\":\"A\",\"name\":\"api-netbird.${BASE_DOMAIN}\",\"content\":\"${PUBLIC_INGRESS_IP}\",\"ttl\":1,\"proxied\":false}" | \
-    python3 -c "import sys,json; d=json.load(sys.stdin); print('Created: api-netbird.${BASE_DOMAIN} -> ${PUBLIC_INGRESS_IP} (DNS-only)' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
-else
-  curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/dns_records/${EXISTING}" \
-    -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
-    -d "{\"type\":\"A\",\"name\":\"api-netbird.${BASE_DOMAIN}\",\"content\":\"${PUBLIC_INGRESS_IP}\",\"ttl\":1,\"proxied\":false}" | \
-    python3 -c "import sys,json; d=json.load(sys.stdin); print('Updated: api-netbird.${BASE_DOMAIN} -> proxied=false (DNS-only)' if d.get('success') else 'Error: ' + str(d.get('errors','')))"
 fi
 

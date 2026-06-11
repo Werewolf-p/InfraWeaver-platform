@@ -24,7 +24,7 @@ export interface ExternalRouteItem {
   scheme: "http" | "https";
   skipTlsVerify: boolean;
   backendServiceName: string;
-  hasNetbirdFallback: boolean;
+  hasVpnFallback: boolean;
 }
 
 export interface ExternalRoutesResponse {

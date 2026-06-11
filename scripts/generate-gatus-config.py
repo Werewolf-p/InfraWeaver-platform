@@ -95,14 +95,6 @@ APP_ENDPOINT_MAP = {
         "conditions": ["[STATUS] == 200"],
         "alerts": [{"type": "discord", "description": "Authentik SSO is down — all platform logins affected"}],
     },
-    "netbird": {
-        "name": "NetBird VPN",
-        "url": "https://api-netbird.yourdomain.com/api/v1/accounts",
-        "interval": "120s",
-        "group": "platform",
-        "conditions": ["[STATUS] < 500"],
-        "alerts": [{"type": "discord", "description": "NetBird VPN management API unreachable"}],
-    },
     "grafana": {
         "name": "Grafana",
         "url": "https://grafana.int.yourdomain.com/api/health",

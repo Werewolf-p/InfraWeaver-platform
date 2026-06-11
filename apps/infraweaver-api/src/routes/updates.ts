@@ -563,7 +563,7 @@ updatesRoute.get('/', async (c) => {
   ]);
 
   // Merge in live ArgoCD applications that have no GitOps manifest (raw-manifest /
-  // image-managed apps such as n8n, monitoring, netbird). Their version is owned by the
+  // image-managed apps such as n8n, monitoring). Their version is owned by the
   // running image, so updates via targetRevision bumps do not apply (manifestManaged: false).
   for (const liveApp of liveApps) {
     const liveName = liveApp.metadata?.name;
