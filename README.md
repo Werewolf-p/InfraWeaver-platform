@@ -19,9 +19,23 @@
 
 ---
 
+> [!WARNING]
+> ## ⚠️ Alpha software — not recommended for production
+>
+> **InfraWeaver is in active alpha and is provided as-is for homelab experimentation and learning.**
+>
+> - It has **not** undergone an independent third-party security review or penetration test.
+> - **Do not run it in production, or on any internet-exposed environment you care about, without first commissioning your own security audit and penetration test.**
+> - APIs, manifests, secrets handling, and deploy scripts can change without notice and may contain breaking changes or security gaps.
+> - You are responsible for reviewing every component, rotating all generated credentials, and hardening the deployment for your own threat model before relying on it.
+>
+> **Use at your own risk.**
+
+---
+
 ## What is InfraWeaver?
 
-InfraWeaver is a complete, production-grade homelab platform that turns a Proxmox host into a fully managed Kubernetes environment. It is designed to be:
+InfraWeaver is a self-hostable homelab platform (currently **alpha** — see the warning above) that turns a Proxmox host into a fully managed Kubernetes environment. It is designed to be:
 
 - **One-command deployable** — run a single script on Proxmox to start an init website, fill in your settings, and click deploy
 - **Fully local after setup** — GitHub is only used to clone the template once. Everything after that (git, CI/CD, secrets) runs inside your cluster
