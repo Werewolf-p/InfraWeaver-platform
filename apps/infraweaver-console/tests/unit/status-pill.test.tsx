@@ -8,10 +8,12 @@ describe("StatusPill", () => {
     expect(screen.getByText("Ready to test")).toBeInTheDocument();
   });
 
-  it("shows 'Building on staging…' for a dispatched entry whose build hasn't landed", () => {
+  it("shows 'Ready to test' for a dispatched entry even without a preview URL", () => {
+    // A `dispatched` entry is already built AND deployed to the live console, so
+    // it always reads "Ready to test" — the previewUrl prop is deprecated/ignored.
     render(<StatusPill status="dispatched" />);
-    expect(screen.getByText("Building on staging…")).toBeInTheDocument();
-    expect(screen.queryByText("Ready to test")).not.toBeInTheDocument();
+    expect(screen.getByText("Ready to test")).toBeInTheDocument();
+    expect(screen.queryByText("Building on staging…")).not.toBeInTheDocument();
   });
 
   it("uses the plain-language label for non-dispatched statuses", () => {

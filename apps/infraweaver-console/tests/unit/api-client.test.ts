@@ -41,9 +41,15 @@ describe("apiClient", () => {
     );
   });
 
-  it("throws API envelope errors", async () => {
+  it("throws a friendly permission error on 403", async () => {
     global.fetch = jest.fn().mockResolvedValue(jsonResponse({ error: "Forbidden" }, 403)) as typeof fetch;
 
-    await expect(apiClient.get("/api/test")).rejects.toThrow("Forbidden");
+    await expect(apiClient.get("/api/test")).rejects.toThrow("You don't have permission to perform this action");
+  });
+
+  it("throws API envelope errors for generic failures", async () => {
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse({ error: "Boom" }, 500)) as typeof fetch;
+
+    await expect(apiClient.get("/api/test")).rejects.toThrow("Boom");
   });
 });
