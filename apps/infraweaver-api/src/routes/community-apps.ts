@@ -14,7 +14,26 @@ const argoAppBodySchema = z.object({
   namespace: z.string().min(1).max(63),
 });
 
+const k8sNameRe = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
+const k8sNamespaceRe = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$/;
+
+// C6: community-app secrets are created directly via the K8s API (NOT committed
+// to git). Values never touch the repo, so they cannot leak through git history.
+const secretsBodySchema = z.object({
+  namespace: z.string().min(1).max(63).regex(k8sNamespaceRe, 'Invalid namespace'),
+  secrets: z.array(z.object({
+    name: z.string().min(1).max(253).regex(k8sNameRe, 'Invalid secret name'),
+    stringData: z.record(z.string().min(1).max(253), z.string().max(64 * 1024)),
+  })).min(1).max(50),
+});
+
 const slugRe = /^[a-z0-9-]+$/;
+
+function k8sStatusCode(e: unknown): number | undefined {
+  return (e as { statusCode?: number })?.statusCode
+    ?? (e as { response?: { statusCode?: number } })?.response?.statusCode
+    ?? (e as { code?: number })?.code;
+}
 
 async function getMergePatchCustomApi(clusterId: string): Promise<k8s.CustomObjectsApi> {
   const kc = await getKcForCluster(clusterId);
@@ -159,5 +178,58 @@ communityAppsRoute.post('/:slug/argocd-app', async (c) => {
     return c.json({ ok: true, argoAppName });
   } catch (err) {
     return c.json({ ok: false, error: err instanceof Error ? err.message : 'Failed to create ArgoCD app' }, 502);
+  }
+});
+
+// C6: create community-app secrets directly in the cluster instead of committing
+// them to git. The secrets carry only our own labels (no argocd tracking label),
+// so ArgoCD's prune/selfHeal will not adopt or delete them.
+communityAppsRoute.post('/:slug/secrets', async (c) => {
+  const user = c.get('user');
+  if (!hasPermission(user, 'catalog:write')) return c.json({ error: 'Forbidden' }, 403);
+  if (user.clusterId === 'all') return c.json({ error: 'Select a specific cluster before performing this action' }, 400);
+  const { slug } = c.req.param();
+  if (!slugRe.test(slug)) return c.json({ error: 'Invalid slug' }, 400);
+
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = secretsBodySchema.safeParse(body);
+  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  const { namespace, secrets } = parsed.data;
+
+  try {
+    const coreApi = await getCoreApiForCluster(user.clusterId);
+
+    // Ensure the target namespace exists (ArgoCD also creates it via
+    // CreateNamespace=true, but that sync is async — create eagerly so the
+    // Secret has a home immediately).
+    await coreApi.readNamespace({ name: namespace }).catch(async (err) => {
+      if (k8sStatusCode(err) !== 404) throw err;
+      await coreApi.createNamespace({ body: { apiVersion: 'v1', kind: 'Namespace', metadata: { name: namespace } } })
+        .catch((e) => { if (k8sStatusCode(e) !== 409) throw e; });
+    });
+
+    for (const s of secrets) {
+      const secretBody = {
+        apiVersion: 'v1' as const,
+        kind: 'Secret' as const,
+        type: 'Opaque' as const,
+        metadata: {
+          name: s.name,
+          namespace,
+          labels: { 'app.kubernetes.io/name': slug, 'infraweaver.io/source': 'community-apps' },
+        },
+        stringData: s.stringData,
+      };
+      try {
+        await coreApi.createNamespacedSecret({ namespace, body: secretBody });
+      } catch (e: unknown) {
+        if (k8sStatusCode(e) !== 409) throw e;
+        await coreApi.replaceNamespacedSecret({ name: s.name, namespace, body: secretBody });
+      }
+    }
+
+    return c.json({ ok: true, count: secrets.length });
+  } catch (err) {
+    return c.json({ ok: false, error: err instanceof Error ? err.message : 'Failed to create secrets' }, 502);
   }
 });

@@ -8,6 +8,16 @@ import type { AppBindings } from '../types/index.js';
 
 const K8S_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
+// C7: restrict pod exec to an explicit namespace allowlist. Configured via the
+// EXEC_ALLOWED_NAMESPACES env (comma-separated). Fail-closed: if unset/empty, no
+// namespace is permitted and every exec is rejected until an operator opts in.
+const EXEC_ALLOWED_NAMESPACES = new Set(
+  (process.env.EXEC_ALLOWED_NAMESPACES ?? '')
+    .split(',')
+    .map((ns) => ns.trim())
+    .filter(Boolean),
+);
+
 const ALLOWED_COMMANDS = new Set([
   'ls', 'ls -la', 'ls -l',
   'cat /etc/os-release',
@@ -59,6 +69,8 @@ execRoute.post('/', async (c) => {
   const parsed = execBodySchema.safeParse(body);
   if (!parsed.success) return c.json({ error: 'Validation failed' }, 400);
   const { namespace, pod, container, command } = parsed.data;
+
+  if (!EXEC_ALLOWED_NAMESPACES.has(namespace)) return c.json({ error: 'Exec is not permitted in this namespace' }, 403);
 
   if (!ALLOWED_COMMANDS.has(command)) return c.json({ error: 'Command not allowed' }, 403);
 

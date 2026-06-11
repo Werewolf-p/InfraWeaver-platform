@@ -26,7 +26,12 @@ const PUBLIC_FILE_RE = /\.[a-z0-9]+$/i;
 const AUTHENTICATED_MUTATION_RATE_LIMIT = { max: 30, windowMs: 60_000 };
 
 function isPublicPath(pathname: string) {
-  return PUBLIC_EXACT_PATHS.has(pathname) || PUBLIC_PREFIXES.some((entry) => pathname.startsWith(entry)) || PUBLIC_FILE_RE.test(pathname) || PUBLIC_PATTERNS.some((re) => re.test(pathname));
+  // PUBLIC_FILE_RE only ever matches genuine static assets — never API routes.
+  // An API path that happens to end in a "file extension" (e.g. a content-type
+  // trick like /api/users/export.csv) must NOT be treated as public, so gate the
+  // file-extension allowance behind a non-/api guard.
+  const isStaticFile = !pathname.startsWith("/api/") && PUBLIC_FILE_RE.test(pathname);
+  return PUBLIC_EXACT_PATHS.has(pathname) || PUBLIC_PREFIXES.some((entry) => pathname.startsWith(entry)) || isStaticFile || PUBLIC_PATTERNS.some((re) => re.test(pathname));
 }
 
 function buildLoginUrl(req: Pick<NextRequest, "nextUrl">) {
@@ -214,7 +219,13 @@ export default auth(async (req) => {
         requestId,
       );
     }
-    return withSecurityHeaders(nextWithContext(req, nonce, requestId), nonce, requestId);
+    // Fail closed: if we could not evaluate auth for a page route, do NOT let the
+    // request through unauthenticated. Redirect to login (the auth flow re-runs
+    // cleanly), except for genuinely public paths which would otherwise loop.
+    if (isPublicPath(pathname)) {
+      return withSecurityHeaders(nextWithContext(req, nonce, requestId), nonce, requestId);
+    }
+    return withSecurityHeaders(NextResponse.redirect(buildLoginUrl(req)), nonce, requestId);
   }
 });
 

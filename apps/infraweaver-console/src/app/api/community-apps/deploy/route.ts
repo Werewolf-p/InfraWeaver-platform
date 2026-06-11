@@ -32,6 +32,12 @@ const DeployBody = z.object({
   path: ["appName"],
 });
 
+// C5: strict container image-reference allowlist. Optional registry host[:port],
+// lowercase repo path, optional :tag and @sha256 digest. Rejects whitespace,
+// quotes, and YAML/shell metacharacters so app.Repository (external AppFeed data)
+// cannot inject content into the generated manifests it is interpolated into.
+const IMAGE_REF_RE = /^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]+)?\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9._-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/;
+
 function sanitizeKubernetesName(value: string): string {
   return value
     .toLowerCase()
@@ -61,6 +67,11 @@ export async function POST(req: NextRequest) {
 
   const app = await findAppByIdentifier(appIdentifier);
   if (!app) return NextResponse.json({ error: `App "${appIdentifier}" not found in AppFeed` }, { status: 404 });
+
+  // C5: validate the image reference before it is interpolated into manifests.
+  if (!IMAGE_REF_RE.test((app.Repository ?? "").trim())) {
+    return NextResponse.json({ error: "App has an invalid container image reference" }, { status: 422 });
+  }
 
   const slug = sanitizeKubernetesName(app.Name);
   const ns = sanitizeKubernetesName(namespace ?? slug);
@@ -158,15 +169,42 @@ installed_at: ${new Date().toISOString()}
   allFiles.push([`${baseDir}/deployment.yaml`, deploymentWithService]);
   if (result.manifests.pvcs.length > 0) allFiles.push([`${baseDir}/pvc.yaml`, result.manifests.pvcs.join("\n")]);
   if (result.manifests.ingressroute) allFiles.push([`${baseDir}/ingressroute.yaml`, result.manifests.ingressroute]);
-  if (result.manifests.secrets) allFiles.push([`${baseDir}/secrets.yaml`, result.manifests.secrets]);
+  // C6: secret values are deliberately NOT committed to git (see secretsPayload below).
   allFiles.push([`kubernetes/catalog/${slug}/catalog.yaml`, catalogYaml]);
   allFiles.push([`kubernetes/bootstrap/catalog-${slug}-manifests.yaml`, argoAppYaml]);
+
+  // C6: parse generated Secret manifests into a structured payload and create
+  // them directly via the K8s API instead of writing their values into git.
+  const secretsPayload: Array<{ name: string; stringData: Record<string, string> }> = [];
+  if (result.manifests.secrets) {
+    const yaml = await import("js-yaml");
+    for (const doc of yaml.loadAll(result.manifests.secrets)) {
+      const d = doc as { kind?: string; metadata?: { name?: string }; stringData?: Record<string, string> } | null;
+      if (d && d.kind === "Secret" && d.metadata?.name && d.stringData && Object.keys(d.stringData).length > 0) {
+        secretsPayload.push({ name: d.metadata.name, stringData: d.stringData });
+      }
+    }
+  }
 
   try {
     await gitCommitFiles({
       message: `feat(community-apps): install ${slug} from AppFeed`,
       addOrUpdateFiles: allFiles.map(([path, content]) => ({ path, content })),
     });
+
+    // C6: create the app's secrets directly in the cluster (values never hit git).
+    if (secretsPayload.length > 0) {
+      const secretsRes = await iwApiFetch(`/community-apps/${slug}/secrets`, session, clusterId, {
+        method: "POST",
+        body: JSON.stringify({ namespace: ns, secrets: secretsPayload }),
+      });
+      if (!secretsRes.ok) {
+        return NextResponse.json(
+          { error: "App manifests committed but secret creation failed — create the app secrets manually in the cluster." },
+          { status: 502 },
+        );
+      }
+    }
 
     // Trigger bootstrap refresh and create the ArgoCD Application (polls for resolution)
     await Promise.all([

