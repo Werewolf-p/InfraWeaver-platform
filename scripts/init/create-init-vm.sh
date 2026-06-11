@@ -361,7 +361,7 @@ _get_vlan_tenants() {
 }
 
 # Build VLAN option list for a given bridge
-# Each entry: "3  [github-runner,netbird-router-vlan3]" or "2  [no VMs]"
+# Each entry: "3  [github-runner]" or "2  [no VMs]"
 # Sets global _VLAN_OPTS_ARR
 _build_vlan_opts() {
   local _br="$1"

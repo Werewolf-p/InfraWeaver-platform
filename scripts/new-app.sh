@@ -16,7 +16,7 @@
 #   --public               No auth — world-accessible ⚠️
 #
 # AUTH MODES:
-#   (default)    → VPN-only internal access (netbird-vpn-only middleware)
+#   (default)    → VPN-only internal access (vpn-only middleware)
 #                  Label: infraweaver.io/auth=vpn
 #   --auth       → Authentik proxy (any logged-in Authentik user)
 #                  Label: infraweaver.io/auth=proxy
@@ -182,7 +182,7 @@ case "$AUTH_MODE" in
   admin)  AUTH_LABEL="admin";  AUTH_DESC="Authentik proxy (platform-admins group only)" ;;
   sso)    AUTH_LABEL="sso";    AUTH_DESC="Native OIDC/SSO (app handles auth natively)" ;;
   public) AUTH_LABEL="public"; AUTH_DESC="No auth — world-accessible ⚠️" ;;
-  vpn)    AUTH_LABEL="vpn";    AUTH_DESC="VPN-only (NetBird, internal access)" ;;
+  vpn)    AUTH_LABEL="vpn";    AUTH_DESC="VPN-only (internal access)" ;;
 esac
 
 TEMPLATE_DIR="docs/templates/app"
@@ -233,7 +233,7 @@ case "$AUTH_MODE" in
     if [ -f "${TARGET_DIR}/manifests/ingressroute-internal.yaml.example" ]; then
       mv "${TARGET_DIR}/manifests/ingressroute-internal.yaml.example" \
          "${TARGET_DIR}/manifests/ingressroute-internal.yaml"
-      ok "Activated ingressroute-internal.yaml (VPN-only, netbird-vpn-only middleware)"
+      ok "Activated ingressroute-internal.yaml (VPN-only, vpn-only middleware)"
     fi
     ;;
   proxy)
@@ -357,7 +357,7 @@ echo ""
 case "$AUTH_MODE" in
   vpn)
     echo "    2. Access mode: VPN-only"
-    echo "       URL: https://${APP_NAME}.int.${BASE_DOMAIN} (connect via NetBird first)"
+    echo "       URL: https://${APP_NAME}.int.${BASE_DOMAIN} (connect via VPN first)"
     ;;
   proxy|admin)
     echo "    2. Access mode: ${AUTH_DESC}"

@@ -204,12 +204,6 @@ def build_services(platform):
                 'icon': 'authentik.png',
                 'ping': 'http://authentik-server.authentik.svc.cluster.local/-/health/ready/',
             }},
-            {'NetBird VPN': {
-                'href': 'https://netbird.int.yourdomain.com',
-                'description': 'Zero-trust WireGuard VPN mesh',
-                'icon': 'netbird.png',
-                'ping': 'http://netbird-management.netbird.svc.cluster.local/api/v1/health',
-            }},
         ]}
         services.append(security)
 

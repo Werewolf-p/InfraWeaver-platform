@@ -1177,21 +1177,6 @@
               <input type="text" id="METALLB_COREDNS_VIP" name="METALLB_COREDNS_VIP" placeholder="10.10.0.201" onblur="pingVip('METALLB_COREDNS_VIP')" />
               <div class="field-hint">Internal DNS — resolves <code>*.int.yourdomain.com</code></div>
             </div>
-            <div class="form-row">
-              <label><span id="vdot-METALLB_NETBIRD_MGMT_VIP" class="vip-dot">⚪</span> METALLB_NETBIRD_MGMT_VIP</label>
-              <input type="text" id="METALLB_NETBIRD_MGMT_VIP" name="METALLB_NETBIRD_MGMT_VIP" placeholder="10.10.0.202" onblur="pingVip('METALLB_NETBIRD_MGMT_VIP')" />
-              <div class="field-hint">NetBird management API (only used if VPN is enabled)</div>
-            </div>
-            <div class="form-row">
-              <label><span id="vdot-METALLB_NETBIRD_SIGNAL_VIP" class="vip-dot">⚪</span> METALLB_NETBIRD_SIGNAL_VIP</label>
-              <input type="text" id="METALLB_NETBIRD_SIGNAL_VIP" name="METALLB_NETBIRD_SIGNAL_VIP" placeholder="10.10.0.203" onblur="pingVip('METALLB_NETBIRD_SIGNAL_VIP')" />
-              <div class="field-hint">NetBird signal server</div>
-            </div>
-            <div class="form-row">
-              <label><span id="vdot-METALLB_NETBIRD_RELAY_VIP" class="vip-dot">⚪</span> METALLB_NETBIRD_RELAY_VIP</label>
-              <input type="text" id="METALLB_NETBIRD_RELAY_VIP" name="METALLB_NETBIRD_RELAY_VIP" placeholder="10.10.0.204" onblur="pingVip('METALLB_NETBIRD_RELAY_VIP')" />
-              <div class="field-hint">NetBird relay server</div>
-            </div>
           </div>
         </div>
       </div>
@@ -1211,7 +1196,7 @@
         <div class="form-row">
           <label>ADMIN_USERNAME <span class="required">*</span></label>
           <input type="text" id="ADMIN_USERNAME" name="ADMIN_USERNAME" placeholder="admin" />
-          <div class="field-hint">Login for Authentik, ArgoCD &amp; NetBird. Lowercase, alphanumeric. <strong>Cannot be changed after first deploy.</strong></div>
+          <div class="field-hint">Login for Authentik &amp; ArgoCD. Lowercase, alphanumeric. <strong>Cannot be changed after first deploy.</strong></div>
         </div>
         <div class="form-row">
           <label>ADMIN_NAME</label>
@@ -1398,27 +1383,6 @@
       </div>
     </div>
 
-    <!-- NetBird -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-icon">🔒</div>
-        <div>
-          <div class="card-title">NetBird VPN</div>
-          <div class="card-desc">API token for managing VPN peers during deploys</div>
-        </div>
-      </div>
-      <div class="form-grid single">
-        <div class="form-row">
-          <label>NETBIRD_API_TOKEN</label>
-          <div class="input-wrap">
-            <input type="password" id="NETBIRD_API_TOKEN" name="NETBIRD_API_TOKEN" placeholder="nbp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-            <button class="toggle-pass" onclick="togglePass('NETBIRD_API_TOKEN')" type="button">👁</button>
-          </div>
-          <div class="field-hint">NetBird dashboard → Settings → API Keys. Optional but needed for stale peer cleanup.</div>
-        </div>
-      </div>
-    </div>
-
     <!-- GitHub -->
     <div class="card">
       <div class="card-header">
@@ -1489,21 +1453,6 @@
         <div>
           <div class="card-title">Optional Features</div>
           <div class="card-desc">Select which optional components to deploy alongside the core platform</div>
-        </div>
-      </div>
-
-      <!-- NetBird VPN -->
-      <div class="feature-row" id="feat-netbird">
-        <div class="feature-toggle">
-          <label class="toggle-switch">
-            <input type="checkbox" id="ENABLE_NETBIRD" onchange="onFeatureToggle('ENABLE_NETBIRD', this.checked)" />
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="feature-info">
-          <div class="feature-title">🔒 NetBird VPN</div>
-          <div class="feature-desc">Mesh VPN for secure remote access to cluster management services. When enabled, services at <code>*.int.yourdomain.com</code> require VPN to access. When disabled, they are LAN-only.</div>
-          <div class="feature-tags"><span class="feature-tag">Requires: NETBIRD_API_TOKEN</span><span class="feature-tag">Resources: ~256MB RAM</span></div>
         </div>
       </div>
 
@@ -1594,7 +1543,7 @@
             <!-- VPN-only toggle -->
             <div class="ip-range-vpn-only" style="margin-bottom:10px;margin-top:8px">
               <input type="checkbox" id="vpn-only-toggle" onchange="onVpnOnlyToggle(this.checked)" />
-              <label for="vpn-only-toggle" style="cursor:pointer">VPN Only — require NetBird for all internal services (disables LAN access)</label>
+              <label for="vpn-only-toggle" style="cursor:pointer">VPN Only — require VPN for all internal services (disables LAN access)</label>
             </div>
 
             <div id="ip-ranges-section">
@@ -1738,17 +1687,16 @@ const FIELDS = [
   'NODE_3_IP','NODE_3_VMID','NODE_3_PVE_NODE','NODE_3_DATASTORE','NODE_3_CPU','NODE_3_MEMORY','NODE_3_DISK',
   'PVE_NODES',
   'METALLB_VIP_RANGE','METALLB_TRAEFIK_VIP','METALLB_COREDNS_VIP',
-  'METALLB_NETBIRD_MGMT_VIP','METALLB_NETBIRD_SIGNAL_VIP','METALLB_NETBIRD_RELAY_VIP',
   'CLUSTER_LOCAL_DOMAIN','ADMIN_USERNAME','ADMIN_NAME',
   'DEPLOYER_SSH_KEY','DNS_PROVIDER','CLOUDFLARE_API_TOKEN',
   'AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_HOSTED_ZONE_ID','AWS_REGION',
   'AZURE_CLIENT_ID','AZURE_CLIENT_SECRET','AZURE_SUBSCRIPTION_ID','AZURE_TENANT_ID','AZURE_RESOURCE_GROUP',
   'DIGITALOCEAN_TOKEN','HETZNER_DNS_API_KEY',
-  'SMTP_USERNAME','SMTP_PASSWORD','SMTP_TO','NETBIRD_API_TOKEN','GITHUB_PAT',
+  'SMTP_USERNAME','SMTP_PASSWORD','SMTP_TO','GITHUB_PAT',
   'RUNNER_REGISTRATION_TOKEN','ENV_NAME','LETSENCRYPT_ENV'
 ];
 
-const FEATURE_FIELDS = ['ENABLE_NETBIRD','ENABLE_MONITORING','ENABLE_EXTERNAL_DNS','BACKUP_PROVIDER','LOCAL_IP_RANGES'];
+const FEATURE_FIELDS = ['ENABLE_MONITORING','ENABLE_EXTERNAL_DNS','BACKUP_PROVIDER','LOCAL_IP_RANGES'];
 const DNS_PROVIDER_FIELDS = {
   cloudflare: ['CLOUDFLARE_API_TOKEN'],
   route53: ['AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY'],
@@ -2472,7 +2420,7 @@ function collectEnv() {
     if (el) data[f] = el.value.trim();
   });
   // Feature flags: checkboxes → "true"/"false"
-  ['ENABLE_NETBIRD','ENABLE_MONITORING','ENABLE_EXTERNAL_DNS'].forEach(f => {
+  ['ENABLE_MONITORING','ENABLE_EXTERNAL_DNS'].forEach(f => {
     const el = document.getElementById(f);
     if (el) data[f] = el.checked ? 'true' : 'false';
   });
@@ -2549,8 +2497,7 @@ async function loadEnv() {
         }
       });
       // Restore VIP dot states from loaded values (show as unchecked — user can re-ping)
-      ['METALLB_TRAEFIK_VIP','METALLB_COREDNS_VIP','METALLB_NETBIRD_MGMT_VIP',
-       'METALLB_NETBIRD_SIGNAL_VIP','METALLB_NETBIRD_RELAY_VIP'].forEach(f => setVipDot(f, null));
+['METALLB_TRAEFIK_VIP','METALLB_COREDNS_VIP'].forEach(f => setVipDot(f, null));
       updateRepoLink();
       onDnsProviderChange(false);
       showAlert('config-alert', 'success', 'Loaded existing .env ✅');
@@ -2637,7 +2584,7 @@ async function startDeploy(mode) {
     'Installing tools', 'Destroying old VMs', 'Provisioning Talos VMs',
     'Bootstrapping cluster', 'Waiting for CRDs', 'Deploying ArgoCD',
     'Bootstrapping OpenBao', 'Configuring DNS', 'Applying MetalLB',
-    'Configuring TLS', 'NetBird reconnect', 'Configuring Authentik',
+    'Configuring TLS', 'Configuring Authentik',
     'Running post-deploy tests', 'Complete'
   ];
   let currentStep = 0;
