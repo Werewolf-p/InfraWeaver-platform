@@ -1,9 +1,9 @@
 # ── users.yaml — Platform user roster ────────────────────────────────────────
 # This file is preserved across redeployments (redeploy-local.sh backs it up).
 # Add users here before deploying — each user gets an Authentik account,
-# ArgoCD RBAC binding, and (if enabled) a NetBird VPN account.
+# ArgoCD RBAC binding.
 #
-# Username (the YAML key) becomes the Authentik username and NetBird identity.
+# Username (the YAML key) becomes the Authentik username.
 # Choose something stable — it's used as the principal ID in role assignments.
 #
 # FIRST USER: should be the platform admin (your personal account matching ADMIN_USERNAME in .env).
