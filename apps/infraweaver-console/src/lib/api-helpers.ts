@@ -1,4 +1,10 @@
-const SHELL_METACHARACTER_RE = /(^|\s)(?:&&|\|\||;|\|)(?=\s|$)/
+// Positive allowlist for game-server console commands. Permits letters, digits,
+// whitespace, and the punctuation real commands use (Minecraft selectors `@`,
+// JSON `{}"[],:` for tellraw, relative coords `~^`, paths `/`, negatives `-`).
+// Everything else — notably the shell metacharacters $ ` | & ; \ ( ) < > and
+// newlines — is rejected, so a command can never be reinterpreted as a shell
+// expression even if a downstream caller were to pass it to a shell.
+const ALLOWED_CONSOLE_COMMAND_RE = /^[A-Za-z0-9 \t.,:'"_\-/@#!?=+*~^%[\]{}]+$/
 const DEFAULT_API_BODY_LIMIT = 512 * 1024
 const API_BODY_LIMIT_OVERRIDES = [
   { prefix: "/api/platform-editor", bytes: 2 * 1024 * 1024 },
@@ -53,8 +59,8 @@ export function sanitizeConsoleCommand(input: string) {
   if (!value) {
     return { ok: false as const, error: "command is required" }
   }
-  if (SHELL_METACHARACTER_RE.test(value)) {
-    return { ok: false as const, error: "Command contains blocked shell metacharacters" }
+  if (!ALLOWED_CONSOLE_COMMAND_RE.test(value)) {
+    return { ok: false as const, error: "Command contains disallowed characters" }
   }
   return { ok: true as const, value }
 }

@@ -66,9 +66,11 @@ export function AgentStudioModal({ open, onClose }: AgentStudioModalProps) {
 
   // Seed local editor state whenever a fresh pipeline/library loads.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     if (data?.pipeline) setSteps(data.pipeline.steps);
   }, [data?.pipeline]);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     if (data?.library) setLibrary(data.library.items);
   }, [data?.library]);
 

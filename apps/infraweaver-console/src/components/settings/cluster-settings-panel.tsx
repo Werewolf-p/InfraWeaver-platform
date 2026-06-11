@@ -313,6 +313,7 @@ function NodeSpecsEditorContent({ data, canWrite }: { data: NodeSpecsResponse; c
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setLocal(Object.fromEntries(data.nodes.map((n) => [n.name, { cpu: n.cpu, memory_mb: n.memory_mb }])));
   }, [data]);
 
@@ -559,6 +560,7 @@ function ResourceEditorContent({
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setLocal(Object.fromEntries(data.schema.map((def) => [def.key, String(data.values[def.key] ?? "")])));
   }, [data]);
 

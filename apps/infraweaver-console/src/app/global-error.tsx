@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 
 interface GlobalErrorProps {
@@ -9,7 +9,7 @@ interface GlobalErrorProps {
 }
 
 export default function GlobalError({ error, reset }: GlobalErrorProps) {
-  const requestId = error.digest ?? `err_${Date.now().toString(36)}`;
+  const [requestId] = useState(() => error.digest ?? `err_${Date.now().toString(36)}`);
 
   useEffect(() => {
     if (error.name === "ChunkLoadError" || error.message?.includes("Loading chunk")) {

@@ -4,7 +4,7 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import * as k8s from "@kubernetes/client-node";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 
 export interface TestResult {
@@ -387,7 +387,7 @@ export async function GET(req: NextRequest) {
       const exists = existsSync(boundaryPath) || existsSync(altPath);
       if (!exists) return { status: "fail", message: "error-boundary.tsx component not found" };
       const layoutPath = path.join(process.cwd(), "src/app/(dashboard)/layout.tsx");
-      const layoutContent = existsSync(layoutPath) ? require("fs").readFileSync(layoutPath, "utf-8") : "";
+      const layoutContent = existsSync(layoutPath) ? readFileSync(layoutPath, "utf-8") : "";
       if (!layoutContent.includes("ErrorBoundary")) return { status: "warn", message: "Error boundary file exists but not used in dashboard layout" };
       return { status: "pass", message: "ErrorBoundary component exists and is applied in dashboard layout" };
     }),
@@ -399,16 +399,16 @@ export async function GET(req: NextRequest) {
     () => runTest("stab-chunk-recovery", "error.tsx handles ChunkLoadError for auto-reload", "stability", async () => {
       const p = path.join(process.cwd(), "src/app/error.tsx");
       if (!existsSync(p)) return { status: "fail", message: "src/app/error.tsx not found" };
-      const content = require("fs").readFileSync(p, "utf-8");
+      const content = readFileSync(p, "utf-8");
       if (!content.includes("ChunkLoadError") && !content.includes("Loading chunk")) {
         return { status: "fail", message: "error.tsx does not handle ChunkLoadError — users will see blank page after deploys instead of auto-reloading" };
       }
       return { status: "pass", message: "error.tsx auto-reloads on ChunkLoadError (stale chunks after new deploys)" };
     }),
     () => runTest("stab-middleware-trycatch", "Middleware has try-catch for auth failures", "stability", async () => {
-      const p = path.join(process.cwd(), "src/middleware.ts");
+      const p = path.join(process.cwd(), "src/proxy.ts");
       if (!existsSync(p)) return { status: "fail", message: "middleware.ts not found" };
-      const content = require("fs").readFileSync(p, "utf-8");
+      const content = readFileSync(p, "utf-8");
       if (!content.includes("try") || !content.includes("catch")) {
         return { status: "fail", message: "Middleware has no try-catch — if auth() throws, entire middleware crashes and shows browser error page" };
       }
@@ -429,7 +429,7 @@ export async function GET(req: NextRequest) {
       const queryClientPath = path.join(process.cwd(), "src/lib/query-client.ts");
       const hasDefaults = existsSync(queryDefaultsPath) || existsSync(queryClientPath);
       if (!hasDefaults) return { status: "warn", message: "No query-defaults.ts or query-client.ts found" };
-      const content = require("fs").readFileSync(existsSync(queryDefaultsPath) ? queryDefaultsPath : queryClientPath, "utf-8");
+      const content = readFileSync(existsSync(queryDefaultsPath) ? queryDefaultsPath : queryClientPath, "utf-8");
       const hasRetry = content.includes("retry");
       const hasStale = content.includes("staleTime") || content.includes("gcTime");
       if (!hasRetry) return { status: "warn", message: "React Query retry not configured — transient k8s API errors will not auto-recover" };
@@ -461,7 +461,7 @@ export async function GET(req: NextRequest) {
     () => runTest("feat-keyboard-shortcuts", "Keyboard shortcuts module defined", "features", async () => {
       const p = path.join(process.cwd(), "src/lib/keyboard-shortcuts.ts");
       if (!existsSync(p)) return { status: "fail", message: "keyboard-shortcuts.ts not found" };
-      const content = require("fs").readFileSync(p, "utf-8");
+      const content = readFileSync(p, "utf-8");
       const hasShortcuts = content.includes("?") || content.includes("shortcut") || content.includes("Shortcut");
       if (!hasShortcuts) return { status: "warn", message: "keyboard-shortcuts.ts exists but appears empty" };
       return { status: "pass", message: "Keyboard shortcuts module defined (?, ⌘K, g+h navigation shortcuts)" };
@@ -483,7 +483,7 @@ export async function GET(req: NextRequest) {
       ];
       const cssPath = candidates.find(existsSync);
       if (!cssPath) return { status: "fail", message: "globals.css not found" };
-      const content = require("fs").readFileSync(cssPath, "utf-8");
+      const content = readFileSync(cssPath, "utf-8");
       const hasPrimary = content.includes("--primary");
       const hasAzure = content.includes("#0078D4") || content.includes("0078d4") || content.includes("--azure") || content.includes("0078");
       if (!hasPrimary) return { status: "warn", message: "No --primary CSS token found in globals.css" };
@@ -493,7 +493,7 @@ export async function GET(req: NextRequest) {
     () => runTest("feat-data-table", "TanStack Table component integrated", "features", async () => {
       const pjson = path.join(process.cwd(), "package.json");
       if (!existsSync(pjson)) return { status: "skip", message: "package.json not found" };
-      const pkg = JSON.parse(require("fs").readFileSync(pjson, "utf-8"));
+      const pkg = JSON.parse(readFileSync(pjson, "utf-8"));
       const hasTanStack = !!(pkg.dependencies?.["@tanstack/react-table"] || pkg.devDependencies?.["@tanstack/react-table"]);
       if (!hasTanStack) return { status: "fail", message: "@tanstack/react-table not in package.json — data tables may be basic HTML tables" };
       const tableComponent = path.join(process.cwd(), "src/components/ui/data-table.tsx");

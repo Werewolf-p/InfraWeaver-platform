@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 // framer-motion (used by the queue popup's ResponsiveSheet) ships ESM that
 // ts-jest does not transform — swap it for plain DOM elements so the menu renders.
 jest.mock("framer-motion", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.mock factory cannot reference the out-of-scope React import
   const ReactLib = require("react");
   return {
     AnimatePresence: ({ children }: { children: React.ReactNode }) =>

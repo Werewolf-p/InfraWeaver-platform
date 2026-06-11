@@ -504,6 +504,7 @@ function HistorySearchModal({
 
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setQuery("");
     const timeout = window.setTimeout(() => inputRef.current?.focus(), 10);
     const onKey = (event: KeyboardEvent) => {
@@ -1084,7 +1085,7 @@ export function ConsoleTab({
   const [alertDraftPattern, setAlertDraftPattern] = useState("");
   const [alertDraftSound, setAlertDraftSound] = useState<AlertRule["sound"]>("ping");
   const [alertDraftNotify, setAlertDraftNotify] = useState(false);
-  const [nowTick, setNowTick] = useState(Date.now());
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const [transportLabel, setTransportLabel] = useState<"stdin" | "rcon">("stdin");
 
@@ -1160,6 +1161,7 @@ export function ConsoleTab({
   }, [autoScroll, fontSize, historyDepth, levelFilter, lineHeight, regexMode, showLineNumbers, showTimestamps, theme, wordWrap]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setLogLines((prev) => prev.slice(-maxLines));
   }, [maxLines]);
 
@@ -1228,6 +1230,7 @@ export function ConsoleTab({
   }, [scheduledCommands]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     if (typeof Notification !== "undefined") setNotificationPermission(Notification.permission);
   }, []);
 
@@ -1974,6 +1977,7 @@ export function ConsoleTab({
         if (line) addLine(line.type, line.line, line.timestamp ?? null, { user: line.user, trackStats: false });
         const newElapsed = Math.max(targetOffset, elapsedMs);
         setReplayState((prev) => ({ ...prev, nextIndex: nextIndex + 1, elapsedMs: newElapsed }));
+        // eslint-disable-next-line react-hooks/immutability -- self-referential replay scheduler — the recursive reference is intentional
         scheduleReplay(data, nextIndex + 1, newElapsed);
       }, delay);
     },

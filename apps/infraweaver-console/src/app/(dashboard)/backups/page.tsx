@@ -236,11 +236,13 @@ export default function BackupsPage() {
     refetchInterval: 60_000,
   });
 
+  const [now] = useState(() => Date.now());
+
   const volumes = data ?? [];
   const totalBackups = volumes.reduce((s, v) => s + v.backupCount, 0);
   const freshVolumes = volumes.filter((v) => {
     if (!v.lastBackupAt) return false;
-    return Date.now() - new Date(v.lastBackupAt).getTime() < 36 * 3_600_000;
+    return now - new Date(v.lastBackupAt).getTime() < 36 * 3_600_000;
   }).length;
 
   return (

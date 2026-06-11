@@ -141,7 +141,7 @@ export function WikiContent({ content }: { content: string }) {
           code: (props) => {
             const { className, children } = props;
             const inline = "inline" in props ? Boolean((props as { inline?: boolean }).inline) : false;
-            return <CodeBlock className={className} inline={inline} children={children} />;
+            return <CodeBlock className={className} inline={inline}>{children}</CodeBlock>;
           },
           strong: ({ children }) => <strong className="font-semibold text-gray-900 dark:text-white">{children}</strong>,
           table: ({ children }) => (

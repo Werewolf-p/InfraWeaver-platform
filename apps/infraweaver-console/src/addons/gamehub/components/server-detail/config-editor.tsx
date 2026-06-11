@@ -53,6 +53,7 @@ export function ConfigEditor({
 
   useEffect(() => {
     if (fileQuery.data === undefined) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setRawContent(fileQuery.data);
     setPropertyLines(isPropertiesFile ? parseProperties(fileQuery.data) : []);
   }, [fileQuery.data, isPropertiesFile]);

@@ -222,7 +222,7 @@ export default function PlatformUpdatePage() {
 
               {version.changelog && version.changelog.length > 0 && (
                 <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
-                  <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">What's new</p>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">What&apos;s new</p>
                   <ul className="space-y-1">
                     {version.changelog.map((c, i) => (
                       <li key={i} className="font-mono text-xs text-slate-300">{c}</li>
@@ -356,7 +356,7 @@ export default function PlatformUpdatePage() {
             {!version?.hasGithubToken && (
               <p className="mt-3 rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-yellow-400/80">
                 ⚠️ <span className="font-medium">GITHUB_TOKEN not configured.</span>{" "}
-                The "Trigger CI Build" button is disabled. To enable it, add a GitHub PAT to the{" "}
+                The &quot;Trigger CI Build&quot; button is disabled. To enable it, add a GitHub PAT to the{" "}
                 <code>infraweaver-console-secret</code> Kubernetes secret under key{" "}
                 <code>github-token</code>.
               </p>

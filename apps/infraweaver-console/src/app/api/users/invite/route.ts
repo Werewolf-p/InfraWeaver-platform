@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
 import { z } from "zod";
@@ -16,7 +16,8 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["users:invite", "users:write", "rbac:admin"])) {
+  // C4: raise the gate — issuing invitations requires users:write / rbac:admin.
+  if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -26,6 +27,12 @@ export async function POST(req: NextRequest) {
   }
   const { email, groups, expiryHours } = parsed.data;
 
+  // C4: assigning groups on an invite can grant privileges — gate it behind
+  // rbac:admin so a users:write operator cannot escalate via group membership.
+  if (groups.length > 0 && !hasSessionPermission(access, "rbac:admin")) {
+    return NextResponse.json({ error: "Forbidden: group assignment requires rbac:admin" }, { status: 403 });
+  }
+
   const expires = new Date(Date.now() + expiryHours * 3600 * 1000).toISOString();
   const r = await authentikFetch("/stages/invitation/invitations/", {
     method: "POST",
@@ -33,8 +40,8 @@ export async function POST(req: NextRequest) {
   });
 
   if (!r.ok) {
-    const text = await r.text();
-    return NextResponse.json({ error: `Authentik error: ${text}` }, { status: 502 });
+    // Do not reflect Authentik's raw error body to the client.
+    return NextResponse.json({ error: "Failed to create invitation" }, { status: 502 });
   }
 
   const inv = await r.json();

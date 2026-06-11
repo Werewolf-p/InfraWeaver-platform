@@ -550,6 +550,20 @@ export default function ClusterPage() {
   const [memHistory, setMemHistory] = useState<DataPoint[]>([]);
   const [nodeHistory, setNodeHistory] = useState<Record<string, { cpu: SparklinePoint[]; memory: SparklinePoint[] }>>({});
 
+  // ── Agent approval ────────────────────────────────────────────────────────
+  const [approvingAgent, setApprovingAgent] = useState<string | null>(null);
+  const [rejectingAgent, setRejectingAgent] = useState<string | null>(null);
+
+  const { data: agentData, refetch: refetchAgents } = useQuery<{
+    agents: Array<{ clusterId: string; connectedAt: string; lastHeartbeat: string; status: { nodeCount: number; podCount: number; ready: boolean } }>;
+    pending: Array<{ agentId: string; clusterName: string; clusterCaFingerprint: string; receivedAt: string }>;
+  }>({
+    queryKey: ["agents"],
+    queryFn: () => fetch("/api/agents").then(r => r.json()),
+    refetchInterval: 8_000,
+  });
+
+
   const { data, isLoading, refetch } = useQuery<{ nodes: Node[] }>({
     queryKey: ["cluster", "nodes"],
     queryFn: async () => {
@@ -842,19 +856,6 @@ export default function ClusterPage() {
   const handleExportYaml = () => {
     window.location.href = "/api/cluster/export";
   };
-
-  // ── Agent approval ────────────────────────────────────────────────────────
-  const [approvingAgent, setApprovingAgent] = useState<string | null>(null);
-  const [rejectingAgent, setRejectingAgent] = useState<string | null>(null);
-
-  const { data: agentData, refetch: refetchAgents } = useQuery<{
-    agents: Array<{ clusterId: string; connectedAt: string; lastHeartbeat: string; status: { nodeCount: number; podCount: number; ready: boolean } }>;
-    pending: Array<{ agentId: string; clusterName: string; clusterCaFingerprint: string; receivedAt: string }>;
-  }>({
-    queryKey: ["agents"],
-    queryFn: () => fetch("/api/agents").then(r => r.json()),
-    refetchInterval: 8_000,
-  });
 
   async function approveAgent(agentId: string) {
     setApprovingAgent(agentId);

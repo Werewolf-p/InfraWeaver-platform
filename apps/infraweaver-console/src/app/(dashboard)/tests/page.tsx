@@ -148,16 +148,19 @@ export default function TestsPage() {
   );
   const [running, setRunning] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
+  const [endTime, setEndTime] = useState<number | null>(null);
 
   const runAll = useCallback(async () => {
     setRunning(true);
     setStartTime(Date.now());
+    setEndTime(null);
     setResults(TEST_DEFS.map(t => ({ ...t, status: "pending" })));
     for (const def of TEST_DEFS) {
       setResults(prev => prev.map(r => r.id === def.id ? { ...r, status: "running" } : r));
       const result = await runTest(def.id);
       setResults(prev => prev.map(r => r.id === def.id ? { ...r, ...result } : r));
     }
+    setEndTime(Date.now());
     setRunning(false);
   }, []);
 
@@ -166,7 +169,7 @@ export default function TestsPage() {
   const failed = results.filter(r => r.status === "fail").length;
   const skipped = results.filter(r => r.status === "skip").length;
   const total = results.filter(r => r.status !== "pending").length;
-  const duration = startTime && !running ? ((Date.now() - startTime) / 1000).toFixed(1) : null;
+  const duration = startTime && endTime ? ((endTime - startTime) / 1000).toFixed(1) : null;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

@@ -12,7 +12,7 @@ interface Props {
 
 export function ResetPasswordModal({ username, open, onClose }: Props) {
   const [step, setStep] = useState<"confirm" | "done">("confirm");
-  const [tempPassword, setTempPassword] = useState("");
+  const [recoveryLink, setRecoveryLink] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -26,8 +26,8 @@ export function ResetPasswordModal({ username, open, onClose }: Props) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Failed");
-      setTempPassword(data.tempPassword);
-      toast.success("Temporary password generated");
+      setRecoveryLink(data.recoveryLink);
+      toast.success("Recovery link generated");
       setStep("done");
     } catch (error) {
       toast.error(String(error));
@@ -37,15 +37,15 @@ export function ResetPasswordModal({ username, open, onClose }: Props) {
   }
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(tempPassword);
+    await navigator.clipboard.writeText(recoveryLink);
     setCopied(true);
-    toast.success("Temporary password copied");
+    toast.success("Recovery link copied");
     setTimeout(() => setCopied(false), 2000);
   }
 
   function handleClose() {
     setStep("confirm");
-    setTempPassword("");
+    setRecoveryLink("");
     setCopied(false);
     onClose();
   }
@@ -72,7 +72,7 @@ export function ResetPasswordModal({ username, open, onClose }: Props) {
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-amber-300">Confirm password reset</p>
                   <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
-                    A new temporary password will be generated for <strong className="text-amber-200">@{username}</strong>. Their current password will be invalidated.
+                    A one-time recovery link will be generated for <strong className="text-amber-200">@{username}</strong>. They use it to set a new password themselves.
                   </p>
                 </div>
               </div>
@@ -95,10 +95,10 @@ export function ResetPasswordModal({ username, open, onClose }: Props) {
           ) : (
             <div className="space-y-4">
               <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-4">
-                <p className="mb-2 text-xs text-gray-500 dark:text-[#888]">Temporary password for @{username}</p>
+                <p className="mb-2 text-xs text-gray-500 dark:text-[#888]">Recovery link for @{username}</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 break-all rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 font-mono text-sm text-gray-900 dark:text-[#f2f2f2]">
-                    {tempPassword}
+                    {recoveryLink}
                   </code>
                   <button
                     onClick={handleCopy}
@@ -110,7 +110,7 @@ export function ResetPasswordModal({ username, open, onClose }: Props) {
               </div>
               <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 p-3">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
-                <p className="text-xs text-red-400">Share this once — it cannot be retrieved again.</p>
+                <p className="text-xs text-red-400">Share this link securely — it cannot be retrieved again.</p>
               </div>
               <button
                 onClick={handleClose}

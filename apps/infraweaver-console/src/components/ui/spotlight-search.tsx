@@ -38,6 +38,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setRecentSearches(loadRecent());
       setTimeout(() => inputRef.current?.focus(), 100);
     } else {

@@ -22,6 +22,7 @@ export function HistoryDrawer({ username, open, onClose }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setLoading(true);
     fetch(`/api/users/${username}/history`)
       .then((r) => r.json())

@@ -4,15 +4,18 @@
  * HTTP service the console calls directly (no n8n) to drive the feedback flow:
  *   POST /approve    — run Claude (plan→validate→implement) on the shared
  *                      `feedback/staging` branch, build ONE image in-cluster via
- *                      BuildKit, push to the self-hosted Zot registry, and repoint
- *                      the single shared `staging` dev env at the cumulative tip
- *                      (fixes from every approved entry accumulate on one env).
+ *                      BuildKit, push to the self-hosted Zot registry, and bump the
+ *                      LIVE console image pin in the ArgoCD infra repo at the
+ *                      cumulative tip. Every approve ships straight to prod
+ *                      (infraweaver.int) — no preview env. Fixes still accumulate
+ *                      on the one `feedback/staging` branch.
  *   POST /validate   — reviewer verdict: `validated` keeps the commit on staging;
  *                      `not_fixed` reverts it and re-runs the cycle with a note.
- *   POST /publish    — merge feedback/staging → main, build+push the release
- *                      image, bump the console deployment image pin (GitOps), and
- *                      tear the shared staging env down. Publishes everything at
- *                      once; nothing reaches prod until publish.
+ *   POST /publish    — make the already-live fixes permanent: merge feedback/staging
+ *                      → main and tag the release. No rebuild / pin bump (the live
+ *                      image is already the merged code); retires the staging branch.
+ *   POST /rollback   — re-pin the live console to the image that was live before the
+ *                      last /approve bump (auto-captured in prod-pin.json; no rebuild).
  *   GET  /runs?feedbackId= , /runs/:runId/log , /runs/:runId/stream (SSE)
  *                    — live + historical Claude/build output for the dashboard.
  *   GET/PUT /pipeline , POST /pipeline/reset
@@ -28,30 +31,41 @@
  * `project_feedback_image_pipeline` for the build/registry gotchas.
  */
 const { spawn, execSync } = require('child_process');
-const crypto = require('crypto');
 const http = require('http');
+const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const pipelineStore = require('./pipeline-store');
 const specialists = require('./specialists');
+const fixContext = require('./fix-context');
+
+const PORT = process.env.DISPATCH_PORT || 9876;
+const WORKSPACE = process.env.WORKSPACE_DIR || '/home/runner/InfraWeaver-platform';
+const CONSOLE_DIR = path.join(WORKSPACE, 'apps/infraweaver-console');
 
 // ── HMAC request authentication (C-3) ───────────────────────────────────────
-// Canonical scheme (must match the console signer exactly):
-//   secret  = env DISPATCH_SECRET
-//   headers = X-IW-Timestamp (Date.now() ms as string), X-IW-Signature (hex)
-//   signing input = `${timestamp}.${rawBody}` where rawBody is the EXACT bytes
-//                   received (do NOT re-serialize before verifying)
-//   signature = lowercase hex HMAC-SHA256, compared constant-time
+// Canonical scheme (must match the console signer in src/lib/hmac.ts exactly):
+//   secret        = env DISPATCH_SECRET
+//   headers       = X-IW-Timestamp (Date.now() ms as string), X-IW-Signature (hex)
+//   signing input = `${timestamp}.${rawBody}` over the EXACT received bytes
+//   signature     = lowercase hex HMAC-SHA256, compared constant-time
 //   replay window = reject if |now - timestamp| > 5 min
+// Fail-OPEN (HMAC disabled, IP allowlist only) when DISPATCH_SECRET is empty so
+// the pipeline keeps working until ops provisions it; fail-CLOSED once set.
 const HMAC_WINDOW_MS = 300000; // 5 minutes
+const DISPATCH_SECRET = process.env.DISPATCH_SECRET || '';
+// Default tool allowlist for the claude agent (bounded; replaces the previous
+// --dangerously-skip-permissions, H-3). Env-overridable; per-step lists win.
+const DEFAULT_ALLOWED_TOOLS = (process.env.DISPATCH_ALLOWED_TOOLS || 'Read,Edit,Write,Glob,Grep,Bash')
+  .split(',').map(s => s.trim()).filter(Boolean);
 
 function signHmac(message, secret) {
   return crypto.createHmac('sha256', secret).update(message).digest('hex');
 }
 
-// Verify the canonical HMAC over `${timestamp}.${rawBody}`. Returns
-// { ok, error }. Fails closed on any malformed/missing/expired input.
+// Verify the canonical HMAC over `${timestamp}.${rawBody}`. Returns { ok, error }.
+// Fails closed on any malformed/missing/expired input.
 function verifyHmac(rawBody, timestamp, signature, secret) {
   if (!secret) return { ok: false, error: 'no secret' };
   if (!timestamp || !signature) return { ok: false, error: 'missing signature headers' };
@@ -69,18 +83,6 @@ function verifyHmac(rawBody, timestamp, signature, secret) {
   if (!crypto.timingSafeEqual(a, b)) return { ok: false, error: 'invalid signature' };
   return { ok: true };
 }
-
-const PORT = process.env.DISPATCH_PORT || 9876;
-// HMAC shared secret for request auth. Fail-open (HMAC disabled, IP allowlist
-// only) when empty so the pipeline keeps working until ops provisions it; fail
-// closed (strict enforcement) once set.
-const DISPATCH_SECRET = process.env.DISPATCH_SECRET || '';
-// Default tool allowlist for the claude agent (bounded; was previously run with
-// --dangerously-skip-permissions). Env-overridable; per-step allowlists win.
-const DEFAULT_ALLOWED_TOOLS = (process.env.DISPATCH_ALLOWED_TOOLS || 'Read,Edit,Write,Glob,Grep,Bash')
-  .split(',').map(s => s.trim()).filter(Boolean);
-const WORKSPACE = process.env.WORKSPACE_DIR || '/home/runner/InfraWeaver-platform';
-const CONSOLE_DIR = path.join(WORKSPACE, 'apps/infraweaver-console');
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 const RUNS_DIR = path.join(__dirname, 'runs');
 
@@ -89,19 +91,32 @@ const FEEDBACK_BRANCH = process.env.FEEDBACK_BRANCH || 'feedback/staging';
 const REGISTRY = process.env.REGISTRY || 'registry.int.example.com';
 const IMAGE = process.env.CONSOLE_IMAGE || `${REGISTRY}/infraweaver-console`;
 // Workspace push target for the console *source* pipeline. GitHub `origin` is
-// canonical: the leaf manifest ArgoCD apps + the image-pin bump read it, and
-// OneDev has no reachable route from this runner. The OneDev umbrella app-of-apps
-// only watches kubernetes/* (untouched here), so sourcing app fixes from GitHub
-// does not affect deployed cluster state.
+// canonical for CONSOLE CODE: the leaf manifest ArgoCD apps + the image-pin bump
+// read GitHub. CAUTION: this is NOT true for ArgoCD *Application definitions*
+// (syncPolicy/ignoreDifferences/source of the app-of-apps), which ArgoCD reads
+// from OneDev (onedev.onedev.svc/InfraWeaver-platform). A fix to an Application
+// spec pushed only to GitHub is silently inert — see fix-context.js, which now
+// tells the agent this. Such fixes must be pushed to OneDev to take effect.
 const GIT_REMOTE = process.env.GIT_REMOTE || 'origin';
-const PREVIEW_HOST = process.env.PREVIEW_HOST || 'infraweaver-console-preview.int.example.com';
-const PREVIEW_SCRIPT = path.join(__dirname, 'preview.sh');
+// The single live console. /approve ships straight here (no preview env): each
+// approve bumps the prod image pin so ArgoCD syncs the fix onto infraweaver.int.
+const CONSOLE_HOST = process.env.CONSOLE_HOST || 'infraweaver.int.example.com';
 const BUILDKIT_NODEPORT = process.env.BUILDKIT_NODEPORT || '31234';
 const BUILDCTL = process.env.BUILDCTL || '/home/runner/.local/bin/buildctl';
-// Infra repo (ArgoCD source of truth) for the publish image-pin bump.
+// Infra repo (ArgoCD source of truth) for the live console image-pin bump.
 const INFRA_DIR = process.env.INFRA_DIR || '/home/runner/InfraWeaver-infra';
+// Kustomize param file (base/ + overlays/prod/). The live console image pin is
+// the `newTag:` field here — NOT a raw image line in a deployment manifest.
+// Env name kept as INFRA_DEPLOYMENT for backward compat with existing units.
 const INFRA_DEPLOYMENT = process.env.INFRA_DEPLOYMENT ||
-  'kubernetes/catalog/infraweaver-console/manifests/deployment.yaml';
+  'kubernetes/catalog/infraweaver-console/overlays/prod/kustomization.yaml';
+// Records the live prod image pin + the one before it, so /rollback can re-pin the
+// previous image without a rebuild (auto-captured on every /approve bump).
+const PROD_PIN_STATE = path.join(RUNS_DIR, 'prod-pin.json');
+
+// ArgoCD Application that deploys the live console image (the pin bumped by
+// /approve). Used to verify a deploy actually rolled out, not just pushed.
+const CONSOLE_APP = process.env.CONSOLE_APP || 'catalog-infraweaver-console-manifests';
 
 // Sanitize an id for safe use in branch names / shell args / k8s names.
 function safeId(value) {
@@ -174,7 +189,7 @@ function sh(command, { cwd = WORKSPACE, timeout = 120000, run = null, env = {} }
   return new Promise((resolve) => {
     const child = spawn('bash', ['-lc', command], {
       cwd,
-      env: { ...process.env, HOME: '/home/runner', PREVIEW_HOST, IMAGE, ...env },
+      env: { ...process.env, HOME: '/home/runner', CONSOLE_HOST, IMAGE, ...env },
       timeout,
     });
     let stdout = '', stderr = '';
@@ -206,7 +221,7 @@ function runAgent(agent, task, run, workDir = WORKSPACE, opts = {}) {
       cmd = '/home/runner/.local/bin/claude';
       args = ['-p', task, '--output-format', 'text'];
       // Always bound the agent with an explicit tool allowlist (replaces the
-      // removed --dangerously-skip-permissions). Per-step list wins if provided.
+      // removed --dangerously-skip-permissions, H-3). Per-step list wins if provided.
       const tools = allowedTools.length ? allowedTools : DEFAULT_ALLOWED_TOOLS;
       args.push('--allowedTools', ...tools);
       if (appendSystemPrompt) args.push('--append-system-prompt', appendSystemPrompt);
@@ -255,9 +270,23 @@ async function runPipeline(ctx, run) {
   const steps = pipeline.steps.filter((s) => s.enabled);
   if (steps.length === 0) throw new Error('pipeline has no enabled steps');
 
+  // Gather the context that prevents the redo-loop failure mode: what prior
+  // attempts on this same feedback already tried (so we don't reinvent failed
+  // theories) and live cluster ground truth (so theories are checked against
+  // reality). Both are best-effort and never block the fix. Surfaced in the run
+  // log so an operator watching the console can see what the agent was told.
+  const priorAttempts = fixContext.priorAttemptsDigest(RUNS_DIR, feedbackId || '');
+  const clusterFacts = fixContext.clusterFacts({ pagePath, description, type });
+  if (priorAttempts) run.append(`\n--- PRIOR ATTEMPTS (fed to agent) ---\n${priorAttempts}\n`);
+  if (clusterFacts) run.append(`\n--- LIVE CLUSTER FACTS (fed to agent) ---\n${clusterFacts}\n`);
+  const contextPreamble = [
+    priorAttempts && `## What earlier attempts already tried\n${priorAttempts}`,
+    clusterFacts && `## Live cluster facts\n${clusterFacts}`,
+  ].filter(Boolean).join('\n\n');
+
   let previousOutput = '';
   const transcripts = [];
-  for (const step of steps) {
+  for (const [stepIndex, step] of steps.entries()) {
     run.setPhase(`step:${step.name}`);
     const vars = {
       description: description || '(none)',
@@ -267,8 +296,17 @@ async function runPipeline(ctx, run) {
       note: noteText,
       previousOutput,
       allOutput: transcripts.join('\n\n'),
+      priorAttempts,
+      clusterFacts,
     };
-    const prompt = pipelineStore.composeStepPrompt(step.promptTemplate, vars);
+    let prompt = pipelineStore.composeStepPrompt(step.promptTemplate, vars);
+    // Prepend the context once, to the first step. It threads forward to later
+    // steps via {{previousOutput}}, and prepending guarantees the agent sees it
+    // even if a step's template predates the {{priorAttempts}}/{{clusterFacts}}
+    // placeholders.
+    if (stepIndex === 0 && contextPreamble) {
+      prompt = `${contextPreamble}\n\n---\n\n${prompt}`;
+    }
     const mcpConfigPath = writeStepMcpConfig(step.mcpServers);
     try {
       const result = await runAgent(step.agent, prompt, run, WORKSPACE, {
@@ -321,6 +359,69 @@ async function buildImage(tag, run) {
     '--output', `type=image,name=${IMAGE}:${tag},push=true,oci-mediatypes=true`,
   ].join(' ');
   return sh(cmd, { cwd: CONSOLE_DIR, timeout: 900000, run });
+}
+
+// ── Live prod image pin (the approve→live mechanism) ─────────────────────────
+// /approve ships straight to the live console by bumping the image pin in the
+// ArgoCD infra repo, which ArgoCD then syncs. We auto-capture the pin that was
+// live *before* each bump so /rollback can re-point it with no rebuild.
+function readPinState() {
+  try { return JSON.parse(fs.readFileSync(PROD_PIN_STATE, 'utf8')); }
+  catch { return { current: null, previous: null, updatedAt: null }; }
+}
+function writePinState(state) {
+  fs.writeFileSync(PROD_PIN_STATE, JSON.stringify(state, null, 2));
+}
+
+// Bump the live console image pin to `image` and push to the infra repo. Captures
+// the prior pin (read from origin/main inside the same checkout) into prod-pin.json
+// as `previous` so a rollback can re-pin it. Resolves the sh() result.
+async function bumpProdPin(image, tag, run) {
+  const bump = await sh(`
+    set -e
+    cd ${INFRA_DIR}
+    git fetch origin --prune || true
+    git checkout -B main origin/main || git checkout main
+    PREV=$(grep -oE '^[[:space:]]*newTag:[[:space:]]*\\S+' ${INFRA_DEPLOYMENT} | head -1 | awk '{print $2}')
+    echo "PREV_PIN=${REGISTRY}/infraweaver-console:$PREV"
+    sed -i -E 's#^([[:space:]]*newTag:[[:space:]]*).*#\\1${tag}#' ${INFRA_DEPLOYMENT}
+    git add ${INFRA_DEPLOYMENT}
+    git commit -m "deploy(feedback): console ${tag}" || echo "no pin change"
+    git push origin main
+  `, { run, cwd: INFRA_DIR });
+  if (bump.code === 0) {
+    const m = bump.stdout.match(/PREV_PIN=(\S+)/);
+    const prev = m && m[1] && /infraweaver-console:.+/.test(m[1]) ? m[1] : readPinState().current;
+    writePinState({ current: image, previous: prev || null, updatedAt: new Date().toISOString() });
+  }
+  return bump;
+}
+
+// Verify a deploy actually reached the live console, instead of trusting that a
+// pushed image == a shipped fix (the failure mode behind the 8-redo loop: the
+// agent self-reported success while the change was inert). Polls the console
+// ArgoCD app until it is Synced+Healthy AND the running pods report the new tag,
+// or times out. Returns a structured deployState used both as an honest run
+// status and as the data the dashboard renders (building→syncing→live).
+async function verifyDeploy(tag, run, { timeoutMs = 600000, intervalMs = 8000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last = { phase: 'syncing', sync: '', health: '', imageLive: false };
+  if (run) run.setPhase('verifying');
+  while (Date.now() < deadline) {
+    const syncP = sh(`kubectl get application -n argocd ${CONSOLE_APP} -o jsonpath='{.status.sync.status}|{.status.health.status}'`, { timeout: 10000 });
+    const rolloutP = sh(`kubectl get deploy infraweaver-console -n infraweaver-console -o jsonpath='{.spec.template.spec.containers[0].image}|{.status.updatedReplicas}|{.status.replicas}|{.status.availableReplicas}'`, { timeout: 10000 });
+    const [syncStatus = '', health = ''] = (await syncP).stdout.trim().split('|');
+    const [image = '', updated = '0', desired = '0', available = '0'] = (await rolloutP).stdout.trim().split('|');
+    const rolledOut = updated === desired && available === desired && desired !== '0';
+    const imageLive = image.includes(tag) && rolledOut;
+    last = { sync: syncStatus, health, imageLive };
+    if (run) run.append(`verify: app ${syncStatus}/${health} imageLive=${imageLive} (tag ${tag})\n`);
+    if (syncStatus === 'Synced' && health === 'Healthy' && imageLive) {
+      return { phase: 'live', ...last };
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return { phase: 'deployed-unverified', ...last };
 }
 
 // Shell snippet that forcibly returns the shared workspace to a pristine state.
@@ -379,8 +480,8 @@ function parseBody(req) {
     req.on('end', () => { try { resolve(body ? JSON.parse(body) : {}); } catch (e) { reject(e); } });
   });
 }
-// Read the raw request body as a string (no parsing). Used for mutation routes
-// so the HMAC is verified against the EXACT received bytes before JSON.parse.
+// Read the raw request body as a string (no parsing) so the HMAC is verified
+// against the EXACT received bytes before JSON.parse.
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -389,10 +490,9 @@ function readRawBody(req) {
     req.on('error', reject);
   });
 }
-
-// Read+verify+parse a mutation request body in one step. Returns
-// { ok:true, body } when authorized (or when HMAC is disabled), or
-// { ok:false, status, error } to send back. Fail-open only when no secret.
+// Read+verify+parse a mutation request body in one step. Returns { ok:true, body }
+// when authorized (or when HMAC is disabled), or { ok:false, status, error } to
+// send back. Fail-open only when no secret is configured.
 async function authedBody(req) {
   const raw = await readRawBody(req);
   if (DISPATCH_SECRET) {
@@ -459,14 +559,22 @@ async function doApprove({ feedbackId, description, pagePath, type, note }) {
     if (build.code !== 0) throw new Error('image build failed');
 
     run.setPhase('deploying');
-    // Always the fixed `staging` id → one shared dev env that accumulates every
-    // approved fix, repointed to the freshly built cumulative image each time.
-    const deploy = await sh(`PREVIEW_IMAGE=${IMAGE}:${tag} bash ${PREVIEW_SCRIPT} up staging`, { run, timeout: 300000 });
-    if (deploy.code !== 0) throw new Error('staging deploy failed');
+    // Ship straight to the LIVE console: bump the prod image pin in the ArgoCD
+    // infra repo at the freshly built cumulative tip. ArgoCD auto-syncs, so
+    // infraweaver.int rolls to this image. The prior pin is captured for /rollback.
+    const prodImage = `${IMAGE}:${tag}`;
+    const deploy = await bumpProdPin(prodImage, tag, run);
+    if (deploy.code !== 0) throw new Error('live console pin bump failed');
 
-    const previewUrl = `https://${PREVIEW_HOST}`;
-    run.finish('success', { previewUrl, tag, commit: sha, changeClass });
-    return { ok: true, previewUrl, testPath: pagePath || '/', tag, commit: sha, runId: run.rec.runId, changeClass };
+    // Confirm the deploy actually rolled out (Synced+Healthy on the new tag) so
+    // the dashboard shows real state and we don't claim "fixed" on a push alone.
+    const deployState = await verifyDeploy(tag, run);
+
+    // `liveUrl` is the canonical field; `previewUrl` is kept (pointing at the same
+    // live console) for back-compat with the dashboard's existing deploy link.
+    const liveUrl = `https://${CONSOLE_HOST}`;
+    run.finish('success', { liveUrl, previewUrl: liveUrl, tag, commit: sha, changeClass, deployState });
+    return { ok: true, liveUrl, previewUrl: liveUrl, testPath: pagePath || '/', tag, commit: sha, runId: run.rec.runId, changeClass, deployState };
   } catch (err) {
     run.finish('failed', { error: String(err && err.message || err) });
     return { ok: false, error: String(err && err.message || err), runId: run.rec.runId };
@@ -525,7 +633,11 @@ async function doValidate({ feedbackId, action, note, description, pagePath, typ
   });
 }
 
-// /publish: merge staging → main, build+push release, bump infra image pin.
+// /publish: make the already-live fixes permanent. Since /approve has already
+// shipped every accepted fix to the live console (prod pin bump), publish is now
+// just "merge feedback/staging → main + tag the release" — NO rebuild and NO pin
+// bump (the live image is already the merged code), then retire the staging branch
+// so the next cycle starts fresh from main.
 async function doPublish() {
   const run = newRun('publish', 'publish');
   try {
@@ -549,39 +661,56 @@ async function doPublish() {
     const sha = (merge.stdout.trim().split('\n').pop() || 'release').slice(0, 12);
     if (merge.code !== 0) throw new Error('merge to main failed (staging↔main conflict — resolve and retry)');
 
-    run.setPhase('building');
-    const relTag = sha;
-    const b1 = await buildImage(relTag, run);
-    if (b1.code !== 0) throw new Error('release build failed');
-    // Also tag main-latest by re-pushing the same context (cheap; cache hits).
-    await buildImage('main-latest', run);
-
-    run.setPhase('releasing');
-    const prodImage = `${IMAGE}:${relTag}`;
-    const bump = await sh(`
-      set -e
-      cd ${INFRA_DIR}
-      git fetch origin --prune || true
-      git checkout -B main origin/main || git checkout main
-      sed -i -E 's#(image:\\s*).*infraweaver-console:.*#\\1${prodImage}#' ${INFRA_DEPLOYMENT}
-      git add ${INFRA_DEPLOYMENT}
-      git commit -m "release: console ${relTag}" || echo "no pin change"
-      git push origin main
-    `, { run, cwd: INFRA_DIR });
-
-    run.setPhase('teardown');
+    run.setPhase('tagging');
+    // Tag the release for history, then retire feedback/staging (checkoutStaging
+    // recreates it from main on the next approve). Tag/branch ops are best-effort:
+    // main is already pushed, so the publish has succeeded even if tagging hiccups.
+    const relTag = `release-${sha}`;
     await sh(`
-      bash ${PREVIEW_SCRIPT} down staging || true
-      git checkout main || true
-      git push ${GIT_REMOTE} :${FEEDBACK_BRANCH} || true
+      git tag -a ${relTag} -m "release ${sha}" 2>/dev/null || true
+      git push ${GIT_REMOTE} ${relTag} 2>/dev/null || true
+      git push ${GIT_REMOTE} :${FEEDBACK_BRANCH} 2>/dev/null || true
     `, { run });
 
-    run.finish(bump.code === 0 ? 'success' : 'failed', { tag: relTag });
-    return { ok: bump.code === 0, releaseTag: relTag, prodImage };
+    run.finish('success', { tag: relTag, commit: sha });
+    return { ok: true, releaseTag: relTag, commit: sha, runId: run.rec.runId };
   } catch (err) {
     run.finish('failed', { error: String(err && err.message || err) });
     return { ok: false, error: String(err && err.message || err), runId: run.rec.runId };
   }
+}
+
+// /rollback: re-pin the live console to the image that was live before the most
+// recent /approve bump. No rebuild — just re-point the pin from prod-pin.json and
+// push. The pins are then swapped so a second rollback toggles back.
+async function doRollback() {
+  return withLock(async () => {
+    const run = newRun('rollback', 'rollback');
+    try {
+      const state = readPinState();
+      if (!state.previous) throw new Error('no previous prod image recorded to roll back to');
+      run.setPhase('rolling-back');
+      const bump = await sh(`
+        set -e
+        cd ${INFRA_DIR}
+        git fetch origin --prune || true
+        git checkout -B main origin/main || git checkout main
+        sed -i -E 's#^([[:space:]]*newTag:[[:space:]]*).*#\\1${state.previous.split(':').pop()}#' ${INFRA_DEPLOYMENT}
+        git add ${INFRA_DEPLOYMENT}
+        git commit -m "rollback: console -> ${state.previous.split(':').pop()}" || echo "no pin change"
+        git push origin main
+      `, { run, cwd: INFRA_DIR });
+      if (bump.code !== 0) throw new Error('rollback pin bump failed');
+      // Swap: the rolled-to image is now live; the one we left becomes the redo target.
+      writePinState({ current: state.previous, previous: state.current, updatedAt: new Date().toISOString() });
+      const liveUrl = `https://${CONSOLE_HOST}`;
+      run.finish('success', { liveUrl, previewUrl: liveUrl, tag: state.previous });
+      return { ok: true, rolledBackTo: state.previous, from: state.current, liveUrl, runId: run.rec.runId };
+    } catch (err) {
+      run.finish('failed', { error: String(err && err.message || err) });
+      return { ok: false, error: String(err && err.message || err), runId: run.rec.runId };
+    }
+  });
 }
 
 // ── HTTP server ─────────────────────────────────────────────────────────────
@@ -595,13 +724,7 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/config') {
       if (req.method === 'GET') return json(200, loadConfig());
-      if (req.method === 'PUT') {
-        const auth = await authedBody(req);
-        if (!auth.ok) return json(auth.status, { error: auth.error });
-        const b = auth.body; const cfg = loadConfig();
-        if (b.agents) cfg.agents = b.agents; if (b.defaultAgent) cfg.defaultAgent = b.defaultAgent;
-        saveConfig(cfg); return json(200, { ok: true, config: cfg });
-      }
+      if (req.method === 'PUT') { const auth = await authedBody(req); if (!auth.ok) return json(auth.status, { error: auth.error }); const b = auth.body; const cfg = loadConfig(); if (b.agents) cfg.agents = b.agents; if (b.defaultAgent) cfg.defaultAgent = b.defaultAgent; saveConfig(cfg); return json(200, { ok: true, config: cfg }); }
     }
 
     // ── Agent Studio: editable pipeline, specialist library, and UI catalogs ──
@@ -623,9 +746,9 @@ const server = http.createServer(async (req, res) => {
       return json(200, specialists.loadSpecialists());
     }
     if (req.method === 'POST' && url.pathname === '/specialists/refresh') {
-      // Mutating + drives outbound GitHub fetches whose URL embeds `repo`, and
-      // the result replaces the specialist prompt library used in agent runs.
-      // Gate it like the other mutation routes and validate the repo shape.
+      // Mutating + drives outbound GitHub fetches whose URL embeds `repo`, and the
+      // result replaces the specialist prompt library used in agent runs. Gate it
+      // like the other mutation routes and validate the repo shape.
       const auth = await authedBody(req);
       if (!auth.ok) return json(auth.status, { error: auth.error });
       const repo = auth.body.repo;
@@ -687,11 +810,20 @@ const server = http.createServer(async (req, res) => {
       return json(200, await doValidate(b));
     }
     if (req.method === 'POST' && url.pathname === '/publish') {
-      // Empty-bodied route: the console sends JSON.stringify({}) = "{}" so the
+      // Empty-bodied route: the console sends JSON.stringify({}) = "{}", so the
       // signed/verified rawBody is "{}". authedBody reads+verifies that.
       const auth = await authedBody(req);
       if (!auth.ok) return json(auth.status, { error: auth.error });
       return json(200, await withLock(() => doPublish()));
+    }
+    if (req.method === 'POST' && url.pathname === '/rollback') {
+      // Mutation: re-pins the LIVE console image. Gate it like the other writes.
+      const auth = await authedBody(req);
+      if (!auth.ok) return json(auth.status, { error: auth.error });
+      return json(200, await doRollback());
+    }
+    if (req.method === 'GET' && url.pathname === '/prod-pin') {
+      return json(200, readPinState());
     }
 
     return json(404, { error: 'Not found' });
@@ -700,8 +832,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// Only start the server when run directly (`node server.js`); requiring the
-// module for tests must NOT bind a port.
+// Start the server only when run directly (so unit tests can require this file
+// to exercise signHmac/verifyHmac without binding a port).
 if (require.main === module) {
   if (DISPATCH_SECRET === '') {
     console.warn('[SECURITY] DISPATCH_SECRET not set — HMAC auth DISABLED, IP allowlist only');

@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { loadKubeConfig } from "@/lib/k8s";
+import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 import { PassThrough } from "stream";
@@ -50,6 +51,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   if (!session) return new Response("Unauthorized", { status: 401 });
 
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return new Response(nameErr.error.error, { status: nameErr.status });
   const access = await getGameHubAccessContext(session, 60);
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
     return new Response("Forbidden", { status: 403 });

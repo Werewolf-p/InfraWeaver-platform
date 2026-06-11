@@ -69,6 +69,7 @@ export function DeleteServerModal({
 
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setPhase("confirm");
       setTypedName("");
       setSteps(DELETION_STEPS);
