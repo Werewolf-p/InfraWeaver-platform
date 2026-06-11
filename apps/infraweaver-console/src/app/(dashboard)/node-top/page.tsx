@@ -102,10 +102,10 @@ export default function NodeTopPage() {
     else { setSortKey(key); setSortDir("desc"); }
   }
 
-  function SortIcon({ k }: { k: SortKey }) {
+  const renderSortIcon = (k: SortKey) => {
     if (sortKey !== k) return <ArrowUpDown className="w-3 h-3 ml-1 text-slate-600" />;
     return sortDir === "asc" ? <ArrowUp className="w-3 h-3 ml-1 text-indigo-400" /> : <ArrowDown className="w-3 h-3 ml-1 text-indigo-400" />;
-  }
+  };
 
   const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : "—";
 
@@ -158,13 +158,13 @@ export default function NodeTopPage() {
       ) : (
         <div className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl overflow-hidden">
           <div className="grid grid-cols-[2fr_3fr_2fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2.5 border-b border-gray-200 dark:border-white/10 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors text-left" onClick={() => toggleSort("namespace")}>Namespace <SortIcon k="namespace" /></button>
-            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors text-left" onClick={() => toggleSort("pod")}>Pod <SortIcon k="pod" /></button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors text-left" onClick={() => toggleSort("namespace")}>Namespace {renderSortIcon("namespace")}</button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors text-left" onClick={() => toggleSort("pod")}>Pod {renderSortIcon("pod")}</button>
             <span>Container</span>
-            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("cpu_m")}>CPU (m) <SortIcon k="cpu_m" /></button>
-            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("cpuPct")}>CPU% <SortIcon k="cpuPct" /></button>
-            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("memory_mi")}>Mem (Mi) <SortIcon k="memory_mi" /></button>
-            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("memPct")}>Mem% <SortIcon k="memPct" /></button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("cpu_m")}>CPU (m) {renderSortIcon("cpu_m")}</button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("cpuPct")}>CPU% {renderSortIcon("cpuPct")}</button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("memory_mi")}>Mem (Mi) {renderSortIcon("memory_mi")}</button>
+            <button className="flex items-center hover:text-gray-900 dark:hover:text-white transition-colors justify-end" onClick={() => toggleSort("memPct")}>Mem% {renderSortIcon("memPct")}</button>
           </div>
           <div className="max-h-[60vh] overflow-y-auto">
             {sorted.map((row, i) => (
