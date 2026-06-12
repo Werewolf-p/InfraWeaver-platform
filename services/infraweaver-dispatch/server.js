@@ -612,7 +612,7 @@ async function doValidate({ feedbackId, action, note, description, pagePath, typ
     else
       git checkout -B ${FEEDBACK_BRANCH} ${GIT_REMOTE}/main
     fi
-    SHA=$(git log --grep="fix(feedback): ${id}" -n1 --format=%H || true)
+    SHA=$(git log --grep="fix(feedback): $FEEDBACK_ID" -n1 --format=%H || true)
     if [ -n "$SHA" ]; then
       if git revert --no-edit "$SHA"; then
         git push ${GIT_REMOTE} ${FEEDBACK_BRANCH}
@@ -622,9 +622,9 @@ async function doValidate({ feedbackId, action, note, description, pagePath, typ
         echo "revert of $SHA conflicted — skipped; redo will supersede"
       fi
     else
-      echo "no prior commit for ${id}"
+      echo "no prior commit for $FEEDBACK_ID"
     fi
-  `, { run });
+  `, { run, env: { FEEDBACK_ID: id } });
   run.finish(revert.code === 0 ? 'success' : 'failed', {});
   // Re-dispatch with the reviewer note (fresh run). Called directly (not via the
   // /approve route) so it does not re-enter the lock we already hold.

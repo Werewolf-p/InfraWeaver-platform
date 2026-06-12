@@ -1349,51 +1349,6 @@ def _self_update() -> Dict:
         return {"ok": False, "error": str(exc)}
 
 
-
-    env = _parse_env_file(ENV_FILE)
-    vm_id = _detect_init_vm_id()
-
-    try:
-        for candidate in Path("/tmp").glob("iw-*"):
-            if candidate.is_dir():
-                shutil.rmtree(candidate, ignore_errors=True)
-            else:
-                try:
-                    candidate.unlink()
-                except FileNotFoundError:
-                    pass
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to remove temporary files: {e}"}
-
-    if vm_id is not None:
-        host = env.get("PROXMOX_HOST", "").strip()
-        token = env.get("PROXMOX_API_TOKEN", "").strip()
-        if not host or not token:
-            return {"ok": False, "error": "Detected the init VM but PROXMOX_HOST or PROXMOX_API_TOKEN is missing from .env"}
-
-        node_name = env.get("PROXMOX_NODE_NAME", "").strip() or _find_proxmox_vm_node(host, token, vm_id)
-        if not node_name:
-            return {"ok": False, "error": f"Unable to determine the Proxmox node for VM {vm_id}"}
-
-        try:
-            try:
-                _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}/status/stop", method="POST")
-            except Exception:
-                pass
-
-            for _ in range(15):
-                status = _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}/status/current") or {}
-                if status.get("status") != "running":
-                    break
-                time.sleep(2)
-
-            _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}?purge=1", method="DELETE")
-        except Exception as e:
-            return {"ok": False, "error": f"Failed to remove init VM {vm_id}: {e}"}
-
-    return {"ok": True, "vmId": vm_id, "stopServer": stop_server}
-
-
 def _sse_json(payload: Dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
@@ -1575,12 +1530,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             super().log_message(fmt, *args)
 
+    def _cors_origin(self):
+        """Return a safe Access-Control-Allow-Origin value, or None.
+
+        The init server serves its own UI from the same origin, so cross-origin
+        access is only ever expected from a local browser. Reflecting an
+        arbitrary Origin (or using "*") on these credential-serving endpoints
+        would let any web page the operator visits read SSH keys / cloud tokens.
+        Restrict to loopback origins only.
+        """
+        origin = self.headers.get("Origin")
+        if not origin:
+            return None
+        try:
+            host = urllib.parse.urlparse(origin).hostname
+        except ValueError:
+            return None
+        return origin if host in ("localhost", "127.0.0.1", "::1") else None
+
+    def _set_cors(self):
+        origin = self._cors_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+
     def _send_json(self, data: dict, status: int = 200):
         body = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._set_cors()
         self.end_headers()
         self.wfile.write(body)
 
@@ -1605,7 +1584,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._set_cors()
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
@@ -1763,7 +1742,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self._set_cors()
             self.end_headers()
 
             try:
@@ -1936,7 +1915,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self._set_cors()
             self.end_headers()
 
             try:

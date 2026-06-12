@@ -17,10 +17,10 @@ fi
 SCRIPT_NAME="${SCRIPT_NAME:-$(basename "${BASH_SOURCE[-1]}" .sh)}"
 
 log()  { echo -e "${_GREEN}[${SCRIPT_NAME}]${_NC} $*"; }
-info() { echo -e "${_GREEN}[${SCRIPT_NAME}]${_NC} $*"; }
+info() { log "$@"; }   # alias kept for existing call sites
 warn() { echo -e "${_YELLOW}[${SCRIPT_NAME}] ⚠${_NC} $*" >&2; }
 die()  { echo -e "${_RED}[${SCRIPT_NAME}] ✗${_NC} $*" >&2; exit 1; }
-fail() { echo -e "${_RED}[${SCRIPT_NAME}] ✗${_NC} $*" >&2; exit 1; }
+fail() { die "$@"; }   # alias kept for existing call sites
 ok()   { echo -e "${_GREEN}[${SCRIPT_NAME}] ✅${_NC} $*"; }
 
 # Check required commands are available
