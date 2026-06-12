@@ -6,8 +6,8 @@ on:
     paths:
       - 'services/infraweaver-dispatch/**'
   pull_request:
-    paths:
-      - 'services/infraweaver-dispatch/**'
+    branches:
+      - feedback/staging
 
 jobs:
   test:
