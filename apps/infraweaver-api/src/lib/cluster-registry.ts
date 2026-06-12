@@ -1,4 +1,5 @@
 import * as k8s from '@kubernetes/client-node';
+import { clearKcCache } from './k8s-client.js';
 import type { ClusterMeta } from '../types/index.js';
 
 const REGISTRY_NAMESPACE = 'infraweaver-system';
@@ -303,6 +304,9 @@ export async function addCluster(meta: ClusterMeta, kubeconfig: string): Promise
       token: encodeSecretValue(meta.argocdToken),
     });
   }
+
+  // Drop any stale cached KubeConfig (e.g. from a prior cluster of the same id).
+  clearKcCache(meta.id);
 }
 
 export async function removeCluster(id: string): Promise<void> {
@@ -310,6 +314,7 @@ export async function removeCluster(id: string): Promise<void> {
   await writeStoredClusters(clusters.filter((cluster) => cluster.id !== id));
   await deleteSecret(`${CREDS_SECRET_PREFIX}${id}`);
   await deleteSecret(`${ARGOCD_SECRET_PREFIX}${id}`);
+  clearKcCache(id);
 }
 
 export async function updateClusterStatus(id: string, status: ClusterMeta['status']): Promise<void> {

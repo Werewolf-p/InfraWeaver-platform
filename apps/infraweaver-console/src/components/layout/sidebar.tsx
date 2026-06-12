@@ -301,7 +301,7 @@ export function Sidebar() {
                       transition={springs.micro}
                       className="relative"
                     >
-                      <Link href={item.href} title={item.label}
+                      <Link href={item.href} title={item.label} aria-label={item.label}
                         className={cn("w-8 h-8 mx-auto flex items-center justify-center rounded-lg transition-colors relative",
                           isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
                         )}>
@@ -326,6 +326,8 @@ export function Sidebar() {
             <div key={group.id} className="mb-0.5">
               <button
                 onClick={() => toggleSection(group.id)}
+                aria-expanded={isOpen}
+                aria-controls={`nav-section-${group.id}`}
                 className="w-full flex items-center gap-1.5 px-3 py-1 mt-1.5 mb-0.5 text-[10px] text-gray-400 dark:text-[#666] uppercase tracking-widest hover:text-gray-700 dark:hover:text-[#9e9e9e] transition-colors select-none"
               >
                 <span className="flex-1 text-left">{group.label}</span>
@@ -335,6 +337,7 @@ export function Sidebar() {
                 {isOpen && (
                   <motion.div
                     key={group.id}
+                    id={`nav-section-${group.id}`}
                     className="space-y-0.5"
                     variants={staggerContainer}
                     initial="hidden"

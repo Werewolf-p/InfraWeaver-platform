@@ -73,10 +73,15 @@ export function ClusterProvider({ children }: { children: React.ReactNode }) {
     fetch("/api/clusters/active")
       .then(r => r.ok ? r.json() : null)
       .then((data: { clusterId: string } | null) => {
-        if (data?.clusterId && data.clusterId !== activeId) {
-          setActiveIdState(data.clusterId);
+        if (!data?.clusterId) return;
+        // Compare against the *current* active id (functional updater) rather
+        // than a value captured at mount, so a cluster change that lands before
+        // this fetch resolves isn't silently overwritten or ignored.
+        setActiveIdState(prev => {
+          if (data.clusterId === prev) return prev;
           try { localStorage.setItem(STORAGE_KEY, data.clusterId); } catch { /* ignore */ }
-        }
+          return data.clusterId as ActiveClusterId;
+        });
       })
       .catch(() => { /* ignore */ });
   // Only run once on mount

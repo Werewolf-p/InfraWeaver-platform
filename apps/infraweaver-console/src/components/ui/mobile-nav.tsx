@@ -29,6 +29,8 @@ export function MobileNav() {
             key={item.href}
             whileTap={{ scale: 0.88 }}
             onClick={() => router.push(item.href)}
+            aria-current={isActive ? "page" : undefined}
+            aria-label={item.label}
             className="relative flex flex-col items-center justify-center gap-0.5 min-w-[56px] min-h-[48px] px-3 py-2 rounded-xl transition-colors"
           >
             {isActive && (

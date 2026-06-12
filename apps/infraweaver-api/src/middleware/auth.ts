@@ -38,7 +38,10 @@ export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
     return c.json({ error: 'Server misconfiguration' }, 500);
   }
 
-  const message = `${ts}:${userId}:${rolesHeader}`;
+  // Bind the target cluster into the signed message so a client cannot swap
+  // x-cluster-id on a valid request to target a cluster it lacks access to.
+  const clusterId = c.req.header('x-cluster-id') ?? 'local';
+  const message = `${ts}:${userId}:${rolesHeader}:${clusterId}`;
   let validSecret: string | null = null;
   let keyUsed: 'current' | 'previous' = 'current';
 
@@ -59,7 +62,7 @@ export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
   }
 
   const roles = rolesHeader ? rolesHeader.split(',').filter(Boolean) : [];
-  const user = { id: userId, roles, clusterId: c.req.header('x-cluster-id') ?? 'local' };
+  const user = { id: userId, roles, clusterId };
   c.set('user', user);
 
   // Independently honor active PIM elevations + custom-group permissions read

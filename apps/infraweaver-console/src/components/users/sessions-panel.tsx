@@ -23,6 +23,7 @@ export function SessionsPanel({ username, open, onClose }: Props) {
   const canManageSessions = canAny(["users:write", "users:invite", "rbac:admin"]);
   const [sessions, setSessions] = useState<TokenSession[]>([]);
   const [loading, setLoading] = useState(false);
+  const [revoking, setRevoking] = useState(false);
 
   async function fetchSessions() {
     setLoading(true);
@@ -62,8 +63,14 @@ export function SessionsPanel({ username, open, onClose }: Props) {
       toast.error("You do not have permission to manage user sessions");
       return;
     }
-    for (const s of sessions) {
-      await revokeSession(s.identifier);
+    if (revoking) return; // guard against double-clicks firing duplicate DELETEs
+    setRevoking(true);
+    try {
+      for (const s of sessions) {
+        await revokeSession(s.identifier);
+      }
+    } finally {
+      setRevoking(false);
     }
   }
 
@@ -82,7 +89,7 @@ export function SessionsPanel({ username, open, onClose }: Props) {
             {sessions.length > 0 && (
               <button
                 onClick={revokeAll}
-                disabled={!canManageSessions}
+                disabled={!canManageSessions || revoking}
                 className="px-2.5 py-1.5 rounded-lg text-xs text-red-400 border border-red-500/20 bg-red-500/10 hover:bg-red-500/20 transition-colors disabled:opacity-50"
               >
                 Revoke All
