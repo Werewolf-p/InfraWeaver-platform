@@ -559,7 +559,11 @@ export default function ClusterPage() {
     pending: Array<{ agentId: string; clusterName: string; clusterCaFingerprint: string; receivedAt: string }>;
   }>({
     queryKey: ["agents"],
-    queryFn: () => fetch("/api/agents").then(r => r.json()),
+    queryFn: async () => {
+      const r = await fetch("/api/agents");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
     refetchInterval: 8_000,
   });
 

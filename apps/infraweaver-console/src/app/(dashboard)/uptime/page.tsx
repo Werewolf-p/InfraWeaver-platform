@@ -214,7 +214,7 @@ export default function UptimePage() {
                 <div className="flex-1 flex items-center gap-0.5 overflow-hidden">
                   {ep.results.length > 0 ? (
                     ep.results.slice(-60).map((r, i) => (
-                      <CheckDot key={i} result={r} />
+                      <CheckDot key={r.timestamp ?? i} result={r} />
                     ))
                   ) : (
                     [...Array(30)].map((_, i) => (
