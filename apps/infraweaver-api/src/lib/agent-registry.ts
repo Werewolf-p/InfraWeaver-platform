@@ -79,6 +79,16 @@ export function createPendingRegistration(clusterId: string, clusterName: string
   return token;
 }
 
+export function getPendingRegistration(token: string): PendingRegistration | null {
+  const entry = _pending.get(token);
+  if (!entry) return null;
+  if (entry.expiresAt.getTime() < Date.now()) {
+    _pending.delete(token);
+    return null;
+  }
+  return entry;
+}
+
 export function getConnectedAgents(): AgentConnection[] {
   return Array.from(_agents.values());
 }

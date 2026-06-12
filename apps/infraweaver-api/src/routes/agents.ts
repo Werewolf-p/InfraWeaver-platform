@@ -7,6 +7,7 @@ import {
   getConnectedAgents,
   getHubPublicKeyBase64,
   getPendingDiscoveries,
+  getPendingRegistration,
   rejectDiscovery,
 } from '../lib/agent-registry.js';
 import { hasPermission } from '../lib/rbac.js';
@@ -123,6 +124,12 @@ agentsRoute.post(
 
 agentsRoute.get('/install/:token', async (c) => {
   const token = c.req.param('token');
+  // This endpoint is intentionally unauthenticated (a node fetches its manifest
+  // before it has credentials), so reject anything that is not a live, unexpired
+  // registration token rather than minting a manifest for arbitrary input.
+  if (!/^[a-f0-9]{64}$/.test(token) || !getPendingRegistration(token)) {
+    return c.json({ error: 'Invalid or expired install token' }, 404);
+  }
   const manifest = generateInstallManifest(token);
 
   return new Response(manifest, {
