@@ -27,6 +27,14 @@ export async function getKcForCluster(clusterId: string): Promise<k8s.KubeConfig
   return kc;
 }
 
+// Evict cached KubeConfig(s) so the next call reloads fresh credentials. Must be
+// called whenever a cluster's kubeconfig changes (add/remove/re-add), otherwise
+// a stale KubeConfig with revoked or rotated tokens is reused indefinitely.
+export function clearKcCache(clusterId?: string): void {
+  if (clusterId) _clients.delete(clusterId);
+  else _clients.clear();
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function makeApiClient<T>(clusterId: string, ApiClass: new (...args: any[]) => T): Promise<T> {
   const kc = await getKcForCluster(clusterId);
