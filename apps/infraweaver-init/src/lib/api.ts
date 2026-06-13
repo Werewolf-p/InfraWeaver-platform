@@ -143,6 +143,13 @@ export interface CleanupInitResponse {
 
 export interface SelfUpdateResponse {
   ok: boolean
+  updated?: boolean
+  sha?: string
+  oldSha?: string
+  newSha?: string
+  message?: string
+  changelog?: string[]
+  initRebuilt?: boolean
   output?: string
   error?: string
 }

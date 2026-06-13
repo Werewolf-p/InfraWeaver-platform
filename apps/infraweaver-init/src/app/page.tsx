@@ -195,6 +195,7 @@ export default function HomePage() {
   const [expertOpen, setExpertOpen] = useState(false)
   const [updateState, setUpdateState] = useState<'idle' | 'pulling' | 'restarting' | 'error'>('idle')
   const [updateError, setUpdateError] = useState('')
+  const [updateNotice, setUpdateNotice] = useState('')
   const reconnectingDeploymentIdRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -289,11 +290,20 @@ export default function HomePage() {
   const handleSelfUpdate = async () => {
     setUpdateState('pulling')
     setUpdateError('')
+    setUpdateNotice('')
     try {
       const result = await selfUpdate()
       if (!result.ok) {
         setUpdateError(result.error ?? 'Update failed')
         setUpdateState('error')
+        return
+      }
+      // Nothing was pulled — the server does NOT restart in this case, so don't
+      // poll/reload. Surface a clear "already up to date" notice instead of silently
+      // reloading to an identical page (which looked like the button did nothing).
+      if (!result.updated) {
+        setUpdateNotice(result.message ?? 'Already up to date — nothing to pull.')
+        setUpdateState('idle')
         return
       }
       // Server re-execs after self-update and regenerates its bearer token, so
@@ -422,6 +432,8 @@ export default function HomePage() {
           <div className="flex items-center gap-2">
             {updateState === 'error' ? (
               <span className="hidden max-w-[180px] truncate text-xs text-red-400 md:block" title={updateError}>{updateError}</span>
+            ) : updateNotice ? (
+              <span className="hidden max-w-[220px] truncate text-xs text-emerald-400 md:block" title={updateNotice}>{updateNotice}</span>
             ) : null}
             <ActionButton
               variant="secondary"

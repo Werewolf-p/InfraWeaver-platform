@@ -1863,7 +1863,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/self-update":
             result = _self_update()
             self._send_json(result)
-            if result.get("ok"):
+            # Only re-exec when new commits were actually pulled. Restarting on a
+            # no-op ("Already up to date") made the button appear to "do nothing":
+            # the page reloaded to an identical UI with no signal that nothing changed.
+            if result.get("ok") and result.get("updated"):
                 # Restart process so updated server.py and init site are loaded
                 threading.Timer(0.8, lambda: os.execv(sys.executable, [sys.executable] + sys.argv)).start()
             return
