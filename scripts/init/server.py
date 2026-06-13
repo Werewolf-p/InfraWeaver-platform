@@ -1578,6 +1578,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             mime_type = f"{mime_type}; charset=utf-8"
         self.send_response(200)
         self.send_header("Content-Type", mime_type)
+        if path.suffix.lower() in (".html", ".htm"):
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
