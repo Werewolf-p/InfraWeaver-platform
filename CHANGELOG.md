@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 - _Document new features here._
+- 2026-06-13: Verify init UI applied-update path (changelog + restart-to-new-build).
 
 ### Changed
 - _Document behavior or workflow updates here._
