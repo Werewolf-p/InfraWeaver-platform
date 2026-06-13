@@ -296,18 +296,25 @@ export default function HomePage() {
         setUpdateState('error')
         return
       }
-      // Server is restarting — poll /api/status until it responds, then reload
+      // Server re-execs after self-update and regenerates its bearer token, so
+      // the old page's token is now stale. Poll the UNGATED /api/health (no token
+      // required) until the server is back, then hard-reload — the reload re-serves
+      // the page with the fresh token injected. (Polling a token-gated endpoint here
+      // would 401 forever and was why the button appeared to never finish.)
       setUpdateState('restarting')
       const poll = async () => {
         await new Promise((resolve) => setTimeout(resolve, 1500))
-        for (let attempt = 0; attempt < 30; attempt++) {
+        for (let attempt = 0; attempt < 40; attempt++) {
           try {
-            await getStatus()
-            window.location.reload()
-            return
+            const res = await fetch('/api/health', { cache: 'no-store' })
+            if (res.ok) {
+              window.location.reload()
+              return
+            }
           } catch {
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            // server still down — keep polling
           }
+          await new Promise((resolve) => setTimeout(resolve, 1000))
         }
         setUpdateError('Server did not come back in time — refresh manually.')
         setUpdateState('error')
