@@ -39,6 +39,17 @@ envs/*/generated/*.conf
 !envs/*/generated/.gitkeep
 
 # ---------------------------------------------------------------------------
+# Private infra content — lives ONLY in the private InfraWeaver-infra repo.
+# deploy-local.sh syncs these into the checkout at deploy time from INFRA_DIR.
+# They must NEVER be committed/pushed to this (public) platform repo so no
+# cluster config, IPs, or secrets leak to origin. Only the empty envs/*/generated
+# scaffold (.gitkeep above) is tracked.
+# ---------------------------------------------------------------------------
+/terraform/
+/kubernetes/
+/envs/
+
+# ---------------------------------------------------------------------------
 # SOPS secrets — encrypted files ARE committed; raw plaintext never is
 # ---------------------------------------------------------------------------
 # Unencrypted secrets must never be committed. The .sops.yaml rule ensures
