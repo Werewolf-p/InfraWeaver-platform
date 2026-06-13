@@ -24,7 +24,7 @@ export interface NodeConfig {
   cpu: string
   memory: string
   disk: string
-  role: 'control-plane' | 'worker'
+  role: 'control-plane' | 'worker' | 'hybrid'
 }
 
 export interface DeployStage {
@@ -348,7 +348,7 @@ const normalizeNode = (node: Partial<NodeConfig>, index: number): NodeConfig => 
   cpu: typeof node.cpu === 'string' && node.cpu ? node.cpu : index >= 3 ? '2' : '4',
   memory: typeof node.memory === 'string' && node.memory ? node.memory : index >= 3 ? '4096' : '8192',
   disk: typeof node.disk === 'string' && node.disk ? node.disk : index >= 3 ? '80' : '100',
-  role: node.role === 'worker' ? 'worker' : 'control-plane',
+  role: node.role === 'worker' ? 'worker' : node.role === 'hybrid' ? 'hybrid' : 'control-plane',
 })
 
 const isNodeConfigArray = (value: unknown): value is NodeConfig[] =>
@@ -564,8 +564,8 @@ export const useWizardStore = create<WizardStore>()(
           if (state.nodes.length <= 1) return state
           const target = state.nodes.find((node) => node.id === id)
           if (!target) return state
-          const controlPlaneCount = state.nodes.filter((node) => node.role === 'control-plane').length
-          if (target.role === 'control-plane' && controlPlaneCount <= 1) return state
+          const controlPlaneCount = state.nodes.filter((node) => node.role === 'control-plane' || node.role === 'hybrid').length
+          if ((target.role === 'control-plane' || target.role === 'hybrid') && controlPlaneCount <= 1) return state
           const nextNodes = state.nodes.filter((node) => node.id !== id)
           const nextPing = { ...state.nodePing }
           delete nextPing[id]
@@ -689,7 +689,7 @@ export const useWizardStore = create<WizardStore>()(
                   cpu: payload[`NODE_${n}_CPU`] ?? '4',
                   memory: payload[`NODE_${n}_MEMORY`] ?? '8192',
                   disk: payload[`NODE_${n}_DISK`] ?? '100',
-                  role: payload[`NODE_${n}_ROLE`] === 'worker' ? 'worker' : n > 3 ? 'worker' : 'control-plane',
+                  role: payload[`NODE_${n}_ROLE`] === 'worker' ? 'worker' : payload[`NODE_${n}_ROLE`] === 'hybrid' ? 'hybrid' : n > 3 ? 'worker' : 'control-plane',
                 },
                 n - 1,
               ),

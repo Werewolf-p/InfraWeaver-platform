@@ -56,11 +56,16 @@ function ResourceBadge({ color, children }: { color: string; children: React.Rea
 }
 
 function RoleBadge({ role }: { role: NodeConfig['role'] }) {
+  const styles =
+    role === 'control-plane'
+      ? 'border-[rgba(0,120,212,0.35)] bg-[rgba(0,120,212,0.12)] text-[var(--az-primary)]'
+      : role === 'hybrid'
+        ? 'border-[rgba(212,117,0,0.35)] bg-[rgba(212,117,0,0.12)] text-[var(--az-warning)]'
+        : 'border-[rgba(87,163,0,0.3)] bg-[rgba(87,163,0,0.12)] text-[var(--az-success)]'
+  const label = role === 'control-plane' ? 'CP' : role === 'hybrid' ? 'Hybrid' : 'Worker'
   return (
-    <span
-      className={`rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${role === 'control-plane' ? 'border-[rgba(0,120,212,0.35)] bg-[rgba(0,120,212,0.12)] text-[var(--az-primary)]' : 'border-[rgba(87,163,0,0.3)] bg-[rgba(87,163,0,0.12)] text-[var(--az-success)]'}`}
-    >
-      {role === 'control-plane' ? 'CP' : 'Worker'}
+    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${styles}`}>
+      {label}
     </span>
   )
 }
@@ -83,6 +88,7 @@ export function ClusterStep() {
   const setProxmoxDiscovery = useWizardStore((state) => state.setProxmoxDiscovery)
 
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
+  const [autofilling, setAutofilling] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [ramUnit, setRamUnit] = useState<'MB' | 'GB'>('GB')
   // Track which PVE nodes are currently being re-scanned for datastores
@@ -162,7 +168,7 @@ export function ClusterStep() {
   const lastPingedIpRef = useRef<Record<string, string>>({})
 
   const controlPlaneCount = useMemo(
-    () => nodes.filter((node) => node.role === 'control-plane').length,
+    () => nodes.filter((node) => node.role === 'control-plane' || node.role === 'hybrid').length,
     [nodes],
   )
   const totalCpu = useMemo(
@@ -311,10 +317,26 @@ export function ClusterStep() {
     nodes.forEach((node, index) => updateNode(node.id, { vmid: String(base + index) }))
   }
 
+  // One click that chains the existing helpers: detect gateway/subnet, suggest
+  // node IPs, then suggest + ping-check MetalLB VIPs. Everything stays editable.
+  const handleAutofillNetworking = async () => {
+    setAutofilling(true)
+    try {
+      await handleDetectGateway()
+      await handleSuggestNodes()
+      await handleSuggestVips()
+    } finally {
+      setAutofilling(false)
+    }
+  }
+
   const handleRoleChange = (node: NodeConfig, nextRole: NodeConfig['role']) => {
     const firstNodeId = nodes[0]?.id
-    if (node.id === firstNodeId) return
-    if (nextRole === 'worker' && node.role === 'control-plane' && controlPlaneCount <= 1) return
+    const isCpCapable = (role: NodeConfig['role']) => role === 'control-plane' || role === 'hybrid'
+    // First node must stay control-plane-capable (control-plane or hybrid), never a plain worker.
+    if (node.id === firstNodeId && nextRole === 'worker') return
+    // Don't allow demoting the last control-plane-capable node down to worker.
+    if (nextRole === 'worker' && isCpCapable(node.role) && controlPlaneCount <= 1) return
     updateNode(node.id, { role: nextRole })
   }
 
@@ -444,6 +466,10 @@ export function ClusterStep() {
             <div className="text-sm text-[var(--az-text-secondary)]">First node stays control-plane. Additional nodes can be promoted or demoted as needed.</div>
           </div>
           <div className="flex flex-wrap gap-3">
+            <ActionButton variant="primary" onClick={() => void handleAutofillNetworking()} disabled={autofilling || !data.NODE_GATEWAY.trim()}>
+              {autofilling ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              ✨ Auto-fill networking
+            </ActionButton>
             <ActionButton variant="secondary" onClick={handleSuggestNodes} disabled={loading.suggestNodeIps}>
               {loading.suggestNodeIps ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Waypoints className="h-4 w-4" />}
               🧲 Suggest node IPs
@@ -474,7 +500,7 @@ export function ClusterStep() {
               dsbn != null
                 ? (dsbn[selectedPveNode] ?? [])
                 : (proxmoxDiscovery?.datastores ?? [])
-            const canRemove = nodes.length > 1 && !(node.role === 'control-plane' && controlPlaneCount === 1)
+            const canRemove = nodes.length > 1 && !((node.role === 'control-plane' || node.role === 'hybrid') && controlPlaneCount === 1)
 
             return (
               <motion.div key={node.id} variants={fadeUpItem} className="rounded-2xl border border-white/8 bg-black/20 p-4">
@@ -533,10 +559,11 @@ export function ClusterStep() {
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <FormField label="Role" htmlFor={`${node.id}-role`} hint="Keep at least one control-plane node. Three is recommended for HA.">
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['control-plane', 'worker'] as const).map((role) => {
+                  <FormField label="Role" htmlFor={`${node.id}-role`} hint="Hybrid = control-plane that also schedules workloads. Keep ≥1 control-plane/hybrid; 3 recommended for HA.">
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['control-plane', 'hybrid', 'worker'] as const).map((role) => {
                         const disabled = node.id === nodes[0]?.id && role === 'worker'
+                        const roleLabel = role === 'control-plane' ? 'Control' : role === 'hybrid' ? 'Hybrid' : 'Worker'
                         return (
                           <button
                             key={role}
@@ -544,9 +571,9 @@ export function ClusterStep() {
                             type="button"
                             disabled={disabled}
                             onClick={() => handleRoleChange(node, role)}
-                            className={`rounded-xl border px-4 py-3 text-sm transition ${node.role === role ? 'border-[rgba(0,120,212,0.45)] bg-[rgba(0,120,212,0.16)] text-white' : 'border-white/10 bg-white/5 text-[var(--az-text-secondary)] hover:text-white'} disabled:cursor-not-allowed disabled:opacity-50`}
+                            className={`rounded-xl border px-3 py-3 text-sm transition ${node.role === role ? 'border-[rgba(0,120,212,0.45)] bg-[rgba(0,120,212,0.16)] text-white' : 'border-white/10 bg-white/5 text-[var(--az-text-secondary)] hover:text-white'} disabled:cursor-not-allowed disabled:opacity-50`}
                           >
-                            {role === 'control-plane' ? 'Control plane' : 'Worker'}
+                            {roleLabel}
                           </button>
                         )
                       })}
