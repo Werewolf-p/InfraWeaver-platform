@@ -714,7 +714,7 @@ export const useWizardStore = create<WizardStore>()(
           }
         }),
       getEnvPayload: () => {
-        const { data, nodes, localIpRanges } = get()
+        const { data, nodes, localIpRanges, proxmoxDiscovery } = get()
         const payload: Record<string, string> = {
           ...Object.fromEntries(
             Object.entries(data).map(([key, value]) => [key, typeof value === 'boolean' ? String(value) : value]),
@@ -735,7 +735,11 @@ export const useWizardStore = create<WizardStore>()(
         })
         const pveNodes = [...new Set(nodes.map((node) => node.pveNode).filter(Boolean))]
         if (pveNodes.length) {
-          payload.PVE_NODES = pveNodes.map((pveName) => `${pveName}:${data.PROXMOX_HOST}`).join(',')
+          // Prefer each node's discovered management IP; fall back to PROXMOX_HOST.
+          const nodeIps = proxmoxDiscovery?.node_ips ?? {}
+          payload.PVE_NODES = pveNodes
+            .map((pveName) => `${pveName}:${nodeIps[pveName] || data.PROXMOX_HOST}`)
+            .join(',')
         }
         return payload
       },
