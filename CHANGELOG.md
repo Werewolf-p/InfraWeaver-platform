@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 - _Document bug fixes here._
+- Init wizard: Cluster Topology step now counts `hybrid` nodes toward the control-plane minimum, so an all-hybrid cluster (even a single hybrid node) can proceed past "Continue".
 
 ### Removed
 - _Document removals or deprecations here._

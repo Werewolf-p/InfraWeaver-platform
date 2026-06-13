@@ -66,7 +66,9 @@ const BASE_STEPS: Array<WizardStepMeta & { icon: React.ComponentType<{ className
 ]
 
 function isStepValid(step: number, data: typeof initialWizardData, nodes: ReturnType<typeof useWizardStore.getState>['nodes'], localIpRanges: string[], hasRestoreStep = false) {
-  const controlPlaneCount = nodes.filter((node) => node.role === 'control-plane').length
+  // Hybrid nodes run the control plane (and also schedule workloads), so they
+  // count toward the control-plane minimum — same as ClusterStep/store logic.
+  const controlPlaneCount = nodes.filter((node) => node.role === 'control-plane' || node.role === 'hybrid').length
 
   switch (step) {
     case 0:
