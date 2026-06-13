@@ -224,6 +224,30 @@ def _detect_local_subnets() -> list:
     return subnets
 
 
+def _detect_public_ip() -> Dict:
+    """Detect the public egress IPv4 by querying external echo services.
+
+    Tries several providers in order with a short timeout and returns the
+    first valid IPv4. Never raises — returns {"ok": False, "error": ...}
+    when no upstream service is reachable (e.g. LAN-only / air-gapped host).
+    """
+    services = (
+        "https://api.ipify.org",
+        "https://ifconfig.me/ip",
+        "https://icanhazip.com",
+    )
+    for url in services:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "curl/8"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                ip = resp.read().decode("utf-8", "replace").strip()
+            if _is_valid_ipv4(ip):
+                return {"ok": True, "ip": ip, "source": url}
+        except Exception:
+            continue
+    return {"ok": False, "error": "Could not determine public IP — no upstream service reachable"}
+
+
 def _ip_to_int(ip: str) -> int:
     import socket, struct
     return struct.unpack("!I", socket.inet_aton(ip))[0]
@@ -1632,6 +1656,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/detect-subnet":
             subnets = _detect_local_subnets()
             self._send_json({"ok": True, "subnets": subnets})
+            return
+
+        if path == "/api/detect-public-ip":
+            self._send_json(_detect_public_ip())
             return
 
         if path == "/api/ping-check":

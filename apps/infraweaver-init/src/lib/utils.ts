@@ -98,3 +98,30 @@ export function classifyLog(text: string) {
   if (/^==>|^\[|Step \d/i.test(text)) return 'step' as const
   return 'info' as const
 }
+
+/**
+ * True when the value is an RFC1918 private, loopback, or link-local IPv4.
+ * Used to warn when a non-public address is entered as PUBLIC_INGRESS_IP.
+ */
+export function isPrivateIPv4(value: string): boolean {
+  const trimmed = value.trim()
+  if (!isIPv4(trimmed)) return false
+  const [a, b] = trimmed.split('.').map(Number)
+  if (a === 10) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a === 127) return true
+  if (a === 169 && b === 254) return true
+  return false
+}
+
+/**
+ * Generate a cryptographically-random password from an unambiguous charset
+ * (no look-alike characters). Uses the Web Crypto API.
+ */
+export function generatePassword(length = 24): string {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_'
+  const values = new Uint32Array(length)
+  crypto.getRandomValues(values)
+  return Array.from(values, (n) => charset[n % charset.length]).join('')
+}

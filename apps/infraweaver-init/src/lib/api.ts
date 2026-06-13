@@ -226,6 +226,17 @@ export async function detectSubnet() {
   return fetchJson<DetectSubnetResponse>('/api/detect-subnet', { method: 'GET', headers: {} })
 }
 
+export interface DetectPublicIpResponse {
+  ok: boolean
+  ip?: string
+  source?: string
+  error?: string
+}
+
+export async function detectPublicIp() {
+  return fetchJson<DetectPublicIpResponse>('/api/detect-public-ip', { method: 'GET', headers: {} })
+}
+
 export async function pingCheck(ip: string) {
   return fetchJson<PingCheckResponse>(`/api/ping-check?ip=${encodeURIComponent(ip)}`, {
     method: 'GET',

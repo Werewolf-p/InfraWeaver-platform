@@ -240,6 +240,8 @@ const emptyLoadingState = {
   generateSshKey: false,
   checkDnsProvider: false,
   detectSubnets: false,
+  detectPublicIp: false,
+  detectGateway: false,
   saveEnv: false,
   deploy: false,
 }

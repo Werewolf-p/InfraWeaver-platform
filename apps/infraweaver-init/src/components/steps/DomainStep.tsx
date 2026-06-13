@@ -1,17 +1,50 @@
 'use client'
 
-import { Globe, Mail, ShieldCheck, UserRound } from 'lucide-react'
+import { useState } from 'react'
+import { Check, Copy, Globe, LoaderCircle, Mail, RadioTower, ShieldCheck, UserRound } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { detectPublicIp } from '@/lib/api'
+import { ActionButton } from '@/components/ui/ActionButton'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { FormField } from '@/components/ui/FormField'
 import { StepHeader } from '@/components/ui/StepHeader'
 import { useWizardStore } from '@/lib/store'
-import { controlClassName, fadeUpItem, isDomain, isEmail, isIPv4, staggerContainer } from '@/lib/utils'
+import { controlClassName, fadeUpItem, isDomain, isEmail, isIPv4, isPrivateIPv4, staggerContainer } from '@/lib/utils'
 
 export function DomainStep() {
   const data = useWizardStore((state) => state.data)
   const setField = useWizardStore((state) => state.setField)
   const autofillIdentityFromEmail = useWizardStore((state) => state.autofillIdentityFromEmail)
+  const loading = useWizardStore((state) => state.loading)
+  const setLoading = useWizardStore((state) => state.setLoading)
+
+  const [publicIpError, setPublicIpError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const handleDetectPublicIp = async () => {
+    setPublicIpError(null)
+    setLoading('detectPublicIp', true)
+    try {
+      const result = await detectPublicIp()
+      if (result.ok && result.ip) {
+        setField('PUBLIC_INGRESS_IP', result.ip)
+      } else {
+        setPublicIpError(result.error ?? 'Could not detect a public IP.')
+      }
+    } catch (error) {
+      setPublicIpError(error instanceof Error ? error.message : 'Could not detect a public IP.')
+    } finally {
+      setLoading('detectPublicIp', false)
+    }
+  }
+
+  const handleCopyPublicIp = async () => {
+    const ip = data.PUBLIC_INGRESS_IP.trim()
+    if (!ip) return
+    await navigator.clipboard.writeText(ip)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
 
   const emailPrefix = data.ADMIN_EMAIL.includes('@') ? data.ADMIN_EMAIL.split('@')[0] : 'admin'
 
@@ -76,13 +109,36 @@ export function DomainStep() {
               }
               className="md:col-span-2"
             >
-              <input
-                id="PUBLIC_INGRESS_IP"
-                value={data.PUBLIC_INGRESS_IP}
-                onChange={(event) => setField('PUBLIC_INGRESS_IP', event.target.value)}
-                placeholder="203.0.113.10"
-                className={controlClassName}
-              />
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    id="PUBLIC_INGRESS_IP"
+                    value={data.PUBLIC_INGRESS_IP}
+                    onChange={(event) => setField('PUBLIC_INGRESS_IP', event.target.value)}
+                    placeholder="203.0.113.10"
+                    className={`${controlClassName} min-w-48 flex-1`}
+                  />
+                  <ActionButton variant="secondary" onClick={() => void handleDetectPublicIp()} disabled={loading.detectPublicIp}>
+                    {loading.detectPublicIp ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RadioTower className="h-4 w-4" />}
+                    Detect public IP
+                  </ActionButton>
+                  <ActionButton
+                    variant="ghost"
+                    onClick={() => void handleCopyPublicIp()}
+                    disabled={!data.PUBLIC_INGRESS_IP.trim()}
+                    className="px-3 py-2.5"
+                    title="Copy to clipboard"
+                  >
+                    {copied ? <Check className="h-4 w-4 text-[var(--az-success)]" /> : <Copy className="h-4 w-4" />}
+                  </ActionButton>
+                </div>
+                {publicIpError ? <p className="text-xs text-[var(--az-danger)]">{publicIpError}</p> : null}
+                {data.PUBLIC_INGRESS_IP.trim() && isPrivateIPv4(data.PUBLIC_INGRESS_IP) ? (
+                  <p className="text-xs text-[var(--az-warning)]">
+                    ⚠ This looks like a private/LAN address, not a public IP — internet ingress and public DNS A-records won&apos;t be reachable.
+                  </p>
+                ) : null}
+              </div>
             </FormField>
           </div>
         </GlassCard>

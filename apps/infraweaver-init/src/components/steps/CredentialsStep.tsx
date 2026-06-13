@@ -22,20 +22,27 @@ import { FormField } from '@/components/ui/FormField'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StepHeader } from '@/components/ui/StepHeader'
 import { useWizardStore, type DnsProvider } from '@/lib/store'
-import { controlClassName, fadeUpItem, isEmail, staggerContainer, textareaClassName } from '@/lib/utils'
+import { controlClassName, fadeUpItem, generatePassword, isEmail, staggerContainer, textareaClassName } from '@/lib/utils'
 
 function SecretInput({
   id,
   value,
   onChange,
   placeholder,
+  allowGenerate = false,
 }: {
   id: string
   value: string
   onChange: (value: string) => void
   placeholder: string
+  allowGenerate?: boolean
 }) {
   const [visible, setVisible] = useState(false)
+
+  const handleGenerate = () => {
+    onChange(generatePassword(24))
+    setVisible(true)
+  }
 
   return (
     <div className="relative">
@@ -45,15 +52,27 @@ function SecretInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className={`${controlClassName} pr-12`}
+        className={`${controlClassName} ${allowGenerate ? 'pr-20' : 'pr-12'}`}
       />
-      <button
-        type="button"
-        onClick={() => setVisible((current) => !current)}
-        className="absolute inset-y-0 right-0 inline-flex w-12 items-center justify-center text-[var(--az-text-secondary)] transition hover:text-white"
-      >
-        {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </button>
+      <div className="absolute inset-y-0 right-0 flex items-center">
+        {allowGenerate ? (
+          <button
+            type="button"
+            onClick={handleGenerate}
+            title="Generate a strong random password"
+            className="inline-flex w-10 items-center justify-center text-[var(--az-text-secondary)] transition hover:text-white"
+          >
+            <WandSparkles className="h-4 w-4" />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => setVisible((current) => !current)}
+          className="inline-flex w-12 items-center justify-center text-[var(--az-text-secondary)] transition hover:text-white"
+        >
+          {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
     </div>
   )
 }
@@ -307,7 +326,7 @@ export function CredentialsStep() {
               <input id="SMTP_USERNAME" type="email" value={data.SMTP_USERNAME} onChange={(event) => setField('SMTP_USERNAME', event.target.value)} placeholder="you@outlook.com" className={controlClassName} />
             </FormField>
             <FormField label="SMTP_PASSWORD" htmlFor="SMTP_PASSWORD" required>
-              <SecretInput id="SMTP_PASSWORD" value={data.SMTP_PASSWORD} onChange={(value) => setField('SMTP_PASSWORD', value)} placeholder="app password" />
+              <SecretInput id="SMTP_PASSWORD" value={data.SMTP_PASSWORD} onChange={(value) => setField('SMTP_PASSWORD', value)} placeholder="app password" allowGenerate />
             </FormField>
             <FormField label="SMTP_TO" htmlFor="SMTP_TO" error={data.SMTP_TO && !isEmail(data.SMTP_TO) ? 'Use a valid destination email address.' : undefined} hint="Alert and deployment summary emails land here. Defaults to the admin email.">
               <input id="SMTP_TO" type="email" value={data.SMTP_TO} onChange={(event) => setField('SMTP_TO', event.target.value)} placeholder="alerts@yourdomain.com" className={controlClassName} />

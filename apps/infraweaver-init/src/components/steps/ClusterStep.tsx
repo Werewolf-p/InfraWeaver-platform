@@ -6,14 +6,16 @@ import {
   ChevronDown,
   ChevronRight,
   HardDrive,
+  Hash,
   LoaderCircle,
+  Network,
   Plus,
   Sparkles,
   Trash2,
   Waypoints,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { pingCheck, suggestNodeIps, suggestVips, type NodeDatastore, type NodeResources } from '@/lib/api'
+import { detectSubnet, pingCheck, suggestNodeIps, suggestVips, type NodeDatastore, type NodeResources } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { FormField } from '@/components/ui/FormField'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -284,6 +286,31 @@ export function ClusterStep() {
     }
   }
 
+  const handleDetectGateway = async () => {
+    setLoading('detectGateway', true)
+    try {
+      const result = await detectSubnet()
+      const subnet = result.subnets?.[0]
+      if (subnet?.cidr) {
+        const [network, prefix] = subnet.cidr.split('/')
+        const octets = network.split('.')
+        if (octets.length === 4) {
+          octets[3] = '1'
+          setFields({ NODE_GATEWAY: octets.join('.'), NODE_SUBNET_PREFIX: prefix || '24' })
+        }
+      }
+    } finally {
+      setLoading('detectGateway', false)
+    }
+  }
+
+  // Assign sequential VMIDs to every node, starting from the first node's VMID
+  // (or 9300 when it is empty/non-numeric). Keeps Proxmox VM IDs unique and tidy.
+  const handleAutoNumberVmids = () => {
+    const base = Number(nodes[0]?.vmid) || 9300
+    nodes.forEach((node, index) => updateNode(node.id, { vmid: String(base + index) }))
+  }
+
   const handleRoleChange = (node: NodeConfig, nextRole: NodeConfig['role']) => {
     const firstNodeId = nodes[0]?.id
     if (node.id === firstNodeId) return
@@ -333,13 +360,24 @@ export function ClusterStep() {
             />
           </FormField>
 
-          <FormField label="NODE_GATEWAY" htmlFor="NODE_GATEWAY" hint="Default gateway for the Talos node subnet.">
-            <input
-              id="NODE_GATEWAY"
-              value={data.NODE_GATEWAY}
-              onChange={(event) => setField('NODE_GATEWAY', event.target.value)}
-              className={controlClassName}
-            />
+          <FormField label="NODE_GATEWAY" htmlFor="NODE_GATEWAY" hint="Default gateway for the Talos node subnet. Detect reads the init VM's own subnet.">
+            <div className="flex items-center gap-2">
+              <input
+                id="NODE_GATEWAY"
+                value={data.NODE_GATEWAY}
+                onChange={(event) => setField('NODE_GATEWAY', event.target.value)}
+                className={`${controlClassName} min-w-0 flex-1`}
+              />
+              <ActionButton
+                variant="secondary"
+                onClick={() => void handleDetectGateway()}
+                disabled={loading.detectGateway}
+                className="shrink-0 px-3 py-2.5"
+                title="Detect gateway and subnet from this VM's network"
+              >
+                {loading.detectGateway ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
+              </ActionButton>
+            </div>
           </FormField>
 
           <FormField label="NODE_SUBNET_PREFIX" htmlFor="NODE_SUBNET_PREFIX" hint="Example: 24 = 255.255.255.0">
@@ -409,6 +447,10 @@ export function ClusterStep() {
             <ActionButton variant="secondary" onClick={handleSuggestNodes} disabled={loading.suggestNodeIps}>
               {loading.suggestNodeIps ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Waypoints className="h-4 w-4" />}
               🧲 Suggest node IPs
+            </ActionButton>
+            <ActionButton variant="secondary" onClick={handleAutoNumberVmids} disabled={nodes.length === 0}>
+              <Hash className="h-4 w-4" />
+              Auto-number VMIDs
             </ActionButton>
             <ActionButton variant="primary" onClick={addNode} disabled={nodes.length >= 6}>
               <Plus className="h-4 w-4" />
