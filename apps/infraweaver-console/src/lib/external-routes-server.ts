@@ -131,6 +131,10 @@ function manifestContent(blocks: ParsedBlock[]) {
 async function saveManifest(manifest: ManifestFile) {
   const nextContent = manifestContent(manifest.blocks);
   if (nextContent === manifest.originalContent) return false;
+  // The manifest directory may not exist yet in a fresh clone (or when the very
+  // first managed route is created). Ensure it before writing so we surface a
+  // meaningful error instead of an opaque ENOENT 500.
+  await fs.mkdir(path.dirname(manifest.absPath), { recursive: true });
   await fs.writeFile(manifest.absPath, nextContent, "utf8");
   manifest.originalContent = nextContent;
   return true;
@@ -391,8 +395,28 @@ function parseRouteItem(routeBlock: ParsedBlock, index: BackendIndex): ExternalR
   };
 }
 
+async function listRouteFiles(repoDir: string): Promise<string[]> {
+  // Discover every manifest in the routes directory rather than relying on a
+  // hardcoded tier→file map. Historically only 07/08/10 were read, which hid
+  // routes that live in 06-routes-cluster.yaml, 11-routes-authentik.yaml, etc.
+  // Backend files are loaded separately, so exclude them here to avoid two
+  // ManifestFile instances pointing at the same path.
+  const backendFiles = new Set([CLUSTER_BACKENDS_FILE, BAREMETAL_BACKENDS_FILE]);
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(path.join(repoDir, MANIFEST_DIR));
+  } catch {
+    entries = [];
+  }
+  const discovered = entries.filter((file) => /\.ya?ml$/i.test(file) && !backendFiles.has(file));
+  // Always include the per-tier destination files so a brand-new route has a
+  // home even when the file does not exist on disk yet.
+  return Array.from(new Set([...discovered, ...Object.values(ROUTE_FILES)]));
+}
+
 async function loadState(repoDir: string) {
-  const routeManifests = await Promise.all(Object.values(ROUTE_FILES).map((file) => loadManifest(repoDir, file)));
+  const routeFiles = await listRouteFiles(repoDir);
+  const routeManifests = await Promise.all(routeFiles.map((file) => loadManifest(repoDir, file)));
   const clusterBackends = await loadManifest(repoDir, CLUSTER_BACKENDS_FILE);
   const baremetalBackends = await loadManifest(repoDir, BAREMETAL_BACKENDS_FILE);
   const backendIndex = buildBackendIndex(clusterBackends, baremetalBackends);
@@ -407,18 +431,56 @@ function findRouteLocation(routeManifests: ManifestFile[], name: string): RouteB
   return null;
 }
 
+function runGit(repoDir: string, args: string[]): string {
+  try {
+    return execFileSync("git", ["-C", repoDir, ...args], { stdio: ["ignore", "pipe", "pipe"] }).toString();
+  } catch (error) {
+    const detail = error as { stderr?: Buffer; stdout?: Buffer; message?: string };
+    const message = (detail.stderr?.toString() || detail.stdout?.toString() || detail.message || "").trim();
+    throw new Error(message || `git ${args.join(" ")} failed`);
+  }
+}
+
 async function persistAndCommit(repoDir: string, manifests: ManifestFile[], message: string) {
   const changed = [] as string[];
   for (const manifest of manifests) {
     if (await saveManifest(manifest)) changed.push(manifest.file);
   }
   if (changed.length === 0) return changed;
-  execFileSync("git", ["-C", repoDir, "add", "-A"], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoDir, "commit",
+
+  // GitOps requires the change to be committed and pushed to the infra repo.
+  // Surface actionable errors (and never leave a committed-but-unpushed route
+  // that would later report "already exists") instead of an opaque 500.
+  try {
+    runGit(repoDir, ["rev-parse", "--is-inside-work-tree"]);
+  } catch {
+    throw new Error(
+      `Route manifests were written under ${repoDir}, but it is not a git repository, so the change cannot be committed or applied. Point REPO_DIR at the infra git clone.`,
+    );
+  }
+
+  // Scope the staging to the routes directory so unrelated working-tree changes
+  // are never swept into the routing commit.
+  runGit(repoDir, ["add", "--", MANIFEST_DIR]);
+  runGit(repoDir, ["commit",
     "-m", `feat(routes): ${message}`,
     "-m", "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
-  ], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoDir, "push"], { stdio: "pipe" });
+  ]);
+
+  try {
+    runGit(repoDir, ["push"]);
+  } catch (error) {
+    // Roll the commit back so the route is not half-applied and a retry is not
+    // blocked by a stale "route already exists" check.
+    try {
+      runGit(repoDir, ["reset", "--hard", "HEAD~1"]);
+    } catch {
+      // best-effort rollback; fall through to the original push error
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`git push failed, so the route was not applied (change rolled back): ${reason}`);
+  }
+
   return changed;
 }
 
@@ -432,7 +494,10 @@ export async function loadExternalRoutes(repoDir = process.env.REPO_DIR || proce
 
   return {
     routes,
-    files: Object.values(ROUTE_FILES).map((file) => path.join(MANIFEST_DIR, file)),
+    files: asArray(state.routeManifests)
+      .filter((manifest) => manifest.blocks.some((block) => block.kind === "IngressRoute"))
+      .map((manifest) => path.join(MANIFEST_DIR, manifest.file))
+      .sort(),
   };
 }
 
@@ -456,7 +521,7 @@ export async function createExternalRoute(input: ExternalRouteMutationInput, rep
     replaceBlock(state.clusterBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName, buildClusterBackendDocument(backendServiceName, input));
   }
 
-  await persistAndCommit(repoDir, [...state.routeManifests, state.clusterBackends, state.baremetalBackends], `add ${input.name} external route`);
+  await persistAndCommit(repoDir, [targetManifest, state.clusterBackends, state.baremetalBackends], `add ${input.name} external route`);
   return loadExternalRoutes(repoDir);
 }
 
@@ -497,7 +562,7 @@ export async function updateExternalRoute(name: string, input: ExternalRouteMuta
     removeBlock(state.baremetalBackends, "Endpoints", TRAEFIK_NAMESPACE, backendServiceName);
   }
 
-  await persistAndCommit(repoDir, [...state.routeManifests, state.clusterBackends, state.baremetalBackends], `update ${name} external route`);
+  await persistAndCommit(repoDir, [location.manifest, destinationManifest, state.clusterBackends, state.baremetalBackends], `update ${name} external route`);
   return loadExternalRoutes(repoDir);
 }
 
@@ -515,6 +580,6 @@ export async function deleteExternalRoute(name: string, repoDir = process.env.RE
     removeBlock(state.baremetalBackends, "Endpoints", TRAEFIK_NAMESPACE, current.backendServiceName);
   }
 
-  await persistAndCommit(repoDir, [...state.routeManifests, state.clusterBackends, state.baremetalBackends], `remove ${name} external route`);
+  await persistAndCommit(repoDir, [location.manifest, state.clusterBackends, state.baremetalBackends], `remove ${name} external route`);
   return loadExternalRoutes(repoDir);
 }

@@ -1,101 +1,150 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Globe,
-  Info,
-  Plus,
-  RefreshCw,
-  Server,
-  Trash2,
-} from "lucide-react";
+import { ExternalLink, Globe, Info, Network, Plus, RefreshCw, Server, ShieldCheck, Trash2 } from "lucide-react";
 import { AccessTierBadge } from "@/components/access-tier-badge";
+import { RouteEditorSheet } from "@/components/routing/route-editor-sheet";
 import { ActionsMenu } from "@/components/ui/actions-menu";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DashboardPanel } from "@/components/ui/dashboard-panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
-import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
-import { accessTierTabs, defaultTlsSecretForHost, type AccessTier } from "@/lib/access-tier";
-import type { ExternalRouteItem, ExternalRouteTargetType, ExternalRoutesResponse } from "@/lib/external-routes";
+import { type AccessTier } from "@/lib/access-tier";
+import type { ExternalRouteItem, ExternalRoutesResponse } from "@/lib/external-routes";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
 
-interface RouteFormState {
+interface LiveIngressRoute {
+  id: string;
+  namespace: string;
   name: string;
-  host: string;
+  entryPoints: string[];
+  hosts: string[];
+  services: string[];
+  middlewares: string[];
+  authMiddlewares: string[];
   accessTier: AccessTier;
-  targetType: ExternalRouteTargetType;
-  targetService: string;
-  targetNamespace: string;
-  targetPort: string;
+  tlsSecretName: string | null;
+  certResolver: string | null;
+  hasTls: boolean;
+}
+
+interface IngressResponse {
+  ingressRoutes: LiveIngressRoute[];
+  live: boolean;
+  summary: { total: number; authProtected: number; tlsEnabled: number; hosts: number };
+}
+
+interface PortRoutingServer {
+  name: string;
   targetIP: string;
+  ports: Array<{ port: number; protocol: string; name: string }>;
+}
+
+interface PortRoutingResponse {
+  servers: PortRoutingServer[];
+  conflicts: Array<{ ip: string; port: number; protocol: string; servers: string[] }>;
+}
+
+type RouteSource = "managed" | "live";
+
+interface UnifiedRoute {
+  key: string;
+  name: string;
+  hosts: string[];
+  accessTier: AccessTier;
+  targetSummary: string;
   enableAuth: boolean;
-  tlsSecret: string;
-  scheme: "http" | "https";
-  skipTlsVerify: boolean;
+  hasTls: boolean;
+  source: RouteSource;
+  alsoLive: boolean;
+  detail: string;
+  managed: ExternalRouteItem | null;
 }
 
-const DEFAULT_FORM: RouteFormState = {
-  name: "",
-  host: "",
-  accessTier: "internal",
-  targetType: "k8s",
-  targetService: "",
-  targetNamespace: "default",
-  targetPort: "80",
-  targetIP: "",
-  enableAuth: false,
-  tlsSecret: "platform-wildcard-int-tls",
-  scheme: "http",
-  skipTlsVerify: false,
-};
+type TabKey = "all" | "managed" | "live" | "ports";
 
-function toFormState(route: ExternalRouteItem): RouteFormState {
-  return {
-    name: route.name,
-    host: route.hosts[0] ?? "",
-    accessTier: route.accessTier,
-    targetType: route.targetType,
-    targetService: route.targetService,
-    targetNamespace: route.targetNamespace,
-    targetPort: String(route.targetPort),
-    targetIP: route.targetIP ?? "",
-    enableAuth: route.enableAuth,
-    tlsSecret: route.tlsSecretName ?? defaultTlsSecretForHost(route.hosts[0] ?? ""),
-    scheme: route.scheme,
-    skipTlsVerify: route.skipTlsVerify,
-  };
-}
+const TABS: Array<{ key: TabKey; label: string; icon: typeof Globe }> = [
+  { key: "all", label: "All routes", icon: Globe },
+  { key: "managed", label: "Managed (editable)", icon: Server },
+  { key: "live", label: "Live ingress", icon: ShieldCheck },
+  { key: "ports", label: "Port routing", icon: Network },
+];
 
-function buildTargetSummary(route: ExternalRouteItem) {
+function managedTargetSummary(route: ExternalRouteItem) {
   if (route.targetType === "baremetal") {
-    return route.targetIP ? `${route.targetIP}:${route.targetPort}` : `Bare-metal:${route.targetPort}`;
+    return route.targetIP ? `${route.targetIP}:${route.targetPort}` : `bare-metal:${route.targetPort}`;
   }
   return `${route.targetNamespace}/${route.targetService}:${route.targetPort}`;
 }
 
-export default function RoutesPage() {
+function buildUnifiedRoutes(managed: ExternalRouteItem[], live: LiveIngressRoute[]): UnifiedRoute[] {
+  const managedHosts = new Set<string>();
+  const managedNames = new Set<string>();
+  for (const route of managed) {
+    managedNames.add(route.name);
+    for (const host of route.hosts) managedHosts.add(host);
+  }
+
+  const managedRows: UnifiedRoute[] = managed.map((route) => {
+    const matchedLive = live.some(
+      (item) => item.name === route.name || item.hosts.some((host) => route.hosts.includes(host)),
+    );
+    return {
+      key: `managed:${route.id}`,
+      name: route.name,
+      hosts: route.hosts,
+      accessTier: route.accessTier,
+      targetSummary: managedTargetSummary(route),
+      enableAuth: route.enableAuth,
+      hasTls: route.hasTls,
+      source: "managed",
+      alsoLive: matchedLive,
+      detail: route.file,
+      managed: route,
+    };
+  });
+
+  const liveOnlyRows: UnifiedRoute[] = live
+    .filter((item) => !managedNames.has(item.name) && !item.hosts.some((host) => managedHosts.has(host)))
+    .map((item) => ({
+      key: `live:${item.id}`,
+      name: item.name,
+      hosts: item.hosts,
+      accessTier: item.accessTier,
+      targetSummary: item.services[0] ?? "—",
+      enableAuth: item.authMiddlewares.length > 0,
+      hasTls: item.hasTls,
+      source: "live",
+      alsoLive: true,
+      detail: `${item.namespace} · cluster-discovered`,
+      managed: null,
+    }));
+
+  return [...managedRows, ...liveOnlyRows].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export default function RoutingPage() {
   const { can } = useRBAC();
   const canWrite = can("infra:write");
 
+  const [tab, setTab] = useState<TabKey>("all");
   const [search, setSearch] = useState("");
   const [accessTierFilter, setAccessTierFilter] = useState<"all" | AccessTier>("all");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState<ExternalRouteItem | null>(null);
-  const [form, setForm] = useState<RouteFormState>(DEFAULT_FORM);
-  const [saving, setSaving] = useState(false);
   const [routeToDelete, setRouteToDelete] = useState<ExternalRouteItem | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const { data, isLoading, isFetching, refetch, error } = useQuery<ExternalRoutesResponse>({
+  const managedQuery = useQuery<ExternalRoutesResponse>({
     queryKey: ["external-routes"],
     queryFn: async () => {
       const response = await fetch("/api/routes/external", { cache: "no-store" });
-      const payload = await response.json() as ExternalRoutesResponse & { error?: string };
+      const payload = (await response.json()) as ExternalRoutesResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Failed to load external routes");
       return payload;
     },
@@ -103,105 +152,58 @@ export default function RoutesPage() {
     refetchInterval: 60_000,
   });
 
-  const routes = useMemo(() => (Array.isArray(data?.routes) ? data.routes : []), [data]);
-  const filtered = useMemo(() => {
+  const liveQuery = useQuery<IngressResponse>({
+    queryKey: ["ingress-routes"],
+    queryFn: async () => {
+      const response = await fetch("/api/ingress", { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to fetch ingress routes");
+      return response.json();
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const portsQuery = useQuery<PortRoutingResponse>({
+    queryKey: ["port-routing"],
+    queryFn: async () => {
+      const response = await fetch("/api/gameservers/ports", { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to fetch port routing");
+      return response.json();
+    },
+    enabled: tab === "ports",
+    staleTime: 30_000,
+  });
+
+  const managedRoutes = useMemo(() => (Array.isArray(managedQuery.data?.routes) ? managedQuery.data.routes : []), [managedQuery.data]);
+  const liveRoutes = useMemo(() => liveQuery.data?.ingressRoutes ?? [], [liveQuery.data]);
+  const unified = useMemo(() => buildUnifiedRoutes(managedRoutes, liveRoutes), [managedRoutes, liveRoutes]);
+
+  const tableRoutes = useMemo(() => {
+    const bySource = unified.filter((route) => {
+      if (tab === "managed") return route.source === "managed";
+      return true;
+    });
+    const liveScoped = tab === "live" ? bySource.filter((route) => route.alsoLive) : bySource;
     const query = search.trim().toLowerCase();
-    return routes.filter((route) => {
-      const matchesTier = accessTierFilter === "all" || route.accessTier === accessTierFilter;
-      if (!matchesTier) return false;
+    return liveScoped.filter((route) => {
+      if (accessTierFilter !== "all" && route.accessTier !== accessTierFilter) return false;
       if (!query) return true;
-      return [
-        route.name,
-        (route.hosts ?? []).join(" "),
-        route.targetService,
-        route.targetNamespace,
-        route.targetIP ?? "",
-        (route.middlewares ?? []).join(" "),
-      ].join(" ").toLowerCase().includes(query);
+      return [route.name, route.hosts.join(" "), route.targetSummary, route.detail].join(" ").toLowerCase().includes(query);
     });
-  }, [accessTierFilter, routes, search]);
-
-  function updateForm<K extends keyof RouteFormState>(key: K, value: RouteFormState[K]) {
-    setForm((current) => ({ ...current, [key]: value }));
-  }
-
-  function updateHost(host: string) {
-    setForm((current) => {
-      const nextHost = host.toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
-      const currentDefault = defaultTlsSecretForHost(current.host);
-      const nextDefault = defaultTlsSecretForHost(nextHost);
-      return {
-        ...current,
-        host: nextHost,
-        tlsSecret: !current.tlsSecret || current.tlsSecret === currentDefault ? nextDefault : current.tlsSecret,
-      };
-    });
-  }
+  }, [unified, tab, search, accessTierFilter]);
 
   function openCreate() {
     setEditingRoute(null);
-    setForm(DEFAULT_FORM);
     setEditorOpen(true);
   }
 
   function openEdit(route: ExternalRouteItem) {
     setEditingRoute(route);
-    setForm(toFormState(route));
     setEditorOpen(true);
   }
 
-  async function saveRoute() {
-    if (!canWrite) {
-      toast.error("You do not have permission to manage routes");
-      return;
-    }
-    if (!form.name.trim() || !form.host.trim()) {
-      toast.error("Name and hostname are required");
-      return;
-    }
-    if (!form.targetPort.trim() || Number.isNaN(Number(form.targetPort))) {
-      toast.error("Target port must be a valid number");
-      return;
-    }
-    if (form.targetType === "k8s" && (!form.targetService.trim() || !form.targetNamespace.trim())) {
-      toast.error("Kubernetes routes need a service name and namespace");
-      return;
-    }
-    if (form.targetType === "baremetal" && !form.targetIP.trim()) {
-      toast.error("Bare-metal routes need a target IP");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const response = await fetch(editingRoute ? `/api/routes/external/${encodeURIComponent(editingRoute.name)}` : "/api/routes/external", {
-        method: editingRoute ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          host: form.host.trim(),
-          accessTier: form.accessTier,
-          targetType: form.targetType,
-          targetService: form.targetService.trim(),
-          targetNamespace: form.targetNamespace.trim(),
-          targetPort: Number(form.targetPort),
-          targetIP: form.targetIP.trim(),
-          enableAuth: form.enableAuth,
-          tlsSecret: form.tlsSecret.trim() || null,
-          scheme: form.scheme,
-          skipTlsVerify: form.skipTlsVerify,
-        }),
-      });
-      const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Unable to save route");
-      toast.success(editingRoute ? `Updated ${editingRoute.name}` : `Created ${form.name}`);
-      setEditorOpen(false);
-      await refetch();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save route");
-    } finally {
-      setSaving(false);
-    }
+  async function refreshAll() {
+    await Promise.all([managedQuery.refetch(), liveQuery.refetch(), tab === "ports" ? portsQuery.refetch() : Promise.resolve()]);
   }
 
   async function deleteRoute() {
@@ -213,11 +215,11 @@ export default function RoutesPage() {
     setDeleting(true);
     try {
       const response = await fetch(`/api/routes/external/${encodeURIComponent(routeToDelete.name)}`, { method: "DELETE" });
-      const payload = await response.json() as { error?: string };
+      const payload = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to delete route");
       toast.success(`Deleted ${routeToDelete.name}`);
       setRouteToDelete(null);
-      await refetch();
+      await managedQuery.refetch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to delete route");
     } finally {
@@ -225,17 +227,26 @@ export default function RoutesPage() {
     }
   }
 
+  const isFetching = managedQuery.isFetching || liveQuery.isFetching;
+  const managedError = managedQuery.error;
+  const counts = {
+    all: unified.length,
+    managed: unified.filter((route) => route.source === "managed").length,
+    live: unified.filter((route) => route.alsoLive).length,
+    ports: portsQuery.data?.servers.length ?? 0,
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
         icon={Globe}
-        title="External Routes"
-        subtitle="Manage Traefik IngressRoutes for public, internal, and VPN-only services."
+        title="Routing"
+        subtitle="One place for ingress routes, managed external routes, and port routing."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => void refetch()}
+              onClick={() => void refreshAll()}
               className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
             >
               <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
@@ -248,7 +259,7 @@ export default function RoutesPage() {
               className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-700 dark:text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
-              Add Route
+              Add route
             </button>
           </div>
         }
@@ -257,270 +268,184 @@ export default function RoutesPage() {
       <div className="flex items-start gap-3 rounded-2xl border border-sky-500/20 bg-sky-500/10 p-4 text-sm text-sky-100">
         <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
         <div>
-          <p className="font-medium">Changes are applied via ArgoCD (usually within 30-60s).</p>
-          <p className="mt-1 text-sky-100/80">InfraWeaver commits the route manifests to git and pushes them to your configured remote.</p>
+          <p className="font-medium">Managed routes are committed to git and applied by ArgoCD (~30-60s).</p>
+          <p className="mt-1 text-sky-100/80">
+            Live ingress rows are read-only — they reflect what Traefik is actually serving in the cluster. Port routing covers
+            DNS-based TCP/UDP port forwards.
+          </p>
         </div>
       </div>
 
-      <DashboardPanel title="Route inventory" description="Search and filter managed routes before editing or removing them." icon={Server}>
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {accessTierTabs().map((tab) => (
-              <button
-                key={tab.value}
-                type="button"
-                onClick={() => setAccessTierFilter(tab.value as "all" | AccessTier)}
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition",
-                  accessTierFilter === tab.value
-                    ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-200"
-                    : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
-                )}
-              >
-                {tab.value === "all" ? <Globe className="h-4 w-4" /> : <AccessTierBadge tier={tab.value} compact className="h-6 min-w-6 px-1.5" />}
-                <span>{tab.label}</span>
-              </button>
-            ))}
-          </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition",
+              tab === key
+                ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-200"
+                : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            <span>{label}</span>
+            <span className="rounded-full bg-slate-200/70 px-2 text-xs text-slate-600 dark:bg-white/10 dark:text-slate-300">
+              {counts[key]}
+            </span>
+          </button>
+        ))}
+      </div>
 
-          <ToolbarSearchInput value={search} onChange={setSearch} placeholder="Search hostnames, backends, namespaces, or middleware…" />
-
-          {error ? (
-            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
-              {error instanceof Error ? error.message : "External routes could not be loaded."}
-            </div>
-          ) : isLoading ? (
-            <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 p-6 text-sm text-slate-500">Loading external routes…</div>
-          ) : filtered.length === 0 ? (
-            <EmptyState
-              icon={Globe}
-              title="No routes matched"
-              description="Adjust the access-tier filter or search query to find a managed route."
-              action={{ label: "Reset filters", onClick: () => { setSearch(""); setAccessTierFilter("all"); } }}
-              className="py-12"
-            />
-          ) : (
-            <div className="overflow-x-auto rounded-2xl border border-gray-200 dark:border-white/10">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200 dark:border-[#2a2a2a] bg-slate-50/80 dark:bg-[#0f0f0f] text-left text-xs text-slate-500 dark:text-[#888]">
-                    <th className="px-4 py-3 font-medium">Name</th>
-                    <th className="px-4 py-3 font-medium">Hosts</th>
-                    <th className="px-4 py-3 font-medium">Access Tier</th>
-                    <th className="px-4 py-3 font-medium">Service</th>
-                    <th className="px-4 py-3 font-medium">Auth</th>
-                    <th className="px-4 py-3 font-medium text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((route) => (
-                    <tr
-                      key={route.id}
-                      onClick={() => openEdit(route)}
-                      className="cursor-pointer border-b border-gray-200 transition hover:bg-slate-50/80 dark:border-[#1e1e1e] dark:hover:bg-[#141414]"
-                    >
-                      <td className="px-4 py-3 align-top">
-                        <div className="font-medium text-gray-900 dark:text-white">{route.name}</div>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{route.file}</p>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="flex flex-wrap gap-2">
-                          {(route.hosts ?? []).map((host) => (
-                            <span key={host} className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">{host}</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <AccessTierBadge tier={route.accessTier} />
-                      </td>
-                      <td className="px-4 py-3 align-top text-slate-700 dark:text-slate-300">
-                        <div className="font-medium">{route.targetType === "baremetal" ? "Bare-metal" : "K8s Service"}</div>
-                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{buildTargetSummary(route)}</div>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <span className={cn(
-                          "inline-flex rounded-full border px-2.5 py-1 text-xs",
-                          route.enableAuth
-                            ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-300"
-                            : "border-slate-200 bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-400",
-                        )}>
-                          {route.enableAuth ? "Forward auth" : "None"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 align-top text-right" onClick={(event) => event.stopPropagation()}>
-                        <ActionsMenu
-                          actions={[
-                            { label: "Edit route", onClick: () => openEdit(route) },
-                            { label: "Delete route", icon: <Trash2 className="h-4 w-4" />, variant: "destructive", onClick: () => setRouteToDelete(route), disabled: !canWrite },
-                          ]}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </DashboardPanel>
-
-      <ResponsiveSheet
-        open={editorOpen}
-        onClose={() => !saving && setEditorOpen(false)}
-        title={editingRoute ? `Edit ${editingRoute.name}` : "Add Route"}
-        description={editingRoute ? "Update the route manifest and backend target." : "Create a new managed Traefik route and commit it to git."}
-        size="lg"
-        footer={
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              onClick={() => !saving && setEditorOpen(false)}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] px-4 text-sm text-gray-700 transition hover:bg-gray-100 dark:text-[#d4d4d4] dark:hover:bg-[#1a1a1a]"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveRoute()}
-              disabled={saving || !canWrite}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-[#3b82f6] px-4 text-sm font-medium text-white transition hover:bg-[#2563eb] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving ? "Saving…" : editingRoute ? "Save changes" : "Create route"}
-            </button>
-          </div>
-        }
-      >
-        <div className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">Name</label>
-              <input
-                value={form.name}
-                onChange={(event) => updateForm("name", event.target.value.toLowerCase())}
-                disabled={Boolean(editingRoute)}
-                placeholder="proxmox"
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-[#3b82f6] dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">Hostname</label>
-              <input
-                value={form.host}
-                onChange={(event) => updateHost(event.target.value)}
-                placeholder="proxmox.int.yourdomain.com"
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-[#3b82f6] dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-900 dark:text-white">Access tier</label>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {(["vpn", "internal", "public"] as AccessTier[]).map((tier) => (
+      {tab === "ports" ? (
+        <PortRoutingPanel query={portsQuery} />
+      ) : (
+        <DashboardPanel title="Routes" description="Search and filter across managed and live routes." icon={Server}>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {(["all", "vpn", "internal", "public"] as const).map((tier) => (
                 <button
                   key={tier}
                   type="button"
-                  onClick={() => updateForm("accessTier", tier)}
+                  onClick={() => setAccessTierFilter(tier)}
                   className={cn(
-                    "flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition",
-                    form.accessTier === tier
-                      ? "border-sky-500/30 bg-sky-500/10"
-                      : "border-gray-200 bg-white hover:bg-slate-50 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:hover:bg-[#141414]",
+                    "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition",
+                    accessTierFilter === tier
+                      ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-200"
+                      : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
                   )}
                 >
-                  <AccessTierBadge tier={tier} />
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{tier === "vpn" ? "VPN only" : tier === "internal" ? "LAN only" : "Internet"}</span>
+                  {tier === "all" ? <Globe className="h-4 w-4" /> : <AccessTierBadge tier={tier} compact className="h-6 min-w-6 px-1.5" />}
+                  <span className="capitalize">{tier}</span>
                 </button>
               ))}
             </div>
+
+            <ToolbarSearchInput value={search} onChange={setSearch} placeholder="Search hostnames, backends, namespaces…" />
+
+            {managedError && tab !== "live" ? (
+              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+                {managedError instanceof Error ? managedError.message : "Managed routes could not be loaded."}
+              </div>
+            ) : null}
+            {liveQuery.data?.live === false && tab !== "managed" ? (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
+                Kubernetes unavailable — live ingress data cannot be loaded.
+              </div>
+            ) : null}
+
+            {managedQuery.isLoading || liveQuery.isLoading ? (
+              <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 p-6 text-sm text-slate-500">
+                Loading routes…
+              </div>
+            ) : tableRoutes.length === 0 ? (
+              <EmptyState
+                icon={Globe}
+                title="No routes matched"
+                description="Adjust the tab, access-tier filter, or search query."
+                action={{ label: "Reset filters", onClick: () => { setSearch(""); setAccessTierFilter("all"); } }}
+                className="py-12"
+              />
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-gray-200 dark:border-white/10">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-[#2a2a2a] bg-slate-50/80 dark:bg-[#0f0f0f] text-left text-xs text-slate-500 dark:text-[#888]">
+                      <th className="px-4 py-3 font-medium">Name</th>
+                      <th className="px-4 py-3 font-medium">Hosts</th>
+                      <th className="px-4 py-3 font-medium">Tier</th>
+                      <th className="px-4 py-3 font-medium">Target</th>
+                      <th className="px-4 py-3 font-medium">Source</th>
+                      <th className="px-4 py-3 font-medium text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRoutes.map((route) => (
+                      <tr
+                        key={route.key}
+                        onClick={() => route.managed && openEdit(route.managed)}
+                        className={cn(
+                          "border-b border-gray-200 transition dark:border-[#1e1e1e]",
+                          route.managed
+                            ? "cursor-pointer hover:bg-slate-50/80 dark:hover:bg-[#141414]"
+                            : "opacity-90",
+                        )}
+                      >
+                        <td className="px-4 py-3 align-top">
+                          <div className="font-medium text-gray-900 dark:text-white">{route.name}</div>
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{route.detail}</p>
+                        </td>
+                        <td className="px-4 py-3 align-top">
+                          <div className="flex flex-wrap gap-2">
+                            {route.hosts.length > 0 ? (
+                              route.hosts.map((host) => (
+                                <span key={host} className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+                                  {host}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-slate-500">—</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 align-top">
+                          <AccessTierBadge tier={route.accessTier} />
+                        </td>
+                        <td className="px-4 py-3 align-top text-slate-700 dark:text-slate-300">
+                          <div className="text-xs text-slate-500 dark:text-slate-400">{route.targetSummary}</div>
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {route.enableAuth ? (
+                              <span className="inline-flex rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-300">auth</span>
+                            ) : null}
+                            <span className={cn(
+                              "inline-flex rounded-full border px-2 py-0.5 text-[11px]",
+                              route.hasTls ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-yellow-500/30 bg-yellow-500/10 text-yellow-200",
+                            )}>
+                              {route.hasTls ? "TLS" : "plain"}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 align-top">
+                          {route.source === "managed" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-xs text-sky-300">
+                              Managed{route.alsoLive ? " · live" : ""}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-xs text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">
+                              Live only
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 align-top text-right" onClick={(event) => event.stopPropagation()}>
+                          {route.managed ? (
+                            <ActionsMenu
+                              actions={[
+                                { label: "Edit route", onClick: () => openEdit(route.managed!) },
+                                { label: "Delete route", icon: <Trash2 className="h-4 w-4" />, variant: "destructive", onClick: () => setRouteToDelete(route.managed), disabled: !canWrite },
+                              ]}
+                            />
+                          ) : (
+                            <span className="text-xs text-slate-400">read-only</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
+        </DashboardPanel>
+      )}
 
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-900 dark:text-white">Target</label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => updateForm("targetType", "k8s")}
-                className={cn(
-                  "rounded-2xl border px-4 py-3 text-left transition",
-                  form.targetType === "k8s"
-                    ? "border-sky-500/30 bg-sky-500/10"
-                    : "border-gray-200 bg-white hover:bg-slate-50 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:hover:bg-[#141414]",
-                )}
-              >
-                <p className="font-medium text-gray-900 dark:text-white">K8s Service</p>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Create or update a service wrapper in the Traefik namespace.</p>
-              </button>
-              <button
-                type="button"
-                onClick={() => updateForm("targetType", "baremetal")}
-                className={cn(
-                  "rounded-2xl border px-4 py-3 text-left transition",
-                  form.targetType === "baremetal"
-                    ? "border-sky-500/30 bg-sky-500/10"
-                    : "border-gray-200 bg-white hover:bg-slate-50 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:hover:bg-[#141414]",
-                )}
-              >
-                <p className="font-medium text-gray-900 dark:text-white">Bare-metal</p>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Create Service + Endpoints for an external IP target.</p>
-              </button>
-            </div>
-          </div>
-
-          {form.targetType === "k8s" ? (
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">Service name</label>
-                <input value={form.targetService} onChange={(event) => updateForm("targetService", event.target.value)} className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-[#3b82f6] dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]" />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">Namespace</label>
-                <input value={form.targetNamespace} onChange={(event) => updateForm("targetNamespace", event.target.value)} className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-[#3b82f6] dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]" />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">Port</label>
-                <input value={form.targetPort} onChange={(event) => updateForm("targetPort", event.target.value)} inputMode="numeric" className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-[#3b82f6] dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]" />
-              </div>
-            </div>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">Target IP</label>
-                <input value={form.targetIP} onChange={(event) => updateForm("targetIP", event.target.value)} placeholder="192.168.1.100" className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-[#3b82f6] dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]" />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">Port</label>
-                <input value={form.targetPort} onChange={(event) => updateForm("targetPort", event.target.value)} inputMode="numeric" className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-[#3b82f6] dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]" />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">Scheme</label>
-                <select value={form.scheme} onChange={(event) => updateForm("scheme", event.target.value as "http" | "https")} className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-[#3b82f6] dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]">
-                  <option value="http">http</option>
-                  <option value="https">https</option>
-                </select>
-              </div>
-            </div>
-          )}
-
-          {form.targetType === "baremetal" && form.scheme === "https" ? (
-            <label className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]">
-              <input type="checkbox" checked={form.skipTlsVerify} onChange={(event) => updateForm("skipTlsVerify", event.target.checked)} />
-              Skip TLS verify
-            </label>
-          ) : null}
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]">
-              <input type="checkbox" checked={form.enableAuth} onChange={(event) => updateForm("enableAuth", event.target.checked)} />
-              Enable Auth
-            </label>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">TLS Secret</label>
-              <input value={form.tlsSecret} onChange={(event) => updateForm("tlsSecret", event.target.value)} className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-[#3b82f6] dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]" />
-            </div>
-          </div>
-        </div>
-      </ResponsiveSheet>
+      <RouteEditorSheet
+        open={editorOpen}
+        editingRoute={editingRoute}
+        canWrite={canWrite}
+        onClose={() => setEditorOpen(false)}
+        onSaved={refreshAll}
+      />
 
       <ConfirmDialog
         open={Boolean(routeToDelete)}
@@ -532,5 +457,84 @@ export default function RoutesPage() {
         danger
       />
     </div>
+  );
+}
+
+function PortRoutingPanel({ query }: { query: ReturnType<typeof useQuery<PortRoutingResponse>> }) {
+  const servers = query.data?.servers ?? [];
+  const conflicts = query.data?.conflicts ?? [];
+
+  return (
+    <DashboardPanel
+      title="Port routing"
+      description="DNS-based TCP/UDP port forwards for external services (game servers and similar)."
+      icon={Network}
+    >
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <Link href="/gameservers" className="inline-flex items-center gap-1.5 text-sm text-sky-600 hover:text-sky-500 dark:text-sky-300">
+            Manage port routing <ExternalLink className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+
+        {conflicts.length > 0 ? (
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+            <p className="font-medium">{conflicts.length} port conflict{conflicts.length > 1 ? "s" : ""} detected</p>
+            <ul className="mt-2 space-y-1 text-red-200/90">
+              {conflicts.map((conflict) => (
+                <li key={`${conflict.ip}:${conflict.port}:${conflict.protocol}`}>
+                  {conflict.ip}:{conflict.port}/{conflict.protocol} — {conflict.servers.join(", ")}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {query.isLoading ? (
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 p-6 text-sm text-slate-500">
+            Loading port routing…
+          </div>
+        ) : query.error ? (
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
+            Port routing data is unavailable (Kubernetes or game-hub may be offline).
+          </div>
+        ) : servers.length === 0 ? (
+          <EmptyState icon={Network} title="No port routes" description="No DNS-based port forwards are configured yet." className="py-12" />
+        ) : (
+          <div className="overflow-x-auto rounded-2xl border border-gray-200 dark:border-white/10">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-[#2a2a2a] bg-slate-50/80 dark:bg-[#0f0f0f] text-left text-xs text-slate-500 dark:text-[#888]">
+                  <th className="px-4 py-3 font-medium">Service</th>
+                  <th className="px-4 py-3 font-medium">Target IP</th>
+                  <th className="px-4 py-3 font-medium">Ports</th>
+                </tr>
+              </thead>
+              <tbody>
+                {servers.map((server) => (
+                  <tr key={server.name} className="border-b border-gray-200 dark:border-[#1e1e1e]">
+                    <td className="px-4 py-3 align-top font-medium text-gray-900 dark:text-white">{server.name}</td>
+                    <td className="px-4 py-3 align-top text-slate-600 dark:text-slate-300">{server.targetIP || "—"}</td>
+                    <td className="px-4 py-3 align-top">
+                      <div className="flex flex-wrap gap-1.5">
+                        {server.ports.length > 0 ? (
+                          server.ports.map((port) => (
+                            <span key={`${port.port}/${port.protocol}`} className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+                              {port.port}/{port.protocol}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-slate-500">—</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </DashboardPanel>
   );
 }

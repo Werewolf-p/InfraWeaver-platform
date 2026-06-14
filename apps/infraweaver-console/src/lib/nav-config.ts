@@ -76,8 +76,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: false,
     items: [
       { href: "/network", icon: Network, label: "Network", shortcut: "G N", description: "Services, ingress, and network topology", pinnable: true, keywords: ["services", "topology", "connectivity"] },
-      { href: "/ingress", icon: Globe, label: "Ingress Routes", description: "Traefik hosts, auth, and TLS audit", keywords: ["traefik", "hosts", "tls"] },
-      { href: "/routes", icon: Globe, label: "Route Manager", description: "Add, edit, and delete external routes with access tier control", pinnable: true, keywords: ["external routes", "tier"] },
+      { href: "/routes", icon: Globe, label: "Routing", description: "Unified ingress, external routes, and port routing — view and edit in one place", pinnable: true, keywords: ["routes", "ingress", "traefik", "external routes", "port routing", "hosts", "tls", "tier"] },
       { href: "/dns", icon: Globe, label: "DNS", shortcut: "G Z", description: "Manage internal and public Cloudflare records", pinnable: true, keywords: ["cloudflare", "records", "domain"] },
       { href: "/gameservers", icon: Network, label: "Port Routing", description: "DNS-based port routing for external services", keywords: ["ports", "tcp", "udp", "external services"] },
       { href: "/network-policies", icon: Network, label: "Net Policies", description: "Kubernetes NetworkPolicy rules", keywords: ["networkpolicy", "firewall"] },
@@ -261,7 +260,7 @@ export const MOBILE_DRAWER_NAV: NavItem[] = [
   { href: "/health", icon: Activity, label: "Health" },
   { href: "/network", icon: Network, label: "Network" },
   { href: "/dns", icon: Globe, label: "DNS" },
-  { href: "/routes", icon: Globe, label: "External Routes" },
+  { href: "/routes", icon: Globe, label: "Routing" },
   { href: "/config", icon: Cog, label: "Config Editor" },
   { href: "/config-maps", icon: FileText, label: "Config Maps" },
   { href: "/secrets", icon: ShieldCheck, label: "Secrets" },
