@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { iwApiFetch } from "@/lib/iw-api";

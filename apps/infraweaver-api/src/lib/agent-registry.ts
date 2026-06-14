@@ -79,12 +79,18 @@ export function createPendingRegistration(clusterId: string, clusterName: string
   return token;
 }
 
-export function getConnectedAgents(): AgentConnection[] {
-  return Array.from(_agents.values());
+export function getPendingRegistration(token: string): PendingRegistration | null {
+  const entry = _pending.get(token);
+  if (!entry) return null;
+  if (entry.expiresAt.getTime() < Date.now()) {
+    _pending.delete(token);
+    return null;
+  }
+  return entry;
 }
 
-export function getAgent(clusterId: string): AgentConnection | undefined {
-  return _agents.get(clusterId);
+export function getConnectedAgents(): AgentConnection[] {
+  return Array.from(_agents.values());
 }
 
 export function getPendingDiscoveries(): Omit<DiscoveryRequest, 'ws'>[] {

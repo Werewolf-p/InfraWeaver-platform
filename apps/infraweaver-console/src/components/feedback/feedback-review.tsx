@@ -229,6 +229,7 @@ export function FeedbackReview() {
   useEffect(() => {
     if (!dispatchingId) return;
     const entry = entries.find((e) => e.id === dispatchingId);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     if (!entry || entry.status !== "new") setDispatchingId(null);
   }, [dispatchingId, entries]);
 
@@ -391,6 +392,7 @@ export function FeedbackReview() {
     );
     const [nextId, ...rest] = stillQueued;
     if (nextId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setQueuedApprovals(rest);
       void updateStatus(nextId, "approved");
     } else if (stillQueued.length !== queuedApprovals.length) {
@@ -410,6 +412,7 @@ export function FeedbackReview() {
     );
     const [nextId, ...rest] = stillQueued;
     if (nextId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setQueuedValidations(rest);
       void validate(nextId, "not_fixed");
     } else if (stillQueued.length !== queuedValidations.length) {

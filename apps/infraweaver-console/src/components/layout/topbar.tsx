@@ -54,6 +54,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
 
   useEffect(() => {
     try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setShowChangelogDot(localStorage.getItem("infraweaver:last-seen-version") !== appVersion);
     } catch { /* localStorage unavailable */ }
   }, [appVersion]);
@@ -86,6 +87,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setQuickOpen(false);
   }, [pathname]);
 

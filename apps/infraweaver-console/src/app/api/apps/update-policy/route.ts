@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { getGitAccessToken, gitReadFile, gitWriteFile } from "@/lib/git-provider";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
+import { withRoute } from "@/lib/route-utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -342,14 +341,7 @@ function parsePolicyFromRenovateRule(rule: RenovatePackageRule): Partial<UpdateP
 
 // ── GET handler ───────────────────────────────────────────────────────────────
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "apps:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withRoute("apps:read", async (req: NextRequest) => {
   const slug = req.nextUrl.searchParams.get("app");
   if (!slug) return NextResponse.json({ error: "Missing app param" }, { status: 400 });
 
@@ -407,17 +399,11 @@ export async function GET(req: NextRequest) {
     source: policyFromAciu ? "aciu" : policyFromRenovate ? "renovate" : "none",
     imageDetected: !!imageRef,
   });
-}
+});
 
 // ── PUT handler ───────────────────────────────────────────────────────────────
 
-export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "apps:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const PUT = withRoute("apps:write", async (req: NextRequest) => {
   if (!checkRateLimit(rateLimitKey("update-policy", req), 20, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -492,4 +478,4 @@ export async function PUT(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: safeError(err) }, { status: 500 });
   }
-}
+});

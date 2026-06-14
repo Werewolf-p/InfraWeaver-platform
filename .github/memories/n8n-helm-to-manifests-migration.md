@@ -22,6 +22,6 @@ description: charts.n8n.io has no DNS A record; N8N now managed via raw Kubernet
   - Deployment: `n8n` (app image, connects to PostgreSQL)
   - Deployment: `postgresql-n8n` (dedicated Postgres)
   - Services: `n8n` (headless), `n8n-api` (ClusterIP, port 8080), `n8n-http` (LoadBalancer, port 8080→5678)
-  - Ingress: `n8n-ingress` → `n8n.rlservers.com` via Traefik
+  - Ingress: `n8n-ingress` → `n8n.example.com` via Traefik
 
 - **Lesson learned:** charts.n8n.io disappeared (no A record in Cloudflare DNS). When a helm chart repo breaks, converting to git-managed manifests is the most stable long-term fix and removes external chart dependencies entirely.

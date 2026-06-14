@@ -5,7 +5,6 @@
 # Traefik route manifests reflect the feature choices in .env.
 #
 # Reads from .env:
-#   ENABLE_NETBIRD      true|false  (default: false)
 #   ENABLE_MONITORING   true|false  (default: false)
 #   ENABLE_EXTERNAL_DNS true|false  (default: false)
 #   BACKUP_PROVIDER     none|longhorn|velero|both  (default: longhorn)
@@ -14,9 +13,8 @@
 #
 # Effects:
 #   1. platform.yaml  — sets groups.core-platform.apps.<app>.enabled flags
-#   2. Traefik routes — switches private routes between netbird-vpn-only and internal-only
-#   3. bootstrap/     — companion .disabled files managed (via sync-groups.sh)
-#   4. core apps      — renames application.yaml ↔ application.yaml.disabled for
+#   2. bootstrap/     — companion .disabled files managed (via sync-groups.sh)
+#   3. core apps      — renames application.yaml ↔ application.yaml.disabled for
 #                       optional core components (longhorn, kyverno)
 
 set -euo pipefail
@@ -25,7 +23,6 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # Allow override via environment variable (useful for testing)
 ENV_FILE="${ENV_FILE:-${REPO_DIR}/.env}"
 PLATFORM_YAML="${PLATFORM_YAML:-${REPO_DIR}/platform.yaml}"
-VPN_ROUTES="${REPO_DIR}/kubernetes/platform/external-routes/manifests/10-routes-vpn-only.yaml"
 MIDDLEWARES_FILE="${REPO_DIR}/kubernetes/platform/external-routes/manifests/01-middlewares.yaml"
 
 # ── Read .env ──────────────────────────────────────────────────────────────
@@ -40,7 +37,6 @@ _env_val() {
     fi
 }
 
-ENABLE_NETBIRD=$(_env_val ENABLE_NETBIRD "false")
 ENABLE_MONITORING=$(_env_val ENABLE_MONITORING "true")
 ENABLE_EXTERNAL_DNS=$(_env_val ENABLE_EXTERNAL_DNS "false")
 BACKUP_PROVIDER=$(_env_val BACKUP_PROVIDER "longhorn")
@@ -56,7 +52,6 @@ ENABLE_AUTHENTIK_LDAP=$(_env_val ENABLE_AUTHENTIK_LDAP "false")
 MONITORING_STACK=$(_env_val MONITORING_STACK "kube-prometheus-stack")
 
 echo "==> configure-platform: syncing feature flags to platform.yaml"
-echo "    ENABLE_NETBIRD=${ENABLE_NETBIRD}"
 echo "    ENABLE_MONITORING=${ENABLE_MONITORING}"
 echo "    MONITORING_STACK=${MONITORING_STACK}"
 echo "    ENABLE_EXTERNAL_DNS=${ENABLE_EXTERNAL_DNS}"
@@ -70,7 +65,7 @@ echo "    ENABLE_AUTHENTIK_LDAP=${ENABLE_AUTHENTIK_LDAP}"
 
 # ── Helper: update a platform.yaml value using Python ───────────────────────
 _set_platform_flag() {
-    # Usage: _set_platform_flag "groups.core-platform.apps.netbird.enabled" "true"
+    # Usage: _set_platform_flag "groups.core-platform.apps.grafana.enabled" "true"
     local key_path="$1" value="$2"
     python3 - <<EOF
 import sys
@@ -163,13 +158,10 @@ EOF
 #   10.244.0.0/16  — K8s pod CIDR (health probes from Gatus, liveness checks)
 #   127.0.0.1/32   — Localhost
 #   <node VLAN>    — K8s nodes VLAN3 (10.10.0.0/24 by default from cluster.yaml)
-# Conditional (when ENABLE_NETBIRD=true):
-#   100.64.0.0/10  — NetBird CGNAT (direct WireGuard peers, no masquerade)
 _configure_internal_middleware() {
     local user_ranges="$1"     # comma-separated, may be empty
-    local netbird_enabled="$2" # "true" or "false"
-    local middlewares_file="$3"
-    local node_vlan="${4:-10.10.0.0/24}"  # default VLAN3 node network
+    local middlewares_file="$2"
+    local node_vlan="${3:-10.10.0.0/24}"  # default VLAN3 node network
 
     if [[ ! -f "$middlewares_file" ]]; then
         echo "  WARNING: middlewares file not found: $middlewares_file" >&2
@@ -180,7 +172,6 @@ _configure_internal_middleware() {
 import sys, re
 
 user_ranges_raw = "${user_ranges}"
-netbird_enabled = "${netbird_enabled}" == "true"
 middlewares_file = "${middlewares_file}"
 node_vlan = "${node_vlan}"
 
@@ -218,10 +209,6 @@ source_ranges.append(("127.0.0.1/32", "Localhost"))
 source_ranges.append((node_vlan, "K8s node VLAN — in-cluster traffic + health probes"))
 source_ranges.append(("10.244.0.0/16", "K8s pod CIDR — health probes (Gatus, liveness, etc.)"))
 
-# NetBird CGNAT — only when VPN is enabled
-if netbird_enabled:
-    source_ranges.append(("100.64.0.0/10", "NetBird CGNAT (direct WireGuard peers)"))
-
 # Build YAML sourceRange block
 range_lines = []
 for cidr, comment in source_ranges:
@@ -249,38 +236,6 @@ else:
 # Also update the comment at the top of the middleware
 EOF
 }
-
-_set_platform_flag "groups.core-platform.apps.netbird.enabled" "$ENABLE_NETBIRD"
-
-# Update Traefik routes: switch private routes between netbird-vpn-only and internal-only
-# The file 10-routes-vpn-only.yaml is the source of truth for VPN-tier private routes.
-# When NetBird is disabled, routes fall back to internal-only (LAN-accessible from homelab).
-# The access-tier: vpn LABEL is preserved regardless — it reflects the policy intent.
-if [[ -f "$VPN_ROUTES" ]]; then
-    if [[ "$ENABLE_NETBIRD" == "true" ]]; then
-        echo "  NetBird enabled → private routes use netbird-vpn-only middleware"
-        # Replace any internal-only fallback back to netbird-vpn-only
-        # Only in route middleware references (not in comments or other contexts)
-        python3 -c "
-import re, sys
-content = open('$VPN_ROUTES').read()
-# Replace only middleware name references (indented list items)
-content = re.sub(r'(\s+- name: )internal-only\b', r'\1netbird-vpn-only', content)
-open('$VPN_ROUTES', 'w').write(content)
-print('  routes: netbird-vpn-only')
-"
-    else
-        echo "  NetBird disabled → private routes fall back to internal-only middleware"
-        python3 -c "
-import re, sys
-content = open('$VPN_ROUTES').read()
-# Replace netbird-vpn-only middleware references with internal-only fallback
-content = re.sub(r'(\s+- name: )netbird-vpn-only\b', r'\1internal-only', content)
-open('$VPN_ROUTES', 'w').write(content)
-print('  routes: internal-only (fallback)')
-"
-    fi
-fi
 
 # ── 2. Monitoring ────────────────────────────────────────────────────────────
 _set_platform_flag "groups.core-monitoring.enabled" "$ENABLE_MONITORING"
@@ -335,7 +290,7 @@ else
     echo "  LOCAL_IP_RANGES is empty — only system ranges will be allowed for internal tier"
 fi
 
-_configure_internal_middleware "$LOCAL_IP_RANGES" "$ENABLE_NETBIRD" "$MIDDLEWARES_FILE" "$NODE_VLAN"
+_configure_internal_middleware "$LOCAL_IP_RANGES" "$MIDDLEWARES_FILE" "$NODE_VLAN"
 
 # ── 6. Optional core components (Longhorn, Kyverno) ──────────────────────────
 # These apps live in kubernetes/core/ and are picked up by appset-core.yaml.

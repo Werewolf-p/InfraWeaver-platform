@@ -27,7 +27,7 @@ import { WelcomeStep } from '@/components/steps/WelcomeStep'
 import { RestoreStep } from '@/components/steps/RestoreStep'
 import { connectDeployEvents, getStatus, loadEnv, selfUpdate, type DeployEvent } from '@/lib/api'
 import { initialDeployStages, initialWizardData, isWizardDataPristine, useWizardStore } from '@/lib/store'
-import { classifyLog, isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger } from '@/lib/utils'
+import { classifyLog, isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger, isVipRange } from '@/lib/utils'
 import type { DnsProvider } from '@/lib/store'
 
 function hasDnsProviderCredentials(data: typeof initialWizardData): boolean {
@@ -65,17 +65,33 @@ const BASE_STEPS: Array<WizardStepMeta & { icon: React.ComponentType<{ className
   { title: 'Features', icon: Settings2 },
 ]
 
-function isStepValid(step: number, data: typeof initialWizardData, nodes: ReturnType<typeof useWizardStore.getState>['nodes'], localIpRanges: string[], vpnOnly: boolean, hasRestoreStep = false) {
-  const controlPlaneCount = nodes.filter((node) => node.role === 'control-plane').length
+function isStepValid(step: number, data: typeof initialWizardData, nodes: ReturnType<typeof useWizardStore.getState>['nodes'], localIpRanges: string[], hasRestoreStep = false) {
+  // Hybrid nodes run the control plane (and also schedule workloads), so they
+  // count toward the control-plane minimum — same as ClusterStep/store logic.
+  const controlPlaneCount = nodes.filter((node) => node.role === 'control-plane' || node.role === 'hybrid').length
 
   switch (step) {
     case 0:
       return true
     case 1:
-      return isDomain(data.BASE_DOMAIN) && isEmail(data.ADMIN_EMAIL)
+      return (
+        isDomain(data.BASE_DOMAIN) &&
+        isEmail(data.ADMIN_EMAIL) &&
+        (!data.PUBLIC_INGRESS_IP.trim() || isIPv4(data.PUBLIC_INGRESS_IP))
+      )
     case 2:
       return isIPv4(data.PROXMOX_HOST) && data.PROXMOX_API_TOKEN.trim().length > 0 && data.PROXMOX_NODE_NAME.trim().length > 0
-    case 3:
+    case 3: {
+      const vipValues = [
+        data.METALLB_TRAEFIK_VIP,
+        data.METALLB_COREDNS_VIP,
+        data.METALLB_VIP_205,
+      ].map((value) => value.trim())
+      const vmids = nodes.map((node) => node.vmid.trim())
+      const nodeIps = nodes.map((node) => node.ip.trim())
+      const allAddresses = [...nodeIps, ...vipValues].filter(Boolean)
+      const uniqueVmids = new Set(vmids).size === vmids.length
+      const uniqueAddresses = new Set(allAddresses).size === allAddresses.length
       return (
         data.K8S_CLUSTER_NAME.trim().length > 0 &&
         data.TALOS_DATASTORE.trim().length > 0 &&
@@ -84,14 +100,13 @@ function isStepValid(step: number, data: typeof initialWizardData, nodes: Return
         nodes.length > 0 &&
         controlPlaneCount >= 1 &&
         nodes.every((node) => isIPv4(node.ip) && isPositiveInteger(node.vmid)) &&
-        data.METALLB_VIP_RANGE.trim().length > 0 &&
-        isIPv4(data.METALLB_TRAEFIK_VIP) &&
-        isIPv4(data.METALLB_COREDNS_VIP) &&
-        isIPv4(data.METALLB_NETBIRD_MGMT_VIP) &&
-        isIPv4(data.METALLB_NETBIRD_SIGNAL_VIP) &&
-        isIPv4(data.METALLB_NETBIRD_RELAY_VIP) &&
+        uniqueVmids &&
+        uniqueAddresses &&
+        isVipRange(data.METALLB_VIP_RANGE) &&
+        vipValues.every((value) => isIPv4(value)) &&
         data.CLUSTER_LOCAL_DOMAIN.trim().length > 0
       )
+    }
     case 4:
       return /^[a-z0-9_-]+$/.test(data.ADMIN_USERNAME.trim()) && data.ADMIN_NAME.trim().length > 0
     case 5:
@@ -105,7 +120,7 @@ function isStepValid(step: number, data: typeof initialWizardData, nodes: Return
         data.GIT_REPO_URL.trim().length > 0
       )
     case 6:
-      return vpnOnly || localIpRanges.filter((range) => range.trim()).every((range) => isCIDR(range))
+      return localIpRanges.filter((range) => range.trim()).every((range) => isCIDR(range))
     case 7:
       return true
     case 8:
@@ -171,7 +186,6 @@ export default function HomePage() {
   const data = useWizardStore((state) => state.data)
   const nodes = useWizardStore((state) => state.nodes)
   const localIpRanges = useWizardStore((state) => state.localIpRanges)
-  const vpnOnly = useWizardStore((state) => state.vpnOnly)
   const status = useWizardStore((state) => state.status)
   const deployStarted = useWizardStore((state) => state.deployStarted)
   const deployRunning = useWizardStore((state) => state.deployRunning)
@@ -183,6 +197,7 @@ export default function HomePage() {
   const [expertOpen, setExpertOpen] = useState(false)
   const [updateState, setUpdateState] = useState<'idle' | 'pulling' | 'restarting' | 'error'>('idle')
   const [updateError, setUpdateError] = useState('')
+  const [updateNotice, setUpdateNotice] = useState('')
   const reconnectingDeploymentIdRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -277,6 +292,7 @@ export default function HomePage() {
   const handleSelfUpdate = async () => {
     setUpdateState('pulling')
     setUpdateError('')
+    setUpdateNotice('')
     try {
       const result = await selfUpdate()
       if (!result.ok) {
@@ -284,18 +300,33 @@ export default function HomePage() {
         setUpdateState('error')
         return
       }
-      // Server is restarting — poll /api/status until it responds, then reload
+      // Nothing was pulled — the server does NOT restart in this case, so don't
+      // poll/reload. Surface a clear "already up to date" notice instead of silently
+      // reloading to an identical page (which looked like the button did nothing).
+      if (!result.updated) {
+        setUpdateNotice(result.message ?? 'Already up to date — nothing to pull.')
+        setUpdateState('idle')
+        return
+      }
+      // Server re-execs after self-update and regenerates its bearer token, so
+      // the old page's token is now stale. Poll the UNGATED /api/health (no token
+      // required) until the server is back, then hard-reload — the reload re-serves
+      // the page with the fresh token injected. (Polling a token-gated endpoint here
+      // would 401 forever and was why the button appeared to never finish.)
       setUpdateState('restarting')
       const poll = async () => {
         await new Promise((resolve) => setTimeout(resolve, 1500))
-        for (let attempt = 0; attempt < 30; attempt++) {
+        for (let attempt = 0; attempt < 40; attempt++) {
           try {
-            await getStatus()
-            window.location.reload()
-            return
+            const res = await fetch('/api/health', { cache: 'no-store' })
+            if (res.ok) {
+              window.location.reload()
+              return
+            }
           } catch {
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            // server still down — keep polling
           }
+          await new Promise((resolve) => setTimeout(resolve, 1000))
         }
         setUpdateError('Server did not come back in time — refresh manually.')
         setUpdateState('error')
@@ -323,8 +354,8 @@ export default function HomePage() {
   const restoreStepIndex = hasRestoreStep ? deployStepIndex - 1 : -1
 
   const canGoNext = useMemo(
-    () => isStepValid(currentStep, data, nodes, localIpRanges, vpnOnly, hasRestoreStep),
-    [currentStep, data, localIpRanges, nodes, vpnOnly, hasRestoreStep],
+    () => isStepValid(currentStep, data, nodes, localIpRanges, hasRestoreStep),
+    [currentStep, data, localIpRanges, nodes, hasRestoreStep],
   )
 
   const nextLabel =
@@ -403,6 +434,8 @@ export default function HomePage() {
           <div className="flex items-center gap-2">
             {updateState === 'error' ? (
               <span className="hidden max-w-[180px] truncate text-xs text-red-400 md:block" title={updateError}>{updateError}</span>
+            ) : updateNotice ? (
+              <span className="hidden max-w-[220px] truncate text-xs text-emerald-400 md:block" title={updateNotice}>{updateNotice}</span>
             ) : null}
             <ActionButton
               variant="secondary"

@@ -1,5 +1,5 @@
 "use client";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useSettingsContext } from "@/contexts/settings-context";
 
 export interface ArgoApp {
@@ -68,20 +68,4 @@ export function useArgoApps() {
     data: query.data?.apps ?? [],
     dataSource: query.data?.dataSource ?? null,
   } as typeof query & { data: ArgoApp[]; dataSource: ArgoAppsDataSource | null };
-}
-
-export function useSyncApp() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ name, hard }: { name: string; hard?: boolean }) => {
-      const res = await fetch(`/api/argocd/apps/${name}/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hard }),
-      });
-      if (!res.ok) throw new Error("Sync failed");
-      return res.json();
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["argocd", "apps"] }),
-  });
 }

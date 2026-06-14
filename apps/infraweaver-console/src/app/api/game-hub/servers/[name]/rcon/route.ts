@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { sanitizeConsoleCommand } from "@/lib/api-helpers";
+import { validateK8sName } from "@/lib/api-security";
 import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { appendServerAudit, isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
@@ -20,6 +21,8 @@ export async function POST(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { name } = await params;
+  const nameErr = validateK8sName(name);
+  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const access = await getGameHubAccessContext(session, 60);
   if (
     !hasGameHubPermission(

@@ -190,7 +190,6 @@ const GATUS_KEY_MAP: Record<string, string[]> = {
   argocd: ["argocd", "argo"],
   authentik: ["authentik", "sso"],
   grafana: ["grafana"],
-  netbird: ["netbird"],
   openbao: ["openbao", "vault"],
   longhorn: ["longhorn"],
   gatus: ["gatus"],
@@ -644,7 +643,6 @@ export default function DashboardPage() {
         >
           {platformApps.gatus ? <PlatformServiceCard name="Gatus" description="Endpoint monitoring" href="/health" icon={Activity} status={resolveStatus("gatus", endpoints)} /> : null}
           {platformApps.longhorn ? <PlatformServiceCard name="Longhorn" description="Distributed storage" href="/storage" icon={HardDrive} status={resolveStatus("longhorn", endpoints)} /> : null}
-          {platformApps.netbird ? <PlatformServiceCard name="NetBird" description="WireGuard overlay VPN" href="/network" icon={Network} status={resolveStatus("netbird", endpoints)} /> : null}
           {platformApps.openbao ? <PlatformServiceCard name="OpenBao" description="Secrets management" href="/security" icon={Shield} status={resolveStatus("openbao", endpoints)} /> : null}
           {platformApps.authentik ? <PlatformServiceCard name="Authentik" description="Identity & SSO" href="/security" icon={Users} status={resolveStatus("authentik", endpoints)} /> : null}
           {platformApps.grafana ? <PlatformServiceCard name="Grafana" description="Metrics & dashboards" href="/health" icon={BarChart3} status={resolveStatus("grafana", endpoints)} /> : null}

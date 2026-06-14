@@ -118,20 +118,6 @@ export interface CheckDnsProviderResponse {
   error?: string
 }
 
-export interface CheckNetbirdTokenResponse {
-  ok: boolean
-  status?: string
-  account_id?: string
-  management_url?: string
-  error?: string
-}
-
-export interface CatalogItemResponse {
-  ok: boolean
-  items?: Array<Record<string, string>>
-  error?: string
-}
-
 export interface GetKubeconfigResponse {
   ok: boolean
   kubeconfig?: string
@@ -157,6 +143,13 @@ export interface CleanupInitResponse {
 
 export interface SelfUpdateResponse {
   ok: boolean
+  updated?: boolean
+  sha?: string
+  oldSha?: string
+  newSha?: string
+  message?: string
+  changelog?: string[]
+  initRebuilt?: boolean
   output?: string
   error?: string
 }
@@ -238,6 +231,17 @@ export async function loadEnv() {
 
 export async function detectSubnet() {
   return fetchJson<DetectSubnetResponse>('/api/detect-subnet', { method: 'GET', headers: {} })
+}
+
+export interface DetectPublicIpResponse {
+  ok: boolean
+  ip?: string
+  source?: string
+  error?: string
+}
+
+export async function detectPublicIp() {
+  return fetchJson<DetectPublicIpResponse>('/api/detect-public-ip', { method: 'GET', headers: {} })
 }
 
 export async function pingCheck(ip: string) {
@@ -323,17 +327,6 @@ export async function checkDnsProvider(provider: string, credentials: Record<str
     method: 'POST',
     body: JSON.stringify({ provider, ...credentials }),
   })
-}
-
-export async function checkNetbirdToken(token: string, baseDomain: string) {
-  return fetchJson<CheckNetbirdTokenResponse>('/api/check-netbird-token', {
-    method: 'POST',
-    body: JSON.stringify({ token, base_domain: baseDomain }),
-  })
-}
-
-export async function getCatalogItems() {
-  return fetchJson<CatalogItemResponse>('/api/catalog-items', { method: 'GET', headers: {} })
 }
 
 export async function getKubeconfig() {

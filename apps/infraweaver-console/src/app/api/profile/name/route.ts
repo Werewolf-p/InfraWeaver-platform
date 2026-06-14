@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { findUserByEmail, authentikFetch } from "@/lib/authentik";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { z } from "zod";
+import { withRoute } from "@/lib/route-utils";
 
 const UpdateNameBody = z.object({
   newName: z.string().trim().min(1).max(120),
 });
 
-export async function PATCH(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const PATCH = withRoute(null, async (req: NextRequest, session) => {
   if (!checkRateLimit(rateLimitKey("profile-name", req), 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -37,4 +35,4 @@ export async function PATCH(req: NextRequest) {
   });
 
   return NextResponse.json({ ok: true });
-}
+});

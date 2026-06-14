@@ -18,6 +18,7 @@ export function SimpleModeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const stored = localStorage.getItem("infraweaver-simple-mode");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     if (stored === "true") setSimpleModeState(true);
   }, []);
 

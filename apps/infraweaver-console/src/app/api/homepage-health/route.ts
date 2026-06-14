@@ -1,19 +1,12 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { getHomepageServiceHealthMap } from "@/lib/homepage-health";
 import { safeError } from "@/lib/utils";
+import { withRoute } from "@/lib/route-utils";
 
-function getErrorMessage(error: unknown) {
-  return safeError(error);
-}
-
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withRoute(null, async () => {
   try {
     return NextResponse.json(await getHomepageServiceHealthMap());
   } catch (error) {
-    return NextResponse.json({ error: getErrorMessage(error) }, { status: 503 });
+    return NextResponse.json({ error: safeError(error) }, { status: 503 });
   }
-}
+});

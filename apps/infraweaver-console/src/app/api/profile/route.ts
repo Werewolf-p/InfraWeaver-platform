@@ -1,11 +1,8 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse, NextRequest } from "next/server";
 import { findUserByEmail } from "@/lib/authentik";
+import { withRoute } from "@/lib/route-utils";
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withRoute(null, async (_req: NextRequest, session) => {
   const email = (session.user as { email?: string }).email ?? "";
   const user = await findUserByEmail(email);
 
@@ -14,4 +11,4 @@ export async function GET() {
     email: user?.email ?? email,
     groups: user?.groups_obj?.map((g: { name: string }) => g.name) ?? [],
   });
-}
+});

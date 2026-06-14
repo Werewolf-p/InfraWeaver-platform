@@ -1,4 +1,5 @@
 import "server-only";
+import { signHmac } from "@/lib/hmac";
 import type {
   AutomationCatalog,
   Pipeline,
@@ -25,7 +26,11 @@ import type {
  * the editor degrades to read-only instead of throwing.
  */
 const DISPATCH_URL = process.env.DISPATCH_URL;
+const DISPATCH_SECRET = process.env.DISPATCH_SECRET;
 const MISSING = "dispatch service not configured (DISPATCH_URL)";
+// Mutation routes on the dispatch service require an HMAC signature (see hmac.ts
+// for the canonical scheme). Sign these the same way feedback-dispatch.ts does.
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 // Quick config reads; the GitHub-backed library refresh is allowed longer.
 const QUICK_TIMEOUT_MS = 15_000;
 const REFRESH_TIMEOUT_MS = 60_000;
@@ -61,8 +66,19 @@ async function call(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const method = (init.method ?? "GET").toUpperCase();
+    const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
+    // Sign mutation requests over the EXACT body bytes we send (empty string when
+    // there is no body, matching the dispatch verifier's raw-body handling).
+    if (DISPATCH_SECRET && MUTATION_METHODS.has(method)) {
+      const rawBody = typeof init.body === "string" ? init.body : "";
+      const timestamp = String(Date.now());
+      headers["X-IW-Timestamp"] = timestamp;
+      headers["X-IW-Signature"] = signHmac(`${timestamp}.${rawBody}`, DISPATCH_SECRET);
+    }
     const res = await fetch(new URL(pathname, DISPATCH_URL), {
       ...init,
+      headers,
       signal: controller.signal,
     });
     const payload = await res.json().catch(() => null);

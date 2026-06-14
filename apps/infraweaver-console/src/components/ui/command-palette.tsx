@@ -84,6 +84,7 @@ export function CommandPalette() {
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setQuery("");
       setActiveIndex(0);
       setRecentHrefs(getRecent());
@@ -91,6 +92,7 @@ export function CommandPalette() {
     }
   }, [open]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
   useEffect(() => { setActiveIndex(0); }, [query]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -70,7 +70,7 @@ if [ -z "$EXISTING_ONEDEV" ]; then
     -H "Content-Type: application/json" \
     -d "{\"data\":{\"admin-password\":\"${ONEDEV_PASS}\"}}" > /dev/null
   echo "==> OneDev admin password created (auto-generated)"
-  echo "    Login at https://onedev.int.rlservers.com with user 'admin' and the generated password"
+  echo "    Login at https://onedev.int.example.com with user 'admin' and the generated password"
   echo "    Retrieve: bao kv get secret/platform/onedev"
 else
   echo "==> OneDev secret already configured — preserving"

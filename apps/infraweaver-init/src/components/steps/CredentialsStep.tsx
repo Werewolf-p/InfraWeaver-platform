@@ -16,26 +16,33 @@ import {
   WandSparkles,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { checkDnsProvider, checkNetbirdToken, generateSshKey } from '@/lib/api'
+import { checkDnsProvider, generateSshKey } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { FormField } from '@/components/ui/FormField'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StepHeader } from '@/components/ui/StepHeader'
 import { useWizardStore, type DnsProvider } from '@/lib/store'
-import { controlClassName, fadeUpItem, isEmail, staggerContainer, textareaClassName } from '@/lib/utils'
+import { controlClassName, fadeUpItem, generatePassword, isEmail, staggerContainer, textareaClassName } from '@/lib/utils'
 
 function SecretInput({
   id,
   value,
   onChange,
   placeholder,
+  allowGenerate = false,
 }: {
   id: string
   value: string
   onChange: (value: string) => void
   placeholder: string
+  allowGenerate?: boolean
 }) {
   const [visible, setVisible] = useState(false)
+
+  const handleGenerate = () => {
+    onChange(generatePassword(24))
+    setVisible(true)
+  }
 
   return (
     <div className="relative">
@@ -45,15 +52,27 @@ function SecretInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className={`${controlClassName} pr-12`}
+        className={`${controlClassName} ${allowGenerate ? 'pr-20' : 'pr-12'}`}
       />
-      <button
-        type="button"
-        onClick={() => setVisible((current) => !current)}
-        className="absolute inset-y-0 right-0 inline-flex w-12 items-center justify-center text-[var(--az-text-secondary)] transition hover:text-white"
-      >
-        {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </button>
+      <div className="absolute inset-y-0 right-0 flex items-center">
+        {allowGenerate ? (
+          <button
+            type="button"
+            onClick={handleGenerate}
+            title="Generate a strong random password"
+            className="inline-flex w-10 items-center justify-center text-[var(--az-text-secondary)] transition hover:text-white"
+          >
+            <WandSparkles className="h-4 w-4" />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => setVisible((current) => !current)}
+          className="inline-flex w-12 items-center justify-center text-[var(--az-text-secondary)] transition hover:text-white"
+        >
+          {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
     </div>
   )
 }
@@ -63,12 +82,10 @@ export function CredentialsStep() {
   const loading = useWizardStore((state) => state.loading)
   const generatedPublicKey = useWizardStore((state) => state.generatedPublicKey)
   const dnsProviderCheck = useWizardStore((state) => state.dnsProviderCheck)
-  const netbirdTokenCheck = useWizardStore((state) => state.netbirdTokenCheck)
   const setField = useWizardStore((state) => state.setField)
   const setLoading = useWizardStore((state) => state.setLoading)
   const setGeneratedPublicKey = useWizardStore((state) => state.setGeneratedPublicKey)
   const setDnsProviderCheck = useWizardStore((state) => state.setDnsProviderCheck)
-  const setNetbirdTokenCheck = useWizardStore((state) => state.setNetbirdTokenCheck)
   const autofillRepoUrl = useWizardStore((state) => state.autofillRepoUrl)
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
@@ -126,18 +143,6 @@ export function CredentialsStep() {
   const handleProviderChange = (value: DnsProvider) => {
     setField('DNS_PROVIDER', value)
     setDnsProviderCheck(null)
-  }
-
-  const handleCheckNetbirdToken = async () => {
-    setLoading("checkNetbird", true)
-    try {
-      const result = await checkNetbirdToken(data.NETBIRD_API_TOKEN, data.BASE_DOMAIN)
-      setNetbirdTokenCheck(result)
-    } catch (err) {
-      setNetbirdTokenCheck({ ok: false, error: err instanceof Error ? err.message : "Validation failed" })
-    } finally {
-      setLoading("checkNetbird", false)
-    }
   }
 
   return (
@@ -321,7 +326,7 @@ export function CredentialsStep() {
               <input id="SMTP_USERNAME" type="email" value={data.SMTP_USERNAME} onChange={(event) => setField('SMTP_USERNAME', event.target.value)} placeholder="you@outlook.com" className={controlClassName} />
             </FormField>
             <FormField label="SMTP_PASSWORD" htmlFor="SMTP_PASSWORD" required>
-              <SecretInput id="SMTP_PASSWORD" value={data.SMTP_PASSWORD} onChange={(value) => setField('SMTP_PASSWORD', value)} placeholder="app password" />
+              <SecretInput id="SMTP_PASSWORD" value={data.SMTP_PASSWORD} onChange={(value) => setField('SMTP_PASSWORD', value)} placeholder="app password" allowGenerate />
             </FormField>
             <FormField label="SMTP_TO" htmlFor="SMTP_TO" error={data.SMTP_TO && !isEmail(data.SMTP_TO) ? 'Use a valid destination email address.' : undefined} hint="Alert and deployment summary emails land here. Defaults to the admin email.">
               <input id="SMTP_TO" type="email" value={data.SMTP_TO} onChange={(event) => setField('SMTP_TO', event.target.value)} placeholder="alerts@yourdomain.com" className={controlClassName} />
@@ -350,26 +355,6 @@ export function CredentialsStep() {
                 placeholder="owner/repo"
                 className={controlClassName}
               />
-            </FormField>
-            <FormField label="NETBIRD_API_TOKEN" htmlFor="NETBIRD_API_TOKEN" hint="Personal Access Token for NetBird — manage peers and rotate setup keys during deploys." className="md:col-span-2">
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <SecretInput id="NETBIRD_API_TOKEN" value={data.NETBIRD_API_TOKEN} onChange={(value) => { setField('NETBIRD_API_TOKEN', value); setNetbirdTokenCheck(null) }} placeholder="nbp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-                </div>
-                {data.NETBIRD_API_TOKEN && (
-                  <ActionButton variant="ghost" onClick={() => void handleCheckNetbirdToken()} disabled={loading.checkNetbird}>
-                    {loading.checkNetbird ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                    Verify
-                  </ActionButton>
-                )}
-              </div>
-              {netbirdTokenCheck && (
-                <div className={`mt-2 rounded-xl border px-3 py-2 text-sm ${netbirdTokenCheck.ok ? 'border-[rgba(87,163,0,0.25)] bg-[rgba(87,163,0,0.08)] text-[var(--az-success)]' : 'border-[rgba(209,52,56,0.25)] bg-[rgba(209,52,56,0.08)] text-[var(--az-danger)]'}`}>
-                  {netbirdTokenCheck.ok
-                    ? `Valid · account ${netbirdTokenCheck.account_id ?? ''} · ${netbirdTokenCheck.management_url ?? ''}`
-                    : netbirdTokenCheck.error ?? 'Validation failed'}
-                </div>
-              )}
             </FormField>
             <FormField label="GITHUB_PAT" htmlFor="GITHUB_PAT" className="md:col-span-2" hint="Optional personal access token for GitHub Actions integration.">
               <SecretInput id="GITHUB_PAT" value={data.GITHUB_PAT} onChange={(value) => setField('GITHUB_PAT', value)} placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />

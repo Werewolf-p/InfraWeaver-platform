@@ -1,5 +1,4 @@
 import {
-  createPrivateKey,
   createPublicKey,
   createSign,
   createVerify,
@@ -26,10 +25,6 @@ export function exportPrivateKey(kp: KeyPair): string {
 
 export function importPublicKey(base64: string): KeyObject {
   return createPublicKey({ key: Buffer.from(base64, 'base64'), format: 'der', type: 'spki' })
-}
-
-export function importPrivateKey(pem: string): KeyObject {
-  return createPrivateKey({ key: pem, format: 'pem' })
 }
 
 export function signFrame(message: string, privateKey: KeyObject): string {

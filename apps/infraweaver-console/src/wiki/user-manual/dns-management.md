@@ -17,7 +17,7 @@ InfraWeaver uses two practical DNS zones:
 
 ### Internal DNS — `*.int.example.com`
 
-Internal records are intended for trusted access paths such as NetBird-connected clients, internal dashboards, and private game endpoints.
+Internal records are intended for trusted access paths such as VPN-connected clients, internal dashboards, and private game endpoints.
 
 Use internal DNS when:
 

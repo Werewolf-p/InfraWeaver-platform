@@ -30,11 +30,9 @@ export const fadeUpItem = {
 }
 
 export const controlClassName =
-  'w-full rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-[var(--az-text)] placeholder:text-[var(--az-text-secondary)] shadow-inner shadow-black/20 outline-none transition focus:border-[var(--az-primary)] focus:ring-2 focus:ring-[rgba(0,120,212,0.25)] disabled:cursor-not-allowed disabled:opacity-50'
+  'w-full rounded-[var(--az-radius-sm)] border border-[var(--az-border)] bg-[var(--az-control-bg)] px-4 py-2.5 text-sm text-[var(--az-text)] placeholder:text-[var(--az-text-tertiary)] outline-none transition-all duration-150 focus:border-[var(--az-border-focus)] focus:bg-[var(--az-control-bg-focus)] focus:ring-2 focus:ring-[var(--az-primary-dim)] disabled:cursor-not-allowed disabled:opacity-40'
 
 export const textareaClassName = cn(controlClassName, 'min-h-32 resize-y font-mono text-xs leading-6')
-
-export const smallMutedTextClassName = 'text-xs leading-5 text-[var(--az-text-secondary)]'
 
 const ipv4Segment = '(25[0-5]|2[0-4]\\d|1?\\d?\\d)'
 const ipv4Regex = new RegExp(`^${ipv4Segment}(\\.${ipv4Segment}){3}$`)
@@ -99,4 +97,31 @@ export function classifyLog(text: string) {
   if (/✗|error|fail|FAIL/i.test(text)) return 'err' as const
   if (/^==>|^\[|Step \d/i.test(text)) return 'step' as const
   return 'info' as const
+}
+
+/**
+ * True when the value is an RFC1918 private, loopback, or link-local IPv4.
+ * Used to warn when a non-public address is entered as PUBLIC_INGRESS_IP.
+ */
+export function isPrivateIPv4(value: string): boolean {
+  const trimmed = value.trim()
+  if (!isIPv4(trimmed)) return false
+  const [a, b] = trimmed.split('.').map(Number)
+  if (a === 10) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a === 127) return true
+  if (a === 169 && b === 254) return true
+  return false
+}
+
+/**
+ * Generate a cryptographically-random password from an unambiguous charset
+ * (no look-alike characters). Uses the Web Crypto API.
+ */
+export function generatePassword(length = 24): string {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*-_'
+  const values = new Uint32Array(length)
+  crypto.getRandomValues(values)
+  return Array.from(values, (n) => charset[n % charset.length]).join('')
 }

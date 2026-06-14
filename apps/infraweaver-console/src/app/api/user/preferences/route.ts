@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 import { getUserPreferences, updateUserPreferences } from "@/lib/user-preferences-server";
+import { withRoute } from "@/lib/route-utils";
 
 const dashboardLayoutSchema = z.object({
   widgets: z.record(z.string(), z.boolean()).optional(),
@@ -33,10 +33,7 @@ const updatePreferencesSchema = z.object({
   message: "No preferences provided",
 });
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withRoute(null, async (_req: NextRequest, session) => {
   try {
     const { preferences } = await getUserPreferences(session);
     return NextResponse.json(preferences);
@@ -46,12 +43,9 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+});
 
-export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const PUT = withRoute(null, async (req: NextRequest, session) => {
   if (!checkRateLimit(rateLimitKey("user-preferences-put", req), 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -70,6 +64,6 @@ export async function PUT(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+});
 
 export const POST = PUT;

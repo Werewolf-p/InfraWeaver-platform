@@ -19,14 +19,20 @@ interface Props {
 export function HistoryDrawer({ username, open, onClose }: Props) {
   const [events, setEvents] = useState<LoginEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setLoading(true);
+    setError(null);
     fetch(`/api/users/${username}/history`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((d) => setEvents(d.events ?? []))
-      .catch(() => {})
+      .catch(() => setError("Failed to load login history"))
       .finally(() => setLoading(false));
   }, [open, username]);
 
@@ -50,6 +56,8 @@ export function HistoryDrawer({ username, open, onClose }: Props) {
             <div className="space-y-3">
               {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12" />)}
             </div>
+          ) : error ? (
+            <div className="py-12 text-center text-red-400 text-sm">{error}</div>
           ) : events.length === 0 ? (
             <div className="py-12 text-center text-slate-500 text-sm">No login history</div>
           ) : (

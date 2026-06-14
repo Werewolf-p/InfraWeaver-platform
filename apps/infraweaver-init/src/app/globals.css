@@ -1,17 +1,77 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ─── Design tokens ─────────────────────────────────────────────────── */
 :root {
-  --az-bg: #0f0f0f;
-  --az-surface: #1a1a1a;
-  --az-card: #262626;
-  --az-border: #333333;
-  --az-primary: #0078d4;
-  --az-text: #f2f2f2;
-  --az-text-secondary: #9e9e9e;
-  --az-success: #57a300;
-  --az-warning: #d47500;
-  --az-danger: #d13438;
+  /* Backgrounds */
+  --az-bg: #0a0a0f;
+  --az-bg-secondary: #111118;
+  --az-surface: #16161e;
+  --az-surface-raised: #1c1c26;
+  --az-card: #20202c;
+  --az-card-hover: #252533;
+
+  /* Borders */
+  --az-border: rgba(255, 255, 255, 0.08);
+  --az-border-hover: rgba(255, 255, 255, 0.16);
+  --az-border-focus: rgba(0, 120, 212, 0.70);
+
+  /* Brand / accent */
+  --az-primary: #3b9eff;
+  --az-primary-dim: rgba(59, 158, 255, 0.18);
+  --az-primary-glow: rgba(59, 158, 255, 0.30);
+
+  /* Semantic colours */
+  --az-success: #4cc764;
+  --az-success-dim: rgba(76, 199, 100, 0.16);
+  --az-warning: #f5a623;
+  --az-warning-dim: rgba(245, 166, 35, 0.14);
+  --az-danger: #f2504b;
+  --az-danger-dim: rgba(242, 80, 75, 0.14);
+
+  /* Text */
+  --az-text: #eeeef2;
+  --az-text-secondary: #8b8b9e;
+  --az-text-tertiary: #5a5a6e;
+
+  /* Misc */
+  --az-radius-sm: 10px;
+  --az-radius: 14px;
+  --az-radius-lg: 20px;
+  --az-radius-xl: 28px;
+
+  /* Control (input) surface */
+  --az-control-bg: rgba(0, 0, 0, 0.30);
+  --az-control-bg-focus: rgba(0, 0, 0, 0.40);
+}
+
+/* ─── Light mode override (system preference) ───────────────────────── */
+@media (prefers-color-scheme: light) {
+  :root {
+    --az-bg: #f4f5f9;
+    --az-bg-secondary: #ecedf3;
+    --az-surface: #ffffff;
+    --az-surface-raised: #f8f9fc;
+    --az-card: #ffffff;
+    --az-card-hover: #f2f3f8;
+    --az-border: rgba(0, 0, 0, 0.10);
+    --az-border-hover: rgba(0, 0, 0, 0.20);
+    --az-border-focus: rgba(0, 100, 200, 0.55);
+    --az-primary: #0064c8;
+    --az-primary-dim: rgba(0, 100, 200, 0.10);
+    --az-primary-glow: rgba(0, 100, 200, 0.20);
+    --az-success: #1d8a3a;
+    --az-success-dim: rgba(29, 138, 58, 0.10);
+    --az-warning: #c47800;
+    --az-warning-dim: rgba(196, 120, 0, 0.10);
+    --az-danger: #c8312e;
+    --az-danger-dim: rgba(200, 49, 46, 0.10);
+    --az-text: #111118;
+    --az-text-secondary: #52526a;
+    --az-text-tertiary: #8b8ba4;
+    --az-control-bg: rgba(0, 0, 0, 0.04);
+    --az-control-bg-focus: rgba(0, 0, 0, 0.06);
+  }
 }
 
 html,
@@ -32,13 +92,13 @@ body {
 }
 
 *::selection {
-  background: rgba(0, 120, 212, 0.3);
+  background: var(--az-primary-dim);
   color: var(--az-text);
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-track {
@@ -47,16 +107,27 @@ body {
 
 *::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.10);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.20);
 }
 
+/* WCAG AA focus ring — high-contrast blue with white offset */
 *:focus-visible {
-  outline: 2px solid rgba(0, 120, 212, 0.65);
-  outline-offset: 2px;
+  outline: 2px solid var(--az-primary);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @keyframes logo-flicker {

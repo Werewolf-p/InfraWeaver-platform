@@ -154,6 +154,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       g.items.some(i => pathname === i.href || (i.href !== "/" && pathname.startsWith(i.href)))
     )?.id;
     if (activeGroupId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setOpenGroups(prev => {
         if (prev[activeGroupId]) return prev; // bail out — avoid creating a new object when nothing changes
         return { ...prev, [activeGroupId]: true };
@@ -219,6 +220,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setCountdown(prev => {
         if (prev <= 1) {
           clearInterval(tick);
+          // Session has expired — dismiss the modal so it doesn't stay stuck at
+          // 00:00; the unauthenticated effect handles the redirect to sign-in.
+          setSessionWarning(false);
           return 0;
         }
         return prev - 1;

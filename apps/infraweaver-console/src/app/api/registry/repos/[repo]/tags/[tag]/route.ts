@@ -1,23 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 import { getRegistryConfig, getManifestDigest, deleteManifest } from "@/lib/registry";
+import { withRoute } from "@/lib/route-utils";
 
 // Registry repo paths may contain slashes (e.g. "infraweaver/console")
 const SAFE_REPO_RE = /^[a-z0-9][a-z0-9/_.-]*$/;
 // Tag names allow alphanumeric, dots, dashes, underscores
 const SAFE_TAG_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ repo: string; tag: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "config:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const DELETE = withRoute("config:write", async (req: NextRequest, _session, _access, ctx) => {
+  const { params } = ctx;
   if (!checkRateLimit(rateLimitKey("registry-delete", req), 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -46,4 +39,4 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ r
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

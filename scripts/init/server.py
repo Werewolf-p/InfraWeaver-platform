@@ -112,7 +112,7 @@ DNS_ENV_FIELDS = [
 ]
 
 OPTIONAL_ENV_FIELDS = [
-    "SMTP_TO", "NETBIRD_API_TOKEN", "GITHUB_PAT",
+    "SMTP_TO", "GITHUB_PAT",
     "RUNNER_REGISTRATION_TOKEN", "ENV_NAME", "LETSENCRYPT_ENV"
 ]
 
@@ -148,7 +148,6 @@ CLUSTER_DEFAULTS = {
 # Infrastructure VIP and admin fields
 INFRA_ENV_FIELDS = [
     "METALLB_VIP_RANGE", "METALLB_TRAEFIK_VIP", "METALLB_COREDNS_VIP",
-    "METALLB_NETBIRD_MGMT_VIP", "METALLB_NETBIRD_SIGNAL_VIP", "METALLB_NETBIRD_RELAY_VIP",
     "CLUSTER_LOCAL_DOMAIN", "ADMIN_USERNAME", "ADMIN_NAME",
 ]
 
@@ -156,9 +155,6 @@ INFRA_DEFAULTS = {
     "METALLB_VIP_RANGE": "10.10.0.200-10.10.0.210",
     "METALLB_TRAEFIK_VIP": "10.10.0.200",
     "METALLB_COREDNS_VIP": "10.10.0.201",
-    "METALLB_NETBIRD_MGMT_VIP": "10.10.0.202",
-    "METALLB_NETBIRD_SIGNAL_VIP": "10.10.0.203",
-    "METALLB_NETBIRD_RELAY_VIP": "10.10.0.204",
     "CLUSTER_LOCAL_DOMAIN": "prod.local",
     "ADMIN_USERNAME": "admin",
     "ADMIN_NAME": "Platform Admin",
@@ -166,7 +162,7 @@ INFRA_DEFAULTS = {
 
 # Feature flag fields — written to .env and read by configure-platform.sh
 FEATURE_ENV_FIELDS = [
-    "ENABLE_NETBIRD", "ENABLE_MONITORING", "MONITORING_STACK", "ENABLE_EXTERNAL_DNS", "BACKUP_PROVIDER",
+    "ENABLE_MONITORING", "MONITORING_STACK", "ENABLE_EXTERNAL_DNS", "BACKUP_PROVIDER",
     "ENABLE_WAZUH", "ENABLE_LONGHORN", "ENABLE_KYVERNO", "ENABLE_GRAFANA",
     "ENABLE_LOKI", "ENABLE_AUTHENTIK_LDAP",
     "LOCAL_IP_RANGES",
@@ -174,7 +170,6 @@ FEATURE_ENV_FIELDS = [
 
 # Default values for feature flags
 FEATURE_DEFAULTS = {
-    "ENABLE_NETBIRD": "false",
     "ENABLE_MONITORING": "true",
     "MONITORING_STACK": "kube-prometheus-stack",
     "ENABLE_EXTERNAL_DNS": "false",
@@ -227,6 +222,30 @@ def _detect_local_subnets() -> list:
     except Exception:
         pass
     return subnets
+
+
+def _detect_public_ip() -> Dict:
+    """Detect the public egress IPv4 by querying external echo services.
+
+    Tries several providers in order with a short timeout and returns the
+    first valid IPv4. Never raises — returns {"ok": False, "error": ...}
+    when no upstream service is reachable (e.g. LAN-only / air-gapped host).
+    """
+    services = (
+        "https://api.ipify.org",
+        "https://ifconfig.me/ip",
+        "https://icanhazip.com",
+    )
+    for url in services:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "curl/8"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                ip = resp.read().decode("utf-8", "replace").strip()
+            if _is_valid_ipv4(ip):
+                return {"ok": True, "ip": ip, "source": url}
+        except Exception:
+            continue
+    return {"ok": False, "error": "Could not determine public IP — no upstream service reachable"}
 
 
 def _ip_to_int(ip: str) -> int:
@@ -291,9 +310,6 @@ def _suggest_vips(gateway: str, prefix: int) -> Dict:
         vip_names = [
             ("METALLB_TRAEFIK_VIP",        "Traefik ingress"),
             ("METALLB_COREDNS_VIP",         "CoreDNS"),
-            ("METALLB_NETBIRD_MGMT_VIP",    "NetBird management"),
-            ("METALLB_NETBIRD_SIGNAL_VIP",  "NetBird signal"),
-            ("METALLB_NETBIRD_RELAY_VIP",   "NetBird relay"),
         ]
 
         # Compute IPs; fall back to broadcast-N if they exceed broadcast
@@ -932,47 +948,6 @@ def _generate_ssh_key() -> Dict:
 
 
 
-def _check_netbird_token(token: str, base_domain: str) -> Dict:
-    import urllib.request
-    import urllib.error
-
-    token = token.strip()
-    base_domain = (base_domain or "").strip().rstrip(".")
-    if not token:
-        return {"ok": False, "error": "No NetBird API token provided"}
-    if not base_domain:
-        return {"ok": False, "error": "BASE_DOMAIN not set — cannot resolve NetBird management URL"}
-
-    management_url = f"https://api-netbird.{base_domain}/api/accounts"
-    req = urllib.request.Request(management_url, headers={"Authorization": f"Token {token}"})
-    try:
-        with urllib.request.urlopen(req, context=_proxmox_context(), timeout=10) as resp:
-            body = json.loads(resp.read())
-        accounts = body if isinstance(body, list) else []
-        account_id = accounts[0].get("id", "unknown") if accounts else "unknown"
-        return {
-            "ok": True,
-            "status": "active",
-            "account_id": account_id,
-            "management_url": management_url,
-        }
-    except urllib.error.HTTPError as exc:
-        status = exc.code
-        try:
-            msg = json.loads(exc.read()).get("message", exc.reason)
-        except Exception:
-            msg = exc.reason
-        if status == 401:
-            return {"ok": False, "error": f"Token rejected (HTTP 401) — check NETBIRD_API_TOKEN at {management_url}"}
-        if status == 403:
-            return {"ok": False, "error": f"Token lacks permissions (HTTP 403) at {management_url}: {msg}"}
-        if status == 404:
-            return {"ok": False, "error": f"NetBird management API not found at {management_url} (HTTP 404) — check BASE_DOMAIN and that NetBird is deployed"}
-        return {"ok": False, "error": f"NetBird API returned HTTP {status}: {msg}"}
-    except Exception as exc:
-        return {"ok": False, "error": f"Cannot reach NetBird management API at {management_url}: {exc}"}
-
-
 def _normalize_dns_provider(provider: str) -> str:
     provider = (provider or "cloudflare").strip().lower()
     return provider if provider in DNS_PROVIDER_FIELDS else "cloudflare"
@@ -1278,6 +1253,58 @@ def _detect_init_vm_id() -> Optional[int]:
     return None
 
 
+def _cleanup_init_server(stop_server: bool) -> Dict:
+    """Tear down the one-shot init environment after a successful deploy.
+
+    Removes /tmp/iw-* scratch artifacts and, when running inside the init VM,
+    stops and purges that VM via the Proxmox API. ``stop_server`` is echoed
+    back in the result so the caller (/api/cleanup-init) knows whether to
+    shut the init HTTP server down afterwards.
+    """
+    env = _parse_env_file(ENV_FILE)
+    vm_id = _detect_init_vm_id()
+
+    try:
+        for candidate in Path("/tmp").glob("iw-*"):
+            if candidate.is_dir():
+                shutil.rmtree(candidate, ignore_errors=True)
+            else:
+                try:
+                    candidate.unlink()
+                except FileNotFoundError:
+                    pass
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to remove temporary files: {e}"}
+
+    if vm_id is not None:
+        host = env.get("PROXMOX_HOST", "").strip()
+        token = env.get("PROXMOX_API_TOKEN", "").strip()
+        if not host or not token:
+            return {"ok": False, "error": "Detected the init VM but PROXMOX_HOST or PROXMOX_API_TOKEN is missing from .env"}
+
+        node_name = env.get("PROXMOX_NODE_NAME", "").strip() or _find_proxmox_vm_node(host, token, vm_id)
+        if not node_name:
+            return {"ok": False, "error": f"Unable to determine the Proxmox node for VM {vm_id}"}
+
+        try:
+            try:
+                _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}/status/stop", method="POST")
+            except Exception:
+                pass
+
+            for _ in range(15):
+                status = _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}/status/current") or {}
+                if status.get("status") != "running":
+                    break
+                time.sleep(2)
+
+            _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}?purge=1", method="DELETE")
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to remove init VM {vm_id}: {e}"}
+
+    return {"ok": True, "vmId": vm_id, "stopServer": stop_server}
+
+
 def _platform_version() -> Dict:
     """Return current and remote commit SHA with pending changelog."""
     try:
@@ -1344,51 +1371,6 @@ def _self_update() -> Dict:
             return {"ok": True, "updated": True, "output": raw}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
-
-
-
-    env = _parse_env_file(ENV_FILE)
-    vm_id = _detect_init_vm_id()
-
-    try:
-        for candidate in Path("/tmp").glob("iw-*"):
-            if candidate.is_dir():
-                shutil.rmtree(candidate, ignore_errors=True)
-            else:
-                try:
-                    candidate.unlink()
-                except FileNotFoundError:
-                    pass
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to remove temporary files: {e}"}
-
-    if vm_id is not None:
-        host = env.get("PROXMOX_HOST", "").strip()
-        token = env.get("PROXMOX_API_TOKEN", "").strip()
-        if not host or not token:
-            return {"ok": False, "error": "Detected the init VM but PROXMOX_HOST or PROXMOX_API_TOKEN is missing from .env"}
-
-        node_name = env.get("PROXMOX_NODE_NAME", "").strip() or _find_proxmox_vm_node(host, token, vm_id)
-        if not node_name:
-            return {"ok": False, "error": f"Unable to determine the Proxmox node for VM {vm_id}"}
-
-        try:
-            try:
-                _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}/status/stop", method="POST")
-            except Exception:
-                pass
-
-            for _ in range(15):
-                status = _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}/status/current") or {}
-                if status.get("status") != "running":
-                    break
-                time.sleep(2)
-
-            _proxmox_json_request(host, token, f"/nodes/{node_name}/qemu/{vm_id}?purge=1", method="DELETE")
-        except Exception as e:
-            return {"ok": False, "error": f"Failed to remove init VM {vm_id}: {e}"}
-
-    return {"ok": True, "vmId": vm_id, "stopServer": stop_server}
 
 
 def _sse_json(payload: Dict) -> str:
@@ -1459,7 +1441,6 @@ def _run_deploy(mode: str, deployment_id: int):
         ("Bootstrap OpenBao", 65, "Bootstrapping OpenBao"),
         ("Ensuring DNS records", 70, "Configuring DNS"),
         ("Apply MetalLB", 75, "Applying MetalLB"),
-        ("Reconnect NetBird", 80, "NetBird reconnect"),
         ("Patch cluster CoreDNS", 82, "Patching CoreDNS"),
         ("Configure certificate", 85, "TLS certificates"),
         ("Set Authentik admin", 90, "Configuring Authentik"),
@@ -1573,12 +1554,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             super().log_message(fmt, *args)
 
+    def _cors_origin(self):
+        """Return a safe Access-Control-Allow-Origin value, or None.
+
+        The init server serves its own UI from the same origin, so cross-origin
+        access is only ever expected from a local browser. Reflecting an
+        arbitrary Origin (or using "*") on these credential-serving endpoints
+        would let any web page the operator visits read SSH keys / cloud tokens.
+        Restrict to loopback origins only.
+        """
+        origin = self.headers.get("Origin")
+        if not origin:
+            return None
+        try:
+            host = urllib.parse.urlparse(origin).hostname
+        except ValueError:
+            return None
+        return origin if host in ("localhost", "127.0.0.1", "::1") else None
+
+    def _set_cors(self):
+        origin = self._cors_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+
     def _send_json(self, data: dict, status: int = 200):
         body = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._set_cors()
         self.end_headers()
         self.wfile.write(body)
 
@@ -1597,13 +1602,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             mime_type = f"{mime_type}; charset=utf-8"
         self.send_response(200)
         self.send_header("Content-Type", mime_type)
+        if path.suffix.lower() in (".html", ".htm"):
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._set_cors()
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
@@ -1649,6 +1656,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/detect-subnet":
             subnets = _detect_local_subnets()
             self._send_json({"ok": True, "subnets": subnets})
+            return
+
+        if path == "/api/detect-public-ip":
+            self._send_json(_detect_public_ip())
             return
 
         if path == "/api/ping-check":
@@ -1715,7 +1726,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     {"name": "onedev-data", "label": "OneDev", "icon": "🧑‍💻"},
                     {"name": "vaultwarden-data", "label": "Vaultwarden", "icon": "🔑"},
                     {"name": "n8n-data", "label": "n8n", "icon": "🔄"},
-                    {"name": "netbird-management-data", "label": "NetBird", "icon": "🌐"},
                     {"name": "minio-velero-data", "label": "MinIO", "icon": "🪣"},
                     {"name": "data-wiki-postgresql-0", "label": "Wiki.js", "icon": "📚"},
                 ],
@@ -1762,7 +1772,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self._set_cors()
             self.end_headers()
 
             try:
@@ -1853,7 +1863,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/self-update":
             result = _self_update()
             self._send_json(result)
-            if result.get("ok"):
+            # Only re-exec when new commits were actually pulled. Restarting on a
+            # no-op ("Already up to date") made the button appear to "do nothing":
+            # the page reloaded to an identical UI with no signal that nothing changed.
+            if result.get("ok") and result.get("updated"):
                 # Restart process so updated server.py and init site are loaded
                 threading.Timer(0.8, lambda: os.execv(sys.executable, [sys.executable] + sys.argv)).start()
             return
@@ -1920,11 +1933,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json(_check_dns_provider(provider, credentials))
             return
 
-        if path == "/api/check-netbird-token":
-            token = str(payload.get("token", "")).strip()
-            base_domain = str(payload.get("base_domain", "")).strip()
-            self._send_json(_check_netbird_token(token, base_domain))
-            return
 
 
         if path in ("/api/deploy", "/api/redeploy"):
@@ -1940,7 +1948,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self._set_cors()
             self.end_headers()
 
             try:

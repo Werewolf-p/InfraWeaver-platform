@@ -170,6 +170,7 @@ function EngineInfoBar({ policy }: { policy: UpdatePolicy }) {
 
 function BodyPortal({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
   useEffect(() => { setMounted(true); }, []);
   if (!mounted) return null;
   return createPortal(children, document.body);
@@ -200,6 +201,7 @@ export function UpdatePolicyModal({ appName, appSlug, imageRef, open, onClose }:
   // Fetch current policy when modal opens
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setLoading(true);
     fetch(`/api/apps/update-policy?app=${encodeURIComponent(appSlug)}`)
       .then(r => r.ok ? r.json() : null)

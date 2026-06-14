@@ -28,6 +28,7 @@ export function CollapsibleSection({
   useEffect(() => {
     if (!storageKey) return;
     const saved = localStorage.getItem(`collapsible:${storageKey}`);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     if (saved !== null) setOpen(saved === 'true');
   }, [storageKey]);
 

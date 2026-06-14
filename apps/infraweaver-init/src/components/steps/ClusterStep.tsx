@@ -6,28 +6,28 @@ import {
   ChevronDown,
   ChevronRight,
   HardDrive,
+  Hash,
   LoaderCircle,
+  Network,
   Plus,
   Sparkles,
   Trash2,
   Waypoints,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { pingCheck, suggestNodeIps, suggestVips, type NodeDatastore, type NodeResources } from '@/lib/api'
+import { detectSubnet, pingCheck, suggestNodeIps, suggestVips, type NodeDatastore, type NodeResources } from '@/lib/api'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { FormField } from '@/components/ui/FormField'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { PingDot } from '@/components/ui/PingDot'
 import { StepHeader } from '@/components/ui/StepHeader'
 import { useWizardStore, type NodeConfig } from '@/lib/store'
-import { controlClassName, fadeUpItem, isIPv4, staggerContainer } from '@/lib/utils'
+import { controlClassName, fadeUpItem, isIPv4, isVipRange, staggerContainer } from '@/lib/utils'
 
 const vipRows = [
   { key: 'METALLB_TRAEFIK_VIP', label: 'Traefik ingress' },
   { key: 'METALLB_COREDNS_VIP', label: 'CoreDNS' },
-  { key: 'METALLB_NETBIRD_MGMT_VIP', label: 'NetBird management' },
-  { key: 'METALLB_NETBIRD_SIGNAL_VIP', label: 'NetBird signal' },
-  { key: 'METALLB_NETBIRD_RELAY_VIP', label: 'NetBird relay' },
+  { key: 'METALLB_VIP_205', label: 'Authentik LDAP outpost' },
 ] as const
 
 function dsValue(ds: NodeDatastore | string): string {
@@ -56,11 +56,16 @@ function ResourceBadge({ color, children }: { color: string; children: React.Rea
 }
 
 function RoleBadge({ role }: { role: NodeConfig['role'] }) {
+  const styles =
+    role === 'control-plane'
+      ? 'border-[rgba(0,120,212,0.35)] bg-[rgba(0,120,212,0.12)] text-[var(--az-primary)]'
+      : role === 'hybrid'
+        ? 'border-[rgba(212,117,0,0.35)] bg-[rgba(212,117,0,0.12)] text-[var(--az-warning)]'
+        : 'border-[rgba(87,163,0,0.3)] bg-[rgba(87,163,0,0.12)] text-[var(--az-success)]'
+  const label = role === 'control-plane' ? 'CP' : role === 'hybrid' ? 'Hybrid' : 'Worker'
   return (
-    <span
-      className={`rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${role === 'control-plane' ? 'border-[rgba(0,120,212,0.35)] bg-[rgba(0,120,212,0.12)] text-[var(--az-primary)]' : 'border-[rgba(87,163,0,0.3)] bg-[rgba(87,163,0,0.12)] text-[var(--az-success)]'}`}
-    >
-      {role === 'control-plane' ? 'CP' : 'Worker'}
+    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${styles}`}>
+      {label}
     </span>
   )
 }
@@ -83,6 +88,7 @@ export function ClusterStep() {
   const setProxmoxDiscovery = useWizardStore((state) => state.setProxmoxDiscovery)
 
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
+  const [autofilling, setAutofilling] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [ramUnit, setRamUnit] = useState<'MB' | 'GB'>('GB')
   // Track which PVE nodes are currently being re-scanned for datastores
@@ -162,7 +168,7 @@ export function ClusterStep() {
   const lastPingedIpRef = useRef<Record<string, string>>({})
 
   const controlPlaneCount = useMemo(
-    () => nodes.filter((node) => node.role === 'control-plane').length,
+    () => nodes.filter((node) => node.role === 'control-plane' || node.role === 'hybrid').length,
     [nodes],
   )
   const totalCpu = useMemo(
@@ -177,6 +183,32 @@ export function ClusterStep() {
     () => nodes.reduce((sum, node) => sum + Number(node.disk || 0), 0),
     [nodes],
   )
+
+  // Validation guards — catch config that silently breaks OpenTofu/MetalLB downstream.
+  // VM IDs must be unique cluster-wide; node IPs and VIPs must not collide.
+  const duplicateVmids = useMemo(() => {
+    const counts = new Map<string, number>()
+    nodes.forEach((node) => {
+      const value = node.vmid.trim()
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1)
+    })
+    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([value]) => value))
+  }, [nodes])
+
+  const addressCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    nodes.forEach((node) => {
+      const value = node.ip.trim()
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1)
+    })
+    vipRows.forEach((row) => {
+      const value = data[row.key].trim()
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1)
+    })
+    return counts
+  }, [nodes, data])
+
+  const vipRangeInvalid = data.METALLB_VIP_RANGE.trim().length > 0 && !isVipRange(data.METALLB_VIP_RANGE)
 
   const pingNode = useCallback(async (nodeData: { id: string; ip: string }) => {
     const ip = nodeData.ip.trim()
@@ -260,10 +292,51 @@ export function ClusterStep() {
     }
   }
 
+  const handleDetectGateway = async () => {
+    setLoading('detectGateway', true)
+    try {
+      const result = await detectSubnet()
+      const subnet = result.subnets?.[0]
+      if (subnet?.cidr) {
+        const [network, prefix] = subnet.cidr.split('/')
+        const octets = network.split('.')
+        if (octets.length === 4) {
+          octets[3] = '1'
+          setFields({ NODE_GATEWAY: octets.join('.'), NODE_SUBNET_PREFIX: prefix || '24' })
+        }
+      }
+    } finally {
+      setLoading('detectGateway', false)
+    }
+  }
+
+  // Assign sequential VMIDs to every node, starting from the first node's VMID
+  // (or 9300 when it is empty/non-numeric). Keeps Proxmox VM IDs unique and tidy.
+  const handleAutoNumberVmids = () => {
+    const base = Number(nodes[0]?.vmid) || 9300
+    nodes.forEach((node, index) => updateNode(node.id, { vmid: String(base + index) }))
+  }
+
+  // One click that chains the existing helpers: detect gateway/subnet, suggest
+  // node IPs, then suggest + ping-check MetalLB VIPs. Everything stays editable.
+  const handleAutofillNetworking = async () => {
+    setAutofilling(true)
+    try {
+      await handleDetectGateway()
+      await handleSuggestNodes()
+      await handleSuggestVips()
+    } finally {
+      setAutofilling(false)
+    }
+  }
+
   const handleRoleChange = (node: NodeConfig, nextRole: NodeConfig['role']) => {
     const firstNodeId = nodes[0]?.id
-    if (node.id === firstNodeId) return
-    if (nextRole === 'worker' && node.role === 'control-plane' && controlPlaneCount <= 1) return
+    const isCpCapable = (role: NodeConfig['role']) => role === 'control-plane' || role === 'hybrid'
+    // First node must stay control-plane-capable (control-plane or hybrid), never a plain worker.
+    if (node.id === firstNodeId && nextRole === 'worker') return
+    // Don't allow demoting the last control-plane-capable node down to worker.
+    if (nextRole === 'worker' && isCpCapable(node.role) && controlPlaneCount <= 1) return
     updateNode(node.id, { role: nextRole })
   }
 
@@ -309,13 +382,24 @@ export function ClusterStep() {
             />
           </FormField>
 
-          <FormField label="NODE_GATEWAY" htmlFor="NODE_GATEWAY" hint="Default gateway for the Talos node subnet.">
-            <input
-              id="NODE_GATEWAY"
-              value={data.NODE_GATEWAY}
-              onChange={(event) => setField('NODE_GATEWAY', event.target.value)}
-              className={controlClassName}
-            />
+          <FormField label="NODE_GATEWAY" htmlFor="NODE_GATEWAY" hint="Default gateway for the Talos node subnet. Detect reads the init VM's own subnet.">
+            <div className="flex items-center gap-2">
+              <input
+                id="NODE_GATEWAY"
+                value={data.NODE_GATEWAY}
+                onChange={(event) => setField('NODE_GATEWAY', event.target.value)}
+                className={`${controlClassName} min-w-0 flex-1`}
+              />
+              <ActionButton
+                variant="secondary"
+                onClick={() => void handleDetectGateway()}
+                disabled={loading.detectGateway}
+                className="shrink-0 px-3 py-2.5"
+                title="Detect gateway and subnet from this VM's network"
+              >
+                {loading.detectGateway ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
+              </ActionButton>
+            </div>
           </FormField>
 
           <FormField label="NODE_SUBNET_PREFIX" htmlFor="NODE_SUBNET_PREFIX" hint="Example: 24 = 255.255.255.0">
@@ -382,9 +466,17 @@ export function ClusterStep() {
             <div className="text-sm text-[var(--az-text-secondary)]">First node stays control-plane. Additional nodes can be promoted or demoted as needed.</div>
           </div>
           <div className="flex flex-wrap gap-3">
+            <ActionButton variant="primary" onClick={() => void handleAutofillNetworking()} disabled={autofilling || !data.NODE_GATEWAY.trim()}>
+              {autofilling ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              ✨ Auto-fill networking
+            </ActionButton>
             <ActionButton variant="secondary" onClick={handleSuggestNodes} disabled={loading.suggestNodeIps}>
               {loading.suggestNodeIps ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Waypoints className="h-4 w-4" />}
               🧲 Suggest node IPs
+            </ActionButton>
+            <ActionButton variant="secondary" onClick={handleAutoNumberVmids} disabled={nodes.length === 0}>
+              <Hash className="h-4 w-4" />
+              Auto-number VMIDs
             </ActionButton>
             <ActionButton variant="primary" onClick={addNode} disabled={nodes.length >= 6}>
               <Plus className="h-4 w-4" />
@@ -408,7 +500,7 @@ export function ClusterStep() {
               dsbn != null
                 ? (dsbn[selectedPveNode] ?? [])
                 : (proxmoxDiscovery?.datastores ?? [])
-            const canRemove = nodes.length > 1 && !(node.role === 'control-plane' && controlPlaneCount === 1)
+            const canRemove = nodes.length > 1 && !((node.role === 'control-plane' || node.role === 'hybrid') && controlPlaneCount === 1)
 
             return (
               <motion.div key={node.id} variants={fadeUpItem} className="rounded-2xl border border-white/8 bg-black/20 p-4">
@@ -426,7 +518,12 @@ export function ClusterStep() {
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-[1.15fr_0.85fr]">
-                  <FormField label="Node IP" htmlFor={`${node.id}-ip`} hint="Green = free, red = already in use.">
+                  <FormField
+                    label="Node IP"
+                    htmlFor={`${node.id}-ip`}
+                    hint="Green = free, red = already in use."
+                    error={node.ip.trim() && (addressCounts.get(node.ip.trim()) ?? 0) > 1 ? 'Address already used by another node or VIP — pick a unique IP.' : undefined}
+                  >
                     <div className="flex items-center gap-3">
                       <PingDot state={nodePing[node.id] ?? null} />
                       <input
@@ -446,7 +543,12 @@ export function ClusterStep() {
                       />
                     </div>
                   </FormField>
-                  <FormField label="VMID" htmlFor={`${node.id}-vmid`} hint="Must be unique inside the Proxmox cluster.">
+                  <FormField
+                    label="VMID"
+                    htmlFor={`${node.id}-vmid`}
+                    hint="Must be unique inside the Proxmox cluster."
+                    error={duplicateVmids.has(node.vmid.trim()) ? 'Duplicate VMID — Proxmox VM IDs must be unique cluster-wide.' : undefined}
+                  >
                     <input
                       id={`${node.id}-vmid`}
                       value={node.vmid}
@@ -457,10 +559,11 @@ export function ClusterStep() {
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <FormField label="Role" htmlFor={`${node.id}-role`} hint="Keep at least one control-plane node. Three is recommended for HA.">
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['control-plane', 'worker'] as const).map((role) => {
+                  <FormField label="Role" htmlFor={`${node.id}-role`} hint="Hybrid = control-plane that also schedules workloads. Keep ≥1 control-plane/hybrid; 3 recommended for HA.">
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['control-plane', 'hybrid', 'worker'] as const).map((role) => {
                         const disabled = node.id === nodes[0]?.id && role === 'worker'
+                        const roleLabel = role === 'control-plane' ? 'Control' : role === 'hybrid' ? 'Hybrid' : 'Worker'
                         return (
                           <button
                             key={role}
@@ -468,9 +571,9 @@ export function ClusterStep() {
                             type="button"
                             disabled={disabled}
                             onClick={() => handleRoleChange(node, role)}
-                            className={`rounded-xl border px-4 py-3 text-sm transition ${node.role === role ? 'border-[rgba(0,120,212,0.45)] bg-[rgba(0,120,212,0.16)] text-white' : 'border-white/10 bg-white/5 text-[var(--az-text-secondary)] hover:text-white'} disabled:cursor-not-allowed disabled:opacity-50`}
+                            className={`rounded-xl border px-3 py-3 text-sm transition ${node.role === role ? 'border-[rgba(0,120,212,0.45)] bg-[rgba(0,120,212,0.16)] text-white' : 'border-white/10 bg-white/5 text-[var(--az-text-secondary)] hover:text-white'} disabled:cursor-not-allowed disabled:opacity-50`}
                           >
-                            {role === 'control-plane' ? 'Control plane' : 'Worker'}
+                            {roleLabel}
                           </button>
                         )
                       })}
@@ -708,7 +811,12 @@ export function ClusterStep() {
         </div>
 
         <div className="space-y-4">
-          <FormField label="METALLB_VIP_RANGE" htmlFor="METALLB_VIP_RANGE" hint="Full pool range that covers every VIP below.">
+          <FormField
+            label="METALLB_VIP_RANGE"
+            htmlFor="METALLB_VIP_RANGE"
+            hint="Full pool range that covers every VIP below. Format: start-end (e.g. 10.10.0.200-10.10.0.210)."
+            error={vipRangeInvalid ? 'Enter a valid range as start-end, with start ≤ end (e.g. 10.10.0.200-10.10.0.210).' : undefined}
+          >
             <input
               id="METALLB_VIP_RANGE"
               value={data.METALLB_VIP_RANGE}
@@ -718,9 +826,18 @@ export function ClusterStep() {
           </FormField>
 
           <div className="grid gap-4 md:grid-cols-2">
-            {vipRows.map((row) => (
+            {vipRows.map((row) => {
+              const vipValue = data[row.key].trim()
+              const vipCollision = vipValue.length > 0 && (addressCounts.get(vipValue) ?? 0) > 1
+              const vipInvalid = vipValue.length > 0 && !isIPv4(vipValue)
+              return (
               <motion.div key={row.key} variants={fadeUpItem} className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                <FormField label={row.key} htmlFor={row.key} hint={row.label}>
+                <FormField
+                  label={row.key}
+                  htmlFor={row.key}
+                  hint={row.label}
+                  error={vipInvalid ? 'Enter a valid IPv4 address.' : vipCollision ? 'Duplicate VIP — already used by a node or another VIP.' : undefined}
+                >
                   <div className="flex items-center gap-3">
                     <PingDot state={vipPing[row.key]} />
                     <input
@@ -733,7 +850,8 @@ export function ClusterStep() {
                   </div>
                 </FormField>
               </motion.div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </GlassCard>

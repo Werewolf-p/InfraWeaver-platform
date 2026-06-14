@@ -29,16 +29,16 @@ All Docker builds must be done manually on the init VM (10.10.0.50):
 
 ```bash
 # Login
-buildah login --username admin --password <ONEDEV_PASSWORD> onedev.rlservers.com
+buildah login --username admin --password <ONEDEV_PASSWORD> onedev.example.com
 
 # Build
 cd /opt/infraweaver/apps/<appname>
 buildah build --memory 2g \
-  --tag onedev.rlservers.com/infraweaver-platform/<appname>:main-<sha> .
+  --tag onedev.example.com/infraweaver-platform/<appname>:main-<sha> .
 
 # Push (413 if image > ~500MB — need to increase Traefik body size limit)
 buildah push --tls-verify=false \
-  onedev.rlservers.com/infraweaver-platform/<appname>:main-<sha>
+  onedev.example.com/infraweaver-platform/<appname>:main-<sha>
 ```
 
 **Note**: 413 "Payload Too Large" for images >500MB. Traefik default body limit applies.

@@ -24,7 +24,7 @@ export function iwApiFetch(
 
   const headers = new Headers(init.headers);
   if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
-  headers.set('x-console-sig', sign(`${ts}:${userId}:${roles}`, secret));
+  headers.set('x-console-sig', sign(`${ts}:${userId}:${roles}:${clusterId}`, secret));
   headers.set('x-console-ts', ts);
   headers.set('x-user-id', userId);
   headers.set('x-user-roles', roles);

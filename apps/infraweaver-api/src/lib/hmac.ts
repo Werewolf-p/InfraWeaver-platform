@@ -6,6 +6,9 @@ export function signHmac(message: string, secret: string): string {
 
 export function verifyHmac(message: string, sig: string, secret: string): boolean {
   const expected = signHmac(message, secret);
-  if (sig.length !== expected.length) return false;
+  // Reject malformed signatures before decoding: non-hex input makes
+  // Buffer.from(..., 'hex') silently truncate, which would throw inside
+  // timingSafeEqual on a length mismatch and surface as a 500 instead of a 401.
+  if (sig.length !== expected.length || !/^[0-9a-f]+$/i.test(sig)) return false;
   return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(sig, 'hex'));
 }

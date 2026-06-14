@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { withRoute } from "@/lib/route-utils";
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 const BLOCKED_HEADERS = new Set(["connection", "content-length", "host", "transfer-encoding"]);
@@ -27,13 +26,7 @@ function sanitizeHeaders(input: Record<string, string>) {
   return headers;
 }
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "config:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const POST = withRoute("config:write", async (req: NextRequest) => {
   if (!checkRateLimit(rateLimitKey("webhooks-test", req), 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -74,4 +67,4 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: safeError(err), latencyMs: Date.now() - start }, { status: 500 });
   }
-}
+});

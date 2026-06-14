@@ -21,6 +21,7 @@ import { useRBAC } from "@/hooks/use-rbac";
 /** Renders children at document.body via a portal, bypassing overflow:hidden ancestors (iOS Safari fix). */
 function BodyPortal({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
   useEffect(() => { setMounted(true); }, []);
   if (!mounted) return null;
   return createPortal(children, document.body);
@@ -406,6 +407,7 @@ function AddServerDrawer({
 
   useEffect(() => {
     if (!open || !prefill) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setName(prefill.name);
     setDisplayName((current) => current || prefill.name);
     setTargetIP(prefill.nodeIp ?? "");
@@ -1046,6 +1048,7 @@ export default function GameServersPage() {
 
   useEffect(() => {
     if (searchParams.get("new") === "1") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setDrawerOpen(true);
     }
   }, [searchParams]);

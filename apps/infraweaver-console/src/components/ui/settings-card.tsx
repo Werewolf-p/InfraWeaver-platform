@@ -25,8 +25,8 @@ export function SettingsCard({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           {Icon ? (
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/20">
-              <Icon className="h-4 w-4 text-indigo-400" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--az-primary-muted)]">
+              <Icon className="h-4 w-4 text-[var(--az-primary)]" />
             </div>
           ) : null}
           <div>

@@ -31,6 +31,7 @@ export function RelativeTime({ date, className, live = true }: RelativeTimeProps
 
   useEffect(() => {
     if (!parsed || !live) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setRelative(parsed ? formatRelative(parsed) : "—");
       return;
     }

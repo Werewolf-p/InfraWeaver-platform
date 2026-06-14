@@ -29,9 +29,9 @@ if [ -z "$EXISTING_AUTH" ]; then
       \"admin-password\": \"${_ADMIN_PASS}\",
       \"smtp-host\": \"smtp-mail.outlook.com\",
       \"smtp-port\": \"587\",
-      \"smtp-username\": \"placeholder@rlservers.com\",
+      \"smtp-username\": \"placeholder@example.com\",
       \"smtp-password\": \"placeholder\",
-      \"smtp-from\": \"placeholder@rlservers.com\"
+      \"smtp-from\": \"placeholder@example.com\"
     }}" > /dev/null
   echo "==> Authentik secrets written (randomly generated, smtp placeholders)"
 else
@@ -63,9 +63,9 @@ if 'bootstrap-token' not in d:
 if 'smtp-host' not in d:
     d['smtp-host'] = 'smtp-mail.outlook.com'
     d['smtp-port'] = '587'
-    d['smtp-username'] = 'placeholder@rlservers.com'
+    d['smtp-username'] = 'placeholder@example.com'
     d['smtp-password'] = 'placeholder'
-    d['smtp-from'] = 'placeholder@rlservers.com'
+    d['smtp-from'] = 'placeholder@example.com'
     changed = True
 sys.stdout.write(json.dumps({'data': d}) if changed else '')
 " "$EXISTING_DATA" 2>/dev/null || echo "")

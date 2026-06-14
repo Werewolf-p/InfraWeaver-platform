@@ -14,20 +14,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { summarizeApp, detectTier, type AppFeedEntry } from "@/lib/appfeed-converter";
 import { getAppFeed } from "@/lib/appfeed-cache";
 import { safeError } from "@/lib/utils";
+import { withRoute } from "@/lib/route-utils";
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "apps:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withRoute("apps:read", async (req: NextRequest) => {
   const { searchParams } = new URL(req.url);
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "24", 10)));
@@ -96,4 +88,4 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: safeError(err) }, { status: 502 });
   }
-}
+});

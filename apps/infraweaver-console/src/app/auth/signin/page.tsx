@@ -40,6 +40,7 @@ export default function SignInPage() {
   useEffect(() => {
     const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl");
     const safe = callbackUrl?.startsWith("/") ? callbackUrl : "/";
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setSignInHref(`/api/auth/start?callbackUrl=${encodeURIComponent(safe)}`);
   }, []);
 

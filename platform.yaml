@@ -74,10 +74,6 @@ groups:
         replicas: 1
 
       # ── OPTIONAL — set enabled: true to deploy ─────────────────────────────
-      netbird:
-        description: "Zero-trust VPN mesh — needed for external access from anywhere"
-        enabled: true
-        replicas: 1
       velero:
         description: "Kubernetes backup controller"
         enabled: false

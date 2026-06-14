@@ -69,6 +69,8 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
         onClick={() => setOpen((prev) => !prev)}
         className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
         aria-label="Notifications"
+        aria-haspopup="dialog"
+        aria-expanded={open}
       >
         <motion.span animate={bellControls} style={{ display: "inline-flex", transformOrigin: "50% 0%" }}>
           <Bell className="h-4 w-4" />
@@ -99,6 +101,8 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.97 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
+            role="dialog"
+            aria-label="Notifications"
             className="absolute right-0 top-full z-[100] mt-2 w-80 overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/95 shadow-2xl backdrop-blur-xl"
           >
             <div className="flex items-center justify-between border-b border-gray-200 dark:border-white/10 px-4 py-3">
@@ -124,7 +128,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                     Clear
                   </button>
                 )}
-                <button onClick={() => setOpen(false)} className="text-slate-500 transition-colors hover:text-gray-900 dark:hover:text-white">
+                <button onClick={() => setOpen(false)} aria-label="Close notifications" className="text-slate-500 transition-colors hover:text-gray-900 dark:hover:text-white">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -172,6 +176,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                             </p>
                             <button
                               onClick={(e) => { e.stopPropagation(); dismiss(notification.id); }}
+                              aria-label={`Dismiss: ${notification.title}`}
                               className="mt-0.5 flex-shrink-0 text-slate-600 transition-colors hover:text-slate-700 dark:hover:text-slate-400"
                             >
                               <X className="h-3 w-3" />

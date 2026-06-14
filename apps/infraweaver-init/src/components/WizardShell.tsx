@@ -69,66 +69,94 @@ export function WizardShell({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [canGoNext, currentStep, hideNext, onNext, onPrev])
 
+  const progressPct = steps.length > 1 ? Math.round((currentStep / (steps.length - 1)) * 100) : 0
+
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-8 md:px-10 lg:px-12">
-      <div className="mb-8 flex items-center justify-between gap-6">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.32em] text-[var(--az-primary)]">InfraWeaver Init</div>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">Cluster bootstrap wizard</h2>
-        </div>
+    <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6 md:px-8 lg:px-12">
+      {/* ── Header ─────────────────────────────────────────────────── */}
+      <header className="mb-6 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="hidden rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-[var(--az-text-secondary)] md:block">
-            Progress auto-saves locally
+          <div className="flex h-9 w-9 items-center justify-center rounded-[var(--az-radius-sm)] bg-[var(--az-primary)] shadow-[0_0_20px_var(--az-primary-glow)]">
+            <span className="text-sm font-bold text-white">IW</span>
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--az-primary)] opacity-80">
+              InfraWeaver Init
+            </div>
+            <h2 className="text-base font-semibold leading-tight tracking-tight text-[var(--az-text)]">
+              Cluster bootstrap wizard
+            </h2>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="hidden rounded-full border border-[var(--az-border)] bg-[var(--az-surface-raised)] px-3 py-1.5 text-xs text-[var(--az-text-secondary)] md:block">
+            Auto-saved locally
           </div>
           {headerActions}
         </div>
-      </div>
+      </header>
 
-      <div className="mb-8 overflow-x-auto pb-2">
-        <div className="flex min-w-max items-center gap-3">
-          {steps.map((step, index) => {
-            const complete = index < currentStep
-            const active = index === currentStep
-            const clickable = Boolean(onStepClick) && index <= currentStep
-            return (
-              <div key={step.title} className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => clickable && onStepClick?.(index)}
-                  className={cn(
-                    'group flex items-center gap-3 rounded-2xl px-3 py-2 text-left transition',
-                    clickable ? 'cursor-pointer' : 'cursor-default',
-                    active && 'bg-[rgba(0,120,212,0.12)]',
-                  )}
-                >
-                  <span
+      {/* ── Step indicator ─────────────────────────────────────────── */}
+      <nav aria-label="Wizard progress" className="mb-6">
+        {/* Linear progress bar */}
+        <div className="mb-4 h-1 w-full overflow-hidden rounded-full bg-[var(--az-border)]" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
+          <motion.div
+            className="h-full rounded-full bg-[var(--az-primary)]"
+            initial={false}
+            animate={{ width: `${progressPct}%` }}
+            transition={{ type: 'spring', stiffness: 200, damping: 28 }}
+          />
+        </div>
+
+        {/* Step pills — scrollable on small screens */}
+        <div className="overflow-x-auto pb-1">
+          <ol className="flex min-w-max items-center gap-1">
+            {steps.map((step, index) => {
+              const complete = index < currentStep
+              const active = index === currentStep
+              const clickable = Boolean(onStepClick) && index <= currentStep
+              return (
+                <li key={step.title} className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-current={active ? 'step' : undefined}
+                    aria-label={`Step ${index + 1}: ${step.title}${complete ? ' (complete)' : ''}`}
+                    onClick={() => clickable && onStepClick?.(index)}
                     className={cn(
-                      'flex h-10 w-10 items-center justify-center rounded-full border text-sm font-semibold transition',
-                      complete && 'border-[rgba(87,163,0,0.55)] bg-[rgba(87,163,0,0.16)] text-[var(--az-success)]',
-                      active && 'border-[rgba(0,120,212,0.7)] bg-[rgba(0,120,212,0.18)] text-white shadow-[0_0_18px_rgba(0,120,212,0.35)]',
-                      !active && !complete && 'border-white/10 bg-white/5 text-[var(--az-text-secondary)]',
+                      'group flex items-center gap-2 rounded-[var(--az-radius-sm)] px-2.5 py-1.5 text-left transition-all duration-150',
+                      clickable ? 'cursor-pointer hover:bg-[var(--az-surface-raised)]' : 'cursor-default',
+                      active && 'bg-[var(--az-primary-dim)]',
                     )}
                   >
-                    {complete ? <Check className="h-4 w-4" /> : index + 1}
-                  </span>
-                  <span className="hidden md:block">
-                    <span className="block text-xs uppercase tracking-[0.24em] text-[var(--az-text-secondary)]">Step {index + 1}</span>
-                    <span className={cn('block text-sm font-medium', active ? 'text-white' : 'text-[var(--az-text-secondary)]')}>
-                      {step.shortTitle ?? step.title}
+                    <span
+                      className={cn(
+                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold transition-all duration-150',
+                        complete && 'border-[var(--az-success)] bg-[var(--az-success-dim)] text-[var(--az-success)]',
+                        active && 'border-[var(--az-primary)] bg-[var(--az-primary)] text-white shadow-[0_0_12px_var(--az-primary-glow)]',
+                        !active && !complete && 'border-[var(--az-border)] bg-[var(--az-surface-raised)] text-[var(--az-text-secondary)]',
+                      )}
+                    >
+                      {complete ? <Check className="h-3.5 w-3.5" /> : index + 1}
                     </span>
-                  </span>
-                </button>
-                {index < steps.length - 1 ? (
-                  <div className={cn('h-px w-8 bg-white/10', complete && 'bg-[rgba(87,163,0,0.4)] md:w-12')} />
-                ) : null}
-              </div>
-            )
-          })}
+                    <span className="hidden md:block">
+                      <span className={cn('block text-xs font-medium', active ? 'text-[var(--az-text)]' : 'text-[var(--az-text-secondary)]')}>
+                        {step.shortTitle ?? step.title}
+                      </span>
+                    </span>
+                  </button>
+                  {index < steps.length - 1 ? (
+                    <div className={cn('mx-0.5 h-px w-6 shrink-0 transition-colors duration-300', complete ? 'bg-[var(--az-success)]' : 'bg-[var(--az-border)]')} />
+                  ) : null}
+                </li>
+              )
+            })}
+          </ol>
         </div>
-      </div>
+      </nav>
 
-      <div className="relative flex-1 overflow-hidden rounded-[28px] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] p-4 shadow-[0_30px_80px_rgba(0,0,0,0.35)] md:p-6 lg:p-8">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(0,120,212,0.12),transparent_34%)]" />
+      {/* ── Step content card ──────────────────────────────────────── */}
+      <div className="relative flex-1 overflow-hidden rounded-[var(--az-radius-xl)] border border-[var(--az-border)] bg-[var(--az-bg-secondary)] p-4 shadow-[0_8px_40px_rgba(0,0,0,0.25)] md:p-6 lg:p-8">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_center,var(--az-primary-dim),transparent_55%)]" />
         <AnimatePresence custom={direction} initial={false} mode="wait">
           <motion.div
             key={currentStep}
@@ -138,33 +166,48 @@ export function WizardShell({
             animate="center"
             exit="exit"
             transition={springTransition}
-            className="relative flex min-h-[680px] flex-col"
+            className="relative flex min-h-[640px] flex-col"
           >
             {children}
           </motion.div>
         </AnimatePresence>
       </div>
 
+      {/* ── Footer ─────────────────────────────────────────────────── */}
       {!hideFooter ? (
-        <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-white/8 bg-white/4 p-4 md:flex-row md:items-center md:justify-between">
+        <footer className="mt-4 flex flex-col gap-3 rounded-[var(--az-radius-lg)] border border-[var(--az-border)] bg-[var(--az-surface)] p-3 md:flex-row md:items-center md:justify-between">
           {footer ?? (
             <>
-              <div className="flex items-center gap-3">
-                <ActionButton variant="ghost" onClick={onPrev} disabled={currentStep === 0} className="px-3 py-2">
+              <div className="flex items-center gap-2">
+                <ActionButton
+                  variant="ghost"
+                  onClick={onPrev}
+                  disabled={currentStep === 0}
+                  className="px-3 py-2"
+                  aria-label="Go to previous step"
+                >
                   <ChevronLeft className="h-4 w-4" />
                   Back
                 </ActionButton>
-                <div className="text-xs text-[var(--az-text-secondary)]">Enter advances • Esc goes back</div>
+                <span className="hidden text-xs text-[var(--az-text-tertiary)] md:block">
+                  Enter advances · Esc goes back
+                </span>
               </div>
               {!hideNext ? (
-                <ActionButton onClick={onNext} disabled={!canGoNext} className="min-w-40">
+                <ActionButton
+                  variant="primary"
+                  onClick={onNext}
+                  disabled={!canGoNext}
+                  className="min-w-36 px-5 py-2.5"
+                  aria-label={nextLabel}
+                >
                   {nextLabel}
                   <ChevronRight className="h-4 w-4" />
                 </ActionButton>
               ) : null}
             </>
           )}
-        </div>
+        </footer>
       ) : null}
     </div>
   )

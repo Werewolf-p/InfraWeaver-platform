@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import type {
   CheckDnsProviderResponse,
-  CheckNetbirdTokenResponse,
   DiscoverProxmoxResponse,
   StatusResponse,
   ValidateProxmoxResponse,
@@ -25,7 +24,7 @@ export interface NodeConfig {
   cpu: string
   memory: string
   disk: string
-  role: 'control-plane' | 'worker'
+  role: 'control-plane' | 'worker' | 'hybrid'
 }
 
 export interface DeployStage {
@@ -55,9 +54,7 @@ export interface WizardData {
   METALLB_VIP_RANGE: string
   METALLB_TRAEFIK_VIP: string
   METALLB_COREDNS_VIP: string
-  METALLB_NETBIRD_MGMT_VIP: string
-  METALLB_NETBIRD_SIGNAL_VIP: string
-  METALLB_NETBIRD_RELAY_VIP: string
+  METALLB_VIP_205: string
   CLUSTER_LOCAL_DOMAIN: string
   ADMIN_USERNAME: string
   ADMIN_NAME: string
@@ -78,14 +75,13 @@ export interface WizardData {
   SMTP_USERNAME: string
   SMTP_PASSWORD: string
   SMTP_TO: string
-  NETBIRD_API_TOKEN: string
+  PUBLIC_INGRESS_IP: string
   GITHUB_REPO: string
   GIT_REPO_URL: string
   GITHUB_PAT: string
   RUNNER_REGISTRATION_TOKEN: string
   ENV_NAME: string
   LETSENCRYPT_ENV: string
-  ENABLE_NETBIRD: boolean
   ENABLE_MONITORING: boolean
   MONITORING_STACK: MonitoringStack
   ENABLE_EXTERNAL_DNS: boolean
@@ -104,9 +100,7 @@ export interface WizardData {
 const vipPingFields = [
   'METALLB_TRAEFIK_VIP',
   'METALLB_COREDNS_VIP',
-  'METALLB_NETBIRD_MGMT_VIP',
-  'METALLB_NETBIRD_SIGNAL_VIP',
-  'METALLB_NETBIRD_RELAY_VIP',
+  'METALLB_VIP_205',
 ] as const
 
 type VipPingField = (typeof vipPingFields)[number]
@@ -173,9 +167,7 @@ export const initialWizardData: WizardData = {
   METALLB_VIP_RANGE: '10.10.0.200-10.10.0.210',
   METALLB_TRAEFIK_VIP: '10.10.0.200',
   METALLB_COREDNS_VIP: '10.10.0.201',
-  METALLB_NETBIRD_MGMT_VIP: '10.10.0.202',
-  METALLB_NETBIRD_SIGNAL_VIP: '10.10.0.203',
-  METALLB_NETBIRD_RELAY_VIP: '10.10.0.204',
+  METALLB_VIP_205: '10.10.0.205',
   CLUSTER_LOCAL_DOMAIN: 'prod.local',
   ADMIN_USERNAME: '',
   ADMIN_NAME: '',
@@ -196,14 +188,13 @@ export const initialWizardData: WizardData = {
   SMTP_USERNAME: '',
   SMTP_PASSWORD: '',
   SMTP_TO: '',
-  NETBIRD_API_TOKEN: '',
-  GITHUB_REPO: 'Werewolf-p/InfraWeaver-platform',
-  GIT_REPO_URL: 'https://github.com/Werewolf-p/InfraWeaver-platform',
+  PUBLIC_INGRESS_IP: '',
+  GITHUB_REPO: 'your-org/your-repo',
+  GIT_REPO_URL: 'https://github.com/your-org/your-repo',
   GITHUB_PAT: '',
   RUNNER_REGISTRATION_TOKEN: '',
   ENV_NAME: 'productie',
   LETSENCRYPT_ENV: 'production',
-  ENABLE_NETBIRD: true,
   ENABLE_MONITORING: true,
   MONITORING_STACK: 'kube-prometheus-stack' as MonitoringStack,
   ENABLE_EXTERNAL_DNS: false,
@@ -237,9 +228,7 @@ export const initialDeployStages: DeployStage[] = [
 const emptyVipPing: Record<VipPingField, PingState> = {
   METALLB_TRAEFIK_VIP: null,
   METALLB_COREDNS_VIP: null,
-  METALLB_NETBIRD_MGMT_VIP: null,
-  METALLB_NETBIRD_SIGNAL_VIP: null,
-  METALLB_NETBIRD_RELAY_VIP: null,
+  METALLB_VIP_205: null,
 }
 
 const emptyLoadingState = {
@@ -250,8 +239,9 @@ const emptyLoadingState = {
   suggestVips: false,
   generateSshKey: false,
   checkDnsProvider: false,
-  checkNetbird: false,
   detectSubnets: false,
+  detectPublicIp: false,
+  detectGateway: false,
   saveEnv: false,
   deploy: false,
 }
@@ -260,7 +250,6 @@ interface PersistedWizardState {
   currentStep?: number
   data?: Record<string, unknown>
   localIpRanges?: string[]
-  vpnOnly?: boolean
   generatedPublicKey?: string
   nodes?: NodeConfig[]
   preset?: PresetType | null
@@ -282,7 +271,6 @@ interface WizardStore {
   nodes: NodeConfig[]
   preset: PresetType | null
   localIpRanges: string[]
-  vpnOnly: boolean
   status: StatusResponse | null
   nodePing: Record<string, PingState>
   vipPing: Record<VipPingField, PingState>
@@ -290,7 +278,6 @@ interface WizardStore {
   proxmoxDiscovery: DiscoverProxmoxResponse | null
   proxmoxValidation: ValidateProxmoxResponse | null
   dnsProviderCheck: CheckDnsProviderResponse | null
-  netbirdTokenCheck: CheckNetbirdTokenResponse | null
   detectedSubnets: Array<{ cidr: string; ip: string }>
   generatedPublicKey: string
   deployLogs: DeployLogLine[]
@@ -319,12 +306,10 @@ interface WizardStore {
   setProxmoxDiscovery: (value: DiscoverProxmoxResponse | null) => void
   setProxmoxValidation: (value: ValidateProxmoxResponse | null) => void
   setDnsProviderCheck: (value: CheckDnsProviderResponse | null) => void
-  setNetbirdTokenCheck: (value: CheckNetbirdTokenResponse | null) => void
   setGeneratedPublicKey: (value: string) => void
   addLocalIpRange: () => void
   updateLocalIpRange: (index: number, value: string) => void
   removeLocalIpRange: (index: number) => void
-  setVpnOnly: (value: boolean) => void
   mergeDetectedSubnets: (subnets: Array<{ cidr: string; ip: string }>) => number
   loadFromEnv: (payload: Record<string, string>) => void
   getEnvPayload: () => Record<string, string>
@@ -363,7 +348,7 @@ const normalizeNode = (node: Partial<NodeConfig>, index: number): NodeConfig => 
   cpu: typeof node.cpu === 'string' && node.cpu ? node.cpu : index >= 3 ? '2' : '4',
   memory: typeof node.memory === 'string' && node.memory ? node.memory : index >= 3 ? '4096' : '8192',
   disk: typeof node.disk === 'string' && node.disk ? node.disk : index >= 3 ? '80' : '100',
-  role: node.role === 'worker' ? 'worker' : 'control-plane',
+  role: node.role === 'worker' ? 'worker' : node.role === 'hybrid' ? 'hybrid' : 'control-plane',
 })
 
 const isNodeConfigArray = (value: unknown): value is NodeConfig[] =>
@@ -458,7 +443,6 @@ const buildPresetFields = (preset: PresetType): Partial<WizardData> => {
     return {
       ENABLE_MONITORING: false,
       MONITORING_STACK: 'victoria-metrics',
-      ENABLE_NETBIRD: false,
       ENABLE_EXTERNAL_DNS: false,
       ENABLE_LONGHORN: false,
       ENABLE_KYVERNO: false,
@@ -474,7 +458,6 @@ const buildPresetFields = (preset: PresetType): Partial<WizardData> => {
     return {
       ENABLE_MONITORING: true,
       MONITORING_STACK: 'kube-prometheus-stack',
-      ENABLE_NETBIRD: true,
       ENABLE_EXTERNAL_DNS: true,
       ENABLE_LONGHORN: true,
       ENABLE_KYVERNO: true,
@@ -489,7 +472,6 @@ const buildPresetFields = (preset: PresetType): Partial<WizardData> => {
   return {
     ENABLE_MONITORING: true,
     MONITORING_STACK: 'kube-prometheus-stack',
-    ENABLE_NETBIRD: true,
     ENABLE_EXTERNAL_DNS: false,
     ENABLE_LONGHORN: true,
     ENABLE_KYVERNO: true,
@@ -540,7 +522,6 @@ export const useWizardStore = create<WizardStore>()(
       nodes: initialNodes.map((node) => ({ ...node })),
       preset: 'standard',
       localIpRanges: [''],
-      vpnOnly: false,
       status: null,
       nodePing: buildNodePing(initialNodes),
       vipPing: emptyVipPing,
@@ -548,7 +529,6 @@ export const useWizardStore = create<WizardStore>()(
       proxmoxDiscovery: null,
       proxmoxValidation: null,
       dnsProviderCheck: null,
-      netbirdTokenCheck: null,
       detectedSubnets: [],
       generatedPublicKey: '',
       deployLogs: [],
@@ -584,8 +564,8 @@ export const useWizardStore = create<WizardStore>()(
           if (state.nodes.length <= 1) return state
           const target = state.nodes.find((node) => node.id === id)
           if (!target) return state
-          const controlPlaneCount = state.nodes.filter((node) => node.role === 'control-plane').length
-          if (target.role === 'control-plane' && controlPlaneCount <= 1) return state
+          const controlPlaneCount = state.nodes.filter((node) => node.role === 'control-plane' || node.role === 'hybrid').length
+          if ((target.role === 'control-plane' || target.role === 'hybrid') && controlPlaneCount <= 1) return state
           const nextNodes = state.nodes.filter((node) => node.id !== id)
           const nextPing = { ...state.nodePing }
           delete nextPing[id]
@@ -637,7 +617,6 @@ export const useWizardStore = create<WizardStore>()(
       setProxmoxDiscovery: (value) => set({ proxmoxDiscovery: value }),
       setProxmoxValidation: (value) => set({ proxmoxValidation: value }),
       setDnsProviderCheck: (value) => set({ dnsProviderCheck: value }),
-      setNetbirdTokenCheck: (value) => set({ netbirdTokenCheck: value }),
       setGeneratedPublicKey: (value) => set({ generatedPublicKey: value }),
       addLocalIpRange: () => set((state) => ({ localIpRanges: [...state.localIpRanges, ''] })),
       updateLocalIpRange: (index, value) =>
@@ -651,7 +630,6 @@ export const useWizardStore = create<WizardStore>()(
           const next = state.localIpRanges.filter((_, currentIndex) => currentIndex !== index)
           return { localIpRanges: next.length ? next : [''] }
         }),
-      setVpnOnly: (value) => set({ vpnOnly: value }),
       mergeDetectedSubnets: (subnets) => {
         const state = get()
         const nextRanges = [...state.localIpRanges]
@@ -663,19 +641,17 @@ export const useWizardStore = create<WizardStore>()(
           else nextRanges.push(subnet.cidr)
           added += 1
         })
-        set({ localIpRanges: nextRanges.length ? nextRanges : [''], detectedSubnets: subnets, vpnOnly: false })
+        set({ localIpRanges: nextRanges.length ? nextRanges : [''], detectedSubnets: subnets })
         return added
       },
       loadFromEnv: (payload) =>
         set((state) => {
           const nextData: WizardData = { ...state.data }
           let nextRanges = state.localIpRanges
-          let nextVpnOnly = state.vpnOnly
           let nextNodes = state.nodes.length ? state.nodes : initialNodes.map((node) => ({ ...node }))
 
           for (const [key, value] of Object.entries(payload)) {
-            if (key === 'ENABLE_NETBIRD') nextData.ENABLE_NETBIRD = parseBoolean(value)
-            else if (key === 'ENABLE_MONITORING') nextData.ENABLE_MONITORING = parseBoolean(value)
+            if (key === 'ENABLE_MONITORING') nextData.ENABLE_MONITORING = parseBoolean(value)
             else if (key === 'ENABLE_EXTERNAL_DNS') nextData.ENABLE_EXTERNAL_DNS = parseBoolean(value)
             else if (key === 'ENABLE_LONGHORN') nextData.ENABLE_LONGHORN = parseBoolean(value)
             else if (key === 'ENABLE_KYVERNO') nextData.ENABLE_KYVERNO = parseBoolean(value)
@@ -689,17 +665,11 @@ export const useWizardStore = create<WizardStore>()(
             else if (key === 'MONITORING_STACK') nextData.MONITORING_STACK = value as MonitoringStack
             else if (key === 'DNS_PROVIDER') nextData.DNS_PROVIDER = value as DnsProvider
             else if (key === 'LOCAL_IP_RANGES') {
-              if (!value.trim()) {
-                nextVpnOnly = true
-                nextRanges = ['']
-              } else {
-                nextVpnOnly = false
-                nextRanges = value
-                  .split(',')
-                  .map((item) => item.trim())
-                  .filter(Boolean)
-                if (!nextRanges.length) nextRanges = ['']
-              }
+              nextRanges = value
+                .split(',')
+                .map((item) => item.trim())
+                .filter(Boolean)
+              if (!nextRanges.length) nextRanges = ['']
             } else if (key in nextData) {
               ;(nextData as unknown as Record<string, unknown>)[key] = value
             }
@@ -719,7 +689,7 @@ export const useWizardStore = create<WizardStore>()(
                   cpu: payload[`NODE_${n}_CPU`] ?? '4',
                   memory: payload[`NODE_${n}_MEMORY`] ?? '8192',
                   disk: payload[`NODE_${n}_DISK`] ?? '100',
-                  role: payload[`NODE_${n}_ROLE`] === 'worker' ? 'worker' : n > 3 ? 'worker' : 'control-plane',
+                  role: payload[`NODE_${n}_ROLE`] === 'worker' ? 'worker' : payload[`NODE_${n}_ROLE`] === 'hybrid' ? 'hybrid' : n > 3 ? 'worker' : 'control-plane',
                 },
                 n - 1,
               ),
@@ -740,17 +710,16 @@ export const useWizardStore = create<WizardStore>()(
             nodes: nextNodes,
             nodePing: buildNodePing(nextNodes),
             localIpRanges: nextRanges,
-            vpnOnly: nextVpnOnly,
             preset: null,
           }
         }),
       getEnvPayload: () => {
-        const { data, nodes, localIpRanges, vpnOnly } = get()
+        const { data, nodes, localIpRanges, proxmoxDiscovery } = get()
         const payload: Record<string, string> = {
           ...Object.fromEntries(
             Object.entries(data).map(([key, value]) => [key, typeof value === 'boolean' ? String(value) : value]),
           ),
-          LOCAL_IP_RANGES: vpnOnly ? '' : localIpRanges.map((item) => item.trim()).filter(Boolean).join(','),
+          LOCAL_IP_RANGES: localIpRanges.map((item) => item.trim()).filter(Boolean).join(','),
           NODE_COUNT: String(nodes.length),
         }
         nodes.forEach((node, index) => {
@@ -766,7 +735,11 @@ export const useWizardStore = create<WizardStore>()(
         })
         const pveNodes = [...new Set(nodes.map((node) => node.pveNode).filter(Boolean))]
         if (pveNodes.length) {
-          payload.PVE_NODES = pveNodes.map((pveName) => `${pveName}:${data.PROXMOX_HOST}`).join(',')
+          // Prefer each node's discovered management IP; fall back to PROXMOX_HOST.
+          const nodeIps = proxmoxDiscovery?.node_ips ?? {}
+          payload.PVE_NODES = pveNodes
+            .map((pveName) => `${pveName}:${nodeIps[pveName] || data.PROXMOX_HOST}`)
+            .join(',')
         }
         return payload
       },
@@ -829,7 +802,7 @@ export const useWizardStore = create<WizardStore>()(
     }),
     {
       name: 'infraweaver-init-wizard',
-      version: 5,
+      version: 6,
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,
       migrate: (persistedState: unknown, version: number) => {
@@ -844,7 +817,6 @@ export const useWizardStore = create<WizardStore>()(
             currentStep: typeof state.currentStep === 'number' ? state.currentStep : 0,
             data: nextData,
             localIpRanges: Array.isArray(state.localIpRanges) && state.localIpRanges.length ? state.localIpRanges : [''],
-            vpnOnly: Boolean(state.vpnOnly),
             generatedPublicKey: typeof state.generatedPublicKey === 'string' ? state.generatedPublicKey : '',
             nodes: nextNodes,
             preset: state.preset === 'dev' || state.preset === 'standard' || state.preset === 'power' ? state.preset : null,
@@ -875,6 +847,15 @@ export const useWizardStore = create<WizardStore>()(
             deployStages: Array.isArray(state.deployStages) ? state.deployStages.map((stage) => ({ ...stage })) : cloneDeployStages(initialDeployStages),
           }
         }
+        if (version < 6) {
+          // v6 adds METALLB_VIP_205 and PUBLIC_INGRESS_IP. Re-run sanitize so any
+          // newly introduced WizardData keys are backfilled from initialWizardData
+          // (sanitizeWizardData seeds defaults, then overlays known persisted values).
+          return {
+            ...state,
+            data: sanitizeWizardData(state.data),
+          }
+        }
         return persistedState
       },
       partialize: (state) => ({
@@ -883,7 +864,6 @@ export const useWizardStore = create<WizardStore>()(
         nodes: state.nodes,
         preset: state.preset,
         localIpRanges: state.localIpRanges,
-        vpnOnly: state.vpnOnly,
         generatedPublicKey: state.generatedPublicKey,
         proxmoxDiscovery: state.proxmoxDiscovery,
         deployStarted: state.deployStarted,

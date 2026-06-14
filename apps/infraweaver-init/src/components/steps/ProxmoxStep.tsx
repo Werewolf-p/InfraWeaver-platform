@@ -70,6 +70,7 @@ export function ProxmoxStep() {
   const [showPass, setShowPass] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [setupResult, setSetupResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [overrideNodeName, setOverrideNodeName] = useState(false)
 
   const totalClusterRamGb = useMemo(
     () => nodes.reduce((sum, node) => sum + Number(node.memory || 0), 0) / 1024,
@@ -221,14 +222,56 @@ export function ProxmoxStep() {
             />
           </FormField>
 
-          <FormField className="mt-6" label="PROXMOX_NODE_NAME" htmlFor="PROXMOX_NODE_NAME" hint="Global default Proxmox node used for new VM placements.">
-            <input
-              id="PROXMOX_NODE_NAME"
-              value={data.PROXMOX_NODE_NAME}
-              onChange={(event) => setField('PROXMOX_NODE_NAME', event.target.value)}
-              placeholder="pve"
-              className={controlClassName}
-            />
+          <FormField
+            className="mt-6"
+            label="PROXMOX_NODE_NAME"
+            htmlFor="PROXMOX_NODE_NAME"
+            hint={
+              proxmoxDiscovery?.all_nodes?.length && !overrideNodeName
+                ? 'Auto-detected from Proxmox discovery. Override only if you need a different default node.'
+                : 'Global default Proxmox node used for new VM placements.'
+            }
+          >
+            {proxmoxDiscovery?.all_nodes?.length && !overrideNodeName ? (
+              <div className="flex items-center gap-2">
+                <input
+                  id="PROXMOX_NODE_NAME"
+                  value={data.PROXMOX_NODE_NAME}
+                  readOnly
+                  className={`${controlClassName} cursor-default opacity-80`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setOverrideNodeName(true)}
+                  className="shrink-0 text-xs text-[var(--az-text-secondary)] underline transition hover:text-white"
+                >
+                  Override
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  id="PROXMOX_NODE_NAME"
+                  value={data.PROXMOX_NODE_NAME}
+                  onChange={(event) => setField('PROXMOX_NODE_NAME', event.target.value)}
+                  placeholder="pve"
+                  className={controlClassName}
+                />
+                {proxmoxDiscovery?.all_nodes?.length ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOverrideNodeName(false)
+                      const detected = proxmoxDiscovery.all_nodes?.[0] ?? proxmoxDiscovery.node_name
+                      if (detected) setField('PROXMOX_NODE_NAME', detected)
+                    }}
+                    className="shrink-0 text-xs text-[var(--az-text-secondary)] underline transition hover:text-white"
+                  >
+                    Use detected
+                  </button>
+                ) : null}
+              </div>
+            )}
           </FormField>
 
           <button

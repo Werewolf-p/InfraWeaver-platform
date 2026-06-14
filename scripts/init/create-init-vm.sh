@@ -361,7 +361,7 @@ _get_vlan_tenants() {
 }
 
 # Build VLAN option list for a given bridge
-# Each entry: "3  [github-runner,netbird-router-vlan3]" or "2  [no VMs]"
+# Each entry: "3  [github-runner]" or "2  [no VMs]"
 # Sets global _VLAN_OPTS_ARR
 _build_vlan_opts() {
   local _br="$1"
@@ -785,10 +785,6 @@ qm create "$VMID" \
 NET_OPTS="virtio,bridge=${BRIDGE}"
 [[ -n "$VLAN_TAG" ]] && NET_OPTS="${NET_OPTS},tag=${VLAN_TAG}"
 qm set "$VMID" --net0 "$NET_OPTS"
-
-# Capture the MAC Proxmox auto-assigned to net0 — used for ARP-based IP detection later
-VM_MAC=$(qm config "$VMID" 2>/dev/null | grep '^net0:' \
-  | grep -oP '(?<=virtio=)[^,]+' | tr '[:upper:]' '[:lower:]')
 
 # Set cluster network (net1) — only if requested
 if [[ "$CLUSTER_NIC" == "yes" ]]; then

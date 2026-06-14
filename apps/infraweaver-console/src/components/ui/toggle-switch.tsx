@@ -1,4 +1,5 @@
 "use client";
+import { useId } from "react";
 import { cn } from "@/lib/utils";
 
 interface ToggleSwitchProps {
@@ -19,13 +20,14 @@ const sizes = {
 
 export function ToggleSwitch({ checked, onChange, label, description, disabled, size = "md", className }: ToggleSwitchProps) {
   const s = sizes[size];
+  const labelId = useId();
 
   return (
     <div className={cn("flex items-center justify-between gap-3", className)}>
       {(label || description) && (
         <div className="min-w-0 flex-1">
           {label ? (
-            <p className={cn("block truncate text-sm font-medium", disabled ? "text-gray-400 dark:text-[#666]" : "text-gray-900 dark:text-[#f2f2f2]")}>{label}</p>
+            <p id={labelId} className={cn("block truncate text-sm font-medium", disabled ? "text-gray-400 dark:text-[#666]" : "text-gray-900 dark:text-[#f2f2f2]")}>{label}</p>
           ) : null}
           {description ? (
             <p className={cn("mt-0.5 truncate text-xs", disabled ? "text-gray-400 dark:text-[#666]" : "text-gray-500 dark:text-[#888]")}>{description}</p>
@@ -36,6 +38,8 @@ export function ToggleSwitch({ checked, onChange, label, description, disabled, 
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-labelledby={label ? labelId : undefined}
+        aria-label={label ? undefined : "Toggle"}
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(

@@ -76,7 +76,6 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: false,
     items: [
       { href: "/network", icon: Network, label: "Network", shortcut: "G N", description: "Services, ingress, and network topology", pinnable: true, keywords: ["services", "topology", "connectivity"] },
-      { href: "/vpn", icon: Network, label: "VPN", description: "NetBird peer connectivity and management view", pinnable: true, keywords: ["netbird", "peers", "wireguard"] },
       { href: "/ingress", icon: Globe, label: "Ingress Routes", description: "Traefik hosts, auth, and TLS audit", keywords: ["traefik", "hosts", "tls"] },
       { href: "/routes", icon: Globe, label: "Route Manager", description: "Add, edit, and delete external routes with access tier control", pinnable: true, keywords: ["external routes", "tier"] },
       { href: "/dns", icon: Globe, label: "DNS", shortcut: "G Z", description: "Manage internal and public Cloudflare records", pinnable: true, keywords: ["cloudflare", "records", "domain"] },
@@ -261,7 +260,6 @@ export const MOBILE_DRAWER_NAV: NavItem[] = [
   { href: "/monitoring", icon: HeartPulse, label: "Monitoring" },
   { href: "/health", icon: Activity, label: "Health" },
   { href: "/network", icon: Network, label: "Network" },
-  { href: "/vpn", icon: Network, label: "VPN" },
   { href: "/dns", icon: Globe, label: "DNS" },
   { href: "/routes", icon: Globe, label: "External Routes" },
   { href: "/config", icon: Cog, label: "Config Editor" },

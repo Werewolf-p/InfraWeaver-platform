@@ -22,7 +22,7 @@ import { cleanupInit, deployStream, getKubeconfig, getStatus, pingProxmox, saveE
 import { ActionButton } from '@/components/ui/ActionButton'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StepHeader } from '@/components/ui/StepHeader'
-import { downloadEnvFile, parseEnvText, readFileText } from '@/lib/env'
+import { downloadEnvFile, envPayloadToString, parseEnvText, readFileText } from '@/lib/env'
 import { classifyLog, isIPv4, staggerContainer } from '@/lib/utils'
 import { initialDeployStages, useWizardStore } from '@/lib/store'
 
@@ -106,6 +106,8 @@ export function DeployStep() {
   const [cleanupMessage, setCleanupMessage] = useState('')
   const [cleanupBusy, setCleanupBusy] = useState(false)
   const [expandedChecks, setExpandedChecks] = useState<Set<string>>(new Set())
+  const [showEnvPreview, setShowEnvPreview] = useState(false)
+  const [copiedEnv, setCopiedEnv] = useState(false)
   const [proxmoxReachability, setProxmoxReachability] = useState<{ status: CheckStatus; detail: string }>({
     status: 'pending',
     detail: 'Run a Proxmox reachability check from this step.',
@@ -125,7 +127,7 @@ export function DeployStep() {
     [nodes],
   )
   const controlPlaneCount = useMemo(
-    () => nodes.filter((node) => node.role === 'control-plane').length,
+    () => nodes.filter((node) => node.role === 'control-plane' || node.role === 'hybrid').length,
     [nodes],
   )
 
@@ -428,6 +430,12 @@ export function DeployStep() {
     setActionMessage('Exported the current wizard state as .env.')
   }
 
+  const handleCopyEnv = async () => {
+    await navigator.clipboard.writeText(envPayloadToString(getEnvPayload()))
+    setCopiedEnv(true)
+    setTimeout(() => setCopiedEnv(false), 1500)
+  }
+
   const handleImportClick = () => importInputRef.current?.click()
 
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -611,6 +619,31 @@ export function DeployStep() {
             </ActionButton>
           </div>
           <input ref={importInputRef} type="file" accept=".env,text/plain" className="hidden" onChange={(event) => void handleImport(event)} />
+
+          <div className="mt-4 rounded-2xl border border-white/8 bg-black/20">
+            <button type="button" onClick={() => setShowEnvPreview((current) => !current)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm text-white">
+              <span className="flex items-center gap-2">
+                {showEnvPreview ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                Preview generated .env
+              </span>
+              <span className="text-xs text-[var(--az-text-secondary)]">Read-only · {nodes.length} node{nodes.length === 1 ? '' : 's'}</span>
+            </button>
+            {showEnvPreview ? (
+              <div className="border-t border-white/6 p-4">
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <ActionButton variant="secondary" onClick={() => void handleCopyEnv()}>
+                    {copiedEnv ? <CheckCircle2 className="h-4 w-4 text-[var(--az-success)]" /> : <Copy className="h-4 w-4" />}
+                    {copiedEnv ? 'Copied' : 'Copy'}
+                  </ActionButton>
+                  <ActionButton variant="secondary" onClick={handleExport}>
+                    <Download className="h-4 w-4" />
+                    Download .env
+                  </ActionButton>
+                </div>
+                <pre className="custom-scrollbar max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-xl border border-white/8 bg-black/30 p-4 font-mono text-xs leading-6 text-[var(--az-text-secondary)]">{envPayloadToString(getEnvPayload())}</pre>
+              </div>
+            ) : null}
+          </div>
 
           {saveMessage ? <div className="mt-4 rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-[var(--az-text-secondary)]">{saveMessage}</div> : null}
           {deploySummary ? (

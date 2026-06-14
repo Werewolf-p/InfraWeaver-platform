@@ -16,6 +16,7 @@ export function useResourceSearch(query: string) {
 
   useEffect(() => {
     if (!query.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setResults([]);
       return;
     }

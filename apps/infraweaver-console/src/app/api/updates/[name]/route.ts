@@ -1,27 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { iwApiFetch } from "@/lib/iw-api";
+import { withRoute } from "@/lib/route-utils";
 
 const updateRequestSchema = z.object({
   version: z.string().min(1).max(100),
 }).strict();
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ name: string }> }
-) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "platform:update")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const POST = withRoute("platform:update", async (req: NextRequest, session, _access, ctx) => {
+  const { params } = ctx;
   if (!checkRateLimit(rateLimitKey("updates-apply", req), 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -39,4 +28,4 @@ export async function POST(
   });
   const data = await res.json();
   return NextResponse.json(data, { status: res.status });
-}
+});

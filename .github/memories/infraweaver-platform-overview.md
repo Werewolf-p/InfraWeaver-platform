@@ -90,8 +90,7 @@ git add scripts/init/out/ && git commit && git push
    - Onedev returns `main` for HEAD; using HEAD causes ArgoCD to show OutOfSync
    - Fixed in commit `d2667b5e` 
 8. **bootstrap ignoreDifferences:** Added to bootstrap Application spec to ignore `notified.notifications.argoproj.io` and `tracking-id` annotation churn on managed apps
-9. **core-limitranges:** Removed `netbird` LimitRange from manifest — namespace doesn't exist when ENABLE_NETBIRD=false
-10. **ExternalSecret defaults:** ESO adds `conversionStrategy`, `decodingStrategy`, `engineVersion`, `mergePolicy` to live objects — include these in git to prevent ArgoCD OutOfSync
+9. **ExternalSecret defaults:** ESO adds `conversionStrategy`, `decodingStrategy`, `engineVersion`, `mergePolicy` to live objects — include these in git to prevent ArgoCD OutOfSync
     - Example: `onedev-repo-creds.yaml` updated with ESO-added defaults
 
 ### Kubeconfig Issue

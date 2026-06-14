@@ -14,7 +14,11 @@ COPY package*.json ./
 RUN --mount=type=tmpfs,target=/dev/shm npm ci --legacy-peer-deps
 ARG CACHEBUST=1
 ARG APP_VERSION=dev
+# Base domain must be present at BUILD time: NEXT_PUBLIC_* is inlined into the
+# client bundle by Next.js. Defaults to example.com for forks that don't override.
+ARG NEXT_PUBLIC_BASE_DOMAIN=example.com
 ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
+ENV NEXT_PUBLIC_BASE_DOMAIN=$NEXT_PUBLIC_BASE_DOMAIN
 ENV NODE_OPTIONS=--max-old-space-size=8192
 COPY . .
 RUN --mount=type=tmpfs,target=/dev/shm npm run build

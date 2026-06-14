@@ -76,21 +76,21 @@ generate_helm_bootstrap() {
 
   # Read catalog.yaml fields
   eval "$(python3 - << PYEOF
-import yaml, sys
+import yaml, shlex
 d = yaml.safe_load(open('$catalog_yaml'))
 h = d.get('helm', {})
-ns = d.get('namespace', '$app')
-repo = h.get('repoURL', '')
-chart = h.get('chart', '')
-version = h.get('targetRevision', '*')
-release = h.get('releaseName', '$app')
-desc = d.get('description', '').replace("'", "\\'")
-print(f"APP_NS='{ns}'")
-print(f"APP_REPO='{repo}'")
-print(f"APP_CHART='{chart}'")
-print(f"APP_VERSION='{version}'")
-print(f"APP_RELEASE='{release}'")
-print(f"APP_DESC='{desc}'")
+vals = {
+    'APP_NS': d.get('namespace', '$app'),
+    'APP_REPO': h.get('repoURL', ''),
+    'APP_CHART': h.get('chart', ''),
+    'APP_VERSION': h.get('targetRevision', '*'),
+    'APP_RELEASE': h.get('releaseName', '$app'),
+    'APP_DESC': d.get('description', ''),
+}
+# shlex.quote prevents catalog.yaml values from breaking out of the shell
+# assignment and executing arbitrary commands when eval'd.
+for k, v in vals.items():
+    print(f"{k}={shlex.quote(str(v))}")
 PYEOF
 )"
 
@@ -157,12 +157,12 @@ generate_manifests_bootstrap() {
   local output="$BOOTSTRAP_DIR/catalog-${app}-manifests.yaml"
 
   eval "$(python3 - << PYEOF2
-import yaml
+import yaml, shlex
 d = yaml.safe_load(open('$catalog_yaml'))
-ns = d.get('namespace', '$app')
-desc = d.get('description', '').replace("'", "\\'")
-print(f"APP_NS=\'{ns}\'")
-print(f"APP_DESC=\'{desc}\'")
+# shlex.quote prevents catalog.yaml values from breaking out of the shell
+# assignment and executing arbitrary commands when eval'd.
+print(f"APP_NS={shlex.quote(str(d.get('namespace', '$app')))}")
+print(f"APP_DESC={shlex.quote(str(d.get('description', '')))}")
 PYEOF2
 )"
 
@@ -240,8 +240,6 @@ remove_bootstrap() {
 log ""
 log "=== Syncing enabled apps ==="
 
-CHANGES_MADE=false
-
 # For each enabled app: ensure bootstrap files exist and are up to date
 while IFS= read -r app; do
   [[ -z "$app" ]] && continue
@@ -281,7 +279,6 @@ print('yes' if d.get('helm') else 'no')
         log "  $app: no helm section and no manifests/ directory — skipping bootstrap"
       fi
     fi
-    CHANGES_MADE=true
   fi
 done <<< "$ENABLED_APPS"
 
@@ -306,7 +303,6 @@ for f in "$BOOTSTRAP_DIR"/catalog-*.yaml; do
     else
       rm "$f"
       log "  Deleted: $f"
-      CHANGES_MADE=true
     fi
   fi
 done

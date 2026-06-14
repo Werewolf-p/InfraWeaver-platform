@@ -11,6 +11,7 @@ export function useBookmarks() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       if (stored) setBookmarks(JSON.parse(stored) as Bookmark[]);
     } catch {}
   }, []);

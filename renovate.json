@@ -54,19 +54,6 @@
       "pinDigests": true
     },
     {
-      "description": "Never auto-update NetBird \u2014 VPN changes require manual testing",
-      "matchPackagePatterns": [
-        "netbirdio/.*"
-      ],
-      "enabled": true,
-      "automerge": false,
-      "labels": [
-        "renovate",
-        "netbird",
-        "needs-manual-test"
-      ]
-    },
-    {
       "description": "Never auto-update OpenBao \u2014 secrets manager upgrades are breaking-change risk",
       "matchPackagePatterns": [
         "quay.io/openbao/.*"

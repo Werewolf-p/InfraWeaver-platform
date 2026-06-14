@@ -8,6 +8,11 @@
 const nextConfig = {
   output: 'standalone',
   serverExternalPackages: ['monaco-editor', '@kubernetes/client-node'],
+  // In-cluster BuildKit runs in a 4-CPU / 12Gi cgroup, but Next derives its build
+  // worker count from os.cpus() (the node's 10 cores -> 9 workers), over-subscribing
+  // the cgroup and SIGSEGV-ing the build / page-data workers. Pin an explicit, small
+  // worker count so the build is deterministic inside the constrained build sandbox.
+  experimental: { cpus: 2 },
   async headers() {
     return [
       {

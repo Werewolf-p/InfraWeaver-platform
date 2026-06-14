@@ -10,7 +10,7 @@ Use the console when you need to:
 - manage DNS records for internal or public access
 - grant users scoped access to servers and platform features
 
-> **Note:** InfraWeaver is an operations console, not a public landing page. Most routes assume you are already connected through NetBird or coming through the Traefik + Authentik entrypoint.
+> **Note:** InfraWeaver is an operations console, not a public landing page. Most routes assume you are already on the internal network or coming through the Traefik + Authentik entrypoint.
 
 ## Logging in with Authentik SSO
 

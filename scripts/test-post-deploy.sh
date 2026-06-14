@@ -135,22 +135,12 @@ argocd_app "apps-dns"           "apps-dns"
 # apps-homepage is optional — only warn if missing
   health_hp=$(kubectl --kubeconfig "$KB" get application apps-homepage -n argocd -o jsonpath="{.status.health.status}" 2>/dev/null || echo "NotFound")
   if [ "$health_hp" = "NotFound" ]; then warn "apps-homepage (not deployed — optional)"; elif [ "$health_hp" = "Healthy" ]; then ok "apps-homepage (ArgoCD: Healthy)"; else warn "apps-homepage (ArgoCD: $health_hp)"; fi
-argocd_app "apps-netbird"       "apps-netbird"
 
 # ── 4. Public URLs ────────────────────────────────────────────────────────────
 echo "── Public URLs ──────────────────────────────────────────────"
 http_check "Authentik login page"     "https://auth.${BASE_DOMAIN}/"
 http_check "Authentik admin page"     "https://auth.${BASE_DOMAIN}/if/admin/"
 http_check "Recovery flow endpoint"   "https://auth.${BASE_DOMAIN}/if/flow/default-recovery-flow/"
-http_check "NetBird dashboard"        "https://netbird.${BASE_DOMAIN}/"
-
-# NetBird API — should return some HTTP response (401 or 200, not 000)
-NB_API=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "https://api-netbird.${BASE_DOMAIN}/" 2>/dev/null || echo "000")
-if [ "$NB_API" != "000" ]; then
-  ok "NetBird API reachable (api-netbird.${BASE_DOMAIN} → HTTP $NB_API)"
-else
-  fail "NetBird API unreachable (api-netbird.${BASE_DOMAIN} → no response)"
-fi
 
 # ── 5. OIDC Discovery (public — required for SSO) ────────────────────────────
 echo "── OIDC Discovery Endpoints ─────────────────────────────────"

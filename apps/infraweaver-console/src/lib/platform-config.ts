@@ -43,7 +43,7 @@ export const DEFAULT_TLS_SECRETS = {
 
 /** Traefik middleware names that mark an access tier. */
 export const DEFAULT_ACCESS_TIER_MIDDLEWARES = {
-  vpn: "netbird-vpn-only",
+  vpn: "vpn-only",
   internal: "internal-only",
 } as const;
 

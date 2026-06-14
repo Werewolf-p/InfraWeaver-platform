@@ -16,8 +16,6 @@ trap cleanup EXIT
 ENV=${ENV_NAME:?ENV_NAME required}
 KB=~/.kube/config-platform-$ENV
 LOCAL_OPENBAO="http://127.0.0.1:8200"
-# In-cluster OpenBao address (ClusterIP service, accessible via NetBird)
-OPENBAO_ADDR="http://openbao.openbao.svc.cluster.local:8200"
 
 # Apply RBAC so the autounseal sidecar can read the openbao-unseal secret
 kubectl --kubeconfig "$KB" apply -f kubernetes/core/openbao/manifests/rbac.yaml 2>/dev/null || true
@@ -307,27 +305,6 @@ else
   echo "==> WARNING: bcrypt unavailable — admin password not set"
 fi
 rm -f "$ADMIN_PASS_FILE" "$REMON_PATCH_FILE"
-
-# NetBird: generate random TURN relay password + datastore encryption key + setup key + PAT token
-EXISTING_NETBIRD=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/netbird" | \
-  python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('turn-password',''))" \
-  2>/dev/null || echo "")
-if [ -z "$EXISTING_NETBIRD" ]; then
-  TURN_PASS=$(openssl rand -base64 24 | tr -d '=+/')
-  DATASTORE_KEY=$(openssl rand -base64 32)
-  # Generate valid 40-char NetBird PAT: nbp_ + 30 base62 chars + 6-char base62 CRC32 checksum
-  NB_PAT=$(python3 -c 'import zlib,random,string; a=string.digits+string.ascii_uppercase+string.ascii_lowercase; b62=lambda n,s="": s if not n else b62(n//62,a[n%62]+s); t=next(s for s in iter(lambda:"".join(random.choices(a,k=30)),None) if len(b62(zlib.crc32(s.encode())&4294967295))==6); print("nbp_"+t+b62(zlib.crc32(t.encode())&4294967295))')
-  # SETUP_KEY matches the hardcoded key in kubernetes/platform/netbird/manifests/bootstrap-job.yaml
-  # It is written here so client DaemonSet pods can register via OpenBao ExternalSecret
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/netbird" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"data\": {\"turn-password\": \"$TURN_PASS\", \"datastore-enc-key\": \"$DATASTORE_KEY\", \"SETUP_KEY\": \"A1B2C3D4-E5F6-7890-ABCD-EF1234567890\", \"netbird-pat-token\": \"$NB_PAT\"}}" > /dev/null
-  echo "==> NetBird secrets written (randomly generated, including PAT token)"
-else
-  echo "==> NetBird secrets already exist — preserving existing values"
-fi
 
 # Authentik: seed secret (script handles first-deploy and admin-password patch)
 bash scripts/deploy/seed-openbao-authentik.sh "$LOCAL_OPENBAO" "$ROOT_TOKEN"

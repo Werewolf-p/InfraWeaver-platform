@@ -25,13 +25,12 @@
 #   9.  Ensure DNS records (Cloudflare only)
 #   10. Apply MetalLB IP pool + Traefik middleware
 #   11. Configure TLS certificate issuers
-#   12. Reconnect NetBird router VM
-#   13. Fix ingress-nginx admission webhook
-#   14. Patch cluster CoreDNS for internal zones
-#   15. Configure Authentik (admin privileges + user passwords)
-#   16. Configure OIDC for ArgoCD and OpenBao
-#   17. Run post-deploy tests
-#   18. Send deployment summary email
+#   12. Fix ingress-nginx admission webhook
+#   13. Patch cluster CoreDNS for internal zones
+#   14. Configure Authentik (admin privileges + user passwords)
+#   15. Configure OIDC for ArgoCD and OpenBao
+#   16. Run post-deploy tests
+#   17. Send deployment summary email
 #
 # PREREQUISITES:
 #   - .env file with required values (see .env.example)
@@ -172,6 +171,56 @@ if [[ -z "${BASE_DOMAIN:-}" ]]; then
   err "BASE_DOMAIN not set — ensure .env is configured (run the init website)"
   exit 1
 fi
+
+# ── Materialize private infra content (terraform / kubernetes / envs) ─────────
+# The public platform repo does NOT carry IaC content — it lives in the private
+# InfraWeaver-infra repo. On the dev box these were committed as absolute
+# symlinks into /home/runner/InfraWeaver-infra, which dangle on any deploy host
+# (a dangling symlink also makes `mkdir -p envs/...` fail with
+# "cannot create directory 'envs': File exists"). Here we sync the real
+# directories from a locally-cloned infra repo. INFRA_DIR is auto-detected and
+# overridable via the environment.
+detect_infra_dir() {
+  if [[ -n "${INFRA_DIR:-}" && -d "$INFRA_DIR" ]]; then ( cd "$INFRA_DIR" && pwd ); return; fi
+  local c
+  for c in "$REPO_DIR/../InfraWeaver-infra" "/home/runner/InfraWeaver-infra" "/opt/InfraWeaver-infra" "/opt/infraweaver-infra"; do
+    if [[ -d "$c/terraform" || -d "$c/kubernetes" || -d "$c/envs" ]]; then ( cd "$c" && pwd ); return; fi
+  done
+}
+
+sync_dir_from_infra() {
+  local name="$1" infra="$2"
+  # Drop a stale dangling symlink left by older checkouts.
+  if [[ -L "$name" && ! -e "$name" ]]; then
+    log "Removing stale dangling '$name' symlink"
+    rm -f "$name"
+  fi
+  [[ -d "$infra/$name" ]] || return 0
+  # If the path is a (valid) symlink into the infra repo, leave it as-is.
+  if [[ -L "$name" ]]; then return 0; fi
+  mkdir -p "$name"
+  log "Syncing $name/ from $infra/$name/"
+  # No --delete: preserve locally generated content (e.g. envs/*/generated/).
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a "$infra/$name/" "$name/"
+  else
+    cp -a "$infra/$name/." "$name/"
+  fi
+}
+
+INFRA_DIR="$(detect_infra_dir)"
+if [[ -n "$INFRA_DIR" ]]; then
+  ok "Using infra content from $INFRA_DIR"
+  for _d in terraform kubernetes envs; do sync_dir_from_infra "$_d" "$INFRA_DIR"; done
+else
+  warn "InfraWeaver-infra not found — set INFRA_DIR=/path/to/InfraWeaver-infra if terraform/kubernetes are missing"
+fi
+# Fail fast with a clear message if IaC content still isn't present.
+for _d in terraform kubernetes; do
+  if [[ ! -d "$_d" || -z "$(ls -A "$_d" 2>/dev/null)" ]]; then
+    die "Required '$_d/' is missing or empty. It lives in the private InfraWeaver-infra repo — clone it on this host and set INFRA_DIR (auto-detect tried \$INFRA_DIR, ../InfraWeaver-infra, /home/runner/InfraWeaver-infra)."
+  fi
+done
 
 # ── Generate envs/$ENV_NAME/cluster.yaml from .env node vars if missing ───────
 mkdir -p "envs/$ENV_NAME/generated"
@@ -797,7 +846,6 @@ kubectl --kubeconfig "$KB_FILE" label namespace metallb-system \
   pod-security.kubernetes.io/enforce-version=latest \
   --overwrite 2>/dev/null || true
 kubectl --kubeconfig "$KB_FILE" rollout restart daemonset/metallb-speaker -n metallb-system 2>/dev/null || true
-kubectl --kubeconfig "$KB_FILE" apply -f kubernetes/core/traefik/manifests/middleware-netbird.yaml 2>/dev/null || true
 ok "Step 12: MetalLB + Traefik middleware applied"
 
 # ── Step 13: Configure certificate issuers ────────────────────────────────────
@@ -825,12 +873,6 @@ if [[ "$LETSENCRYPT_ENV" == "staging" ]]; then
   done
 fi
 ok "Step 13: TLS configured"
-
-# ── Step 14: Reconnect NetBird ────────────────────────────────────────────────
-log "Step 14: Reconnecting NetBird router VM..."
-ENV_NAME="$ENV_NAME" bash scripts/deploy/reconnect-netbird.sh 2>/dev/null || warn "NetBird reconnect failed (continuing)"
-ENV_NAME="$ENV_NAME" bash scripts/deploy/populate-netbird.sh 2>/dev/null  || warn "NetBird populate failed (continuing)"
-ok "Step 14: NetBird reconnected"
 
 # ── Step 15: Fix ingress-nginx admission webhook ──────────────────────────────
 log "Step 15: Fixing ingress-nginx admission webhook CA bundle..."

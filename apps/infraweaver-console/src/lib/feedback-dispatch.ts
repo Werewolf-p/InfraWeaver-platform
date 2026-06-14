@@ -1,5 +1,6 @@
 import "server-only";
 import type { FeedbackEntry } from "@/lib/feedback-store";
+import { signHmac } from "@/lib/hmac";
 
 /**
  * Direct client for the InfraWeaver dispatch service (no n8n).
@@ -23,6 +24,10 @@ import type { FeedbackEntry } from "@/lib/feedback-store";
  * callers do not block the HTTP response on them.
  */
 const DISPATCH_URL = process.env.DISPATCH_URL;
+// Shared HMAC secret for signing outbound mutation POSTs (approve/validate/
+// publish). When unset we send unsigned, matching the dispatch fail-open
+// default (HMAC disabled until ops provisions the secret on both sides).
+const DISPATCH_SECRET = process.env.DISPATCH_SECRET;
 // Quick calls (validated verdict, run listing) get a short timeout.
 const QUICK_TIMEOUT_MS = 10_000;
 // Long calls (approve / not_fixed / publish) — the dispatch run can take ~20 min.
@@ -82,10 +87,19 @@ async function postDispatch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    // Serialize the body ONCE — the exact string is both sent and signed so the
+    // dispatch verifier's HMAC over the raw received bytes matches.
+    const rawBody = JSON.stringify(body);
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (DISPATCH_SECRET) {
+      const timestamp = String(Date.now());
+      headers["X-IW-Timestamp"] = timestamp;
+      headers["X-IW-Signature"] = signHmac(`${timestamp}.${rawBody}`, DISPATCH_SECRET);
+    }
     const res = await fetch(new URL(pathname, DISPATCH_URL), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers,
+      body: rawBody,
       signal: controller.signal,
     });
     const payload = (await res.json().catch(() => ({}))) as Partial<DispatchResult> & { error?: string };

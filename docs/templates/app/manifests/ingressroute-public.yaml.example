@@ -2,7 +2,7 @@
 # PUBLIC IngressRoute — accessible from the internet WITHOUT authentication
 #
 # Rename this file from .yaml.example → .yaml to activate it.
-# URL: https://APP_NAME.rlservers.com  (⚠️ world-reachable! No login required.)
+# URL: https://APP_NAME.example.com  (⚠️ world-reachable! No login required.)
 #
 # ⚠️  Think twice before enabling this.
 #    Only use for apps explicitly designed to be fully public (e.g., a portfolio, API).
@@ -18,7 +18,7 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`APP_NAME.rlservers.com`)
+    - match: Host(`APP_NAME.example.com`)
       kind: Rule
       services:
         - name: APP_NAME
@@ -26,7 +26,7 @@ spec:
   tls:
     secretName: APP_NAME-tls
 ---
-# Certificate for APP_NAME.rlservers.com
+# Certificate for APP_NAME.example.com
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -38,4 +38,4 @@ spec:
     name: letsencrypt-dns
     kind: ClusterIssuer
   dnsNames:
-    - APP_NAME.rlservers.com
+    - APP_NAME.example.com

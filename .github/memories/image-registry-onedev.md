@@ -1,7 +1,7 @@
-# Image Registry Migration: ghcr.io → onedev.rlservers.com
+# Image Registry Migration: ghcr.io → onedev.example.com
 
 ## Current state (as of 2026-05-26)
-All InfraWeaver application images have been migrated from GitHub Container Registry (`ghcr.io`) to the internal OneDev registry (`onedev.rlservers.com`).
+All InfraWeaver application images have been migrated from GitHub Container Registry (`ghcr.io`) to the internal OneDev registry (`onedev.example.com`).
 
 ## The only pull secret needed is `onedev-pull-secret`
 - `ghcr-pull-secret` has been **removed** from all namespaces and deployment manifests
@@ -14,9 +14,9 @@ All InfraWeaver application images have been migrated from GitHub Container Regi
 
 ## Image name format
 ```
-onedev.rlservers.com/<project>/<image>:<tag>
+onedev.example.com/<project>/<image>:<tag>
 # Example:
-onedev.rlservers.com/infraweaver/console:main-abc1234
+onedev.example.com/infraweaver/console:main-abc1234
 ```
 
 ## When deploying new apps that use OneDev images

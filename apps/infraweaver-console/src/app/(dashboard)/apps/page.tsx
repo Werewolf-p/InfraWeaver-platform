@@ -30,7 +30,6 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { UpdatePolicyModal } from "@/components/apps/update-policy-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { usePlatformApps } from "@/hooks/use-platform-apps";
 import { resolveAppRouteAccess, type AppRouteAccessSummary } from "@/lib/app-route-access";
 import type { AccessTier } from "@/lib/access-tier";
 
@@ -214,14 +213,14 @@ function isProtectedCatalogApp(name: string): boolean {
   return name.startsWith("core-") || name === "bootstrap" || name.startsWith("appset-") || name === "catalog-infraweaver-console-manifests";
 }
 
-function AppAccessBadges({ access, netbirdInstalled }: { access?: AppRouteAccessSummary; netbirdInstalled: boolean }) {
+function AppAccessBadges({ access }: { access?: AppRouteAccessSummary }) {
   if (!access || access.tiers.length === 0) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {access.tiers.map((tier) => {
         const matchedHosts = access.matches.filter((match) => match.tier === tier).map((match) => match.host).filter((host): host is string => Boolean(host));
-        const warning = tier === "vpn" && !netbirdInstalled ? "VPN required — NetBird not installed" : null;
+        const warning = null;
         const tooltip = matchedHosts.length > 0 ? `${matchedHosts.join(", ")} — ${tier.toUpperCase()} access` : `${tier.toUpperCase()} access`;
         return <AccessTierBadge key={tier} tier={tier} compact warning={warning} tooltip={tooltip} />;
       })}
@@ -231,26 +230,20 @@ function AppAccessBadges({ access, netbirdInstalled }: { access?: AppRouteAccess
 
 function SwipeableAppCard({
   row,
-  syncingApp,
-  deletingApp,
   onSync,
   onDelete,
   isOptimisticSyncing,
   canSync,
   canDelete,
   actions,
-  netbirdInstalled,
 }: {
   row: AppRow;
-  syncingApp: string | null;
-  deletingApp: string | null;
   onSync: (name: string) => void;
   onDelete: (name: string) => void;
   isOptimisticSyncing?: boolean;
   canSync: boolean;
   canDelete: boolean;
   actions: ActionItem[];
-  netbirdInstalled: boolean;
 }) {
   const x = useMotionValue(0);
   const isCatalog = row.source === "Catalog";
@@ -312,7 +305,7 @@ function SwipeableAppCard({
                     href={`https://${row.ingressHost}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    title={row.access?.tiers.includes("vpn") ? `${row.ingressHost} — requires NetBird VPN` : row.ingressHost}
+                    title={row.access?.tiers.includes("vpn") ? `${row.ingressHost} — requires VPN` : row.ingressHost}
                     className="flex items-center gap-1 text-xs text-[#4a9eff] hover:text-[#7cb9ff] transition-colors"
                     onClick={e => e.stopPropagation()}
                   >
@@ -320,7 +313,7 @@ function SwipeableAppCard({
                     <span className="truncate font-mono">{row.ingressHost}</span>
                   </a>
                 ) : null}
-                <AppAccessBadges access={row.access} netbirdInstalled={netbirdInstalled} />
+                <AppAccessBadges access={row.access} />
               </div>
             )}
           </div>
@@ -374,8 +367,6 @@ function AllInstalledTab() {
   const { can } = useRBAC();
   const canSyncApps = can("apps:sync");
   const canManageApps = can("apps:write");
-  const platformApps = usePlatformApps();
-  const netbirdInstalled = platformApps.netbird;
   const { data: argoApps, isLoading: argoLoading, isFetching: argoFetching, refetch, dataUpdatedAt, error: argoError, dataSource } = useArgoApps();
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
@@ -1267,7 +1258,7 @@ function AllInstalledTab() {
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       {row.ingressHost && <p className="text-xs text-[#4a9eff] font-mono truncate max-w-[240px]">{row.ingressHost}</p>}
-                      <AppAccessBadges access={row.access} netbirdInstalled={netbirdInstalled} />
+                      <AppAccessBadges access={row.access} />
                       {row.createdAt && <span className="text-xs text-gray-400 dark:text-[#666]"><RelativeTime date={row.createdAt} live={false} className="text-xs text-gray-400 dark:text-[#666]" /></span>}
                     </div>
                   </td>
@@ -1306,15 +1297,12 @@ function AllInstalledTab() {
               </div>
               <SwipeableAppCard
                 row={row}
-                syncingApp={syncingApp}
-                deletingApp={deletingApp}
                 onSync={requestSync}
                 onDelete={handleDelete}
                 isOptimisticSyncing={optimisticSyncing.has(row.name)}
                 canSync={canSyncApps}
                 canDelete={canManageApps}
                 actions={buildRowActions(row)}
-                netbirdInstalled={netbirdInstalled}
               />
               {row.source === "Catalog" && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
@@ -2209,7 +2197,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                   <label className="text-gray-500 dark:text-white/60 text-xs mb-1 block">Ingress Hostname</label>
                   <input className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-indigo-500"
                     value={options.ingressHost} onChange={e => setOptions(o => ({ ...o, ingressHost: e.target.value }))} />
-                  <p className="text-gray-400 dark:text-white/40 text-xs mt-1">Will be VPN-only via netbird-vpn-only middleware</p>
+                  <p className="text-gray-400 dark:text-white/40 text-xs mt-1">Will be VPN-only via the vpn-only middleware</p>
                 </div>
               )}
 

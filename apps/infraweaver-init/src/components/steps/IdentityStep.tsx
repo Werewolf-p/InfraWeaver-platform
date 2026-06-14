@@ -22,7 +22,7 @@ export function IdentityStep() {
         icon={UserRound}
         eyebrow="Step 5 of 8"
         title="Primary platform identity"
-        description="This account becomes the first platform administrator across Authentik, ArgoCD, and NetBird. The wizard starts with values derived from the admin email, but you can still adjust them before deployment."
+        description="This account becomes the first platform administrator across Authentik and ArgoCD. The wizard starts with values derived from the admin email, but you can still adjust them before deployment."
       />
 
       <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">

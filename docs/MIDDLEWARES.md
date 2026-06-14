@@ -11,25 +11,24 @@ All shared Traefik middlewares live in:
 |------|-----------|---------|
 | `redirect-to-https` | traefik | HTTP → HTTPS permanent redirect (applied to all port-80 traffic) |
 | `internal-only` | traefik | Allow homelab LAN + VPN, block public internet |
-| `netbird-vpn-only` | traefik | Allow ONLY NetBird VPN traffic (used for all `*.int.rlservers.com` routes) |
 | `add-https-headers` | traefik | Sets `X-Forwarded-Proto: https` for backends |
 | `secure-headers` | traefik | Browser security headers (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) |
 | `forward-auth` | traefik | Authentik proxy auth — any logged-in Authentik user passes |
 | `forward-auth-admin` | traefik | Authentik proxy auth — `platform-admins` group required |
 | `rate-limit-auth` | traefik | Brute-force protection on auth endpoints |
-| `cors-authentik` | traefik | CORS headers for `auth.rlservers.com` OIDC endpoints |
+| `cors-authentik` | traefik | CORS headers for `auth.example.com` OIDC endpoints |
 
 ---
 
 ## Usage Examples
 
-### VPN-only Internal Route (default)
+### Internal Route (default)
 ```yaml
 middlewares:
-  - name: netbird-vpn-only
+  - name: forward-auth
     namespace: traefik
 ```
-> Use for all `*.int.rlservers.com` routes. VPN is the authentication layer.
+> Use for all `*.int.example.com` routes. Authentik forward-auth is the authentication layer.
 
 ### Authentik Proxy Auth (any logged-in user) {#any-auth}
 ```yaml
@@ -37,7 +36,7 @@ middlewares:
   - name: forward-auth
     namespace: traefik
 ```
-> Users are redirected to `auth.rlservers.com` to log in, then returned to the app.
+> Users are redirected to `auth.example.com` to log in, then returned to the app.
 > Add label `infraweaver.io/auth: proxy` to your Deployment for visibility.
 
 ### Authentik Proxy Auth (admin-only) {#admin-auth}
@@ -73,7 +72,7 @@ middlewares:
 middlewares:
   - name: secure-headers
     namespace: traefik
-  - name: netbird-vpn-only   # or forward-auth / cors-authentik etc
+  - name: forward-auth   # or cors-authentik etc
     namespace: traefik
 ```
 > `secure-headers` is applied to **all HTTP-serving routes** by default (via `new-app.sh` and platform routes).
@@ -85,7 +84,6 @@ middlewares:
 > - `Permissions-Policy: camera=(), microphone=(), geolocation=()` — disables browser APIs
 > - `X-XSS-Protection: 0` — disables legacy XSS filter (modern browsers use CSP instead)
 >
-> ⚠️ **NOT applied to gRPC routes** (NetBird management, signal, relay) — HTTP headers don't apply to gRPC.
 > ⚠️ **CSP is intentionally omitted** — Content-Security-Policy is highly app-specific and breaks most apps.
 
 ---
@@ -101,7 +99,7 @@ kubectl get deploy -A -L infraweaver.io/auth
 
 | Label Value | Meaning |
 |-------------|---------|
-| `vpn` | VPN-only (NetBird, internal access) — default |
+| `vpn` | VPN-only (internal access) — default |
 | `proxy` | Authentik proxy auth (any logged-in user) |
 | `admin` | Authentik proxy auth (platform-admins group only) |
 | `sso` | App uses native OIDC/SSO |
@@ -114,7 +112,7 @@ kubectl get deploy -A -L infraweaver.io/auth
 Use `new-app.sh` flags to auto-generate the correct IngressRoute and set the label:
 
 ```bash
-# Default: VPN-only internal access
+# Default: internal access (forward-auth)
 bash scripts/new-app.sh my-app
 
 # Authentik proxy: any logged-in user
@@ -154,9 +152,9 @@ bash scripts/new-app.sh my-app --public
 ```
 Browser → Traefik → forward-auth middleware
                         ↓
-              https://auth.rlservers.com/outpost.goauthentik.io/auth/traefik
+              https://auth.example.com/outpost.goauthentik.io/auth/traefik
                         ↓ (not authenticated)
-              Redirect to auth.rlservers.com → login
+              Redirect to auth.example.com → login
                         ↓ (authenticated)
               Traefik passes request to backend
               with X-authentik-* headers set

@@ -79,7 +79,17 @@ podsRoute.get('/:namespace/:name/logs', async (c) => {
       spec?: { containers?: Array<{ name?: string }> };
     };
 
-    const container = c.req.query('container') ?? pod.spec?.containers?.[0]?.name;
+    const podContainers = (pod.spec?.containers ?? [])
+      .map((ct) => ct.name)
+      .filter((n): n is string => Boolean(n));
+    const requested = c.req.query('container');
+    // Only forward a container name that actually exists on the pod, never the
+    // raw query value, so a crafted name can't be used to manipulate the
+    // request sent to the kube-apiserver.
+    if (requested && !podContainers.includes(requested)) {
+      return c.json({ error: 'Unknown container for pod' }, 400);
+    }
+    const container = requested ?? podContainers[0];
     if (!container) {
       return c.json({ error: 'Pod container not found' }, 404);
     }

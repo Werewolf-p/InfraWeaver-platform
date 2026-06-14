@@ -25,6 +25,7 @@ export function useSettings() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setMounted(true);
     try {
       const stored = localStorage.getItem(STORAGE_KEY);

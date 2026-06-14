@@ -10,7 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import {
-  BUILT_IN_ROLES, STATIC_SCOPES, buildScopes, scopeLabel, ROLE_COLOR_CLASSES,
+  BUILT_IN_ROLES, buildScopes, scopeLabel, ROLE_COLOR_CLASSES,
   type RoleDefinition, type RoleAssignment,
 } from "@/lib/rbac";
 
@@ -46,7 +46,6 @@ function RoleCard({
   role, assignmentCount, onClick, selected,
 }: { role: RoleDefinition; assignmentCount: number; onClick: () => void; selected: boolean }) {
   const colors = ROLE_COLOR_CLASSES[role.color ?? "gray"];
-  const Icon = CATEGORY_ICON[role.category ?? "platform"] ?? Shield;
   return (
     <button
       onClick={onClick}

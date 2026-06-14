@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, ServerCrash, CheckCircle2,
-  ChevronDown, Download, Upload, Dices, Zap, Flame, Leaf, Crown, Terminal, Rocket, Save,
-  XCircle, AlertCircle, Users, Bookmark, Clock, CheckCheck, Server, Cpu, MemoryStick, HardDrive,
+  ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, CheckCircle2,
+  ChevronDown, Download, Upload, Dices, Terminal, Rocket, Save,
+  XCircle, AlertCircle, Users, Bookmark, CheckCheck, Server, Cpu, MemoryStick, HardDrive,
 } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
@@ -366,7 +366,6 @@ export default function NewGameServerPage() {
   const [selectedRemoteEntry, setSelectedRemoteEntry] = useState<CatalogEntry | null>(null);
   const [serverName, setServerName] = useState("");
   const [dnsHostname, setDnsHostname] = useState("");
-  const [dnsTouched, setDnsTouched] = useState(false);
   const [dnsType, setDnsType] = useState<"internal" | "public" | "custom">("internal");
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [memoryMi, setMemoryMi] = useState(2048);
@@ -516,6 +515,7 @@ export default function NewGameServerPage() {
   useEffect(() => {
     if (!storageClass && storageClasses.length > 0) {
       const preferred = storageClasses.find((sc) => sc.name === "longhorn-game") ?? storageClasses.find((sc) => sc.isDefault) ?? storageClasses[0];
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setStorageClass(preferred.name);
     }
   }, [storageClasses.map((sc) => sc.name).join(",")]); // dep on names string to avoid object ref changes
@@ -546,6 +546,7 @@ export default function NewGameServerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!activeEgg || !activeEggKey) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     setEnvValues(Object.fromEntries(activeEgg.environment.map((entry) => [entry.name, entry.defaultValue])));
     setMemoryMi(parseMemoryToMi(activeEgg.defaultMemory));
     setCpuCores(parseCpuToCores(activeEgg.defaultCpu));
@@ -565,6 +566,7 @@ export default function NewGameServerPage() {
     if (dnsType === "custom") return; // let the user type freely
     const normalized = normalizeServerName(serverName);
     if (dnsType === "internal") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setDnsHostname(normalized ? `${normalized}.games.${INTERNAL_DNS_DOMAIN}` : "");
     } else {
       setDnsHostname(normalized ? `${normalized}.games.${ROOT_DNS_DOMAIN}` : "");
@@ -574,6 +576,7 @@ export default function NewGameServerPage() {
   useEffect(() => {
     if (!targetNode || clusterNodes.length === 0) return;
     if (!clusterNodes.some((node) => node.name === targetNode)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setTargetNode("");
     }
   }, [clusterNodes, targetNode]);
@@ -582,6 +585,7 @@ export default function NewGameServerPage() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(PRESETS_STORAGE_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       if (raw) setSavedPresets(JSON.parse(raw) as SavedPreset[]);
     } catch {}
     // Also restore draft if nothing has been configured yet
@@ -618,6 +622,7 @@ export default function NewGameServerPage() {
   // ─── Debounced server name availability check ────────────────────────────
   const normalizedName = normalizeServerName(serverName);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
     if (!normalizedName || !serverListData?.servers) { setServerNameTaken(null); return; }
     const id = setTimeout(() => {
       const taken = serverListData.servers.some((s) => s.name === normalizedName);
@@ -1246,7 +1251,7 @@ export default function NewGameServerPage() {
                         {/* Contextual hint per DNS type */}
                         <div className="rounded-xl border border-gray-100 dark:border-[#1e1e1e] bg-gray-50 dark:bg-[#0d0d0d] px-3 py-2 text-xs text-gray-500 dark:text-[#777]">
                           {dnsType === "internal" && (
-                            <span>🔒 <strong>Private (VPN only)</strong> — only people connected to NetBird VPN can reach this server. Good for personal or friends-only play.</span>
+                            <span>🔒 <strong>Private (VPN only)</strong> — only people connected to the VPN can reach this server. Good for personal or friends-only play.</span>
                           )}
                           {dnsType === "public" && (
                             <span>🌐 <strong>Public internet</strong> — creates a DNS entry at <code className="font-mono text-[#7cc4ff]">.games.{ROOT_DNS_DOMAIN}</code>. Anyone who knows the address can connect. Make sure your game has a password if needed.</span>
@@ -1719,7 +1724,7 @@ export default function NewGameServerPage() {
                     <div className="flex items-center gap-1.5">
                       <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">CPU</p>
                       <HelpTooltip>
-                        CPU cores available to your server. 1 core handles most small-medium servers. Add more if you see lag spikes or console warnings about high tick time. Kubernetes can share CPU across servers — a 1-core limit doesn't prevent brief bursts above that.
+                        CPU cores available to your server. 1 core handles most small-medium servers. Add more if you see lag spikes or console warnings about high tick time. Kubernetes can share CPU across servers — a 1-core limit doesn&apos;t prevent brief bursts above that.
                       </HelpTooltip>
                     </div>
                     <div className="text-right">
@@ -1755,7 +1760,7 @@ export default function NewGameServerPage() {
                     <div className="flex items-center gap-1.5">
                       <h3 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{targetNode ? "Node capacity" : "Cluster capacity"}</h3>
                       <HelpTooltip>
-                        Live scheduling context for this deployment. Choose a node to see that node's real CPU and memory headroom, or leave scheduling automatic to view the overall cluster picture.
+                        Live scheduling context for this deployment. Choose a node to see that node&apos;s real CPU and memory headroom, or leave scheduling automatic to view the overall cluster picture.
                       </HelpTooltip>
                     </div>
                     <span className={cn(

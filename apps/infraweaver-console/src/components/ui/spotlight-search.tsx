@@ -4,7 +4,6 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, X, Clock, Box, Server } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
 import { useResourceSearch } from "@/hooks/use-resource-search";
 import { ALL_NAV_ITEMS } from "@/lib/nav-config";
 
@@ -39,6 +38,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setRecentSearches(loadRecent());
       setTimeout(() => inputRef.current?.focus(), 100);
     } else {

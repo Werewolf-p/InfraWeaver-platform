@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dump } from "js-yaml";
-import { auth } from "@/lib/auth";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import * as k8s from "@kubernetes/client-node";
+import { withRoute } from "@/lib/route-utils";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
@@ -24,7 +23,6 @@ function serializeYaml(value: unknown) {
 function normalize(value?: string | null) {
   return (value ?? "").toLowerCase();
 }
-
 
 async function fetchApplication(name: string, clusterId: string) {
   const encodedName = encodeURIComponent(name);
@@ -112,15 +110,8 @@ async function listRelatedPods(name: string, namespace: string, resources: AppRe
   }
 }
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "apps:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withRoute("apps:read", async (request: NextRequest, _session, _access, ctx) => {
+  const { params } = ctx;
   const { name } = await params;
   const clusterId = getRequestClusterId(request);
   const application = await fetchApplication(name, clusterId);
@@ -197,4 +188,4 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     history,
     yaml: serializeYaml(app),
   });
-}
+});

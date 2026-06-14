@@ -18,15 +18,15 @@ description: No hardcoded usernames, emails, or domains — use ${VAR} substitut
 - **Placeholder mapping:**
   | Placeholder | .env key | Example value |
   |-------------|----------|---------------|
-  | `${ADMIN_USERNAME}` | `ADMIN_USERNAME` | `remon` |
-  | `${ADMIN_NAME}` | `ADMIN_NAME` | `remon` |
-  | `${ADMIN_EMAIL}` | `ADMIN_EMAIL` | `remonhulst@gmail.com` |
-  | `${BASE_DOMAIN}` | `BASE_DOMAIN` | `rlservers.com` |
-  | `AUTHENTIK_BOOTSTRAP_EMAIL` | derived from `BASE_DOMAIN` | `akadmin@rlservers.com` |
+  | `${ADMIN_USERNAME}` | `ADMIN_USERNAME` | `admin` |
+  | `${ADMIN_NAME}` | `ADMIN_NAME` | `admin` |
+  | `${ADMIN_EMAIL}` | `ADMIN_EMAIL` | `admin@example.com` |
+  | `${BASE_DOMAIN}` | `BASE_DOMAIN` | `example.com` |
+  | `AUTHENTIK_BOOTSTRAP_EMAIL` | derived from `BASE_DOMAIN` | `akadmin@example.com` |
 
 - **Why it matters:** Hardcoded values caused `akadmin` and platform-owner to share the same email → Authentik identification stage could resolve to the wrong user → login failure with "invalid password".
 
-- **Validation:** Run `grep -rn "remonhulst\|\"remon\"" kubernetes/ scripts/` after any change — should return zero matches.
+- **Validation:** Run `grep -rni "your-real-domain\|your-username" kubernetes/ scripts/` after any change — should return zero matches.
 
 - **Related:** `scripts/generate-from-env.sh` — processes all `*.yaml` and `*.tfvars` under `kubernetes/` and `envs/` dirs.
 

@@ -58,7 +58,6 @@ const OPTIONAL_FEATURES: OptionalFeature[] = [
   { key: 'ENABLE_LOKI',           slug: 'loki',            name: 'Loki Log Aggregation',  icon: '📋', category: 'observability', description: 'Collects and stores pod logs for the console log-analytics tab.', without: 'Console log tab unavailable. kubectl logs still work.', ramMb: 1000, defaultOn: true  },
   { key: 'ENABLE_GRAFANA',        slug: 'grafana',         name: 'Standalone Grafana',    icon: '📈', category: 'observability', description: 'Grafana with pre-built dashboards for custom metric visualisation.', without: 'Console has its own charts — Grafana is purely for custom dashboards.', ramMb: 512,  defaultOn: false },
   // Networking
-  { key: 'ENABLE_NETBIRD',        slug: 'netbird',         name: 'NetBird VPN',           icon: '🌐', category: 'networking',   description: 'Zero-trust WireGuard mesh — secure access to the cluster from anywhere without port forwarding.', without: 'Remote access requires a traditional VPN or direct LAN only.', ramMb: 256,  defaultOn: true  },
   { key: 'ENABLE_EXTERNAL_DNS',   slug: 'external-dns',    name: 'External DNS',          icon: '🌍', category: 'networking',   description: 'Auto-creates DNS records in Cloudflare/Route53 when ingresses are created.', without: 'DNS records must be created manually.', ramMb: 64,   defaultOn: false },
 ]
 
@@ -180,13 +179,11 @@ function RamMeter({ totalMb, optionalMb, breakdown }: { totalMb: number; optiona
 export function FeaturesStep() {
   const data             = useWizardStore((state) => state.data)
   const localIpRanges    = useWizardStore((state) => state.localIpRanges)
-  const vpnOnly          = useWizardStore((state) => state.vpnOnly)
   const loading          = useWizardStore((state) => state.loading)
   const setField         = useWizardStore((state) => state.setField)
   const addLocalIpRange  = useWizardStore((state) => state.addLocalIpRange)
   const updateLocalIpRange = useWizardStore((state) => state.updateLocalIpRange)
   const removeLocalIpRange = useWizardStore((state) => state.removeLocalIpRange)
-  const setVpnOnly       = useWizardStore((state) => state.setVpnOnly)
   const mergeDetectedSubnets = useWizardStore((state) => state.mergeDetectedSubnets)
   const setLoading       = useWizardStore((state) => state.setLoading)
 
@@ -409,17 +406,7 @@ export function FeaturesStep() {
           </ActionButton>
         </div>
 
-        <div className="mt-5 rounded-2xl border border-white/8 bg-black/20 p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-sm font-medium text-white">VPN-only mode</div>
-              <p className="mt-1 text-sm leading-6 text-[var(--az-text-secondary)]">Require NetBird for all internal services — disable direct LAN access.</p>
-            </div>
-            <Toggle checked={vpnOnly} onChange={() => setVpnOnly(!vpnOnly)} />
-          </div>
-        </div>
-
-        <div className={`mt-4 space-y-3 transition ${vpnOnly ? 'pointer-events-none opacity-40' : 'opacity-100'}`}>
+        <div className="mt-4 space-y-3">
           {localIpRanges.map((range, index) => (
             <div key={`${index}-${range}`} className="flex items-start gap-3 rounded-2xl border border-white/8 bg-black/20 p-3">
               <div className="flex-1">
@@ -434,7 +421,7 @@ export function FeaturesStep() {
         </div>
 
         <div className="mt-4">
-          <ActionButton variant="secondary" onClick={addLocalIpRange} disabled={vpnOnly}>
+          <ActionButton variant="secondary" onClick={addLocalIpRange}>
             <Plus className="h-4 w-4" />
             Add range
           </ActionButton>
