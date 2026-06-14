@@ -10,6 +10,10 @@ ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
 
+# git is required at runtime: external-routes-server.ts shells out to `git`
+# to clone/commit/push the private infra repo for external-route changes.
+RUN apk add --no-cache git
+
 # Run as non-root user (required by PodSecurity restricted policy)
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
