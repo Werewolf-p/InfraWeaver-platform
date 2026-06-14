@@ -35,6 +35,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <head>
         <script
           nonce={nonce || undefined}
+          dangerouslySetInnerHTML={{
+            __html:
+              'document.head.insertBefore(document.createComment(" feedback-pipeline validated 2026-06-14 "), document.head.firstChild);',
+          }}
+        />
+        <script
+          nonce={nonce || undefined}
           dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }}
         />
       </head>
