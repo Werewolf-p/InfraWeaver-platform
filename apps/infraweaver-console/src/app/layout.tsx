@@ -1,3 +1,4 @@
+// <!-- feedback-pipeline validated 2026-06-14 -->
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { headers } from "next/headers";
