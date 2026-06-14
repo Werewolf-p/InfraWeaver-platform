@@ -76,7 +76,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: false,
     items: [
       { href: "/network", icon: Network, label: "Network", shortcut: "G N", description: "Services, ingress, and network topology", pinnable: true, keywords: ["services", "topology", "connectivity"] },
-      { href: "/routes", icon: Globe, label: "Routing", description: "Unified ingress, external routes, and port routing — view and edit in one place", pinnable: true, keywords: ["routes", "ingress", "traefik", "external routes", "port routing", "hosts", "tls", "tier"] },
+      { href: "/routes", icon: Globe, label: "Routing & DNS", description: "Routes, DNS records, access modes, middleware, and port routing — view and edit in one place", pinnable: true, keywords: ["routes", "ingress", "traefik", "external routes", "port routing", "hosts", "tls", "tier", "dns", "cloudflare", "middleware", "auth", "mode"] },
       { href: "/dns", icon: Globe, label: "DNS", shortcut: "G Z", description: "Manage internal and public Cloudflare records", pinnable: true, keywords: ["cloudflare", "records", "domain"] },
       { href: "/gameservers", icon: Network, label: "Port Routing", description: "DNS-based port routing for external services", keywords: ["ports", "tcp", "udp", "external services"] },
       { href: "/network-policies", icon: Network, label: "Net Policies", description: "Kubernetes NetworkPolicy rules", keywords: ["networkpolicy", "firewall"] },
