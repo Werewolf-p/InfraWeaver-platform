@@ -1,0 +1,14 @@
+# Community app installed from Unraid AppFeed
+# Source: lscr.io/linuxserver/homeassistant
+name: homeassistant
+description: "Home Assistant Core(https://www.home-assistant.io/) - Open source home automation that puts local control and privacy first. Powered by a worldwide community of tinkerers and DIY enthusiasts. Perfect "
+namespace: homeassistant
+source: community-apps
+tier: complex
+image: lscr.io/linuxserver/homeassistant
+categories:
+  - "HomeAutomation"
+  - "Tools-Utilities"
+ingressroute:
+  host: homeassistant.int.yourdomain.com
+installed_at: 2026-06-16T13:01:39.304Z
