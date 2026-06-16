@@ -1,0 +1,25 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homeassistant
+  namespace: homeassistant
+  labels:
+    app.kubernetes.io/name: homeassistant
+    infraweaver.io/source: community-apps
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`homeassistant.int.yourdomain.com`)
+      kind: Rule
+      middlewares:
+        - name: vpn-only
+          namespace: traefik
+      services:
+        - name: homeassistant
+          port: 8123
+  tls:
+    store:
+      name: default
+      namespace: traefik
