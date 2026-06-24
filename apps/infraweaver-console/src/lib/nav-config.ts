@@ -51,6 +51,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: true,
     items: [
       { href: "/apps", icon: LayoutGrid, label: "Apps", shortcut: "G A", description: "Install and manage all platform applications", pinnable: true },
+      { href: "/power-groups", icon: Boxes, label: "Power Groups", description: "Group apps and stop/start them as one unit", pinnable: true },
     ],
   },
   {
