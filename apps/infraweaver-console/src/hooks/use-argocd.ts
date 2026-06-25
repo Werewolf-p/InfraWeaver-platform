@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSettingsContext } from "@/contexts/settings-context";
 
 export interface ArgoApp {
-  metadata: { name: string; namespace: string; labels?: Record<string, string>; creationTimestamp?: string };
+  metadata: { name: string; namespace: string; labels?: Record<string, string>; annotations?: Record<string, string>; creationTimestamp?: string };
   spec: {
     destination: { namespace: string; server: string };
     project: string;
