@@ -94,6 +94,8 @@ export function ConfirmDialog({
                       value={typedValue}
                       onChange={(event) => setTypedValue(event.target.value)}
                       placeholder={requireTyping}
+                      aria-label={`Type ${requireTyping} to confirm`}
+                      aria-invalid={typedValue.length > 0 && !isTypingMatch}
                       className={cn(
                         "w-full rounded-lg border bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm font-mono text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] transition-colors focus:outline-none focus:ring-1 focus:ring-[#3b82f6]",
                         typedValue === ""

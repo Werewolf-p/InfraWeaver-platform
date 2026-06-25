@@ -10,6 +10,8 @@ interface LoadingSpinnerProps {
   color?: SpinnerColor;
   variant?: SpinnerVariant;
   className?: string;
+  /** Accessible status text announced to screen readers. */
+  label?: string;
 }
 
 const SIZE_MAP: Record<SpinnerSize, number> = {
@@ -40,45 +42,56 @@ export function LoadingSpinner({
   color = "emerald",
   variant = "ring",
   className,
+  label = "Loading",
 }: LoadingSpinnerProps) {
   const px = SIZE_MAP[size];
 
   if (variant === "ring") {
     return (
-      <div
-        className={cn(
-          "rounded-full border-2 border-transparent animate-spin",
-          COLOR_MAP[color],
-          className
-        )}
-        style={{ width: px, height: px, borderTopColor: "transparent", borderRightColor: "transparent" }}
-      />
+      <span role="status" className="inline-flex">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "rounded-full border-2 border-transparent animate-spin",
+            COLOR_MAP[color],
+            className
+          )}
+          style={{ width: px, height: px, borderTopColor: "transparent", borderRightColor: "transparent" }}
+        />
+        <span className="sr-only">{label}</span>
+      </span>
     );
   }
 
   if (variant === "dots") {
     const dotSize = Math.max(4, px / 4);
     return (
-      <div className={cn("flex items-center gap-1", className)}>
+      <span role="status" className={cn("inline-flex items-center gap-1", className)}>
         {[0, 1, 2].map((i) => (
-          <div
+          <span
             key={i}
+            aria-hidden="true"
             className={cn("rounded-full animate-bounce", DOT_COLOR_MAP[color])}
             style={{ width: dotSize, height: dotSize, animationDelay: `${i * 0.15}s` }}
           />
         ))}
-      </div>
+        <span className="sr-only">{label}</span>
+      </span>
     );
   }
 
   return (
-    <div
-      className={cn(
-        "rounded-full animate-ping",
-        DOT_COLOR_MAP[color].replace("500", "500/50"),
-        className
-      )}
-      style={{ width: px, height: px }}
-    />
+    <span role="status" className="inline-flex">
+      <span
+        aria-hidden="true"
+        className={cn(
+          "rounded-full animate-ping",
+          DOT_COLOR_MAP[color].replace("500", "500/50"),
+          className
+        )}
+        style={{ width: px, height: px }}
+      />
+      <span className="sr-only">{label}</span>
+    </span>
   );
 }

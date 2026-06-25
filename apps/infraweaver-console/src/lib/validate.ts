@@ -19,8 +19,15 @@ export function sanitizeK8sLabel(value: string): string {
   return value.replace(/[^a-z0-9\-_.]/g, "").slice(0, 63);
 }
 
+// Shell-significant and control characters that have no legitimate place in a
+// game-server data path. shellQuote already escapes single quotes safely, but
+// rejecting these at the validation layer is defense-in-depth against any call
+// site that interpolates a path without quoting.
+const SHELL_UNSAFE_PATH_CHARS = /[\x00-\x1f'"`$\\]/;
+
 function normalizeContainerPath(value: string): string | null {
   if (!value || !value.startsWith("/") || value.includes("\0")) return null;
+  if (SHELL_UNSAFE_PATH_CHARS.test(value)) return null;
   const rawSegments = value.split("/").filter(Boolean);
   if (rawSegments.some((segment) => segment === "." || segment === "..")) return null;
   const normalized = path.posix.normalize(value);

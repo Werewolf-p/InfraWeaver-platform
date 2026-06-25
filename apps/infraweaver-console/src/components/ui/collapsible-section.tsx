@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useId, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -24,6 +24,7 @@ export function CollapsibleSection({
   className,
 }: Props) {
   const [open, setOpen] = useState(defaultOpen);
+  const panelId = useId();
 
   useEffect(() => {
     if (!storageKey) return;
@@ -41,7 +42,10 @@ export function CollapsibleSection({
   return (
     <div className={cn('rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 backdrop-blur-sm overflow-hidden', className)}>
       <button
+        type="button"
         onClick={toggle}
+        aria-expanded={open}
+        aria-controls={panelId}
         className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
       >
         <div className="flex items-center gap-3">
@@ -52,12 +56,13 @@ export function CollapsibleSection({
           )}
         </div>
         <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
-          <ChevronDown className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+          <ChevronDown aria-hidden="true" className="w-4 h-4 text-slate-500 dark:text-slate-400" />
         </motion.div>
       </button>
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
+            id={panelId}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}

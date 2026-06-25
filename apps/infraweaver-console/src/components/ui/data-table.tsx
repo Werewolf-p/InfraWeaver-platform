@@ -227,11 +227,12 @@ export function DataTable<TData>({
         <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
           {filterableColumn ? (
             <div className="relative w-full sm:max-w-sm">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[rgb(var(--color-text-tertiary))]" />
+              <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[rgb(var(--color-text-tertiary))]" />
               <input
                 value={(filterableColumn.getFilterValue() as string) ?? ""}
                 onChange={(event) => filterableColumn.setFilterValue(event.target.value)}
                 placeholder={filterPlaceholder}
+                aria-label={filterPlaceholder}
                 className="h-11 w-full rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] pl-10 pr-10 text-sm text-[rgb(var(--color-text-primary))] outline-none transition-colors placeholder:text-[rgb(var(--color-text-tertiary))] focus:border-[rgb(var(--color-border-strong))]"
               />
               {(filterableColumn.getFilterValue() as string) ? (
@@ -273,14 +274,16 @@ export function DataTable<TData>({
             <button
               type="button"
               onClick={() => setColumnMenuOpen((open) => !open)}
+              aria-haspopup="true"
+              aria-expanded={columnMenuOpen}
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] px-3 text-sm text-[rgb(var(--color-text-primary))] transition-colors hover:border-[rgb(var(--color-border-strong))]"
             >
-              <Eye className="h-4 w-4" />
+              <Eye aria-hidden="true" className="h-4 w-4" />
               Columns
-              <ChevronDown className={cn("h-4 w-4 transition-transform", columnMenuOpen && "rotate-180")} />
+              <ChevronDown aria-hidden="true" className={cn("h-4 w-4 transition-transform", columnMenuOpen && "rotate-180")} />
             </button>
             {columnMenuOpen ? (
-              <div className="absolute right-0 z-20 mt-2 min-w-[12rem] rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-2 shadow-xl">
+              <div role="group" aria-label="Toggle columns" className="absolute right-0 z-20 mt-2 min-w-[12rem] rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-2 shadow-xl">
                 {table
                   .getAllLeafColumns()
                   .filter((column) => column.id !== "select" && column.getCanHide())
@@ -347,9 +350,21 @@ export function DataTable<TData>({
                 <tr
                   key={row.id}
                   onClick={() => onRowClick?.(row.original)}
+                  {...(onRowClick
+                    ? {
+                        role: "button",
+                        tabIndex: 0,
+                        onKeyDown: (event: React.KeyboardEvent<HTMLTableRowElement>) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onRowClick(row.original);
+                          }
+                        },
+                      }
+                    : {})}
                   className={cn(
                     "transition-colors hover:bg-[rgb(var(--color-surface-raised))]",
-                    onRowClick && "cursor-pointer",
+                    onRowClick && "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-brand-500))]",
                     row.getIsSelected() && "bg-[rgb(var(--color-brand-500))]/5",
                   )}
                 >
@@ -394,20 +409,22 @@ export function DataTable<TData>({
                 type="button"
                 onClick={() => table.previousPage()}
                 disabled={!table.getCanPreviousPage()}
+                aria-label="Previous page"
                 className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] transition-colors hover:border-[rgb(var(--color-border-strong))] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft aria-hidden="true" className="h-4 w-4" />
               </button>
-              <span className="min-w-20 text-center text-[rgb(var(--color-text-primary))]">
+              <span aria-live="polite" className="min-w-20 text-center text-[rgb(var(--color-text-primary))]">
                 Page {table.getState().pagination.pageIndex + 1} / {Math.max(table.getPageCount(), 1)}
               </span>
               <button
                 type="button"
                 onClick={() => table.nextPage()}
                 disabled={!table.getCanNextPage()}
+                aria-label="Next page"
                 className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] transition-colors hover:border-[rgb(var(--color-border-strong))] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight aria-hidden="true" className="h-4 w-4" />
               </button>
             </div>
           </div>
