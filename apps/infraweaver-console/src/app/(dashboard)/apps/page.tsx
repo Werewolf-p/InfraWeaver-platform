@@ -8,6 +8,7 @@ import {
   PlusCircle, Search, ExternalLink, AlertTriangle, Info, CheckCircle,
   Globe, Star, X, Shield, Zap, GitBranch, Eye, Store,
   Terminal, Download, RefreshCw, LayoutGrid, Layers, Settings2,
+  Power, Play,
 } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
@@ -146,12 +147,18 @@ function toHealthStatus(val: string): AppHealthStatus {
   return MAP[v] ?? "unknown";
 }
 
+// An app is "manually stopped" iff its ArgoCD Application carries this annotation
+// set to "off" (the console's durable power-off mechanism — see lib/app-power.ts).
+const POWER_ANNOTATION = "infraweaver.io/power";
+
 interface AppRow {
   id: string;
   name: string;
   namespace: string;
   health: AppHealthStatus;
   syncStatus: AppHealthStatus;
+  /** "off" when the app was manually stopped from the console; "on" otherwise. */
+  powerState: "on" | "off";
   source: "Catalog" | "Community";
   lastSync: string;
   createdAt?: string;
@@ -341,11 +348,15 @@ function SwipeableAppCard({
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
             <ActionsMenu actions={actions} className="shrink-0" />
-            <StatusBadge status={isOptimisticSyncing ? "syncing" : row.health} />
+            {row.powerState === "off"
+              ? <StatusBadge status="suspended" label="Stopped" description="Manually stopped from the console" />
+              : <StatusBadge status={isOptimisticSyncing ? "syncing" : row.health} />}
           </div>
         </div>
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <StatusBadge status={row.syncStatus} />
+          {row.powerState === "off"
+            ? <span className="text-[11px] text-slate-500 dark:text-slate-400">Sync paused while stopped</span>
+            : <StatusBadge status={row.syncStatus} />}
           <span className={cn(
             "px-2 py-0.5 rounded text-xs font-medium",
             row.source === "Catalog"
@@ -367,6 +378,7 @@ function AllInstalledTab() {
   const { can } = useRBAC();
   const canSyncApps = can("apps:sync");
   const canManageApps = can("apps:write");
+  const canPowerApps = can("cluster:admin");
   const { data: argoApps, isLoading: argoLoading, isFetching: argoFetching, refetch, dataUpdatedAt, error: argoError, dataSource } = useArgoApps();
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
@@ -376,6 +388,7 @@ function AllInstalledTab() {
   const [namespaceFilter, setNamespaceFilter] = useState("all");
   const [sortOption, setSortOption] = useState<AppSortOption>("health");
   const [syncingApp, setSyncingApp] = useState<string | null>(null);
+  const [poweringApp, setPoweringApp] = useState<string | null>(null);
   const [deletingApp, setDeletingApp] = useState<string | null>(null);
   const [uninstallingApp, setUninstallingApp] = useState<string | null>(null);
   const [bulkSyncing, setBulkSyncing] = useState(false);
@@ -464,6 +477,7 @@ function AllInstalledTab() {
           namespace: app.spec?.destination?.namespace ?? "",
           health: toHealthStatus(app.status?.health?.status ?? "Unknown"),
           syncStatus: toHealthStatus(app.status?.sync?.status ?? "Unknown"),
+          powerState: app.metadata?.annotations?.[POWER_ANNOTATION] === "off" ? "off" as const : "on" as const,
           source: "Catalog" as const,
           lastSync: app.status?.reconciledAt ?? "",
           createdAt: app.metadata?.creationTimestamp ?? "",
@@ -493,6 +507,7 @@ function AllInstalledTab() {
         syncStatus: argoApp
           ? toHealthStatus(argoApp.status?.sync?.status ?? "Unknown")
           : "unknown" as AppHealthStatus,
+        powerState: argoApp?.metadata?.annotations?.[POWER_ANNOTATION] === "off" ? "off" as const : "on" as const,
         source: "Community" as const,
         lastSync: argoApp?.status?.reconciledAt ?? app.installedAt,
         createdAt: app.installedAt,
@@ -563,10 +578,13 @@ function AllInstalledTab() {
 
   const summary = useMemo(() => ({
     total: allRows.length,
-    healthy: allRows.filter(row => healthBucket(row.health) === "healthy").length,
-    degraded: allRows.filter(row => healthBucket(row.health) === "degraded").length,
-    syncing: allRows.filter(row => ["syncing", "progressing"].includes(row.syncStatus)).length,
-    outOfSync: allRows.filter(row => row.syncStatus === "outOfSync").length,
+    // Manually-stopped apps report Degraded/OutOfSync by design, so exclude them
+    // from the health/sync tallies — they get their own "stopped" count instead.
+    healthy: allRows.filter(row => row.powerState !== "off" && healthBucket(row.health) === "healthy").length,
+    degraded: allRows.filter(row => row.powerState !== "off" && healthBucket(row.health) === "degraded").length,
+    syncing: allRows.filter(row => row.powerState !== "off" && ["syncing", "progressing"].includes(row.syncStatus)).length,
+    outOfSync: allRows.filter(row => row.powerState !== "off" && row.syncStatus === "outOfSync").length,
+    stopped: allRows.filter(row => row.powerState === "off").length,
     catalog: allRows.filter(row => row.source === "Catalog").length,
     community: allRows.filter(row => row.source === "Community").length,
   }), [allRows]);
@@ -629,6 +647,49 @@ function AllInstalledTab() {
       onConfirm: () => {
         setConfirmDialog(dialog => ({ ...dialog, open: false }));
         void handleSync(name);
+      },
+    });
+  };
+
+  const handlePower = async (name: string, action: "stop" | "start") => {
+    if (!canPowerApps) {
+      toast.error("You do not have permission to start/stop apps");
+      return;
+    }
+    setPoweringApp(name);
+    try {
+      const res = await fetch("/api/app-groups/power", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, app: name }),
+      });
+      const data = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(data?.error ?? "Power action failed");
+      toast.success(action === "stop" ? `Stopping ${name}…` : `Starting ${name}…`);
+      setTimeout(() => void refetch(), 2500);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : `Failed to ${action} ${name}`);
+    } finally {
+      setPoweringApp(null);
+    }
+  };
+
+  const requestPower = (name: string, action: "stop" | "start") => {
+    if (!canPowerApps) {
+      toast.error("You do not have permission to start/stop apps");
+      return;
+    }
+    setConfirmDialog({
+      open: true,
+      title: action === "stop" ? `Stop "${name}"?` : `Start "${name}"?`,
+      description: action === "stop"
+        ? "Scales the app to zero and pauses ArgoCD auto-sync so it stays stopped. Data volumes are kept — you can start it again anytime."
+        : "Restores ArgoCD auto-sync and scales the app back up from git.",
+      confirmText: action === "stop" ? "Stop app" : "Start app",
+      danger: action === "stop",
+      onConfirm: () => {
+        setConfirmDialog(dialog => ({ ...dialog, open: false }));
+        void handlePower(name, action);
       },
     });
   };
@@ -824,6 +885,21 @@ function AllInstalledTab() {
         onClick: () => requestSync(row.name),
         disabled: syncingApp === row.name || !canSyncApps,
       });
+      actions.push(
+        row.powerState === "off"
+          ? {
+              label: poweringApp === row.name ? "Starting…" : "Start app",
+              icon: <Play className="h-4 w-4" />,
+              onClick: () => requestPower(row.name, "start"),
+              disabled: poweringApp === row.name || !canPowerApps,
+            }
+          : {
+              label: poweringApp === row.name ? "Stopping…" : "Stop app",
+              icon: <Power className="h-4 w-4" />,
+              onClick: () => requestPower(row.name, "stop"),
+              disabled: poweringApp === row.name || !canPowerApps,
+            },
+      );
       actions.push({
         label: deletingApp === row.name ? "Deleting…" : "Delete",
         icon: <X className="h-4 w-4" />,
@@ -970,7 +1046,7 @@ function AllInstalledTab() {
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
             <DashboardStatCard label="Installed apps" value={summary.total} icon={Layers} tone="info" description="Catalog and community apps currently visible to the operator." footer={<span>{summary.catalog} catalog · {summary.community} community</span>} />
-            <DashboardStatCard label="Healthy" value={summary.healthy} icon={CheckCircle} tone={summary.degraded > 0 ? "warning" : "success"} description="Apps reporting healthy/synced state." footer={<span>{summary.degraded} degraded or out-of-sync</span>} />
+            <DashboardStatCard label="Healthy" value={summary.healthy} icon={CheckCircle} tone={summary.degraded > 0 ? "warning" : "success"} description="Apps reporting healthy/synced state." footer={<span>{summary.degraded} degraded · {summary.stopped} stopped</span>} />
             <DashboardStatCard label="Syncing" value={summary.syncing} icon={RefreshCw} tone={summary.syncing > 0 ? "warning" : "neutral"} description="Applications actively progressing or syncing." footer={<span>{summary.outOfSync} out of sync</span>} />
             <DashboardStatCard label="Selected" value={activeSelectedIds.size} icon={Package} tone={activeSelectedIds.size > 0 ? "info" : "neutral"} description="Desktop bulk actions work on the current filtered result set." footer={<span>{selectedCatalogRows.length} catalog · {selectedCommunityRows.length} community selected</span>} />
           </div>
@@ -1263,8 +1339,8 @@ function AllInstalledTab() {
                     </div>
                   </td>
                   {!simpleMode && <td className="py-2.5 px-3 align-top"><div className="flex items-center gap-2"><span className="font-mono text-xs text-gray-500 dark:text-[#9e9e9e]">{row.namespace}</span><CopyButton text={row.namespace} className="h-7 px-2 text-[11px]" /></div></td>}
-                  <td className="py-2.5 px-3 align-top"><StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} /></td>
-                  <td className="py-2.5 px-3 align-top"><StatusBadge status={row.syncStatus} /></td>
+                  <td className="py-2.5 px-3 align-top">{row.powerState === "off" ? <StatusBadge status="suspended" label="Stopped" description="Manually stopped from the console" /> : <StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} />}</td>
+                  <td className="py-2.5 px-3 align-top">{row.powerState === "off" ? <span className="text-xs text-slate-500 dark:text-slate-400">Sync paused</span> : <StatusBadge status={row.syncStatus} />}</td>
                   <td className="py-2.5 px-3 align-top"><span className={cn("px-2 py-0.5 rounded text-xs font-medium", row.source === "Catalog" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-purple-500/10 text-purple-400 border border-purple-500/20")}>{row.source}</span></td>
                   {!simpleMode && (
                     <td className="py-2.5 px-3 align-top text-xs text-gray-400 dark:text-[#666]">
