@@ -62,10 +62,11 @@ export function AuditLogTable({ entries, isLoading }: AuditLogTableProps) {
       <div className="space-y-3 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-3 sm:border-0 sm:bg-transparent sm:p-0">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex min-w-[160px] flex-1 items-center gap-2">
-            <Filter className="h-4 w-4 flex-shrink-0 text-slate-500" />
+            <Filter aria-hidden="true" className="h-4 w-4 flex-shrink-0 text-slate-500" />
             <input
               type="text"
               placeholder="Filter by user"
+              aria-label="Filter by user"
               value={userFilter}
               onChange={e => setUserFilter(e.target.value)}
               className="min-h-[48px] flex-1 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 text-base text-gray-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 sm:text-sm"
@@ -74,6 +75,7 @@ export function AuditLogTable({ entries, isLoading }: AuditLogTableProps) {
           <input
             type="text"
             placeholder="Filter by action"
+            aria-label="Filter by action"
             value={actionFilter}
             onChange={e => setActionFilter(e.target.value)}
             className="min-h-[48px] min-w-[160px] flex-1 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 text-base text-gray-900 dark:text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 sm:text-sm"
@@ -131,13 +133,14 @@ export function AuditLogTable({ entries, isLoading }: AuditLogTableProps) {
 
       <div className="hidden overflow-x-auto -mx-1 sm:block">
         <table className="w-full text-sm">
+          <caption className="sr-only">Audit log entries</caption>
           <thead>
             <tr className="border-b border-gray-200 dark:border-white/5 text-slate-500">
-              <th className="px-1 pb-2 text-left font-medium">Time</th>
-              <th className="px-1 pb-2 text-left font-medium">User</th>
-              <th className="px-1 pb-2 text-left font-medium">Action</th>
-              <th className="hidden px-1 pb-2 text-left font-medium sm:table-cell">Resource</th>
-              <th className="px-1 pb-2 text-left font-medium">Result</th>
+              <th scope="col" className="px-1 pb-2 text-left font-medium">Time</th>
+              <th scope="col" className="px-1 pb-2 text-left font-medium">User</th>
+              <th scope="col" className="px-1 pb-2 text-left font-medium">Action</th>
+              <th scope="col" className="hidden px-1 pb-2 text-left font-medium sm:table-cell">Resource</th>
+              <th scope="col" className="px-1 pb-2 text-left font-medium">Result</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-white/5">

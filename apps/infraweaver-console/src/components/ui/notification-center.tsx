@@ -157,17 +157,26 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                       <motion.div
                         key={notification.id}
                         layout
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Mark notification as read: ${notification.title ?? "notification"}`}
                         initial={{ opacity: 0, x: -4 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 4 }}
                         className={cn(
-                          "flex cursor-default gap-3 px-4 py-3 transition-colors hover:bg-gray-100 dark:hover:bg-white/5",
+                          "flex cursor-pointer gap-3 px-4 py-3 transition-colors hover:bg-gray-100 dark:hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50",
                           !notification.read && "bg-gray-50 dark:bg-white/[0.02]"
                         )}
                         onClick={() => markRead(notification.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            markRead(notification.id);
+                          }
+                        }}
                       >
                         <div className={cn("mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg", config.bg)}>
-                          <Icon className={cn("h-3.5 w-3.5", config.color)} />
+                          <Icon aria-hidden="true" className={cn("h-3.5 w-3.5", config.color)} />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
