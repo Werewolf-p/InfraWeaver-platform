@@ -727,6 +727,11 @@ export function DashboardTab({
     return { rows: grid, max };
   }, [rawPlayerHistory]);
   const currentPlayerCount = players?.count ?? rawPlayerHistory[rawPlayerHistory.length - 1]?.n ?? 0;
+  // Last-session summary surfaced when the server is stopped, derived only from
+  // persisted history so it survives a shutdown (no live query needed).
+  const lastSessionPoint = rawPlayerHistory[rawPlayerHistory.length - 1];
+  const lastSessionAt = lastSessionPoint ? new Date(lastSessionPoint.t).toISOString() : null;
+  const lastSessionPeak = rawPlayerHistory.reduce((max, point) => Math.max(max, point.n), 0);
   const cpuChartData = metricsHistory.map((point) => ({
     t: point.t,
     value: point.cpu,
@@ -1016,6 +1021,40 @@ export function DashboardTab({
 
   return (
     <div className="space-y-4">
+      {!isServerRunning && (
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#0d0d0d] px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-[#666]">
+              Last session
+            </p>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 dark:border-[#333] bg-white dark:bg-[#161616] px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:text-[#aaa]">
+              <span className="h-1.5 w-1.5 rounded-full bg-gray-400 dark:bg-[#666]" />
+              Stopped
+            </span>
+          </div>
+          {lastSessionAt ? (
+            <div className="mt-2 grid grid-cols-3 gap-3">
+              <div>
+                <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Last active</p>
+                <p className="mt-0.5 text-sm text-gray-900 dark:text-[#f2f2f2]">{formatRelativeTime(lastSessionAt)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Peak players</p>
+                <p className="mt-0.5 text-sm text-gray-900 dark:text-[#f2f2f2]">{lastSessionPeak}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Samples kept</p>
+                <p className="mt-0.5 text-sm text-gray-900 dark:text-[#f2f2f2]">{rawPlayerHistory.length}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-gray-500 dark:text-[#888]">
+              No previous session recorded yet — this server is stopped.
+            </p>
+          )}
+        </div>
+      )}
+
       {server.maintenanceMode && (
         <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
           Maintenance mode active
