@@ -1,5 +1,6 @@
 "use client";
 import { SessionProvider } from "next-auth/react";
+import { MotionConfig } from "framer-motion";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/lib/notify";
 import { createQueryClient } from "@/lib/query-client";
@@ -84,18 +85,20 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => createQueryClient());
 
   return (
-    <SessionProvider>
-      <QueryClientProvider client={queryClient}>
-        <SettingsProvider>
-          <ClusterProvider>
-            <ThemeProvider>
-              {children}
-              <OnboardingWizard />
-              <Toaster richColors position="top-right" />
-            </ThemeProvider>
-          </ClusterProvider>
-        </SettingsProvider>
-      </QueryClientProvider>
-    </SessionProvider>
+    <MotionConfig reducedMotion="user">
+      <SessionProvider>
+        <QueryClientProvider client={queryClient}>
+          <SettingsProvider>
+            <ClusterProvider>
+              <ThemeProvider>
+                {children}
+                <OnboardingWizard />
+                <Toaster richColors position="top-right" />
+              </ThemeProvider>
+            </ClusterProvider>
+          </SettingsProvider>
+        </QueryClientProvider>
+      </SessionProvider>
+    </MotionConfig>
   );
 }
