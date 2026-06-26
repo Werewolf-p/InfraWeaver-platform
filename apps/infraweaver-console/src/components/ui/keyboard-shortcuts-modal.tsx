@@ -3,7 +3,20 @@ import { useState, useEffect } from "react";
 import { X, Keyboard } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { KEYBOARD_SHORTCUTS } from "@/lib/keyboard-shortcuts";
+import { KEYBOARD_SHORTCUTS, type KeyboardShortcut } from "@/lib/keyboard-shortcuts";
+import { GOTO_NAV_SHORTCUTS } from "@/lib/nav-config";
+
+// Combine the static shortcuts with the "Go to <page>" chords derived from
+// nav-config, so the modal always reflects the chords the global key handler
+// actually honors.
+const ALL_SHORTCUTS: KeyboardShortcut[] = [
+  ...KEYBOARD_SHORTCUTS,
+  ...GOTO_NAV_SHORTCUTS.map((shortcut): KeyboardShortcut => ({
+    keys: ["G", shortcut.letter.toUpperCase()],
+    description: `Go to ${shortcut.label}`,
+    category: "Navigation",
+  })),
+];
 
 interface KeyboardShortcutsModalProps {
   open: boolean;
@@ -18,7 +31,7 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  const categories = [...new Set(KEYBOARD_SHORTCUTS.map((shortcut) => shortcut.category))];
+  const categories = [...new Set(ALL_SHORTCUTS.map((shortcut) => shortcut.category))];
 
   return (
     <AnimatePresence>
@@ -50,7 +63,7 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
                 <div key={cat}>
                   <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-white/30 mb-3">{cat}</h3>
                   <div className="space-y-2">
-                    {KEYBOARD_SHORTCUTS.filter((shortcut) => shortcut.category === cat).map((shortcut, index) => (
+                    {ALL_SHORTCUTS.filter((shortcut) => shortcut.category === cat).map((shortcut, index) => (
                       <div key={`${cat}-${index}`} className="flex items-center justify-between">
                         <span className="text-sm text-gray-600 dark:text-white/70">{shortcut.description}</span>
                         <div className="flex items-center gap-1">

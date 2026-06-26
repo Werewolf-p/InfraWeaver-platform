@@ -17,7 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
-import { NAV_GROUPS } from "@/lib/nav-config";
+import { NAV_GROUPS, GOTO_SHORTCUTS } from "@/lib/nav-config";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
 import { KeyboardShortcutsProvider } from "@/components/ui/keyboard-shortcuts-modal";
 import { GlobalSearch } from "@/components/search/global-search";
@@ -42,15 +42,6 @@ const GROUP_ACCENT: Record<string, string> = {
   services: "bg-sky-500",
   tools: "bg-yellow-500",
   settings: "bg-[#555]",
-};
-
-const GOTO_SHORTCUTS: Record<string, string> = {
-  h: "/home",
-  a: "/apps",
-  p: "/pods",
-  c: "/cluster",
-  s: "/security",
-  l: "/logs",
 };
 
 function isTypingTarget(target: EventTarget | null) {

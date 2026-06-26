@@ -61,7 +61,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     icon: Server,
     defaultOpen: false,
     items: [
-      { href: "/pods", icon: Server, label: "Pods", description: "All pods with live status" },
+      { href: "/pods", icon: Server, label: "Pods", shortcut: "G P", description: "All pods with live status" },
       { href: "/cluster", icon: Boxes, label: "Cluster Nodes", shortcut: "G K", description: "Node management and cluster overview" },
       { href: "/node-top", icon: Activity, label: "Node Metrics", description: "Live node CPU and memory usage" },
       { href: "/memory", icon: MemoryStick, label: "Memory Heatmap", description: "Namespace memory reservations and top consumers" },
@@ -233,6 +233,31 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
 
 // Flat list of all items for search/command palette
 export const ALL_NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap(g => g.items);
+
+// "Go to" keyboard chords (press G, then a letter) derived from each nav item's
+// `shortcut` field, so the sidebar hint, the global key handler, and the
+// shortcuts modal can never drift apart. A shortcut like "G K" maps the lower-
+// cased letter ("k") to the item's href. First item wins on the (currently
+// non-existent) letter collision.
+export interface GotoNavShortcut {
+  letter: string;
+  href: string;
+  label: string;
+}
+
+export const GOTO_NAV_SHORTCUTS: GotoNavShortcut[] = ALL_NAV_ITEMS.reduce<GotoNavShortcut[]>((acc, item) => {
+  const match = item.shortcut?.match(/^G ([A-Za-z])$/);
+  if (!match) return acc;
+  const letter = match[1].toLowerCase();
+  if (acc.some(s => s.letter === letter)) return acc;
+  acc.push({ letter, href: item.href, label: item.label });
+  return acc;
+}, []);
+
+// letter → href, the shape the global keydown handler consumes.
+export const GOTO_SHORTCUTS: Record<string, string> = Object.fromEntries(
+  GOTO_NAV_SHORTCUTS.map(s => [s.letter, s.href])
+);
 
 // Map href → icon (for active-state icon resolution)
 export const HREF_ICON_MAP: Record<string, React.ElementType> = Object.fromEntries(
