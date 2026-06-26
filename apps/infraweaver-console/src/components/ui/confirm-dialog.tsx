@@ -22,8 +22,8 @@ export function ConfirmDialog({
   onCancel,
   title,
   description,
-  confirmText = "Confirm",
   danger = false,
+  confirmText = danger ? "Yes, continue" : "Confirm",
   requireTyping,
 }: ConfirmDialogProps) {
   const [typedValue, setTypedValue] = useState("");
@@ -64,7 +64,7 @@ export function ConfirmDialog({
           <div className="flex items-start gap-4">
             {danger ? (
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-red-500/20 bg-red-500/10">
-                <AlertTriangle className="h-5 w-5 text-red-400" />
+                <AlertTriangle className="h-5 w-5 text-red-400" aria-hidden="true" />
               </div>
             ) : null}
             <div className="flex-1">
@@ -106,8 +106,8 @@ export function ConfirmDialog({
                       )}
                     />
                   </motion.div>
-                  {typedValue.length > 0 && !isTypingMatch ? <p className="text-xs text-red-400">Does not match — keep typing</p> : null}
-                  {isTypingMatch && typedValue.length > 0 ? <p className="text-xs text-emerald-400">✓ Confirmed</p> : null}
+                  {typedValue.length > 0 && !isTypingMatch ? <p className="text-xs text-red-400">That does not match — keep going</p> : null}
+                  {isTypingMatch && typedValue.length > 0 ? <p className="text-xs text-emerald-400">Looks good</p> : null}
                 </div>
               </motion.div>
             ) : null}
