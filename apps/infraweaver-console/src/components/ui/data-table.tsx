@@ -8,11 +8,13 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
+  type Column,
   type ColumnDef,
   type ColumnFiltersState,
   type Row,
   type RowSelectionState,
   type SortingState,
+  type Table,
   type VisibilityState,
 } from "@tanstack/react-table";
 import {
@@ -29,6 +31,184 @@ import {
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonTable } from "@/components/ui/skeleton-table";
+
+// ---------------------------------------------------------------------------
+// Sub-components extracted so React.memo can prevent their re-renders when
+// their own props have not changed.
+// ---------------------------------------------------------------------------
+
+interface TableRowProps<TData> {
+  row: Row<TData>;
+  onRowClick?: (row: TData) => void;
+}
+
+// Generic React.memo requires a cast because memo() doesn't forward generics.
+const TableRow = React.memo(function TableRow<TData>({
+  row,
+  onRowClick,
+}: TableRowProps<TData>) {
+  const handleClick = React.useCallback(() => {
+    onRowClick?.(row.original);
+  }, [onRowClick, row.original]);
+
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLTableRowElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onRowClick?.(row.original);
+      }
+    },
+    [onRowClick, row.original],
+  );
+
+  const interactiveProps = onRowClick
+    ? { role: "button" as const, tabIndex: 0, onKeyDown: handleKeyDown }
+    : {};
+
+  return (
+    <tr
+      onClick={onRowClick ? handleClick : undefined}
+      {...interactiveProps}
+      className={cn(
+        "transition-colors hover:bg-[rgb(var(--color-surface-raised))]",
+        onRowClick && "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-brand-500))]",
+        row.getIsSelected() && "bg-[rgb(var(--color-brand-500))]/5",
+      )}
+    >
+      {row.getVisibleCells().map((cell) => (
+        <td
+          key={cell.id}
+          className="border-b border-[rgb(var(--color-border))] px-4 py-3 align-middle text-[rgb(var(--color-text-primary))] last:w-full"
+        >
+          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        </td>
+      ))}
+    </tr>
+  );
+}) as <TData>(props: TableRowProps<TData>) => React.ReactElement;
+
+// Pagination footer is pure given the same table state; memoised separately so
+// sorting/filter changes above the fold don't re-render it needlessly.
+interface PaginationFooterProps<TData> {
+  table: Table<TData>;
+  pageSizeOptions: number[];
+  filteredRowCount: number;
+}
+
+const PaginationFooter = React.memo(function PaginationFooter<TData>({
+  table,
+  pageSizeOptions,
+  filteredRowCount,
+}: PaginationFooterProps<TData>) {
+  const { pageIndex, pageSize } = table.getState().pagination;
+  const firstRow = filteredRowCount === 0 ? 0 : pageIndex * pageSize + 1;
+  const lastRow = Math.min((pageIndex + 1) * pageSize, filteredRowCount);
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-[rgb(var(--color-border))] px-4 py-3 text-sm text-[rgb(var(--color-text-secondary))] sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        Showing {firstRow}-{lastRow} of {filteredRowCount}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2">
+          <span>Rows</span>
+          <select
+            value={pageSize}
+            onChange={(event) => table.setPageSize(Number(event.target.value))}
+            className="h-9 rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] px-2 text-[rgb(var(--color-text-primary))] outline-none"
+          >
+            {pageSizeOptions.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+            aria-label="Previous page"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] transition-colors hover:border-[rgb(var(--color-border-strong))] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <ChevronLeft aria-hidden="true" className="h-4 w-4" />
+          </button>
+          <span aria-live="polite" className="min-w-20 text-center text-[rgb(var(--color-text-primary))]">
+            Page {pageIndex + 1} / {Math.max(table.getPageCount(), 1)}
+          </span>
+          <button
+            type="button"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+            aria-label="Next page"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] transition-colors hover:border-[rgb(var(--color-border-strong))] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <ChevronRight aria-hidden="true" className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}) as <TData>(props: PaginationFooterProps<TData>) => React.ReactElement;
+
+// Column-visibility toggle menu is pure given its own column list.
+interface ColumnMenuProps<TData> {
+  table: Table<TData>;
+  open: boolean;
+  onToggle: () => void;
+  menuRef: React.RefObject<HTMLDivElement | null>;
+}
+
+const ColumnMenu = React.memo(function ColumnMenu<TData>({
+  table,
+  open,
+  onToggle,
+  menuRef,
+}: ColumnMenuProps<TData>) {
+  const columnVisibility = table.getState().columnVisibility;
+  const hidableColumns = React.useMemo(
+    () => table.getAllLeafColumns().filter((col) => col.id !== "select" && col.getCanHide()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- columnVisibility state drives re-render
+    [table, columnVisibility],
+  );
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-haspopup="true"
+        aria-expanded={open}
+        className="inline-flex h-10 items-center gap-2 rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] px-3 text-sm text-[rgb(var(--color-text-primary))] transition-colors hover:border-[rgb(var(--color-border-strong))]"
+      >
+        <Eye aria-hidden="true" className="h-4 w-4" />
+        Columns
+        <ChevronDown aria-hidden="true" className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
+      </button>
+      {open ? (
+        <div role="group" aria-label="Toggle columns" className="absolute right-0 z-20 mt-2 min-w-[12rem] rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-2 shadow-xl">
+          {hidableColumns.map((column: Column<TData, unknown>) => (
+            <label
+              key={column.id}
+              className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2 text-sm text-[rgb(var(--color-text-primary))] transition-colors hover:bg-[rgb(var(--color-surface-raised))]"
+            >
+              <input
+                type="checkbox"
+                checked={column.getIsVisible()}
+                onChange={column.getToggleVisibilityHandler()}
+                className="h-4 w-4 rounded border-[rgb(var(--color-border-strong))]"
+              />
+              <span>{column.id}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}) as <TData>(props: ColumnMenuProps<TData>) => React.ReactElement;
+
+// ---------------------------------------------------------------------------
 
 interface DataTableProps<TData> {
   columns: ColumnDef<TData, unknown>[];
@@ -95,6 +275,7 @@ export function DataTable<TData>({
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
   const [columnMenuOpen, setColumnMenuOpen] = React.useState(false);
   const columnMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const toggleColumnMenu = React.useCallback(() => setColumnMenuOpen((open) => !open), []);
 
   React.useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -166,9 +347,25 @@ export function DataTable<TData>({
     },
   });
 
-  const filterableColumnId = filterColumn ?? table.getAllLeafColumns().find((column) => column.id !== "select")?.id;
-  const filterableColumn = filterableColumnId ? table.getColumn(filterableColumnId) : undefined;
-  const selectedRows = table.getSelectedRowModel().rows.map((row) => row.original);
+  // Stable column reference — only recomputed when the column list or the
+  // explicit filterColumn prop changes.
+  const filterableColumn = React.useMemo<ReturnType<typeof table.getColumn>>(() => {
+    const id = filterColumn ?? table.getAllLeafColumns().find((col) => col.id !== "select")?.id;
+    return id ? table.getColumn(id) : undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tableColumns identity tracks the column list changing
+  }, [filterColumn, table, tableColumns]);
+
+  // Recompute selected originals only when rowSelection state changes.
+  const selectedRows = React.useMemo(
+    () => table.getSelectedRowModel().rows.map((row) => row.original),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rowSelection is the reactive signal
+    [rowSelection, table],
+  );
+
+  // Stable clear-selection callback passed into bulkActions render-prop.
+  const clearSelection = React.useCallback(() => {
+    table.resetRowSelection();
+  }, [table]);
 
   const exportToCsv = React.useCallback(() => {
     const visibleColumns = table.getVisibleLeafColumns().filter((column) => column.id !== "select");
@@ -195,13 +392,23 @@ export function DataTable<TData>({
     URL.revokeObjectURL(url);
   }, [exportFileName, table]);
 
-  const renderedBulkActions =
-    typeof bulkActions === "function"
-      ? bulkActions({
-          selectedRows,
-          clearSelection: () => table.resetRowSelection(),
-        })
-      : bulkActions;
+  // Stable filtered row count — recomputed only when filters or data change,
+  // not on every pagination state update.
+  const filteredRowCount = React.useMemo(
+    () => table.getFilteredRowModel().rows.length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- columnFilters is the reactive signal
+    [columnFilters, data, table],
+  );
+
+  // Memoize the rendered bulk actions so the render-prop is only re-invoked
+  // when selectedRows or clearSelection actually changes.
+  const renderedBulkActions = React.useMemo(
+    () =>
+      typeof bulkActions === "function"
+        ? bulkActions({ selectedRows, clearSelection })
+        : bulkActions,
+    [bulkActions, selectedRows, clearSelection],
+  );
 
   if (loading) {
     return <SkeletonTable rows={5} columns={Math.max(columns.length, 4)} className={className} />;
@@ -253,7 +460,7 @@ export function DataTable<TData>({
               {renderedBulkActions}
               <button
                 type="button"
-                onClick={() => table.resetRowSelection()}
+                onClick={clearSelection}
                 className="text-[rgb(var(--color-brand-600))] transition-colors hover:text-[rgb(var(--color-brand-700))] dark:text-[rgb(var(--color-brand-500))]"
               >
                 Clear
@@ -270,40 +477,12 @@ export function DataTable<TData>({
             <Download className="h-4 w-4" />
             Export CSV
           </button>
-          <div className="relative" ref={columnMenuRef}>
-            <button
-              type="button"
-              onClick={() => setColumnMenuOpen((open) => !open)}
-              aria-haspopup="true"
-              aria-expanded={columnMenuOpen}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] px-3 text-sm text-[rgb(var(--color-text-primary))] transition-colors hover:border-[rgb(var(--color-border-strong))]"
-            >
-              <Eye aria-hidden="true" className="h-4 w-4" />
-              Columns
-              <ChevronDown aria-hidden="true" className={cn("h-4 w-4 transition-transform", columnMenuOpen && "rotate-180")} />
-            </button>
-            {columnMenuOpen ? (
-              <div role="group" aria-label="Toggle columns" className="absolute right-0 z-20 mt-2 min-w-[12rem] rounded-2xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] p-2 shadow-xl">
-                {table
-                  .getAllLeafColumns()
-                  .filter((column) => column.id !== "select" && column.getCanHide())
-                  .map((column) => (
-                    <label
-                      key={column.id}
-                      className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2 text-sm text-[rgb(var(--color-text-primary))] transition-colors hover:bg-[rgb(var(--color-surface-raised))]"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={column.getIsVisible()}
-                        onChange={column.getToggleVisibilityHandler()}
-                        className="h-4 w-4 rounded border-[rgb(var(--color-border-strong))]"
-                      />
-                      <span>{column.id}</span>
-                    </label>
-                  ))}
-              </div>
-            ) : null}
-          </div>
+          <ColumnMenu
+            table={table}
+            open={columnMenuOpen}
+            onToggle={toggleColumnMenu}
+            menuRef={columnMenuRef}
+          />
         </div>
       </div>
 
@@ -347,88 +526,16 @@ export function DataTable<TData>({
             </thead>
             <tbody>
               {table.getRowModel().rows.map((row) => (
-                <tr
-                  key={row.id}
-                  onClick={() => onRowClick?.(row.original)}
-                  {...(onRowClick
-                    ? {
-                        role: "button",
-                        tabIndex: 0,
-                        onKeyDown: (event: React.KeyboardEvent<HTMLTableRowElement>) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            onRowClick(row.original);
-                          }
-                        },
-                      }
-                    : {})}
-                  className={cn(
-                    "transition-colors hover:bg-[rgb(var(--color-surface-raised))]",
-                    onRowClick && "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--color-brand-500))]",
-                    row.getIsSelected() && "bg-[rgb(var(--color-brand-500))]/5",
-                  )}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      className="border-b border-[rgb(var(--color-border))] px-4 py-3 align-middle text-[rgb(var(--color-text-primary))] last:w-full"
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
+                <TableRow key={row.id} row={row} onRowClick={onRowClick} />
               ))}
             </tbody>
           </table>
         </div>
-        <div className="flex flex-col gap-3 border-t border-[rgb(var(--color-border))] px-4 py-3 text-sm text-[rgb(var(--color-text-secondary))] sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            Showing {table.getFilteredRowModel().rows.length === 0 ? 0 : table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}
-            -{Math.min(
-              (table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize,
-              table.getFilteredRowModel().rows.length,
-            )} of {table.getFilteredRowModel().rows.length}
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2">
-              <span>Rows</span>
-              <select
-                value={table.getState().pagination.pageSize}
-                onChange={(event) => table.setPageSize(Number(event.target.value))}
-                className="h-9 rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] px-2 text-[rgb(var(--color-text-primary))] outline-none"
-              >
-                {pageSizeOptions.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => table.previousPage()}
-                disabled={!table.getCanPreviousPage()}
-                aria-label="Previous page"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] transition-colors hover:border-[rgb(var(--color-border-strong))] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <ChevronLeft aria-hidden="true" className="h-4 w-4" />
-              </button>
-              <span aria-live="polite" className="min-w-20 text-center text-[rgb(var(--color-text-primary))]">
-                Page {table.getState().pagination.pageIndex + 1} / {Math.max(table.getPageCount(), 1)}
-              </span>
-              <button
-                type="button"
-                onClick={() => table.nextPage()}
-                disabled={!table.getCanNextPage()}
-                aria-label="Next page"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[rgb(var(--color-border))] bg-[rgb(var(--color-surface-base))] transition-colors hover:border-[rgb(var(--color-border-strong))] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <ChevronRight aria-hidden="true" className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </div>
+        <PaginationFooter
+          table={table}
+          pageSizeOptions={pageSizeOptions}
+          filteredRowCount={filteredRowCount}
+        />
       </div>
     </div>
   );
