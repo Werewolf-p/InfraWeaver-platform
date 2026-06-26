@@ -41,12 +41,18 @@ export function ProgressRing({
   const offset = circumference - (value / 100) * circumference;
   const strokeColor = color === "auto" ? getAutoColor(value) : COLOR_MAP[color];
 
+  const ariaLabel = label
+    ? `${label}: ${Math.round(value)}%`
+    : `${Math.round(value)}% used`;
+
   return (
     <div
+      role="img"
+      aria-label={ariaLabel}
       className={cn("relative inline-flex items-center justify-center", className)}
       style={{ width: size, height: size }}
     >
-      <svg width={size} height={size} className="-rotate-90">
+      <svg width={size} height={size} className="-rotate-90" aria-hidden="true">
         <circle
           cx={size / 2}
           cy={size / 2}

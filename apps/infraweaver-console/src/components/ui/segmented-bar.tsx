@@ -14,14 +14,24 @@ interface SegmentedBarProps {
 export function SegmentedBar({ segments, className }: SegmentedBarProps) {
   const total = segments.reduce((sum, segment) => sum + segment.value, 0);
 
+  const barAriaLabel = segments
+    .filter((s) => s.value > 0)
+    .map((s) => `${s.label}: ${s.value}`)
+    .join(", ");
+
   return (
     <div className={cn("space-y-3", className)}>
-      <div className="flex h-3 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
+      <div
+        role="img"
+        aria-label={barAriaLabel}
+        className="flex h-3 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]"
+      >
         {segments.map((segment) => {
           const width = total > 0 ? Math.max((segment.value / total) * 100, segment.value > 0 ? 6 : 0) : 0;
           return (
             <div
               key={segment.label}
+              aria-hidden="true"
               className={cn("h-full", segment.className || "bg-[#0078D4]")}
               style={{ width: `${width}%` }}
               title={`${segment.label}: ${segment.value}`}

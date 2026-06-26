@@ -21,9 +21,20 @@ export function AnimatedRing({
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
+  const ariaLabel = sublabel
+    ? `${sublabel}: ${label ?? `${Math.round(value)}%`}`
+    : label
+    ? `${label} — ${Math.round(value)}%`
+    : `${Math.round(value)}%`;
+
   return (
-    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
+    <div
+      role="img"
+      aria-label={ariaLabel}
+      className="relative flex items-center justify-center"
+      style={{ width: size, height: size }}
+    >
+      <svg width={size} height={size} className="-rotate-90" aria-hidden="true">
         <circle
           cx={size / 2}
           cy={size / 2}
