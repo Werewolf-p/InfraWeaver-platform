@@ -410,6 +410,7 @@ export function LogStreamViewer({
           <select
             value={container ?? ""}
             onChange={(event) => onContainerChange(event.target.value)}
+            aria-label="Select container"
             className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/50"
           >
             {containers.map((entry) => (
@@ -439,12 +440,13 @@ export function LogStreamViewer({
           />
         </div>
 
-        <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-950/70 p-1">
+        <div role="group" aria-label="Log level filter" className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-950/70 p-1">
           {(["ALL", "ERROR", "WARN", "INFO", "DEBUG"] as LogLevel[]).map((entry) => {
             const count = entry === "ALL" ? logs.length : levelCounts[entry];
             return (
               <button
                 key={entry}
+                aria-pressed={levelFilter === entry}
                 onClick={() => setPreferences((current) => ({ ...current, levelFilter: entry }))}
                 className={cn(
                   "rounded-md px-2.5 py-1 text-xs font-medium transition",
