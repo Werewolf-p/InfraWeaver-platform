@@ -38,13 +38,19 @@ export function DashboardStatCard({
   const hasTrend = Boolean(trendData && trendData.length > 1);
 
   return (
-    <div className={cn("rounded-2xl border p-4 md:p-5", toneStyles[tone], className)}>
+    <div
+      className={cn(
+        "group rounded-2xl border p-4 transition-colors hover:border-[#3b82f6]/40 md:p-5",
+        toneStyles[tone],
+        className,
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-[#888]">{label}</p>
-          <p className="mt-3 text-2xl font-semibold text-current md:text-[1.9rem]">{value}</p>
+          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-[#888]">{label}</p>
+          <p className="mt-2 text-2xl font-semibold leading-none tracking-tight text-current md:text-[1.9rem]">{value}</p>
         </div>
-        {Icon ? <Icon className="mt-0.5 h-5 w-5 shrink-0 text-current opacity-80" /> : null}
+        {Icon ? <Icon className="mt-0.5 h-5 w-5 shrink-0 text-current opacity-70 transition-opacity group-hover:opacity-100" /> : null}
       </div>
       {hasTrend ? (
         <div className="mt-3 rounded-xl border border-black/5 bg-white/70 px-2 py-1.5 dark:border-white/5 dark:bg-white/[0.03]">
