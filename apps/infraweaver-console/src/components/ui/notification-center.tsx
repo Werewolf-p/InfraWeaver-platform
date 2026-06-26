@@ -31,6 +31,7 @@ interface NotificationCenterProps {
 
 export function NotificationCenter({ className }: NotificationCenterProps) {
   const [open, setOpen] = useState(false);
+  const [liveMessage, setLiveMessage] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
   const bellControls = useAnimation();
   const prevUnreadRef = useRef<number | null>(null);
@@ -47,6 +48,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
         rotate: RING_KEYFRAMES,
         transition: { duration: 0.7, ease: "easeInOut" },
       });
+      setLiveMessage(`New notification. ${unreadCount} unread.`);
     }
     prevUnreadRef.current = unreadCount;
   }, [unreadCount, open, bellControls]);
@@ -63,17 +65,26 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [open]);
 
+  const bellLabel = unreadCount > 0
+    ? `Notifications, ${unreadCount} unread`
+    : "Notifications, all read";
+
   return (
     <div className={cn("relative", className)} ref={panelRef}>
+      {/* Polite live region — announces new notifications to screen readers without interrupting */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {liveMessage}
+      </div>
+
       <button
         onClick={() => setOpen((prev) => !prev)}
         className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
-        aria-label="Notifications"
+        aria-label={bellLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
         <motion.span animate={bellControls} style={{ display: "inline-flex", transformOrigin: "50% 0%" }}>
-          <Bell className="h-4 w-4" />
+          <Bell aria-hidden="true" className="h-4 w-4" />
         </motion.span>
         <AnimatePresence>
           {unreadCount > 0 && (
@@ -83,6 +94,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
               animate={{ scale: 1 }}
               exit={{ scale: 0 }}
               transition={{ type: "spring", stiffness: 500, damping: 20 }}
+              aria-hidden="true"
               className={cn(
                 "absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-gray-900 dark:text-white",
                 counts.error > 0 ? "bg-red-500" : "bg-amber-500"
@@ -107,7 +119,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
           >
             <div className="flex items-center justify-between border-b border-gray-200 dark:border-white/10 px-4 py-3">
               <div className="flex items-center gap-2">
-                <Bell className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
+                <Bell aria-hidden="true" className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</h3>
                 {unreadCount > 0 && (
                   <span className="rounded-full border border-indigo-500/30 bg-indigo-500/20 px-1.5 py-0.5 text-[10px] text-indigo-400">
@@ -117,19 +129,27 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
               </div>
               <div className="flex items-center gap-2">
                 {unreadCount > 0 && (
-                  <button onClick={markAllRead} className="flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-700 dark:hover:text-slate-300">
-                    <CheckCheck className="h-3 w-3" />
+                  <button
+                    onClick={markAllRead}
+                    aria-label="Mark all notifications as read"
+                    className="flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-700 dark:hover:text-slate-300"
+                  >
+                    <CheckCheck aria-hidden="true" className="h-3 w-3" />
                     Read all
                   </button>
                 )}
                 {notifications.length > 0 && (
-                  <button onClick={clearAll} className="flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-700 dark:hover:text-slate-300">
-                    <Trash2 className="h-3 w-3" />
+                  <button
+                    onClick={clearAll}
+                    aria-label="Clear all notifications"
+                    className="flex items-center gap-1 text-[11px] text-slate-500 transition-colors hover:text-slate-700 dark:hover:text-slate-300"
+                  >
+                    <Trash2 aria-hidden="true" className="h-3 w-3" />
                     Clear
                   </button>
                 )}
                 <button onClick={() => setOpen(false)} aria-label="Close notifications" className="text-slate-500 transition-colors hover:text-gray-900 dark:hover:text-white">
-                  <X className="h-4 w-4" />
+                  <X aria-hidden="true" className="h-4 w-4" />
                 </button>
               </div>
             </div>
@@ -144,7 +164,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
             <div className="max-h-80 overflow-y-auto">
               {notifications.length === 0 ? (
                 <div className="py-10 text-center">
-                  <Bell className="mx-auto mb-2 h-6 w-6 text-slate-700" />
+                  <Bell aria-hidden="true" className="mx-auto mb-2 h-6 w-6 text-slate-700" />
                   <p className="text-sm text-slate-600">No notifications yet</p>
                   <p className="mt-1 text-[11px] text-slate-700">Errors, warnings and notices will appear here.</p>
                 </div>
@@ -159,7 +179,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                         layout
                         role="button"
                         tabIndex={0}
-                        aria-label={`Mark notification as read: ${notification.title ?? "notification"}`}
+                        aria-label={`Mark as read: ${notification.title ?? "notification"}`}
                         initial={{ opacity: 0, x: -4 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 4 }}
@@ -185,16 +205,16 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                             </p>
                             <button
                               onClick={(e) => { e.stopPropagation(); dismiss(notification.id); }}
-                              aria-label={`Dismiss: ${notification.title}`}
+                              aria-label={`Dismiss: ${notification.title ?? "notification"}`}
                               className="mt-0.5 flex-shrink-0 text-slate-600 transition-colors hover:text-slate-700 dark:hover:text-slate-400"
                             >
-                              <X className="h-3 w-3" />
+                              <X aria-hidden="true" className="h-3 w-3" />
                             </button>
                           </div>
                           {notification.body && <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{notification.body}</p>}
                           <div className="mt-1 flex items-center gap-2">
                             <span className="text-[10px] text-slate-600">{formatRelativeTime(notification.timestamp)}</span>
-                            {!notification.read && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />}
+                            {!notification.read && <span aria-hidden="true" className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />}
                           </div>
                         </div>
                       </motion.div>
