@@ -24,8 +24,20 @@ export async function GET(req: NextRequest) {
   }
 
   const gameHubAccess = await getGameHubAccessContext(session, 60);
-  const lineParam = req.nextUrl.searchParams.get("lines") ?? req.nextUrl.searchParams.get("tail") ?? "500";
-  const lines = Math.min(Math.max(parseInt(lineParam, 10) || 500, 1), 1000);
+
+  const LINES_DEFAULT = 500;
+  const LINES_MIN = 1;
+  const LINES_MAX = 1000;
+
+  const lineParam = req.nextUrl.searchParams.get("lines") ?? req.nextUrl.searchParams.get("tail") ?? String(LINES_DEFAULT);
+  // Reject partial parses (e.g. "500abc") by requiring the entire string to be
+  // a decimal integer, then clamp to [LINES_MIN, LINES_MAX].
+  const lineParamTrimmed = lineParam.trim();
+  const lineParamIsStrictInt = /^-?\d+$/.test(lineParamTrimmed);
+  const lineParamParsed = lineParamIsStrictInt ? Number(lineParamTrimmed) : NaN;
+  const lines = Number.isFinite(lineParamParsed) && lineParamParsed >= LINES_MIN
+    ? Math.min(lineParamParsed, LINES_MAX)
+    : LINES_DEFAULT;
 
   try {
     const k8s = await import("@kubernetes/client-node");
