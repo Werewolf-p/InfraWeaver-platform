@@ -1359,9 +1359,7 @@ export function ConsoleTab({
       }
       if (!historyReplayDoneRef.current) return;
       if (Date.now() - lastPlayerToastRef.current < 1000) return;
-      if (/\b(joined|connected|logged in)\b/i.test(line)) {
-        toast.success("🎮 Player joined", { duration: 2000 });
-      } else if (/\b(left|disconnected|logged out)\b/i.test(line)) {
+      if (/\b(left|disconnected|logged out)\b/i.test(line)) {
         toast.success("👋 Player left", { duration: 2000 });
       } else if (/\b(was killed|died|was slain)\b/i.test(line)) {
         toast.error("💀 Player died", { duration: 2000 });
@@ -2247,10 +2245,21 @@ export function ConsoleTab({
 
       {reconnectBanner && status !== "stopped" ? <div className="border-b border-gray-200 bg-[#111827] px-4 py-1.5 text-[11px] text-[#93c5fd] dark:border-[#1e1e1e]">{reconnectBanner}</div> : null}
       {logLines.length >= maxLines ? <div className="border-b border-[#3a2a00] bg-yellow-500/10 px-4 py-1.5 text-[11px] text-yellow-200">⚠ Display capped at {maxLines} lines</div> : null}
+      {status === "stopped" && logLines.length > 0 ? (
+        <div className="flex items-center justify-between gap-2 border-b border-[#3a2a00] bg-amber-500/10 px-4 py-1.5 text-[11px] text-amber-200">
+          <span className="min-w-0 truncate">■ Server stopped — showing this session&apos;s final console output (including shutdown &amp; world-save). The log stream has ended.</span>
+          {canStartServer ? (
+            <button type="button" onClick={() => void startServer()} disabled={startingServer} className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border border-green-500/30 bg-green-500/15 px-2 py-1 text-[11px] font-medium text-green-200 transition-colors hover:bg-green-500/25 disabled:opacity-50">
+              {startingServer ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+              Start
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="relative min-h-0 flex-1">
         <div ref={consoleScrollRef} onScroll={handleConsoleScroll} className="h-full overflow-y-auto overflow-x-auto px-3 py-3 font-mono text-xs overscroll-contain select-text sm:p-4" style={{ fontSize: `${fontSize}px`, backgroundColor: currentTheme.bg, color: currentTheme.fg }}>
-          {status === "stopped" ? (
+          {status === "stopped" && logLines.length === 0 ? (
             <div className="flex h-full items-center justify-center p-6">
               <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white px-6 py-10 text-center shadow-[0_0_40px_rgba(0,0,0,0.35)] dark:border-[#2a2a2a] dark:bg-[#111]">
                 <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#666]"><Square className="h-8 w-8" /></div>

@@ -72,9 +72,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
     const kc = loadKubeConfig(getRequestClusterId(req));
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
-    // Exclude Terminating pods (they have a deletionTimestamp) to avoid reading stale/dying containers
-    const activePods = (pods.items ?? []).filter((p) => !p.metadata?.deletionTimestamp);
-    const pod = activePods.find((entry) => entry.status?.phase === "Running") ?? activePods[0];
+    // Prefer a live, non-terminating Running pod. But during a graceful (soft) stop
+    // the pod is Terminating (has a deletionTimestamp) for the duration of the
+    // termination grace period, and that is exactly when the game flushes its
+    // world-save on SIGTERM. We must keep streaming that terminating pod so the
+    // shutdown/world-save output stays visible in the console instead of the UI
+    // jumping straight to "Server Stopped". Only fall back to a terminating pod
+    // when there is no live pod to read from.
+    const allPods = pods.items ?? [];
+    const activePods = allPods.filter((p) => !p.metadata?.deletionTimestamp);
+    const pod =
+      activePods.find((entry) => entry.status?.phase === "Running") ??
+      activePods[0] ??
+      allPods.find((entry) => entry.status?.phase === "Running") ??
+      allPods[0];
 
     if (!pod?.metadata?.name) {
       return new Response(`data: ${JSON.stringify({ type: "error", line: "No running pod found — server may be stopped or still starting" })}\n\n`, {
