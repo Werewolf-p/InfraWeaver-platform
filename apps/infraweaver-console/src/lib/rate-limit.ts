@@ -5,6 +5,7 @@
 
 interface RateLimitEntry {
   timestamps: number[];
+  windowMs: number;
 }
 
 export const LOGIN_RATE_LIMIT = { max: 5, windowMs: 60_000 };
@@ -12,11 +13,12 @@ export const UNAUTHENTICATED_RATE_LIMIT = { max: 30, windowMs: 60_000 };
 
 const store = new Map<string, RateLimitEntry>();
 
-// Periodically clean up expired entries to prevent memory leaks
+// Periodically clean up expired entries to prevent memory leaks.
+// Uses the per-entry windowMs so expiry is always consistent with checkRateLimit.
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of store.entries()) {
-    entry.timestamps = entry.timestamps.filter(t => now - t < 3_600_000);
+    entry.timestamps = entry.timestamps.filter(t => now - t < entry.windowMs);
     if (entry.timestamps.length === 0) store.delete(key);
   }
 }, 60_000);
@@ -26,7 +28,7 @@ setInterval(() => {
  */
 export function checkRateLimit(key: string, max: number, windowMs: number): boolean {
   const now = Date.now();
-  const entry = store.get(key) ?? { timestamps: [] };
+  const entry = store.get(key) ?? { timestamps: [], windowMs };
   entry.timestamps = entry.timestamps.filter(t => now - t < windowMs);
   if (entry.timestamps.length >= max) {
     store.set(key, entry);
