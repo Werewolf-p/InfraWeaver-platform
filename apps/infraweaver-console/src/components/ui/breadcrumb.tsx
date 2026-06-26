@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ChevronLeft, ChevronRight, Home, Sparkles } from "lucide-react";
 import { useRecentPages } from "@/hooks/use-recent-pages";
-import { NAV_GROUPS } from "@/lib/nav-config";
+import { NAV_GROUPS, HREF_LABEL_MAP } from "@/lib/nav-config";
 import { cn } from "@/lib/utils";
 
 export const ROUTE_LABELS: Record<string, string> = {
@@ -59,16 +59,18 @@ function matchesPath(pathname: string, href: string) {
 export function titleForPathname(pathname: string) {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0) return "Dashboard";
-  return labelForSegment(segments[segments.length - 1] ?? "Dashboard");
+  // Prefer the nav label for the exact pathname, then fall back to segment humanization.
+  return HREF_LABEL_MAP[pathname] ?? labelForSegment(segments[segments.length - 1] ?? "Dashboard");
 }
 
 function breadcrumbItems(pathname: string) {
   const segments = pathname.split("/").filter(Boolean);
-  return segments.map((segment, index) => ({
-    label: labelForSegment(segment),
-    href: `/${segments.slice(0, index + 1).join("/")}`,
-    isLast: index === segments.length - 1,
-  }));
+  return segments.map((segment, index) => {
+    const href = `/${segments.slice(0, index + 1).join("/")}`;
+    // Use the nav label for this accumulated path when available.
+    const label = HREF_LABEL_MAP[href] ?? labelForSegment(segment);
+    return { label, href, isLast: index === segments.length - 1 };
+  });
 }
 
 export function Breadcrumb({ className }: { className?: string }) {
