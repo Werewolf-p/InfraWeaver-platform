@@ -28,7 +28,7 @@ export function ThemeToggle({ className, compact = false }: ThemeToggleProps) {
         aria-label={`Switch to ${next.label} mode`}
         title={`Switch to ${next.label} mode`}
       >
-        <Icon className="h-4 w-4" />
+        <Icon className="h-4 w-4" aria-hidden="true" />
       </button>
     );
   }
@@ -45,10 +45,11 @@ export function ThemeToggle({ className, compact = false }: ThemeToggleProps) {
               ? "bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-[#f2f2f2] shadow"
               : "text-gray-500 dark:text-[#888] hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2]",
           )}
+          aria-pressed={theme === value}
           aria-label={label}
           title={label}
         >
-          <Icon className="h-3.5 w-3.5" />
+          <Icon className="h-3.5 w-3.5" aria-hidden="true" />
           {label}
         </button>
       ))}
