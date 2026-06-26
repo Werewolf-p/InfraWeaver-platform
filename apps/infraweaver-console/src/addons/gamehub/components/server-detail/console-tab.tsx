@@ -1581,10 +1581,50 @@ export function ConsoleTab({
     [executeImmediateCommand],
   );
 
+  // Stop-intent commands (exit/stop/quit/…) typed in the console never reach games
+  // without a console interpreter — Valheim ignores stdin. Route them to the real
+  // graceful stop instead (SIGTERM → world save → no auto-restart), after a confirm.
+  const requestGracefulStop = useCallback(
+    async (typed: string) => {
+      setCommand("");
+      historyIdxRef.current = -1;
+      draftCommandRef.current = "";
+      addLine("input", typed, new Date().toISOString(), { user: userName, trackStats: false });
+      if (server.permissions?.canStop === false) {
+        addLine("error", "You do not have permission to stop this server.", new Date().toISOString());
+        return;
+      }
+      const confirmed = typeof window === "undefined"
+        ? true
+        : window.confirm(`"${typed}" stops ${name} gracefully — the world is saved and the server does not auto-restart. Stop it now?`);
+      if (!confirmed) {
+        addLine("system", "Stop cancelled.", new Date().toISOString(), { trackStats: false });
+        return;
+      }
+      addLine("system", `Stopping ${name} gracefully — saving world…`, new Date().toISOString(), { trackStats: false });
+      try {
+        await fetchJson(`/api/game-hub/servers/${name}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "stop" }),
+        });
+        toast.success("Server stopping gracefully — world will be saved");
+      } catch (error) {
+        addLine("error", String(error), new Date().toISOString());
+        toast.error("Stop failed");
+      }
+    },
+    [addLine, name, server.permissions?.canStop, userName],
+  );
+
   const processCommand = useCallback(
     async (rawCommand: string, options?: { bypassSchedule?: boolean; bypassTemplate?: boolean; historyEntry?: string }) => {
       const trimmed = rawCommand.trim();
       if (!trimmed || sending) return;
+      if (/^(exit|stop|quit|shutdown|halt)$/i.test(trimmed)) {
+        await requestGracefulStop(trimmed);
+        return;
+      }
       const scheduled = options?.bypassSchedule ? null : parseScheduledCommand(trimmed);
       const effectiveCommand = scheduled ? scheduled.command : trimmed;
       if (!effectiveCommand) return;
@@ -1606,7 +1646,7 @@ export function ConsoleTab({
       }
       await executeImmediateCommand(effectiveCommand, { historyEntry: options?.historyEntry });
     },
-    [executeImmediateCommand, scheduleCommand, sending],
+    [executeImmediateCommand, requestGracefulStop, scheduleCommand, sending],
   );
 
   async function sendCommand(event: FormEvent) {
