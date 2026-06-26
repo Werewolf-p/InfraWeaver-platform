@@ -91,17 +91,18 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
             <div className="bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#333] rounded-2xl shadow-2xl overflow-hidden">
               {/* Search input */}
               <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-[#2a2a2a]">
-                <Search className="w-5 h-5 text-gray-400 dark:text-[#555] flex-shrink-0" />
+                <Search aria-hidden="true" className="w-5 h-5 text-gray-400 dark:text-[#555] flex-shrink-0" />
                 <input
                   ref={inputRef}
                   value={query}
                   onChange={e => setQuery(e.target.value)}
                   placeholder="Search apps, pods, pages…"
+                  aria-label="Search apps, pods, and pages"
                   className="flex-1 bg-transparent text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] text-sm outline-none"
                 />
                 {query && (
-                  <button onClick={() => setQuery("")} className="text-gray-400 dark:text-[#555] hover:text-gray-700 dark:hover:text-[#9e9e9e]">
-                    <X className="w-4 h-4" />
+                  <button onClick={() => setQuery("")} aria-label="Clear search" className="text-gray-400 dark:text-[#555] hover:text-gray-700 dark:hover:text-[#9e9e9e]">
+                    <X aria-hidden="true" className="w-4 h-4" />
                   </button>
                 )}
               </div>
@@ -117,7 +118,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
                         onClick={() => handleRecentClick(q)}
                         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-500 dark:text-[#9e9e9e] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-white transition-colors"
                       >
-                        <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                        <Clock aria-hidden="true" className="w-3.5 h-3.5 flex-shrink-0" />
                         {q}
                       </button>
                     ))}
@@ -134,7 +135,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
                         onClick={() => handleNavigate(item.href)}
                         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-500 dark:text-[#9e9e9e] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-white transition-colors"
                       >
-                        <item.icon className="w-4 h-4 flex-shrink-0 text-[#0078D4]" />
+                        <item.icon aria-hidden="true" className="w-4 h-4 flex-shrink-0 text-[#0078D4]" />
                         <div className="text-left">
                           <p className="text-gray-900 dark:text-[#f2f2f2] text-sm">{item.label}</p>
                           {item.description && <p className="text-[10px] text-gray-400 dark:text-[#555]">{item.description}</p>}
@@ -154,7 +155,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
                         onClick={() => handleNavigate(r.href)}
                         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-500 dark:text-[#9e9e9e] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-white transition-colors"
                       >
-                        {r.type === "app" ? <Box className="w-4 h-4 flex-shrink-0 text-indigo-400" /> : <Server className="w-4 h-4 flex-shrink-0 text-blue-400" />}
+                        {r.type === "app" ? <Box aria-hidden="true" className="w-4 h-4 flex-shrink-0 text-indigo-400" /> : <Server aria-hidden="true" className="w-4 h-4 flex-shrink-0 text-blue-400" />}
                         <div className="text-left">
                           <p className="text-gray-900 dark:text-[#f2f2f2] text-sm">{r.name}</p>
                           <p className="text-[10px] text-gray-400 dark:text-[#555]">{r.subtitle}</p>
