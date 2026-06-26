@@ -191,8 +191,13 @@ export function StatusBadge({
 
   if (variant === "card") {
     return (
-      <div title={title} className={cn("flex items-center gap-2.5 rounded-xl border p-3", config.colors.bg, config.colors.border, className)}>
-        <div className={cn("relative flex-shrink-0", config.colors.text)}>
+      <div
+        role="img"
+        aria-label={title}
+        title={title}
+        className={cn("flex items-center gap-2.5 rounded-xl border p-3", config.colors.bg, config.colors.border, className)}
+      >
+        <div aria-hidden="true" className={cn("relative flex-shrink-0", config.colors.text)}>
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0">
@@ -200,7 +205,7 @@ export function StatusBadge({
           {description ? <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{description}</p> : null}
         </div>
         {config.pulse && (
-          <div className="relative ml-auto flex-shrink-0">
+          <div aria-hidden="true" className="relative ml-auto flex-shrink-0">
             <span className={cn("absolute inset-0 rounded-full animate-ping opacity-60", config.colors.dot)} />
             <span className={cn("relative block h-2 w-2 rounded-full", config.colors.dot)} />
           </div>
@@ -211,6 +216,8 @@ export function StatusBadge({
 
   return (
     <span
+      role="img"
+      aria-label={title}
       title={title}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border font-medium",
@@ -223,10 +230,11 @@ export function StatusBadge({
       )}
     >
       {showDot ? (
-        <span className="relative flex h-2 w-2 flex-shrink-0 items-center justify-center">
+        <span aria-hidden="true" className="relative flex h-2 w-2 flex-shrink-0 items-center justify-center">
           {config.pulse ? (
             <>
               <motion.span
+                aria-hidden="true"
                 className={cn("absolute inset-0 rounded-full", config.colors.dot)}
                 animate={{ scale: [1, 1.8, 1], opacity: [0.6, 0, 0.6] }}
                 transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
@@ -241,6 +249,7 @@ export function StatusBadge({
       {showIcon ? (
         (normalizedStatus === "syncing" || normalizedStatus === "progressing") ? (
           <motion.span
+            aria-hidden="true"
             animate={{ rotate: 360 }}
             transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
             className="inline-flex"
@@ -248,7 +257,7 @@ export function StatusBadge({
             <Icon className={sz.icon} />
           </motion.span>
         ) : (
-          <Icon className={sz.icon} />
+          <Icon aria-hidden="true" className={sz.icon} />
         )
       ) : null}
       {displayLabel}
