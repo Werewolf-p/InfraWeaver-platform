@@ -21,12 +21,25 @@ interface Props {
   valueFormatter: (value: number) => string;
 }
 
+function buildAriaLabel(
+  data: Props["data"],
+  valueFormatter: Props["valueFormatter"],
+): string {
+  if (data.length === 0) return "Sparkline chart, no data";
+  const latest = data[data.length - 1].value;
+  const first = data[0].value;
+  const direction = latest > first ? "up" : latest < first ? "down" : "flat";
+  return `Sparkline, latest ${valueFormatter(latest)}, trend ${direction}`;
+}
+
 export function SparklineChart({ data, color, height, valueFormatter }: Props) {
   const palette = COLORS[color];
   const gradientId = useId().replace(/:/g, "");
+  const ariaLabel = buildAriaLabel(data, valueFormatter);
 
   return (
-    <ResponsiveContainer width="100%" height={height}>
+    <div role="img" aria-label={ariaLabel}>
+    <ResponsiveContainer aria-hidden width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 6, right: 2, left: 2, bottom: 2 }}>
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -59,5 +72,6 @@ export function SparklineChart({ data, color, height, valueFormatter }: Props) {
         />
       </AreaChart>
     </ResponsiveContainer>
+    </div>
   );
 }
