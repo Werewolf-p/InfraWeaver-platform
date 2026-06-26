@@ -1,9 +1,34 @@
 "use client";
+import { memo, useMemo } from "react";
+
 interface TimelinePoint { timestamp: string; status: string; latencyMs: number; }
 interface Props { data: TimelinePoint[]; }
+
+interface SegmentBarProps { point: TimelinePoint; }
+
+const STATUS_CLASS: Record<string, string> = {
+  up: "bg-green-500/70",
+  degraded: "bg-yellow-500/70",
+};
+
+const SegmentBar = memo(function SegmentBar({ point }: SegmentBarProps) {
+  const label = `${new Date(point.timestamp).toLocaleTimeString()} - ${point.status} (${point.latencyMs}ms)`;
+  const colorClass = STATUS_CLASS[point.status] ?? "bg-red-500/70";
+  return (
+    <div
+      title={label}
+      className={`flex-1 rounded-sm ${colorClass}`}
+    />
+  );
+});
+
 export function HealthTimeline({ data }: Props) {
-  const upCount = data.filter(d => d.status === "up").length;
-  const uptime = data.length > 0 ? ((upCount / data.length) * 100).toFixed(2) : "100.00";
+  const uptime = useMemo(() => {
+    if (data.length === 0) return "100.00";
+    const upCount = data.reduce((n, d) => n + (d.status === "up" ? 1 : 0), 0);
+    return ((upCount / data.length) * 100).toFixed(2);
+  }, [data]);
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -12,11 +37,7 @@ export function HealthTimeline({ data }: Props) {
       </div>
       <div className="flex gap-px h-8">
         {data.map((point, i) => (
-          <div
-            key={i}
-            title={`${new Date(point.timestamp).toLocaleTimeString()} - ${point.status} (${point.latencyMs}ms)`}
-            className={`flex-1 rounded-sm ${point.status === "up" ? "bg-green-500/70" : point.status === "degraded" ? "bg-yellow-500/70" : "bg-red-500/70"}`}
-          />
+          <SegmentBar key={i} point={point} />
         ))}
       </div>
       <div className="flex gap-4 text-xs text-slate-500">
