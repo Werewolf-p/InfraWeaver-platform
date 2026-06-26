@@ -1,6 +1,7 @@
 "use client";
 import React from "react";
 import { AlertTriangle, RefreshCw, RotateCcw } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -79,7 +80,12 @@ export function FallbackUI({ error, requestId, onReset }: FallbackUIProps) {
         {error?.message ? (
           <p className="mt-2 rounded-lg bg-black/20 px-3 py-2 font-mono text-xs text-gray-500 dark:text-white/50">{error.message}</p>
         ) : null}
-        <p className="mt-2 font-mono text-xs text-gray-400 dark:text-white/40">Reference: {requestId}</p>
+        {requestId ? (
+          <div className="mt-2 flex items-center justify-center gap-1.5">
+            <span className="font-mono text-xs text-gray-400 dark:text-white/40">Reference: {requestId}</span>
+            <CopyButton text={requestId} className="h-6 px-2" />
+          </div>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <button
