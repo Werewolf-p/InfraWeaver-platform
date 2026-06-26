@@ -93,7 +93,7 @@ export function persistLocalUserPreferences(preferences: UserPreferencesPayload)
 }
 
 async function fetchServerPreferences() {
-  const res = await fetch("/api/user/preferences", { cache: "no-store" });
+  const res = await fetch("/api/user/preferences", { cache: "no-store", signal: AbortSignal.timeout(8000) });
   if (!res.ok) {
     throw new Error(`Failed to load preferences: ${res.status}`);
   }
