@@ -2,32 +2,32 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import {
-  LayoutDashboard, Box, Activity, Network, Cog, HardDrive,
-  FileText, Users, KeyRound, Terminal, History, Search, X, ShieldCheck, Server,
-  PlusCircle, Package,
-} from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { cn } from "@/lib/utils";
+import { NAV_GROUPS, type NavItem } from "@/lib/nav-config";
 import Fuse from "fuse.js";
 
-const navItems = [
-  { href: "/", icon: LayoutDashboard, label: "Dashboard", shortcut: "G D", category: "Core" },
-  { href: "/apps", icon: Box, label: "Applications", shortcut: "G A", category: "Core" },
-  { href: "/catalog-install", icon: PlusCircle, label: "App Installer", shortcut: "G I", category: "Core" },
-  { href: "/events", icon: History, label: "Activity Log", shortcut: "G E", category: "Core" },
-  { href: "/config", icon: Cog, label: "Config Editor", shortcut: "G C", category: "Platform" },
-  { href: "/users", icon: Users, label: "Users", shortcut: "G U", category: "Platform" },
-  { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", category: "Platform" },
-  { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L", category: "Platform" },
-  { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S", category: "Infrastructure" },
-  { href: "/network", icon: Network, label: "Network", shortcut: "G N", category: "Infrastructure" },
-  { href: "/health", icon: Activity, label: "Health", shortcut: "G H", category: "Infrastructure" },
-  { href: "/security", icon: ShieldCheck, label: "Security", shortcut: "G Y", category: "Infrastructure" },
-  { href: "/cluster", icon: Server, label: "Cluster", shortcut: "G K", category: "Infrastructure" },
-  { href: "/exec", icon: Terminal, label: "Exec", shortcut: "G X", category: "Platform" },
-  { href: "/settings", icon: KeyRound, label: "Settings", shortcut: "", category: "Settings" },
+// Single source of truth: every navigable page comes from NAV_GROUPS, so the
+// palette stays in sync with the sidebar instead of duplicating a stale list.
+interface PaletteItem extends NavItem {
+  category: string;
+}
+
+const navItems: PaletteItem[] = NAV_GROUPS.flatMap(group =>
+  group.items.map(item => ({ ...item, category: group.label }))
+);
+
+const navByHref = new Map(navItems.map(item => [item.href, item]));
+
+// Deterministic accent per category, cycling a fixed palette in group order.
+const COLOR_CYCLE = [
+  "text-indigo-400", "text-violet-400", "text-cyan-400", "text-emerald-400",
+  "text-amber-400", "text-rose-400", "text-sky-400", "text-fuchsia-400",
 ];
+const categoryColors: Record<string, string> = Object.fromEntries(
+  NAV_GROUPS.map((group, i) => [group.label, COLOR_CYCLE[i % COLOR_CYCLE.length]])
+);
 
 const RECENT_KEY = "cmd-palette-recent";
 
@@ -48,7 +48,7 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fuse = useMemo(() => new Fuse(navItems, {
-    keys: ["label", "category"],
+    keys: ["label", "category", "description", "keywords"],
     threshold: 0.4,
     includeScore: true,
   }), []);
@@ -58,17 +58,9 @@ export function CommandPalette() {
     return fuse.search(query).map(r => r.item);
   }, [query, fuse]);
 
-  const grouped = useMemo(() => {
-    if (query.trim()) return null;
-    const cats: Record<string, typeof navItems> = {};
-    navItems.forEach(item => {
-      if (!cats[item.category]) cats[item.category] = [];
-      cats[item.category].push(item);
-    });
-    return cats;
-  }, [query]);
-
-  const recentItems = navItems.filter(i => recentHrefs.includes(i.href));
+  const recentItems = recentHrefs
+    .map(href => navByHref.get(href))
+    .filter((item): item is PaletteItem => item !== undefined);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -116,13 +108,6 @@ export function CommandPalette() {
     addRecent(href);
     router.push(href);
     setOpen(false);
-  };
-
-  const categoryColors: Record<string, string> = {
-    Core: "text-indigo-400",
-    Platform: "text-violet-400",
-    Infrastructure: "text-cyan-400",
-    Settings: "text-slate-500 dark:text-slate-400",
   };
 
   return (
@@ -206,12 +191,12 @@ export function CommandPalette() {
                       ))}
                     </div>
                   )}
-                  {/* Grouped items */}
-                  {grouped && Object.entries(grouped).map(([cat, items]) => (
-                    <div key={cat} className="mb-2">
-                      <p className={cn("px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider", categoryColors[cat])}>{cat}</p>
-                      {items.map((item, i) => {
-                        const flatIndex = filtered.indexOf(item);
+                  {/* Grouped items — mirror the sidebar's group order */}
+                  {NAV_GROUPS.map(group => (
+                    <div key={group.id} className="mb-2">
+                      <p className={cn("px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider", categoryColors[group.label])}>{group.label}</p>
+                      {group.items.map((item, i) => {
+                        const flatIndex = navItems.findIndex(n => n.href === item.href);
                         return (
                           <button
                             key={item.href}
