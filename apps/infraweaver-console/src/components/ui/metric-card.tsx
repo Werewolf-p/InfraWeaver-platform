@@ -51,9 +51,9 @@ const VARIANT_STYLES = {
 } as const;
 
 function TrendIcon({ direction }: { direction: NonNullable<MetricCardProps["trend"]>["direction"] }) {
-  if (direction === "up") return <TrendingUp className="h-3.5 w-3.5" />;
-  if (direction === "down") return <TrendingDown className="h-3.5 w-3.5" />;
-  return <Minus className="h-3.5 w-3.5" />;
+  if (direction === "up") return <TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />;
+  if (direction === "down") return <TrendingDown className="h-3.5 w-3.5" aria-hidden="true" />;
+  return <Minus className="h-3.5 w-3.5" aria-hidden="true" />;
 }
 
 export function MetricCard({
@@ -98,9 +98,12 @@ export function MetricCard({
               </div>
             </div>
             {trend ? (
-              <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium", styles.badge)}>
+              <span
+                className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium", styles.badge)}
+                aria-label={`${trend.direction === "up" ? "Up" : trend.direction === "down" ? "Down" : "Flat"} ${trend.percent}%`}
+              >
                 <TrendIcon direction={trend.direction} />
-                {trend.percent}%
+                <span aria-hidden="true">{trend.percent}%</span>
               </span>
             ) : null}
           </div>
@@ -118,9 +121,13 @@ export function MetricCard({
             </div>
             <div className="h-12 w-28 shrink-0">
               {sparklineData && sparklineData.length > 1 ? (
-                <MetricCardSparkline data={sparklineData} color={styles.line} />
+                <MetricCardSparkline
+                  data={sparklineData}
+                  color={styles.line}
+                  label={`${title} trend. Latest value ${sparklineData[sparklineData.length - 1].value}.`}
+                />
               ) : (
-                <div className="flex h-full items-end">
+                <div className="flex h-full items-end" aria-hidden="true">
                   <div className="h-8 w-full rounded-xl bg-[rgb(var(--color-surface-raised))]" />
                 </div>
               )}
