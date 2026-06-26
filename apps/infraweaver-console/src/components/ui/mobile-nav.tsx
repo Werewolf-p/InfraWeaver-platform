@@ -41,6 +41,7 @@ export function MobileNav() {
               />
             )}
             <item.icon
+              aria-hidden="true"
               className={cn(
                 "w-5 h-5 relative",
                 isActive ? "text-indigo-400" : "text-slate-500"
