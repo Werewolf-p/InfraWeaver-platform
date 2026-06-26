@@ -32,21 +32,35 @@ const COLORS = {
   indigo: { stroke: "#6366f1", fill: "#6366f1" },
 };
 
+function buildAriaLabel(label: string, data: DataPoint[], unit: string, warnAt: number, critAt: number): string {
+  const lastVal = data[data.length - 1]?.value ?? 0;
+  const status = lastVal >= critAt ? "critical" : lastVal >= warnAt ? "warning" : "normal";
+  const current = `${label}: currently ${Math.round(lastVal)}${unit}, status ${status}`;
+  if (data.length < 2) {
+    return current;
+  }
+  const values = data.map((d) => d.value);
+  const min = Math.round(Math.min(...values));
+  const max = Math.round(Math.max(...values));
+  return `${current}, range ${min}${unit}–${max}${unit} across ${data.length} data points`;
+}
+
 export function MetricAreaChart({ data, label, unit = "%", color = "emerald", warnAt = 70, critAt = 90, className }: MetricAreaChartProps) {
   const lastVal = data[data.length - 1]?.value ?? 0;
   const activeColor = lastVal >= critAt ? "red" : lastVal >= warnAt ? "amber" : color;
   const { stroke, fill } = COLORS[activeColor];
   const gradId = `grad-${label.replace(/\s+/g, "")}`;
+  const ariaLabel = buildAriaLabel(label, data, unit, warnAt, critAt);
 
   return (
-    <div className={cn("rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-3 sm:p-4", className)}>
+    <div role="img" aria-label={ariaLabel} className={cn("rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-3 sm:p-4", className)}>
       <div className="mb-2 flex items-center justify-between sm:mb-3">
         <span className="text-xs font-medium text-slate-700 dark:text-slate-300 sm:text-sm">{label}</span>
         <span className={cn("text-base font-bold tabular-nums sm:text-lg", lastVal >= critAt ? "text-red-400" : lastVal >= warnAt ? "text-amber-400" : "text-emerald-400")}>
           {Math.round(lastVal)}{unit}
         </span>
       </div>
-      <div className="h-[200px] w-full sm:h-[120px]">
+      <div aria-hidden="true" className="h-[200px] w-full sm:h-[120px]">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
           <defs>
