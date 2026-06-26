@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useId } from "react";
 import { cn } from "@/lib/utils";
 import { motion, useReducedMotion } from "framer-motion";
 import { springs } from "@/lib/spring";
@@ -25,6 +25,7 @@ function isActionConfig(action: EmptyStateProps["action"]): action is EmptyState
 
 export function EmptyState({ icon: Icon, title, description, action, secondaryAction, className }: EmptyStateProps) {
   const reducedMotion = useReducedMotion();
+  const titleId = useId();
   const renderedAction = React.isValidElement(action) ? (
     action
   ) : isActionConfig(action) ? (
@@ -61,6 +62,7 @@ export function EmptyState({ icon: Icon, title, description, action, secondaryAc
       animate={{ opacity: 1, y: 0 }}
       transition={springs.gentle}
       role="status"
+      aria-labelledby={titleId}
       className={cn("flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-16 text-center", className)}
     >
       {Icon ? (
@@ -73,7 +75,7 @@ export function EmptyState({ icon: Icon, title, description, action, secondaryAc
           <Icon className="h-6 w-6 opacity-70" />
         </motion.div>
       ) : null}
-      <h3 className="text-base font-medium text-gray-900 dark:text-[#f2f2f2]">{title}</h3>
+      <h3 id={titleId} className="text-base font-medium text-gray-900 dark:text-[#f2f2f2]">{title}</h3>
       {description ? <p className="mt-2 max-w-sm text-sm leading-relaxed text-gray-500 dark:text-[#888]">{description}</p> : null}
       {(renderedAction || renderedSecondaryAction) ? (
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">

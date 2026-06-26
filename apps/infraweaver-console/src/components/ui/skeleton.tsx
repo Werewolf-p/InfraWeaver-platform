@@ -1,5 +1,43 @@
 import { cn } from "@/lib/utils";
 
+/**
+ * Optional wrapper that announces a loading region to screen readers.
+ * Wrap one or more Skeleton (or SkeletonCard / SkeletonTable / …) instances
+ * inside this component so assistive technology reads "Loading …" when the
+ * region mounts, then falls silent once the real content replaces it.
+ *
+ * The decorative children remain aria-hidden themselves; only the
+ * wrapper label is surfaced to the accessibility tree.
+ *
+ * @example
+ * <SkeletonLoader label="Loading application list">
+ *   <SkeletonTable rows={3} />
+ * </SkeletonLoader>
+ */
+export function SkeletonLoader({
+  label = "Loading",
+  className,
+  children,
+}: {
+  label?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className={className}
+    >
+      {children}
+      {/* Visually hidden live text for screen readers that do not announce
+          role="status" + aria-label on mount (belt-and-suspenders). */}
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
 /** Base shimmer block — adapts color in light/dark via CSS. */
 export function Skeleton({ className }: { className?: string }) {
   return (
