@@ -8,7 +8,7 @@ export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
   json?: unknown;
   query?: QueryParams;
   unwrap?: boolean;
-  /** Max attempts on transient failures (network error / 502 / 503 / 504). Default 3. Set 1 to disable. */
+  /** Max attempts on transient failures (network error / 429 / 502 / 503 / 504). Default 3. Set 1 to disable. */
   retries?: number;
   /** Abort the request after this many ms. Default 20000. */
   timeoutMs?: number;
@@ -19,9 +19,10 @@ export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
 // (Chrome) / "Load failed" (Safari). Those were the exact symptoms reported when
 // sending feedback and when clicking publish. A short bounded retry on these
 // transient conditions makes those one-off blips invisible to the user.
-const TRANSIENT_STATUSES = new Set([502, 503, 504]);
+const TRANSIENT_STATUSES = new Set([429, 502, 503, 504]);
 const DEFAULT_RETRIES = 3;
 const DEFAULT_TIMEOUT_MS = 20_000;
+const MAX_RETRY_DELAY_MS = 5_000;
 
 function isTransientNetworkError(error: unknown): boolean {
   // fetch() rejects with a TypeError on network-level failure; AbortError means
@@ -34,6 +35,28 @@ function isTransientNetworkError(error: unknown): boolean {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Bounded backoff between retries. Honours a server `Retry-After` header
+ * (delta-seconds or an HTTP-date, as sent with 429/503) so the client waits
+ * exactly as long as asked, and otherwise uses exponential backoff with full
+ * jitter so a fleet of concurrent queries doesn't retry in lockstep and
+ * stampede a restarting/rate-limited backend.
+ */
+function retryDelayMs(attempt: number, response?: Response): number {
+  const retryAfter = response?.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const explicitMs = Number.isFinite(seconds)
+      ? seconds * 1000
+      : new Date(retryAfter).getTime() - Date.now();
+    if (Number.isFinite(explicitMs) && explicitMs > 0) {
+      return Math.min(explicitMs, MAX_RETRY_DELAY_MS);
+    }
+  }
+  const ceiling = Math.min(250 * 2 ** (attempt - 1), MAX_RETRY_DELAY_MS);
+  return ceiling / 2 + Math.random() * (ceiling / 2);
+}
 
 /**
  * Normalizes relative API paths and appends optional query parameters.
@@ -128,9 +151,10 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
         body: json === undefined ? body : JSON.stringify(json),
       });
 
-      // Retry transient gateway errors (pod/proxy momentarily unavailable).
+      // Retry transient gateway / rate-limit errors (pod/proxy momentarily
+      // unavailable, or a 429 asking us to back off).
       if (TRANSIENT_STATUSES.has(response.status) && attempt < maxAttempts) {
-        await sleep(250 * attempt);
+        await sleep(retryDelayMs(attempt, response));
         continue;
       }
 
@@ -140,7 +164,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
       // A caller-initiated abort is intentional — never retry or swallow it.
       if (callerSignal?.aborted) throw error;
       if (isTransientNetworkError(error) && attempt < maxAttempts) {
-        await sleep(250 * attempt);
+        await sleep(retryDelayMs(attempt));
         continue;
       }
       throw error;
