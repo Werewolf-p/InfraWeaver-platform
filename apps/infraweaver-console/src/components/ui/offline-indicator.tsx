@@ -107,9 +107,13 @@ export function OfflineIndicator() {
             title="Expand offline banner"
           />
         ) : (
-          <div className="border-b border-red-500/30 bg-red-600/95 text-gray-900 dark:text-white shadow-lg backdrop-blur-sm">
+          <div
+            role="status"
+            aria-live="polite"
+            className="border-b border-red-500/30 bg-red-600/95 text-gray-900 dark:text-white shadow-lg backdrop-blur-sm"
+          >
             <div className="mx-auto flex max-w-7xl items-start gap-3 px-3 py-2.5 sm:px-4">
-              <WifiOff className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <WifiOff className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium leading-5">Offline mode</p>
                 <p

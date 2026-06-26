@@ -17,6 +17,7 @@ export function BookmarkButton({ id, label, href, className }: BookmarkButtonPro
   return (
     <button
       onClick={() => bookmarked ? removeBookmark(id) : addBookmark({ id, label, href })}
+      aria-pressed={bookmarked}
       className={cn(
         "flex items-center justify-center w-8 h-8 rounded-lg transition-all",
         bookmarked
@@ -27,7 +28,9 @@ export function BookmarkButton({ id, label, href, className }: BookmarkButtonPro
       aria-label={bookmarked ? `Remove bookmark: ${label}` : `Bookmark: ${label}`}
       title={bookmarked ? "Remove bookmark" : "Bookmark this page"}
     >
-      {bookmarked ? <BookmarkCheck className="w-3.5 h-3.5" /> : <Bookmark className="w-3.5 h-3.5" />}
+      {bookmarked
+        ? <BookmarkCheck className="w-3.5 h-3.5" aria-hidden="true" />
+        : <Bookmark className="w-3.5 h-3.5" aria-hidden="true" />}
     </button>
   );
 }
