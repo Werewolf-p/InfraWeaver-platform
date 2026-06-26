@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,44 @@ interface NamespaceUsageItem {
 interface NamespaceUsageProps {
   className?: string;
 }
+
+// Stable module-level formatters — no closure, no re-creation per render.
+function formatCpu(value: number, max: number): string {
+  return `${value}m/${max}m`;
+}
+
+function formatMem(value: number, max: number): string {
+  return `${value}Mi/${max}Mi`;
+}
+
+interface NamespaceRowProps {
+  item: NamespaceUsageItem;
+}
+
+const NamespaceRow = memo(function NamespaceRow({ item }: NamespaceRowProps) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-xs font-medium text-gray-700 dark:text-white/80">{item.namespace}</span>
+        <span className="text-xs text-gray-400 dark:text-white/40">{item.podCount}/{item.podLimit} pods</span>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <div>
+          <div className="flex justify-between text-[10px] text-gray-400 dark:text-white/30 mb-0.5">
+            <span>CPU</span><span>{item.cpuUsed}m/{item.cpuLimit}m</span>
+          </div>
+          <ResourceBar value={item.cpuUsed} max={item.cpuLimit} valueFormatter={formatCpu} />
+        </div>
+        <div>
+          <div className="flex justify-between text-[10px] text-gray-400 dark:text-white/30 mb-0.5">
+            <span>MEM</span><span>{item.memUsed}Mi/{item.memLimit}Mi</span>
+          </div>
+          <ResourceBar value={item.memUsed} max={item.memLimit} valueFormatter={formatMem} />
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export function NamespaceUsage({ className }: NamespaceUsageProps) {
   const { data, isLoading, error } = useQuery<{ namespaces: NamespaceUsageItem[] }>({
@@ -46,26 +85,7 @@ export function NamespaceUsage({ className }: NamespaceUsageProps) {
       ) : (
         <div className="space-y-4">
           {items.map(item => (
-            <div key={item.namespace}>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-medium text-gray-700 dark:text-white/80">{item.namespace}</span>
-                <span className="text-xs text-gray-400 dark:text-white/40">{item.podCount}/{item.podLimit} pods</span>
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                <div>
-                  <div className="flex justify-between text-[10px] text-gray-400 dark:text-white/30 mb-0.5">
-                    <span>CPU</span><span>{item.cpuUsed}m/{item.cpuLimit}m</span>
-                  </div>
-                  <ResourceBar value={item.cpuUsed} max={item.cpuLimit} valueFormatter={(value, max) => `${value}m/${max}m`} />
-                </div>
-                <div>
-                  <div className="flex justify-between text-[10px] text-gray-400 dark:text-white/30 mb-0.5">
-                    <span>MEM</span><span>{item.memUsed}Mi/{item.memLimit}Mi</span>
-                  </div>
-                  <ResourceBar value={item.memUsed} max={item.memLimit} valueFormatter={(value, max) => `${value}Mi/${max}Mi`} />
-                </div>
-              </div>
-            </div>
+            <NamespaceRow key={item.namespace} item={item} />
           ))}
         </div>
       )}
