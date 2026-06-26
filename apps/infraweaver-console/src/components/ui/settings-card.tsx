@@ -29,9 +29,9 @@ export function SettingsCard({
               <Icon className="h-4 w-4 text-[var(--az-primary)]" />
             </div>
           ) : null}
-          <div>
-            <p className="text-base font-medium text-gray-900 dark:text-white sm:text-sm">{title}</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400 sm:text-xs">{description}</p>
+          <div className="space-y-0.5">
+            <p className="text-base font-medium leading-tight text-gray-900 dark:text-white sm:text-sm">{title}</p>
+            <p className="text-sm leading-snug text-gray-500 dark:text-slate-400 sm:text-xs">{description}</p>
           </div>
         </div>
         {action ? <div className="sm:shrink-0">{action}</div> : null}

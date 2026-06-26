@@ -32,7 +32,7 @@ export function WidgetCard({ title, icon: Icon, children, onRemove, draggable, l
         {onRemove && (
           <button
             onClick={onRemove}
-            className={cn("p-1 rounded text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-all", hovered ? "opacity-100" : "opacity-0")}
+            className={cn("p-1 rounded text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0078D4] focus-visible:opacity-100", hovered ? "opacity-100" : "opacity-0")}
             title="Remove widget"
           >
             <X className="w-3.5 h-3.5" />
@@ -40,7 +40,7 @@ export function WidgetCard({ title, icon: Icon, children, onRemove, draggable, l
         )}
       </div>
       <div className="flex-1 relative">
-        {loading && <div className="absolute inset-0 bg-[#1a1a1a]/80 flex items-center justify-center z-10"><div className="w-5 h-5 border-2 border-[#0078D4] border-t-transparent rounded-full animate-spin" /></div>}
+        {loading && <div className="absolute inset-0 bg-white/80 dark:bg-[#1a1a1a]/80 flex items-center justify-center z-10"><div className="w-5 h-5 border-2 border-[#0078D4] border-t-transparent rounded-full animate-spin motion-reduce:animate-none" /></div>}
         {children}
       </div>
     </div>
