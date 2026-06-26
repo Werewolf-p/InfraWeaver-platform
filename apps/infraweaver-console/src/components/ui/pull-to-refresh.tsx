@@ -49,6 +49,7 @@ export function PullToRefresh({ onRefresh, children, className }: PullToRefreshP
       <AnimatePresence>
         {pullY > 10 && (
           <motion.div
+            aria-hidden="true"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: pullY }}
             exit={{ opacity: 0, height: 0 }}
@@ -63,6 +64,14 @@ export function PullToRefresh({ onRefresh, children, className }: PullToRefreshP
           </motion.div>
         )}
       </AnimatePresence>
+      {refreshing && (
+        <span
+          role="status"
+          className="sr-only"
+        >
+          Refreshing
+        </span>
+      )}
       {children}
     </div>
   );

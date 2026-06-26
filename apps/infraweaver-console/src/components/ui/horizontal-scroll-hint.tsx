@@ -48,10 +48,10 @@ export function HorizontalScrollHint({
       >
         {children}
       </div>
-      {showLeftFade ? <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-white via-white/95 to-transparent dark:from-[#111] dark:via-[#111]/90" /> : null}
-      {showRightFade ? <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-white via-white/95 to-transparent dark:from-[#111] dark:via-[#111]/90" /> : null}
+      {showLeftFade ? <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-white via-white/95 to-transparent dark:from-[#111] dark:via-[#111]/90" /> : null}
+      {showRightFade ? <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-white via-white/95 to-transparent dark:from-[#111] dark:via-[#111]/90" /> : null}
       {showRightFade ? (
-        <div className="pointer-events-none absolute bottom-2 right-2 rounded-full border border-slate-200 bg-white/95 px-2 py-1 text-[11px] text-slate-500 shadow-sm dark:border-[#2a2a2a] dark:bg-[#111]/95 dark:text-[#b3b3b3]">
+        <div aria-hidden="true" className="pointer-events-none absolute bottom-2 right-2 rounded-full border border-slate-200 bg-white/95 px-2 py-1 text-[11px] text-slate-500 shadow-sm dark:border-[#2a2a2a] dark:bg-[#111]/95 dark:text-[#b3b3b3]">
           {hint}
         </div>
       ) : null}
