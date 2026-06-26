@@ -210,7 +210,11 @@ export async function GET(req: NextRequest) {
     access.roleAssignments,
     "/",
   );
-  const query = (req.nextUrl.searchParams.get("q") ?? "").trim().toLowerCase();
+  const rawQuery = (req.nextUrl.searchParams.get("q") ?? "").trim();
+  if (rawQuery.length > 200) {
+    return NextResponse.json({ error: "Query too long" }, { status: 400 });
+  }
+  const query = rawQuery.toLowerCase();
 
   const response: SearchResponse = {
     ...EMPTY_SEARCH_RESPONSE,
