@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -11,10 +12,18 @@ interface SearchInputProps {
 }
 
 export function SearchInput({ placeholder = "Search...", value, onChange, className }: SearchInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleClear = () => {
+    onChange("");
+    inputRef.current?.focus();
+  };
+
   return (
     <label className={cn("flex min-h-[44px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition-colors focus-within:border-sky-300 dark:border-[#333] dark:bg-[#0f0f0f] dark:text-[#f2f2f2] dark:focus-within:border-[#0078D4]/50", className)}>
       <Search className="h-4 w-4 shrink-0 text-slate-400 dark:text-[#666]" />
       <input
+        ref={inputRef}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
@@ -23,11 +32,11 @@ export function SearchInput({ placeholder = "Search...", value, onChange, classN
       {value ? (
         <button
           type="button"
-          onClick={() => onChange("")}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-[#666] dark:hover:bg-[#1a1a1a] dark:hover:text-[#f2f2f2]"
+          onClick={handleClear}
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-[#666] dark:hover:bg-[#1a1a1a] dark:hover:text-[#f2f2f2]"
           aria-label="Clear search"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       ) : null}
     </label>
