@@ -5,13 +5,17 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 function formatRelative(date: Date): string {
-  const now = Date.now();
-  const diff = Math.floor((now - date.getTime()) / 1000);
+  // Symmetric past/future: a timestamp in the future (cert expiry, a cronjob's
+  // next run, a scheduled task) must read "in 2d", not collapse to "just now"
+  // because the raw diff went negative.
+  const deltaSeconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  const diff = Math.abs(deltaSeconds);
   if (diff < 5) return "just now";
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  const wrap = (value: string) => (deltaSeconds < 0 ? `in ${value}` : `${value} ago`);
+  if (diff < 60) return wrap(`${diff}s`);
+  if (diff < 3600) return wrap(`${Math.floor(diff / 60)}m`);
+  if (diff < 86400) return wrap(`${Math.floor(diff / 3600)}h`);
+  if (diff < 604800) return wrap(`${Math.floor(diff / 86400)}d`);
   return date.toLocaleDateString();
 }
 
