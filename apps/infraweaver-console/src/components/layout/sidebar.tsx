@@ -57,6 +57,7 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
       <Link
         href={item.href}
         title={collapsed ? item.label : undefined}
+        aria-current={isActive ? "page" : undefined}
         className={cn(
           "relative flex items-center gap-2.5 rounded-lg text-sm w-full transition-colors",
           collapsed ? "justify-center px-2 py-2" : "px-3 py-1.5",
@@ -71,7 +72,7 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
           />
         )}
         <span className="relative z-10 flex items-center gap-2.5 w-full">
-          <item.icon className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#666] group-hover:text-[#9e9e9e]")} />
+          <item.icon aria-hidden="true" className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#666] group-hover:text-[#9e9e9e]")} />
           {!collapsed && <span className={cn("flex-1 truncate", isActive ? "text-gray-900 dark:text-[#f2f2f2] font-medium" : "")}>{item.label}</span>}
           {!collapsed && item.shortcut && (
             <kbd className="hidden xl:flex text-[10px] text-gray-400 dark:text-[#555] font-mono">{item.shortcut}</kbd>
@@ -89,7 +90,7 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
           title={fav ? "Unpin" : "Pin to favorites"}
           aria-label={fav ? "Unpin from favorites" : "Pin to favorites"}
         >
-          <Star className={cn("w-3 h-3", fav && "fill-yellow-400")} />
+          <Star aria-hidden="true" className={cn("w-3 h-3", fav && "fill-yellow-400")} />
         </button>
       )}
     </motion.div>
@@ -182,6 +183,7 @@ export function Sidebar() {
     <motion.aside
       animate={{ width: collapsed ? 48 : 220 }}
       transition={springs.fluid}
+      aria-label="Sidebar navigation"
       className="relative flex flex-col h-screen bg-gray-50 dark:bg-[#141414] border-r border-gray-200 dark:border-[#2a2a2a] flex-shrink-0 overflow-hidden z-20 hidden md:flex"
     >
       {/* Logo / Header */}
@@ -214,10 +216,11 @@ export function Sidebar() {
       {!collapsed && (
         <div className="px-2 pt-3 pb-1 flex-shrink-0">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+            <Search aria-hidden="true" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
+              aria-label="Filter navigation"
               placeholder="Filter..."
               className="w-full bg-white dark:bg-[#0f0f0f] border border-gray-200 dark:border-[#333] rounded pl-8 pr-3 py-1.5 text-xs text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
             />
