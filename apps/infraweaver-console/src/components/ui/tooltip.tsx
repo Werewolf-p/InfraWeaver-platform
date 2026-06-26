@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect, type ReactNode } from "react";
+import { useState, useRef, useEffect, useId, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 
@@ -20,15 +20,24 @@ export function Tooltip({
 }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stable id so aria-describedby always matches the tooltip element.
+  const tooltipId = useId();
 
-  const show = () => {
+  const show = useCallback(() => {
     showTimer.current = setTimeout(() => setVisible(true), delay);
-  };
+  }, [delay]);
 
-  const hide = () => {
+  const hide = useCallback(() => {
     if (showTimer.current) clearTimeout(showTimer.current);
     setVisible(false);
-  };
+  }, []);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Escape") hide();
+    },
+    [hide]
+  );
 
   useEffect(
     () => () => {
@@ -45,8 +54,30 @@ export function Tooltip({
   };
 
   return (
-    <div className="relative inline-flex" onMouseEnter={show} onMouseLeave={hide}>
-      {children}
+    <div
+      className="relative inline-flex"
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      // Keyboard users: show on focus-in, hide on blur-out, dismiss with Escape.
+      onFocus={show}
+      onBlur={hide}
+      onKeyDown={handleKeyDown}
+    >
+      {/*
+        Clone the single child element to inject aria-describedby so screen
+        readers announce the tooltip content when the trigger is focused.
+        We only inject when the tooltip is actually rendered; the attribute is
+        harmless when the element is absent because assistive technology will
+        simply find no matching id.
+      */}
+      {visible
+        ? (() => {
+            const child = children as React.ReactElement<Record<string, unknown>>;
+            return typeof child === "object" && child !== null
+              ? { ...child, props: { ...child.props, "aria-describedby": tooltipId } }
+              : children;
+          })()
+        : children}
       <AnimatePresence>
         {visible && (
           <motion.div
@@ -60,6 +91,8 @@ export function Tooltip({
             )}
           >
             <div
+              id={tooltipId}
+              role="tooltip"
               className={cn(
                 "px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap",
                 "bg-slate-100 dark:bg-slate-900/95 backdrop-blur-sm border border-gray-200 dark:border-white/10",
