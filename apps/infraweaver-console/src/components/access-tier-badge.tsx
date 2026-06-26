@@ -37,6 +37,7 @@ export function AccessTierBadge({ tier, compact = false, className, tooltip, war
   return (
     <Tooltip content={<span className="max-w-[240px] whitespace-normal text-xs leading-relaxed">{content}</span>} position="top">
       <span
+        aria-label={compact ? `${label} access` : undefined}
         className={cn(
           "inline-flex items-center rounded-full border font-medium",
           compact ? "h-7 min-w-7 justify-center px-2" : "gap-1.5 px-2.5 py-1 text-xs",
@@ -44,7 +45,7 @@ export function AccessTierBadge({ tier, compact = false, className, tooltip, war
           className,
         )}
       >
-        <Icon className={cn(compact ? "h-3.5 w-3.5" : "h-3.5 w-3.5")} />
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
         {compact ? null : <span>{label}</span>}
       </span>
     </Tooltip>
