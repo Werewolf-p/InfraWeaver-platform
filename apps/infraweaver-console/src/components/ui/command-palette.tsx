@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
-import { Search, X } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Clock3, Search, X } from "lucide-react";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useRecentPages } from "@/hooks/use-recent-pages";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS, type NavItem } from "@/lib/nav-config";
 import Fuse from "fuse.js";
@@ -29,22 +30,19 @@ const categoryColors: Record<string, string> = Object.fromEntries(
   NAV_GROUPS.map((group, i) => [group.label, COLOR_CYCLE[i % COLOR_CYCLE.length]])
 );
 
-const RECENT_KEY = "cmd-palette-recent";
-
-function getRecent(): string[] {
-  try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]"); } catch { return []; }
-}
-function addRecent(href: string) {
-  const prev = getRecent().filter(h => h !== href);
-  localStorage.setItem(RECENT_KEY, JSON.stringify([href, ...prev].slice(0, 5)));
+interface RecentItem {
+  href: string;
+  label: string;
+  icon: NavItem["icon"];
 }
 
 export function CommandPalette() {
   const { open, setOpen } = useCommandPaletteStore();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const [recentHrefs, setRecentHrefs] = useState<string[]>([]);
   const router = useRouter();
+  const pathname = usePathname();
+  const { recentPages } = useRecentPages();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fuse = useMemo(() => new Fuse(navItems, {
@@ -58,9 +56,18 @@ export function CommandPalette() {
     return fuse.search(query).map(r => r.item);
   }, [query, fuse]);
 
-  const recentItems = recentHrefs
-    .map(href => navByHref.get(href))
-    .filter((item): item is PaletteItem => item !== undefined);
+  // Recent pages come from the app-wide visit history (server-backed
+  // preferences), so the palette reflects everywhere the operator has been —
+  // not only pages opened from the palette itself. Skip the current page.
+  const recentItems: RecentItem[] = useMemo(() => (
+    recentPages
+      .filter(page => page.href !== pathname)
+      .slice(0, 5)
+      .map(page => {
+        const navItem = navByHref.get(page.href);
+        return { href: page.href, label: navItem?.label ?? page.title, icon: navItem?.icon ?? Clock3 };
+      })
+  ), [recentPages, pathname]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -79,7 +86,6 @@ export function CommandPalette() {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setQuery("");
       setActiveIndex(0);
-      setRecentHrefs(getRecent());
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
@@ -97,7 +103,6 @@ export function CommandPalette() {
     } else if (e.key === "Enter") {
       const item = filtered[activeIndex];
       if (item) {
-        addRecent(item.href);
         router.push(item.href);
         setOpen(false);
       }
@@ -105,7 +110,6 @@ export function CommandPalette() {
   };
 
   const navigate = (href: string) => {
-    addRecent(href);
     router.push(href);
     setOpen(false);
   };
