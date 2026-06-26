@@ -45,7 +45,7 @@ export function CommandBar({ primary, actions, search, filter, className }: Comm
               variantCls
             )}
           >
-            {Icon && <Icon className="w-3.5 h-3.5" />}
+            {Icon && <Icon className="w-3.5 h-3.5" aria-hidden="true" />}
             {action.label}
           </button>
         );
