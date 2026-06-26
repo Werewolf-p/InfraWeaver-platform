@@ -62,7 +62,7 @@ export function ClusterSummaryCard({ cluster }: { cluster: ClusterInfo }) {
   return (
     <button
       onClick={() => setActiveId(cluster.id)}
-      className="flex flex-col gap-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 text-left transition-all hover:border-[#3b82f6]/40 hover:bg-gray-100 dark:hover:bg-[#161616] active:scale-[0.98]"
+      className="group flex flex-col gap-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 text-left transition-all hover:border-[#3b82f6]/40 hover:bg-gray-100 dark:hover:bg-[#161616] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-[#111] active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -70,8 +70,8 @@ export function ClusterSummaryCard({ cluster }: { cluster: ClusterInfo }) {
             <Server className="h-4 w-4 text-[#60a5fa]" />
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{cluster.name}</p>
-            <p className="text-[10px] text-gray-400 dark:text-[#555]">{cluster.description}</p>
+            <p className="truncate text-sm font-medium tracking-tight text-gray-900 dark:text-[#f2f2f2]">{cluster.name}</p>
+            <p className="mt-0.5 text-[10px] leading-snug text-gray-400 dark:text-[#666]">{cluster.description}</p>
           </div>
         </div>
         <StatusIcon status={cluster.status} />
@@ -110,7 +110,7 @@ export function ClusterSummaryCard({ cluster }: { cluster: ClusterInfo }) {
           ))}
         </div>
       )}
-      <p className="text-[10px] text-[#3b82f6]">Click to manage →</p>
+      <p className="text-[10px] font-medium text-[#3b82f6] transition-opacity opacity-80 group-hover:opacity-100 motion-reduce:transition-none">Click to manage →</p>
     </button>
   );
 }

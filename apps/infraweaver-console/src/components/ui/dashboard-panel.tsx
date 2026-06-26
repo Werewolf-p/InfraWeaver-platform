@@ -17,10 +17,10 @@ export function DashboardPanel({ title, description, icon: Icon, actions, childr
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200/80 pb-4 dark:border-white/5">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            {Icon ? <Icon className="h-4 w-4 text-sky-600 dark:text-[#9dcbff]" /> : null}
-            <h2 className="text-base font-semibold text-slate-950 dark:text-[#f2f2f2]">{title}</h2>
+            {Icon ? <Icon className="h-4 w-4 shrink-0 text-sky-600 dark:text-[#9dcbff]" /> : null}
+            <h2 className="truncate text-base font-semibold tracking-tight text-slate-950 dark:text-[#f2f2f2]">{title}</h2>
           </div>
-          {description ? <p className="mt-1 text-sm text-slate-500 dark:text-[#888]">{description}</p> : null}
+          {description ? <p className="mt-1.5 text-sm leading-relaxed text-slate-500 dark:text-[#888]">{description}</p> : null}
         </div>
         {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
       </div>
