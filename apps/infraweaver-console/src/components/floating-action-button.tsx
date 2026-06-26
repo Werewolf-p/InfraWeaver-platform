@@ -110,20 +110,25 @@ export function FloatingActionButton() {
     <>
       <div className="fixed bottom-24 right-4 sm:bottom-6 sm:right-6 z-40 flex flex-col items-end gap-2">
         <AnimatePresence>
-          {open && pageActions.map((action, i) => (
-            <motion.button
-              key={action.label}
-              initial={{ opacity: 0, scale: 0.8, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: 10 }}
-              transition={{ delay: i * 0.04, type: "spring", stiffness: 400, damping: 25 }}
-              onClick={action.onClick}
-              className={cn("flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-medium shadow-lg backdrop-blur-sm", action.color)}
-            >
-              <action.icon className="w-4 h-4" />
-              {action.label}
-            </motion.button>
-          ))}
+          {open && (
+            <div id="fab-actions-menu" role="menu">
+              {pageActions.map((action, i) => (
+                <motion.button
+                  key={action.label}
+                  role="menuitem"
+                  initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.8, y: 10 }}
+                  transition={{ delay: i * 0.04, type: "spring", stiffness: 400, damping: 25 }}
+                  onClick={action.onClick}
+                  className={cn("flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-medium shadow-lg backdrop-blur-sm", action.color)}
+                >
+                  <action.icon className="w-4 h-4" aria-hidden="true" />
+                  {action.label}
+                </motion.button>
+              ))}
+            </div>
+          )}
         </AnimatePresence>
 
         <motion.button
@@ -131,9 +136,13 @@ export function FloatingActionButton() {
           whileTap={{ scale: 0.9 }}
           animate={{ rotate: open ? 45 : 0 }}
           transition={{ type: "spring", stiffness: 400, damping: 25 }}
+          aria-label={open ? "Close actions menu" : "Open actions menu"}
+          aria-expanded={open}
+          aria-haspopup="menu"
+          aria-controls="fab-actions-menu"
           className="w-14 h-14 rounded-full bg-indigo-500 shadow-lg shadow-indigo-500/30 flex items-center justify-center text-white border border-indigo-400/50"
         >
-          {open ? <X className="w-6 h-6" /> : <Plus className="w-6 h-6" />}
+          {open ? <X className="w-6 h-6" aria-hidden="true" /> : <Plus className="w-6 h-6" aria-hidden="true" />}
         </motion.button>
       </div>
 
