@@ -58,7 +58,21 @@ class CircuitBreaker {
 
   private onFailure() {
     const now = Date.now();
-    if (this.lastFailureAt && now - this.lastFailureAt > this.options.windowMs) {
+
+    // A failed trial in HALF_OPEN must immediately reopen without waiting for
+    // the threshold — otherwise the circuit stays HALF_OPEN and keeps allowing
+    // calls through.
+    if (this.state === "HALF_OPEN") {
+      this.state = "OPEN";
+      this.openedAt = now;
+      this.lastFailureAt = now;
+      this.failures++;
+      return;
+    }
+
+    // In CLOSED state, reset the counter when the observation window has
+    // elapsed since the last failure.
+    if (this.lastFailureAt !== null && now - this.lastFailureAt > this.options.windowMs) {
       this.failures = 0;
     }
     this.failures++;
