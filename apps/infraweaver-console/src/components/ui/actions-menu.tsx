@@ -22,6 +22,7 @@ interface ActionsMenuProps {
 export function ActionsMenu({ actions, label = "Actions", className }: ActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -30,6 +31,13 @@ export function ActionsMenu({ actions, label = "Actions", className }: ActionsMe
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Move focus into the menu on open; restore it to the trigger on close.
+  useEffect(() => {
+    if (!open) return;
+    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
+    return () => triggerRef.current?.focus();
   }, [open]);
 
   useEffect(() => {
@@ -44,6 +52,7 @@ export function ActionsMenu({ actions, label = "Actions", className }: ActionsMe
   return (
     <div ref={menuRef} className={cn("relative inline-flex", className)}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="menu"
@@ -51,7 +60,7 @@ export function ActionsMenu({ actions, label = "Actions", className }: ActionsMe
         aria-label={label}
         className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3b82f6]"
       >
-        <MoreHorizontal className="h-4 w-4" />
+        <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
       </button>
 
       {open ? (

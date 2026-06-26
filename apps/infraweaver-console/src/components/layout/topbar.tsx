@@ -186,6 +186,11 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
           <AnimatePresence>
             {quickOpen && (
               <motion.div
+                role="menu"
+                aria-label="Quick create"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setQuickOpen(false);
+                }}
                 initial={{ opacity: 0, scale: 0.95, y: -4 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: -4 }}
@@ -201,10 +206,11 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
                     <Link
                       key={item.href}
                       href={item.href}
+                      role="menuitem"
                       onClick={() => setQuickOpen(false)}
                       className="flex items-center gap-2 px-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
                     >
-                      <ExternalLink className="h-3.5 w-3.5 text-gray-400 dark:text-[#555]" />
+                      <ExternalLink aria-hidden="true" className="h-3.5 w-3.5 text-gray-400 dark:text-[#555]" />
                       {item.label}
                     </Link>
                   ))}
@@ -234,7 +240,12 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
         >
           <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-[#0078D4] text-xs font-bold text-white">
             {session?.user?.name?.[0]?.toUpperCase() ?? "?"}
-            {showChangelogDot ? <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#141414]" /> : null}
+            {showChangelogDot ? (
+              <>
+                <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-[#141414]" />
+                <span className="sr-only">New version available</span>
+              </>
+            ) : null}
           </div>
           <div className="min-w-0">
             <span className="block truncate text-xs text-gray-500 dark:text-[#9e9e9e]">{session?.user?.name ?? "Operator"}</span>

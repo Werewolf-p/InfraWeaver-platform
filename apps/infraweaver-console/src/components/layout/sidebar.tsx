@@ -40,7 +40,7 @@ function ClusterHealthDot() {
     progressing: "bg-yellow-500 animate-pulse",
     unknown: "bg-[#555]",
   };
-  return <span className={cn("absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#141414]", colors[data?.status ?? "unknown"])} />;
+  return <span role="img" aria-label={`Cluster status: ${data?.status ?? "unknown"}`} className={cn("absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#141414]", colors[data?.status ?? "unknown"])} />;
 }
 
 function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: boolean; collapsed: boolean }) {
@@ -312,7 +312,7 @@ export function Sidebar() {
                             transition={springs.bouncy}
                           />
                         )}
-                        <item.icon className="w-4 h-4 relative z-10" />
+                        <item.icon aria-hidden="true" className="w-4 h-4 relative z-10" />
                       </Link>
                     </motion.div>
                   );
