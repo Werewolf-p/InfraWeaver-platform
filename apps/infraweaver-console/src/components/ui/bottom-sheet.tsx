@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
@@ -14,6 +14,7 @@ interface BottomSheetProps {
 }
 
 export function BottomSheet({ open, onClose, title, children, className }: BottomSheetProps) {
+  const titleId = useId();
   // Lock body scroll when open
   useEffect(() => {
     if (open) {
@@ -58,6 +59,10 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
             onDragEnd={(_, info) => {
               if (info.offset.y > 80 || info.velocity.y > 500) onClose();
             }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={title ? titleId : undefined}
+            aria-label={title ? undefined : "Dialog"}
             className={cn(
               "fixed bottom-0 left-0 right-0 z-[301] bg-gray-50 dark:bg-[#141414] border-t border-gray-200 dark:border-[#2a2a2a] rounded-t-2xl max-h-[92dvh] flex flex-col shadow-2xl",
               className
@@ -72,12 +77,13 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
             {/* Header */}
             {title && (
               <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-[#2a2a2a]">
-                <h2 className="text-base font-semibold text-gray-900 dark:text-white">{title}</h2>
+                <h2 id={titleId} className="text-base font-semibold text-gray-900 dark:text-white">{title}</h2>
                 <button
                   onClick={onClose}
+                  aria-label="Close"
                   className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-4 h-4" aria-hidden="true" />
                 </button>
               </div>
             )}

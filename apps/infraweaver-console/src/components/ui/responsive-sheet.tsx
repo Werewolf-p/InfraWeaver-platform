@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,6 +36,7 @@ export function ResponsiveSheet({
   bodyClassName,
   hideHandle = false,
 }: ResponsiveSheetProps) {
+  const titleId = useId();
   useEffect(() => {
     if (!open || typeof document === "undefined") return;
 
@@ -78,6 +79,9 @@ export function ResponsiveSheet({
             onDragEnd={(_, info) => {
               if (info.offset.y > 96 || info.velocity.y > 600) onClose();
             }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             className={cn(
               "fixed inset-x-0 bottom-0 top-0 z-[51] flex flex-col bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:overflow-hidden sm:rounded-[28px] sm:border sm:border-gray-200 dark:border-[#222]",
               sizeClassMap[size],
@@ -90,7 +94,7 @@ export function ResponsiveSheet({
                 {hideHandle ? null : <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-gray-100 dark:bg-[#2a2a2a] sm:hidden" />}
                 <div className="flex items-start justify-between gap-3 border-b border-gray-200 dark:border-[#1e1e1e] pb-3">
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-lg font-semibold leading-tight text-gray-900 dark:text-white">{title}</h2>
+                    <h2 id={titleId} className="text-lg font-semibold leading-tight text-gray-900 dark:text-white">{title}</h2>
                     {description ? <p className="mt-1 text-sm text-gray-600 dark:text-[#b3b3b3]">{description}</p> : null}
                   </div>
                   <button
@@ -99,7 +103,7 @@ export function ResponsiveSheet({
                     className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] text-gray-500 dark:text-[#9e9e9e] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
                     aria-label="Close"
                   >
-                    <X className="h-4 w-4" />
+                    <X className="h-4 w-4" aria-hidden="true" />
                   </button>
                 </div>
               </div>
