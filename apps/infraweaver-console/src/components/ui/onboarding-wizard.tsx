@@ -12,22 +12,22 @@ interface Step {
 
 const STEPS: Step[] = [
   {
-    title: "Welcome to InfraWeaver Console",
-    description: "Your homelab command center. Manage Kubernetes, ArgoCD, storage, and security from one place.",
+    title: "InfraWeaver Console",
+    description: "One place to oversee Kubernetes, ArgoCD, storage, and security across your homelab.",
   },
   {
-    title: "Browse Your Apps",
-    description: "See all running applications, their health status, and sync them with a single click.",
+    title: "Your applications",
+    description: "Check the health and sync state of every running application, and trigger a sync when needed.",
     action: { label: "Go to Apps", href: "/apps" },
   },
   {
-    title: "Monitor Logs",
-    description: "Stream live logs from any pod with level filtering and copy-to-clipboard support.",
+    title: "Pod logs",
+    description: "Stream live output from any pod, filter by log level, and copy lines to the clipboard.",
     action: { label: "Open Logs", href: "/logs" },
   },
   {
-    title: "Customize Settings",
-    description: "Adjust refresh intervals, display density, and theme to match your workflow.",
+    title: "Settings",
+    description: "Set your preferred refresh interval, display density, and color theme.",
     action: { label: "Open Settings", href: "/settings" },
   },
 ];
@@ -100,7 +100,7 @@ export function OnboardingWizard({ className }: OnboardingWizardProps) {
                 onClick={handleNext}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
               >
-                {isLast ? "Get Started" : "Next"}
+                {isLast ? "Done" : "Next"}
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
