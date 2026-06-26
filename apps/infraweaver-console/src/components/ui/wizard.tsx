@@ -18,7 +18,7 @@ interface WizardProps {
   className?: string;
 }
 
-export function Wizard({ steps, children, onComplete, completeLabel = "Complete", className }: WizardProps) {
+export function Wizard({ steps, children, onComplete, completeLabel = "Finish", className }: WizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [validating, setValidating] = useState(false);
 
@@ -89,7 +89,7 @@ export function Wizard({ steps, children, onComplete, completeLabel = "Complete"
           disabled={validating}
           className="inline-flex h-9 items-center justify-center rounded-lg bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] disabled:opacity-50"
         >
-          {validating ? "Validating…" : currentStep === steps.length - 1 ? completeLabel : "Next"}
+          {validating ? "Checking…" : currentStep === steps.length - 1 ? completeLabel : "Continue"}
         </button>
       </div>
     </div>
