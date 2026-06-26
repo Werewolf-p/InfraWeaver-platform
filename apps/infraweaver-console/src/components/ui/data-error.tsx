@@ -13,7 +13,7 @@ interface DataErrorProps {
   className?: string;
 }
 
-export function DataError({ message = "We couldn't load this data", detail, onRetry, className }: DataErrorProps) {
+export function DataError({ message = "Something went wrong loading this", detail, onRetry, className }: DataErrorProps) {
   const [showDetail, setShowDetail] = useState(false);
 
   return (
@@ -34,10 +34,10 @@ export function DataError({ message = "We couldn't load this data", detail, onRe
       </div>
       <div>
         <p className="text-sm font-semibold text-red-300">{message}</p>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">This is usually temporary — try again in a moment.</p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Usually temporary. Give it a moment and try again.</p>
         {detail && (
           <button onClick={() => setShowDetail(v => !v)} className="mt-1 text-xs text-slate-500 transition-colors hover:text-slate-700 dark:hover:text-slate-400">
-            {showDetail ? "Hide details" : "Show details"}
+            {showDetail ? "Less detail" : "More detail"}
           </button>
         )}
         {detail && showDetail && (
@@ -54,7 +54,7 @@ export function DataError({ message = "We couldn't load this data", detail, onRe
             className="flex min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] px-4 py-2 text-sm text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-white touch-manipulation"
           >
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            Retry
+            Try again
           </motion.button>
         )}
         <Link
@@ -62,7 +62,7 @@ export function DataError({ message = "We couldn't load this data", detail, onRe
           className="flex min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] px-4 py-2 text-sm text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-white touch-manipulation"
         >
           <Stethoscope className="h-4 w-4" aria-hidden="true" />
-          Run Diagnostics
+          Check system health
         </Link>
       </div>
     </motion.div>
