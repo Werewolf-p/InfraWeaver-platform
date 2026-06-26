@@ -6,7 +6,7 @@ interface CacheEntry<T> {
 }
 
 function escapeRegExp(value: string) {
-  return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+  return value.replace(/[|\\{}()[\]^$+?\-.]/g, "\\$&");
 }
 
 function globToRegExp(pattern: string) {
@@ -27,7 +27,17 @@ class ApiCache {
   }
 
   set<T>(key: string, data: T, ttlMs: number): void {
+    this.prune();
     this.cache.set(key, { data, expires: Date.now() + ttlMs });
+  }
+
+  private prune(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.cache) {
+      if (entry.expires <= now) {
+        this.cache.delete(key);
+      }
+    }
   }
 
   invalidate(pattern: string): void {
