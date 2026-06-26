@@ -100,6 +100,17 @@ async function fetchServerPreferences() {
   return normalizeUserPreferences(await res.json());
 }
 
+function sendPreferences(snapshot: UserPreferencesPayload, keepalive = false) {
+  // keepalive lets the request outlive a page that is unloading, so a setting
+  // changed right before navigating away or closing the tab still persists.
+  return fetch("/api/user/preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(snapshot),
+    keepalive,
+  });
+}
+
 function schedulePreferencesSave(preferences: UserPreferencesPayload) {
   if (typeof window === "undefined") return;
   latestPreferences = preferences;
@@ -109,15 +120,33 @@ function schedulePreferencesSave(preferences: UserPreferencesPayload) {
     saveTimer = null;
     if (!snapshot) return;
     try {
-      await fetch("/api/user/preferences", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(snapshot),
-      });
+      await sendPreferences(snapshot);
     } catch {
       // Keep the local fallback; the next successful save will reconcile.
     }
   }, 2000);
+}
+
+// Flush any pending debounced save immediately — used when the page is being
+// hidden/unloaded so the 2s debounce can't swallow the last change.
+function flushPreferencesSave() {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  const snapshot = latestPreferences;
+  if (!snapshot) return;
+  try {
+    void sendPreferences(snapshot, true).catch(() => { /* best-effort on unload */ });
+  } catch {
+    // Ignore — localStorage already holds the change for the next session.
+  }
+}
+
+if (typeof window !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushPreferencesSave();
+  });
+  window.addEventListener("pagehide", flushPreferencesSave);
 }
 
 type PreferencesUpdater = UserPreferencesUpdate | ((current: UserPreferencesPayload) => UserPreferencesUpdate);
