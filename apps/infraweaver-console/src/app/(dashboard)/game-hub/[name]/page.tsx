@@ -57,8 +57,6 @@ import { cn, formatBytes, timeAgo } from "@/lib/utils";
 import { describeEggVariableRules, getEggForGameType, validateEggVariable } from "@/lib/game-eggs";
 import { toast } from "@/lib/notify";
 import Link from "next/link";
-// Note: previously used Monaco editor; replaced with styled <textarea> + <pre>
-// for instant load + no CDN dependency on Monaco worker scripts.
 import { ActivityTab as ActivityTabFeature } from "@/components/game-hub/server-detail/activity-tab";
 import { BanList } from "@/components/game-hub/server-detail/ban-list";
 import { ConfigEditor } from "@/components/game-hub/server-detail/config-editor";
