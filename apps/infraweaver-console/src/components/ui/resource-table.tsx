@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { SortableHeader } from "@/components/ui/sortable-header";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +27,64 @@ interface ResourceTableProps<T extends object> {
   caption?: string;
 }
 
+// ---------------------------------------------------------------------------
+// RowItem — memoised so toggling one checkbox doesn't re-render every row.
+// ---------------------------------------------------------------------------
+interface RowItemProps<T extends object> {
+  row: T;
+  rowKey: string;
+  columns: Column<T>[];
+  isSelected: boolean;
+  selectable: boolean;
+  hasRowClick: boolean;
+  onRowClick: (() => void) | undefined;
+  onToggleSelect: (key: string) => void;
+}
+
+function RowItemInner<T extends object>({
+  row,
+  rowKey,
+  columns,
+  isSelected,
+  selectable,
+  hasRowClick,
+  onRowClick,
+  onToggleSelect,
+}: RowItemProps<T>) {
+  const cellRow = row as Record<string, unknown>;
+  return (
+    <tr
+      onClick={onRowClick}
+      className={cn(
+        "border-b border-gray-200 dark:border-[#2a2a2a] transition-colors last:border-0",
+        hasRowClick && "cursor-pointer hover:bg-gray-100 dark:hover:bg-[#2a2a2a]",
+        isSelected && "bg-[rgba(0,120,212,0.05)]",
+      )}
+    >
+      {selectable && (
+        <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onToggleSelect(rowKey)}
+            className="rounded border-gray-200 dark:border-[#333]"
+          />
+        </td>
+      )}
+      {columns.map(col => (
+        <td key={col.key} className={cn("px-3 py-2.5 text-gray-900 dark:text-[#f2f2f2]", col.className)}>
+          {col.render ? col.render(row) : String(cellRow[col.key] ?? "")}
+        </td>
+      ))}
+    </tr>
+  );
+}
+
+const RowItem = React.memo(RowItemInner) as typeof RowItemInner;
+
+// ---------------------------------------------------------------------------
+// ResourceTable
+// ---------------------------------------------------------------------------
 export function ResourceTable<T extends object>({
   columns, data, loading, empty, onRowClick, selectable, getRowKey, mobileCardRender, className,
 }: ResourceTableProps<T>) {
@@ -34,10 +92,16 @@ export function ResourceTable<T extends object>({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const handleSort = (key: string) => {
-    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
-    else { setSortKey(key); setSortDir("asc"); }
-  };
+  const handleSort = useCallback((key: string) => {
+    setSortKey(prev => {
+      if (prev === key) {
+        setSortDir(d => d === "asc" ? "desc" : "asc");
+        return prev;
+      }
+      setSortDir("asc");
+      return key;
+    });
+  }, []);
 
   const sorted = useMemo(() => {
     if (!sortKey) return data;
@@ -53,14 +117,22 @@ export function ResourceTable<T extends object>({
     });
   }, [data, sortKey, sortDir]);
 
-  const toggleSelect = (key: string) => {
+  const toggleSelect = useCallback((key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
-  };
+  }, []);
+
+  const handleSelectAll = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelected(new Set(sorted.map((r, i) => getRowKey ? getRowKey(r) : String(i))));
+    } else {
+      setSelected(new Set());
+    }
+  }, [sorted, getRowKey]);
 
   if (loading) {
     return (
@@ -94,7 +166,11 @@ export function ResourceTable<T extends object>({
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 dark:bg-[#141414] border-b border-gray-200 dark:border-[#2a2a2a]">
-              {selectable && <th className="w-10 px-3 py-2.5"><input type="checkbox" className="rounded border-gray-200 dark:border-[#333]" onChange={e => setSelected(e.target.checked ? new Set(sorted.map((r, i) => getRowKey ? getRowKey(r) : String(i))) : new Set())} /></th>}
+              {selectable && (
+                <th className="w-10 px-3 py-2.5">
+                  <input type="checkbox" className="rounded border-gray-200 dark:border-[#333]" onChange={handleSelectAll} />
+                </th>
+              )}
               {columns.map((col) => (
                 <th key={col.key} className={cn("px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-[#9e9e9e]", col.className)}>
                   {col.sortable ? (
@@ -116,20 +192,17 @@ export function ResourceTable<T extends object>({
             {sorted.map((row, i) => {
               const key = getRowKey ? getRowKey(row) : String(i);
               return (
-                <tr key={key}
-                  onClick={() => onRowClick?.(row)}
-                  className={cn("border-b border-gray-200 dark:border-[#2a2a2a] transition-colors last:border-0", onRowClick && "cursor-pointer hover:bg-gray-100 dark:hover:bg-[#2a2a2a]", selected.has(key) && "bg-[rgba(0,120,212,0.05)]")}
-                >
-                  {selectable && <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selected.has(key)} onChange={() => toggleSelect(key)} className="rounded border-gray-200 dark:border-[#333]" /></td>}
-                  {columns.map(col => {
-                    const cellRow = row as Record<string, unknown>;
-                    return (
-                      <td key={col.key} className={cn("px-3 py-2.5 text-gray-900 dark:text-[#f2f2f2]", col.className)}>
-                        {col.render ? col.render(row) : String(cellRow[col.key] ?? "")}
-                      </td>
-                    );
-                  })}
-                </tr>
+                <RowItem
+                  key={key}
+                  row={row}
+                  rowKey={key}
+                  columns={columns}
+                  isSelected={selected.has(key)}
+                  selectable={!!selectable}
+                  hasRowClick={!!onRowClick}
+                  onRowClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onToggleSelect={toggleSelect}
+                />
               );
             })}
           </tbody>
