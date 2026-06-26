@@ -115,7 +115,7 @@ export function useNotifications() {
 
     const loadRemote = async () => {
       try {
-        const response = await fetch("/api/notifications", { cache: "no-store" });
+        const response = await fetch("/api/notifications", { cache: "no-store", signal: AbortSignal.timeout(10000) });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json() as { notifications?: unknown[] };
         if (cancelled) return;

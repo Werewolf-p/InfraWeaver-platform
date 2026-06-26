@@ -29,8 +29,8 @@ export function useResourceSearch(query: string) {
 
       try {
         const [appsRes, podsRes] = await Promise.allSettled([
-          fetch("/api/argocd/apps").then(r => r.ok ? r.json() : []),
-          fetch("/api/pods").then(r => r.ok ? r.json() : []),
+          fetch("/api/argocd/apps", { signal: AbortSignal.timeout(10000) }).then(r => r.ok ? r.json() : []),
+          fetch("/api/pods", { signal: AbortSignal.timeout(10000) }).then(r => r.ok ? r.json() : []),
         ]);
 
         if (appsRes.status === "fulfilled") {

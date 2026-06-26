@@ -50,7 +50,7 @@ export function useArgoApps() {
   const query = useQuery<ArgoAppsResponse, Error>({
     queryKey: ["argocd", "apps"],
     queryFn: async () => {
-      const res = await fetch("/api/argocd/apps", { cache: "no-store" });
+      const res = await fetch("/api/argocd/apps", { cache: "no-store", signal: AbortSignal.timeout(10000) });
       if (!res.ok) throw new Error(await getErrorMessage(res));
 
       const headerValue = res.headers.get("X-Data-Source");

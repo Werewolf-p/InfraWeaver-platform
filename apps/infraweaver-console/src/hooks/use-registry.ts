@@ -18,7 +18,7 @@ export function useRegistryRepos() {
   return useQuery({
     queryKey: ["registry", "repos"],
     queryFn: async () => {
-      const res = await fetch("/api/registry/repos");
+      const res = await fetch("/api/registry/repos", { signal: AbortSignal.timeout(10000) });
       if (!res.ok) throw new Error("Failed to fetch registry repos");
       return res.json() as Promise<{ repositories: string[]; mock?: boolean }>;
     },
@@ -30,7 +30,7 @@ export function useRegistryTags(repo: string) {
   return useQuery({
     queryKey: ["registry", "tags", repo],
     queryFn: async () => {
-      const res = await fetch(`/api/registry/repos/${encodeURIComponent(repo)}/tags`);
+      const res = await fetch(`/api/registry/repos/${encodeURIComponent(repo)}/tags`, { signal: AbortSignal.timeout(10000) });
       if (!res.ok) throw new Error("Failed to fetch tags");
       return res.json() as Promise<{ repo: string; tags: RegistryTag[]; mock?: boolean }>;
     },

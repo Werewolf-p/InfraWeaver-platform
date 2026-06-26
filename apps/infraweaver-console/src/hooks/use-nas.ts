@@ -42,7 +42,7 @@ export function useNasProviders() {
   return useQuery({
     queryKey: ["nas", "providers"],
     queryFn: async () => {
-      const res = await fetch("/api/nas/providers");
+      const res = await fetch("/api/nas/providers", { signal: AbortSignal.timeout(10000) });
       if (!res.ok) throw new Error("Failed to fetch NAS providers");
       const data = await res.json() as { providers: NasProvider[] };
       return data.providers;
@@ -56,7 +56,7 @@ export function useNasShares(provider: string | null) {
     queryKey: ["nas", "shares", provider],
     queryFn: async () => {
       if (!provider) return [];
-      const res = await fetch(`/api/nas/shares?provider=${provider}`);
+      const res = await fetch(`/api/nas/shares?provider=${provider}`, { signal: AbortSignal.timeout(10000) });
       if (!res.ok) throw new Error("Failed to fetch shares");
       const data = await res.json() as { shares: NasShare[] };
       return data.shares;
@@ -71,7 +71,7 @@ export function useNasFolders(provider: string | null, share: string | null) {
     queryKey: ["nas", "folders", provider, share],
     queryFn: async () => {
       if (!provider || !share) return [];
-      const res = await fetch(`/api/nas/folders?provider=${provider}&share=${encodeURIComponent(share)}`);
+      const res = await fetch(`/api/nas/folders?provider=${provider}&share=${encodeURIComponent(share)}`, { signal: AbortSignal.timeout(10000) });
       if (!res.ok) throw new Error("Failed to fetch folders");
       const data = await res.json() as { folders: NasFolder[] };
       return data.folders;
@@ -85,7 +85,7 @@ export function useNasAssignments() {
   return useQuery({
     queryKey: ["nas", "assignments"],
     queryFn: async () => {
-      const res = await fetch("/api/nas/assignments");
+      const res = await fetch("/api/nas/assignments", { signal: AbortSignal.timeout(10000) });
       if (!res.ok) throw new Error("Failed to fetch assignments");
       const data = await res.json() as { assignments: UserAssignments[] };
       return data.assignments;

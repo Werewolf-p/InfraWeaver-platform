@@ -11,7 +11,7 @@ export function usePods(namespace?: string) {
     queryKey: queryKeys.pods.list(namespace),
     queryFn: async () => {
       const url = namespace ? `/api/pods?namespace=${encodeURIComponent(namespace)}` : "/api/pods";
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
       if (!response.ok) throw new Error("Failed to fetch pods");
       return response.json();
     },

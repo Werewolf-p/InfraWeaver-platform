@@ -7,7 +7,7 @@ interface AddonChangeDetail {
 }
 
 async function fetchAddons() {
-  const res = await fetch("/api/addons", { cache: "no-store" });
+  const res = await fetch("/api/addons", { cache: "no-store", signal: AbortSignal.timeout(10000) });
   if (!res.ok) {
     const error = await res.json().catch(() => null) as { error?: string } | null;
     throw new Error(error?.error ?? "Failed to load addons");
