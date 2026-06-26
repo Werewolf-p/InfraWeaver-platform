@@ -10,6 +10,7 @@ interface FloatingLabelInputProps extends React.InputHTMLAttributes<HTMLInputEle
 export function FloatingLabelInput({ label, error, className, ...props }: FloatingLabelInputProps) {
   const [focused, setFocused] = useState(false);
   const id = useId();
+  const errorId = useId();
   const hasValue = Boolean(props.value ?? props.defaultValue);
   const floated = focused || hasValue;
 
@@ -18,6 +19,8 @@ export function FloatingLabelInput({ label, error, className, ...props }: Floati
       <input
         id={id}
         {...props}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
         onFocus={e => { setFocused(true); props.onFocus?.(e); }}
         onBlur={e => { setFocused(false); props.onBlur?.(e); }}
         className={cn(
@@ -37,7 +40,7 @@ export function FloatingLabelInput({ label, error, className, ...props }: Floati
       >
         {label}
       </label>
-      {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+      {error && <p id={errorId} className="mt-1 text-xs text-red-400" role="alert">{error}</p>}
     </div>
   );
 }

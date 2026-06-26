@@ -49,6 +49,7 @@ export function ToggleSwitch({ checked, onChange, label, description, disabled, 
         )}
       >
         <span
+          aria-hidden="true"
           className={cn(
             "inline-block transform rounded-full bg-white shadow-sm transition-transform duration-200",
             s.thumb,
