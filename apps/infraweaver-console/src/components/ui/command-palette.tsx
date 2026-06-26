@@ -2,9 +2,11 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePathname, useRouter } from "next/navigation";
-import { Clock3, Search, X } from "lucide-react";
+import { Clock3, Link2, RotateCw, Search, SunMoon, X } from "lucide-react";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useRecentPages } from "@/hooks/use-recent-pages";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS, type NavItem } from "@/lib/nav-config";
 import Fuse from "fuse.js";
@@ -36,6 +38,16 @@ interface RecentItem {
   icon: NavItem["icon"];
 }
 
+// Quick actions an operator can run from the keyboard without leaving the
+// palette. These run on click and aren't part of the arrow-key navigation
+// model, which stays focused on page navigation.
+interface PaletteAction {
+  id: string;
+  label: string;
+  icon: NavItem["icon"];
+  run: () => void;
+}
+
 export function CommandPalette() {
   const { open, setOpen } = useCommandPaletteStore();
   const [query, setQuery] = useState("");
@@ -43,7 +55,35 @@ export function CommandPalette() {
   const router = useRouter();
   const pathname = usePathname();
   const { recentPages } = useRecentPages();
+  const { copy } = useCopyToClipboard();
+  const { resolvedTheme, setTheme } = useTheme();
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const actions: PaletteAction[] = useMemo(() => [
+    {
+      id: "copy-url",
+      label: "Copy current URL",
+      icon: Link2,
+      run: () => { void copy(window.location.href); },
+    },
+    {
+      id: "reload",
+      label: "Reload this page",
+      icon: RotateCw,
+      run: () => window.location.reload(),
+    },
+    {
+      id: "toggle-theme",
+      label: "Toggle theme",
+      icon: SunMoon,
+      run: () => setTheme(resolvedTheme === "dark" ? "light" : "dark"),
+    },
+  ], [copy, resolvedTheme, setTheme]);
+
+  const runAction = (action: PaletteAction) => {
+    action.run();
+    setOpen(false);
+  };
 
   const fuse = useMemo(() => new Fuse(navItems, {
     keys: ["label", "category", "description", "keywords"],
@@ -195,6 +235,20 @@ export function CommandPalette() {
                       ))}
                     </div>
                   )}
+                  {/* Actions — quick keyboard-reachable operator actions */}
+                  <div className="mb-2">
+                    <p className="px-3 py-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Actions</p>
+                    {actions.map(action => (
+                      <button
+                        key={action.id}
+                        onClick={() => runAction(action)}
+                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors text-slate-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-white/5"
+                      >
+                        <action.icon className="w-4 h-4 flex-shrink-0 text-slate-500 dark:text-slate-400" />
+                        <span className="flex-1 text-sm font-medium">{action.label}</span>
+                      </button>
+                    ))}
+                  </div>
                   {/* Grouped items — mirror the sidebar's group order */}
                   {NAV_GROUPS.map(group => (
                     <div key={group.id} className="mb-2">
