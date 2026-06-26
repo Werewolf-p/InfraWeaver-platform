@@ -53,8 +53,18 @@ export function ClusterSelector() {
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
     document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, []);
 
   const clusters = clustersQuery.data?.clusters ?? [];
@@ -100,10 +110,11 @@ export function ClusterSelector() {
         className="inline-flex h-11 items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] px-3 text-sm text-[#d9d9d9] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label={`Select cluster, current: ${activeCluster?.displayName ?? "Cluster"}`}
       >
-        {loading ? <Loader2 className="h-4 w-4 animate-spin text-[#7cb9ff]" /> : <Server className="h-4 w-4 text-[#7cb9ff]" />}
-        <span className="max-w-[150px] truncate">{activeCluster?.displayName ?? "Cluster"}</span>
-        <ChevronDown className={cn("h-4 w-4 text-gray-500 dark:text-[#777] transition-transform", open && "rotate-180")} />
+        {loading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-[#7cb9ff]" /> : <Server aria-hidden="true" className="h-4 w-4 text-[#7cb9ff]" />}
+        <span className="max-w-[150px] truncate" aria-hidden="true">{activeCluster?.displayName ?? "Cluster"}</span>
+        <ChevronDown aria-hidden="true" className={cn("h-4 w-4 text-gray-500 dark:text-[#777] transition-transform", open && "rotate-180")} />
       </button>
 
       {open && clusters.length > 1 ? (
@@ -111,7 +122,7 @@ export function ClusterSelector() {
           <div className="border-b border-gray-200 dark:border-[#2a2a2a] px-3 py-2">
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-[#777]">Active cluster</p>
           </div>
-          <div className="p-1.5">
+          <div role="menu" className="p-1.5">
             {clusters.map((cluster) => {
               const selected = cluster.id === activeClusterId;
               const saving = savingClusterId === cluster.id;
@@ -119,8 +130,10 @@ export function ClusterSelector() {
                 <button
                   key={cluster.id}
                   type="button"
+                  role="menuitem"
                   onClick={() => void selectCluster(cluster.id)}
                   disabled={saving}
+                  aria-current={selected ? "true" : undefined}
                   className={cn(
                     "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                     selected
@@ -129,9 +142,9 @@ export function ClusterSelector() {
                     saving && "opacity-60",
                   )}
                 >
-                  <Server className="h-4 w-4 flex-shrink-0 text-[#7cb9ff]" />
+                  <Server aria-hidden="true" className="h-4 w-4 flex-shrink-0 text-[#7cb9ff]" />
                   <span className="min-w-0 flex-1 truncate">{cluster.displayName}</span>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin text-[#7cb9ff]" /> : selected ? <Check className="h-4 w-4 text-emerald-400" /> : null}
+                  {saving ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-[#7cb9ff]" /> : selected ? <Check aria-hidden="true" className="h-4 w-4 text-emerald-400" /> : null}
                 </button>
               );
             })}
