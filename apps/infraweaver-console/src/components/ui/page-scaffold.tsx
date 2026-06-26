@@ -45,7 +45,7 @@ function DefaultLoadingState() {
       {Array.from({ length: 4 }, (_, index) => (
         <div
           key={index}
-          className="h-24 animate-pulse rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5"
+          className="h-24 animate-pulse rounded-2xl border border-slate-200 bg-slate-100 dark:border-[#2a2a2a] dark:bg-[#141414]"
           style={{ opacity: 1 - index * 0.12 }}
         />
       ))}
