@@ -143,3 +143,6 @@ apps/infraweaver-node/dist/
 # ---------------------------------------------------------------------------
 params/
 generated/
+
+# Impeccable skill scratch caches
+.impeccable/
