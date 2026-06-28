@@ -231,7 +231,8 @@ describe("manifest builders", () => {
     expect(none.spec.routes[0].match).toBe("Host(`blog.example.com`)");
 
     const full = buildIngressRoute("blog", { host: "blog.example.com", authMode: "full" });
-    expect(full.spec.routes).toHaveLength(1);
+    // The gated catch-all plus the unguarded outpost-callback route.
+    expect(full.spec.routes).toHaveLength(2);
     expect(allMw(full)).toContain("forward-auth");
 
     const admin = buildIngressRoute("blog", { host: "blog.example.com", authMode: "admin" });
@@ -242,6 +243,31 @@ describe("manifest builders", () => {
     expect(blocked?.middlewares.map((m) => m.name)).toContain("wordpress-deny");
     const ajax = admin.spec.routes.find((rt) => rt.match.includes("admin-ajax"));
     expect(ajax?.middlewares.map((m) => m.name)).not.toContain("forward-auth");
+  });
+
+  test("gated modes route /outpost.goauthentik.io/ to the Authentik outpost, unguarded; none does not", () => {
+    for (const authMode of ["admin", "full"] as const) {
+      const r = buildIngressRoute("blog", { host: "blog.example.com", authMode });
+      const outpost = r.spec.routes.find((rt) => rt.match.includes("/outpost.goauthentik.io/"));
+      expect(outpost).toBeDefined();
+      // Must NOT carry forward-auth (the outpost serves these paths; gating would loop).
+      expect(outpost?.middlewares.map((m) => m.name)).not.toContain("forward-auth");
+      // Routes to the Authentik service, not WordPress, cross-namespace.
+      expect(outpost?.services[0].name).toBe("authentik-server");
+      expect(outpost?.services[0].namespace).toBe("authentik");
+      // Highest priority so it wins over the catch-all / gated rules.
+      expect(outpost?.priority).toBe(200);
+    }
+    const none = buildIngressRoute("blog", { host: "blog.example.com", authMode: "none" });
+    expect(none.spec.routes.some((rt) => rt.match.includes("/outpost.goauthentik.io/"))).toBe(false);
+  });
+
+  test("WordPress container trusts X-Forwarded-Proto so it serves https URLs", () => {
+    const { wp } = buildSiteManifests("blog", { host: "blog.example.com" });
+    const env = wp.deployment.spec.template.spec.containers[0].env as { name: string; value?: string }[];
+    const extra = env.find((e) => e.name === "WORDPRESS_CONFIG_EXTRA");
+    expect(extra?.value).toContain("HTTP_X_FORWARDED_PROTO");
+    expect(extra?.value).toContain("$_SERVER['HTTPS'] = 'on'");
   });
 
   test("admin mode emits the deny Middleware object; none/full do not", () => {

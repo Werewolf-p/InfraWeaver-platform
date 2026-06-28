@@ -73,6 +73,23 @@ export function certIssuer(): string {
   return (process.env.WORDPRESS_CERT_ISSUER || "").trim();
 }
 
+/**
+ * The Authentik embedded-outpost service that serves the `/outpost.goauthentik.io/`
+ * paths (auth check, start, callback). When a site is gated by forward-auth,
+ * Authentik redirects the browser back to `https://<host>/outpost.goauthentik.io/
+ * callback?...`; that navigation must reach the outpost, not WordPress, or it 404s
+ * on the WP theme. The site's IngressRoute therefore routes that prefix to this
+ * service (cross-namespace, which Traefik allows). Configurable as
+ * `<namespace>/<name>:<port>`; defaults to Authentik's standard embedded outpost.
+ */
+export function authentikOutpostService(): { name: string; namespace: string; port: number } {
+  const raw = (process.env.WORDPRESS_AUTHENTIK_OUTPOST_SERVICE || "authentik/authentik-server:80").trim();
+  const [ref, portStr] = raw.split(":", 2);
+  const { name, namespace } = parseMiddlewareRef(ref, "authentik");
+  const port = Number.parseInt(portStr ?? "", 10);
+  return { name, namespace, port: Number.isFinite(port) && port > 0 ? port : 80 };
+}
+
 /** The Authentik base issuer URL used to wire OIDC SSO during provisioning. */
 export function authentikIssuerBase(): string {
   return (process.env.WORDPRESS_AUTHENTIK_ISSUER || process.env.AUTHENTIK_URL_PUBLIC || "").trim().replace(/\/+$/, "");

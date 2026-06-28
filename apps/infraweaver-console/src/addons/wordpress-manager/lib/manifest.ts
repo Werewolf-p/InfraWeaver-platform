@@ -1,6 +1,6 @@
 import { WORDPRESS_NAMESPACE } from "./wordpress-rbac";
 import { resourceNames, legacySiteHost } from "./naming";
-import { forwardAuthMiddleware, secureHeadersMiddleware, certIssuer as configCertIssuer } from "./config";
+import { forwardAuthMiddleware, secureHeadersMiddleware, certIssuer as configCertIssuer, authentikOutpostService } from "./config";
 
 const DEFAULT_WP_IMAGE = process.env.WORDPRESS_IMAGE || "wordpress:6-php8.3-apache";
 const DEFAULT_DB_IMAGE = process.env.WORDPRESS_DB_IMAGE || "mariadb:11";
@@ -30,6 +30,17 @@ const WP_CLI_INSTALL = [
   `curl -fsSL -o ${WP_CLI_DIR}/wp "$WP_CLI_URL"`,
   `echo "$WP_CLI_SHA256  ${WP_CLI_DIR}/wp" | sha256sum -c -`,
   `chmod +x ${WP_CLI_DIR}/wp`,
+].join("\n");
+
+// Injected into wp-config.php via the official image's WORDPRESS_CONFIG_EXTRA hook.
+// Behind a TLS-terminating proxy the request reaches Apache as plain HTTP, so
+// is_ssl() is false unless we honour the forwarded scheme. Setting $_SERVER['HTTPS']
+// from X-Forwarded-Proto makes WordPress treat the request as secure, so it stops
+// emitting http:// links / redirecting to http (which the HTTPS-only edge can't serve).
+const REVERSE_PROXY_SSL_CONFIG = [
+  "if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {",
+  "  $_SERVER['HTTPS'] = 'on';",
+  "}",
 ].join("\n");
 
 export interface ContainerResources {
@@ -256,6 +267,13 @@ export function buildWpManifests(site: string, opts: SiteManifestOptions = {}) {
               env: [
                 // Put the staged wp-cli on PATH so `sh -c "wp …"` execs resolve it.
                 { name: "PATH", value: WP_CLI_PATH },
+                // Traefik terminates TLS and forwards plain HTTP to the container, so
+                // PHP's is_ssl() is false by default and WordPress emits http:// URLs
+                // and can redirect-loop — and the cluster edge only serves HTTPS
+                // (HTTP is redirected/blocked), making those links dead. Trust the
+                // proxy's X-Forwarded-Proto so is_ssl() is true and every generated
+                // URL (canonical links, the OIDC redirect_uri) is https.
+                { name: "WORDPRESS_CONFIG_EXTRA", value: REVERSE_PROXY_SSL_CONFIG },
                 { name: "WORDPRESS_DB_HOST", value: names.dbService },
                 envFromSecret("WORDPRESS_DB_NAME", names.dbSecret, "database"),
                 envFromSecret("WORDPRESS_DB_USER", names.dbSecret, "user"),
@@ -328,6 +346,8 @@ type MiddlewareRef = { name: string; namespace?: string };
 // In "admin" mode: gate /wp-admin + /wp-login.php behind Authentik (admin-ajax.php
 // stays public — themes/plugins call it unauthenticated), and 403 the high-risk
 // surface (XML-RPC, REST user enumeration, sensitive dotfiles).
+// The Authentik embedded-outpost paths (auth check, start, sign-out, OIDC callback).
+const OUTPOST_MATCH = "PathPrefix(`/outpost.goauthentik.io/`)";
 const AJAX_MATCH = "Path(`/wp-admin/admin-ajax.php`)";
 const ADMIN_MATCH = "(PathPrefix(`/wp-admin`) || Path(`/wp-login.php`))";
 const BLOCK_MATCH =
@@ -342,23 +362,33 @@ export function buildIngressRoute(site: string, opts: SiteManifestOptions = {}) 
   const fwdAuth = forwardAuthMiddleware();
   const SECURE_HEADERS = secureHeadersMiddleware();
   const deny: MiddlewareRef = { name: DENY_MIDDLEWARE, namespace: WORDPRESS_NAMESPACE };
-  const services = [{ name: names.wpService, port: 80 }];
+  const services: { name: string; port: number; namespace?: string }[] = [{ name: names.wpService, port: 80 }];
 
   // Higher Traefik priority = evaluated first, so the specific public/blocked
   // rules win over the gated and catch-all rules.
-  const rule = (match: string, middlewares: MiddlewareRef[], priority?: number) => ({
+  const rule = (match: string, middlewares: MiddlewareRef[], priority?: number, svc = services) => ({
     match: match ? `Host(\`${host}\`) && ${match}` : `Host(\`${host}\`)`,
     kind: "Rule" as const,
     ...(priority !== undefined ? { priority } : {}),
     middlewares,
-    services,
+    services: svc,
   });
+
+  // When forward-auth gates the site, Authentik redirects the browser back to
+  // `https://<host>/outpost.goauthentik.io/callback?...`. That navigation must reach
+  // the Authentik embedded outpost (cross-namespace) to complete the handshake and
+  // set the proxy session cookie; without it the request falls through to WordPress
+  // and 404s on the theme. Highest priority + no auth middleware (the outpost serves
+  // these paths itself, and gating them would loop).
+  const out = authentikOutpostService();
+  const outpostRoute = rule(OUTPOST_MATCH, [], 200, [{ name: out.name, namespace: out.namespace, port: out.port }]);
 
   let routes;
   if (authMode === "full") {
-    routes = [rule("", [SECURE_HEADERS, fwdAuth])];
+    routes = [outpostRoute, rule("", [SECURE_HEADERS, fwdAuth])];
   } else if (authMode === "admin") {
     routes = [
+      outpostRoute,
       rule(AJAX_MATCH, [SECURE_HEADERS], 100),
       rule(BLOCK_MATCH, [SECURE_HEADERS, deny], 90),
       rule(ADMIN_MATCH, [SECURE_HEADERS, fwdAuth], 80),
