@@ -83,6 +83,11 @@ export async function ensureSsoGate(input: SsoGateInput, secretStore: SecretStor
       client_type: "confidential",
       client_id: clientId,
       client_secret: clientSecret,
+      // Authentik (>= 2024.x) gates each provider on an explicit grant_types
+      // allow-list; left unset it defaults to [] and every authorization_code
+      // request is rejected as "invalid_request / request is otherwise malformed".
+      // The OIDC login plugin uses the auth-code flow and refreshes tokens.
+      grant_types: ["authorization_code", "refresh_token"],
       authorization_flow: authorizationFlow,
       invalidation_flow: invalidationFlow,
       redirect_uris: toRedirectUris(input.redirectUris),
