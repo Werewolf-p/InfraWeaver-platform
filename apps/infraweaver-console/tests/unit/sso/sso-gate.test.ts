@@ -134,9 +134,12 @@ describe("ensureSsoGate — create path (mode both)", () => {
     expect(proxyPost.body!.mode).toBe("forward_single");
     expect(proxyPost.body!.external_host).toBe("https://blog.example.com");
 
-    const appPost = calls.find((c) => c.path === "/api/v3/core/applications/" && c.method === "POST")!;
-    expect(appPost.body!.provider).toBe(100); // oauth2 is primary
-    expect(appPost.body!.backchannel_providers).toEqual([101]); // proxy is backchannel
+    // Two applications: the OIDC consumer app (oauth2 primary) and a separate gate
+    // app (proxy primary) — the outpost only serves a proxy that is an app's primary.
+    const appPosts = calls.filter((c) => c.path === "/api/v3/core/applications/" && c.method === "POST");
+    expect(appPosts).toHaveLength(2);
+    expect(appPosts.find((c) => c.body!.slug === "wordpress-blog")!.body!.provider).toBe(100);
+    expect(appPosts.find((c) => c.body!.slug === "wordpress-blog-gate")!.body!.provider).toBe(101);
 
     // Outpost unioned with the new proxy pk, no duplicates.
     expect(state.outpostProviders).toEqual([1, 2, 3, 101]);
@@ -156,7 +159,7 @@ describe("ensureSsoGate — idempotent update path", () => {
     const state: ApiState = {
       oauthProviders: [{ pk: 100, name: "wordpress-blog" }],
       proxyProviders: [{ pk: 101, name: "wordpress-blog-gate" }],
-      applications: [{ pk: "app-1", slug: "wordpress-blog" }],
+      applications: [{ pk: "app-1", slug: "wordpress-blog" }, { pk: "app-2", slug: "wordpress-blog-gate" }],
       outpostProviders: [1, 101, 2], // proxy already registered
       nextPk: 500,
     };
@@ -202,7 +205,7 @@ describe("removeSsoGate", () => {
     const state: ApiState = {
       oauthProviders: [{ pk: 100, name: "wordpress-blog" }],
       proxyProviders: [{ pk: 101, name: "wordpress-blog-gate" }],
-      applications: [{ pk: "app-1", slug: "wordpress-blog" }],
+      applications: [{ pk: "app-1", slug: "wordpress-blog" }, { pk: "app-2", slug: "wordpress-blog-gate" }],
       outpostProviders: [1, 101, 2],
       nextPk: 500,
     };
@@ -213,6 +216,7 @@ describe("removeSsoGate", () => {
 
     expect(state.outpostProviders).toEqual([1, 2]); // 101 dropped
     expect(calls.some((c) => c.path === "/api/v3/core/applications/wordpress-blog/" && c.method === "DELETE")).toBe(true);
+    expect(calls.some((c) => c.path === "/api/v3/core/applications/wordpress-blog-gate/" && c.method === "DELETE")).toBe(true);
     expect(calls.some((c) => c.path === "/api/v3/providers/proxy/101/" && c.method === "DELETE")).toBe(true);
     expect(calls.some((c) => c.path === "/api/v3/providers/oauth2/100/" && c.method === "DELETE")).toBe(true);
   });

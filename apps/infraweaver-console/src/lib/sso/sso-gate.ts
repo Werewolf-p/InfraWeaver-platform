@@ -106,17 +106,31 @@ export async function ensureSsoGate(input: SsoGateInput, secretStore: SecretStor
     });
   }
 
-  const primaryProviderPk = wantOidc ? oauthProviderPk : proxyProviderPk;
-  await client.upsertApplication(appSlug, {
-    name: appName,
-    provider: primaryProviderPk,
-    backchannel_providers: wantOidc && wantGate && proxyProviderPk ? [proxyProviderPk] : [],
-    ...(input.launchUrl ? { meta_launch_url: input.launchUrl } : {}),
-  });
+  // The OIDC client gets the consumer's application (oauth2 = primary provider).
+  if (wantOidc) {
+    await client.upsertApplication(appSlug, {
+      name: appName,
+      provider: oauthProviderPk,
+      backchannel_providers: [],
+      ...(input.launchUrl ? { meta_launch_url: input.launchUrl } : {}),
+    });
+  }
 
-  // Register the proxy provider on the embedded outpost LAST, so forward-auth for
-  // this host never 404s once the middleware is on the route.
-  if (proxyProviderPk !== undefined) await client.addProviderToOutpost(proxyProviderPk);
+  // The gate gets its OWN application with the proxy as the PRIMARY provider: the
+  // embedded outpost only serves a proxy provider that is an app's primary provider
+  // (a backchannel proxy is never served, so forward-auth would 404). When the mode
+  // is gate-only the gate is the consumer's sole application.
+  if (wantGate) {
+    const gateSlug = wantOidc ? `${appSlug}-gate` : appSlug;
+    await client.upsertApplication(gateSlug, {
+      name: wantOidc ? `${appName} (gate)` : appName,
+      provider: proxyProviderPk,
+      backchannel_providers: [],
+      ...(input.launchUrl ? { meta_launch_url: input.launchUrl } : {}),
+    });
+    // Register on the embedded outpost LAST, so forward-auth never 404s.
+    await client.addProviderToOutpost(proxyProviderPk!);
+  }
 
   return { oidc, gated: wantGate };
 }
@@ -133,7 +147,9 @@ export async function removeSsoGate(appSlug: string, host?: string): Promise<voi
   const proxy = (await client.findProvider("proxy", `${appSlug}-gate`)) ?? (await client.findProvider("proxy", appSlug));
 
   if (proxy) await client.removeProviderFromOutpost(proxy.pk);
+  // The OIDC consumer app and the separate gate app (both modes) are both removed.
   await client.deleteApplication(appSlug);
+  await client.deleteApplication(`${appSlug}-gate`);
   if (proxy) await client.deleteProvider("proxy", proxy.pk);
   if (oauth) await client.deleteProvider("oauth2", oauth.pk);
 }
