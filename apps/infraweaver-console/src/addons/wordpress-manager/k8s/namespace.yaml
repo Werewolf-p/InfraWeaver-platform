@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wordpress
+  labels:
+    app.kubernetes.io/managed-by: infraweaver
+    infraweaver/wordpress: "true"
+    # WordPress + MariaDB official images expect to manage their own uid/gid and
+    # do not yet satisfy the `restricted` PodSecurity profile cleanly; pin to
+    # baseline and rely on the per-container hardening the addon applies
+    # (non-root, drop ALL caps, no privilege escalation, RuntimeDefault seccomp).
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

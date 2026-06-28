@@ -121,7 +121,11 @@ export class AuthentikClient {
   }
 
   async findApplication(slug: string): Promise<{ pk: string; slug: string } | undefined> {
-    const list = await this.results<{ pk: string; slug: string }>(`/api/v3/core/applications/?slug=${encodeURIComponent(slug)}`);
+    // This instance doesn't filter the applications list by `?slug=` (it returns
+    // nothing), so match via `?search=` and pick the exact slug — same approach as
+    // findProvider. Using `?slug=` made upsert always POST (→ 400 on re-run) and
+    // delete never find its target (→ stale Authentik apps left behind).
+    const list = await this.results<{ pk: string; slug: string }>(`/api/v3/core/applications/?search=${encodeURIComponent(slug)}`);
     return list.find((a) => a.slug === slug);
   }
 
