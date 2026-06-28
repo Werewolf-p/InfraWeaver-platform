@@ -31,6 +31,10 @@ export function buildOidcSettings(creds: OidcCredentials): Record<string, string
     endpoint_userinfo: creds.userinfoUrl,
     endpoint_token: creds.tokenUrl,
     endpoint_end_session: creds.endSessionUrl,
+    // The OIDC plugin verifies the ID-token signature against the IdP's JWKS.
+    // Without this it falls back to an insecure method (removed in plugin 3.12.0,
+    // after which login fails outright). Point it at Authentik's per-app JWKS.
+    endpoint_jwks: creds.jwksUrl,
     identity_key: "email",
     no_sslverify: 0,
     enforce_privacy: 0,

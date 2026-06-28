@@ -270,15 +270,20 @@ describe("manifest builders", () => {
     expect(extra?.value).toContain("$_SERVER['HTTPS'] = 'on'");
   });
 
-  test("WordPress container auto-upgrades the DB schema on start (non-blocking, idempotent)", () => {
+  test("WordPress container keeps core, plugins and themes updated on start (non-blocking, idempotent)", () => {
     const { wp } = buildSiteManifests("blog", { host: "blog.example.com" });
     const container = wp.deployment.spec.template.spec.containers[0] as {
       lifecycle?: { postStart?: { exec?: { command?: string[] } } };
     };
     const cmd = container.lifecycle?.postStart?.exec?.command?.join(" ") ?? "";
+    expect(cmd).toContain("core update");
     expect(cmd).toContain("core update-db");
+    expect(cmd).toContain("plugin update --all");
+    expect(cmd).toContain("theme update --all");
     // Backgrounded so it never delays readiness, and never fails the hook.
     expect(cmd).toContain("&");
+    // Failures must never kill the container (postStart non-zero = pod restart).
+    expect(cmd).toContain("|| true");
   });
 
   test("admin mode emits the deny Middleware object; none/full do not", () => {
@@ -361,6 +366,7 @@ describe("authentik SSO (WordPress plugin glue)", () => {
     tokenUrl: "https://auth.example.com/application/o/token/",
     userinfoUrl: "https://auth.example.com/application/o/userinfo/",
     endSessionUrl: "https://auth.example.com/application/o/wordpress-blog/end-session/",
+    jwksUrl: "https://auth.example.com/application/o/wordpress-blog/jwks/",
   };
 
   test("redirectUri targets the WordPress OIDC callback", () => {
@@ -379,6 +385,9 @@ describe("authentik SSO (WordPress plugin glue)", () => {
     // scheme+host the plugin would otherwise derive from endpoint_login —
     // otherwise login fails with invalid-iss.
     expect(settings.issuer).toBe(creds.issuer);
+    // JWKS endpoint must be configured so the plugin verifies ID-token
+    // signatures instead of using the insecure fallback (removed in 3.12.0).
+    expect(settings.endpoint_jwks).toBe(creds.jwksUrl);
   });
 
   test("the client secret lives only in the stdin payload, never on the wp-cli command line", () => {

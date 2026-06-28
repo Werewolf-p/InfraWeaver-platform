@@ -37,6 +37,7 @@ function oidcCredentials(base: string, appSlug: string, clientId: string, client
     tokenUrl: `${o}/token/`,
     userinfoUrl: `${o}/userinfo/`,
     endSessionUrl: `${o}/${appSlug}/end-session/`,
+    jwksUrl: `${o}/${appSlug}/jwks/`,
   };
 }
 

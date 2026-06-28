@@ -51,6 +51,8 @@ export interface OidcCredentials {
   tokenUrl: string;
   userinfoUrl: string;
   endSessionUrl: string;
+  /** JWKS endpoint for ID-token signature verification (no insecure fallback). */
+  jwksUrl: string;
 }
 
 export interface SsoGateResult {

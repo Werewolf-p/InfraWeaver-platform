@@ -43,19 +43,23 @@ const REVERSE_PROXY_SSL_CONFIG = [
   "}",
 ].join("\n");
 
-// Runs on every WordPress pod start (postStart lifecycle hook). When the image
-// floats to a newer WordPress, core files outrun the database schema and the site
-// wedges on /wp-admin/upgrade.php ("Database Update Required") until someone clicks
-// the button — which the Authentik gate in front of /wp-admin makes painful. This
-// brings the schema up to the image's version automatically. It is backgrounded and
-// returns immediately so it never delays the container becoming Ready, waits for the
-// DB to be reachable, is a no-op when already current, and never fails the hook
-// (a non-zero postStart kills the container).
-const DB_AUTO_UPGRADE = [
+// Runs on every WordPress pod start (postStart lifecycle hook). Keeps the site
+// fully patched without manual /wp-admin clicks (which the Authentik gate in front
+// of /wp-admin makes painful): updates WordPress core to the latest release, runs
+// the DB schema migration that core/image bumps require (otherwise the site wedges
+// on /wp-admin/upgrade.php "Database Update Required"), and updates all plugins and
+// themes. It is backgrounded and returns immediately so it never delays the
+// container becoming Ready, waits for the DB to be reachable, is a no-op when
+// already current, and never fails the hook (a non-zero postStart kills the
+// container, and an offline upstream must not break startup — hence `|| true`).
+const AUTO_UPDATE_ON_START = [
   "(",
   "  for i in $(seq 1 30); do",
   "    if wp --allow-root core is-installed >/dev/null 2>&1; then",
+  "      wp --allow-root core update >/dev/null 2>&1 || true",
   "      wp --allow-root core update-db >/dev/null 2>&1 || true",
+  "      wp --allow-root plugin update --all >/dev/null 2>&1 || true",
+  "      wp --allow-root theme update --all >/dev/null 2>&1 || true",
   "      break",
   "    fi",
   "    sleep 2",
@@ -313,7 +317,7 @@ export function buildWpManifests(site: string, opts: SiteManifestOptions = {}) {
               // Keep the DB schema in step with the (floating) WordPress image on
               // every (re)start, so a newer image never strands the site on the
               // "Database Update Required" screen behind the Authentik gate.
-              lifecycle: { postStart: { exec: { command: ["sh", "-c", DB_AUTO_UPGRADE] } } },
+              lifecycle: { postStart: { exec: { command: ["sh", "-c", AUTO_UPDATE_ON_START] } } },
               volumeMounts: [
                 { name: "data", mountPath: "/var/www/html" },
                 { name: "wp-cli", mountPath: WP_CLI_DIR, readOnly: true },
