@@ -375,6 +375,10 @@ describe("authentik SSO (WordPress plugin glue)", () => {
     expect(settings.endpoint_token).toBe(creds.tokenUrl);
     expect(settings.endpoint_userinfo).toBe(creds.userinfoUrl);
     expect(settings.endpoint_end_session).toBe(creds.endSessionUrl);
+    // The explicit issuer must be the per-provider discovery issuer, not the
+    // scheme+host the plugin would otherwise derive from endpoint_login —
+    // otherwise login fails with invalid-iss.
+    expect(settings.issuer).toBe(creds.issuer);
   });
 
   test("the client secret lives only in the stdin payload, never on the wp-cli command line", () => {

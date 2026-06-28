@@ -20,6 +20,13 @@ export function buildOidcSettings(creds: OidcCredentials): Record<string, string
     client_id: creds.clientId,
     client_secret: creds.clientSecret,
     scope: "openid email profile",
+    // Authentik issues the ID token with a per-provider `iss`
+    // (`<base>/application/o/<app-slug>/`). Without an explicit issuer the OIDC
+    // plugin derives the expected issuer from `endpoint_login` as scheme+host
+    // only (`<base>`), so every login fails validation with
+    // `invalid-iss: Token issuer does not match expected issuer`. Pin it to the
+    // exact discovery issuer so the claim matches.
+    issuer: creds.issuer,
     endpoint_login: creds.authorizeUrl,
     endpoint_userinfo: creds.userinfoUrl,
     endpoint_token: creds.tokenUrl,
