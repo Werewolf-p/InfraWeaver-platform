@@ -270,6 +270,17 @@ describe("manifest builders", () => {
     expect(extra?.value).toContain("$_SERVER['HTTPS'] = 'on'");
   });
 
+  test("WordPress container auto-upgrades the DB schema on start (non-blocking, idempotent)", () => {
+    const { wp } = buildSiteManifests("blog", { host: "blog.example.com" });
+    const container = wp.deployment.spec.template.spec.containers[0] as {
+      lifecycle?: { postStart?: { exec?: { command?: string[] } } };
+    };
+    const cmd = container.lifecycle?.postStart?.exec?.command?.join(" ") ?? "";
+    expect(cmd).toContain("core update-db");
+    // Backgrounded so it never delays readiness, and never fails the hook.
+    expect(cmd).toContain("&");
+  });
+
   test("admin mode emits the deny Middleware object; none/full do not", () => {
     const adminKinds = buildSiteManifests("blog", { host: "blog.example.com", authMode: "admin" }).objects.map((o) => o.kind);
     expect(adminKinds).toContain("Middleware");
