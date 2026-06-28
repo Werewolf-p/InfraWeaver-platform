@@ -64,9 +64,10 @@ function makeFetch(state: ApiState) {
     if (path.startsWith("/api/v3/providers/proxy/") && method === "GET") {
       return json({ results: state.proxyProviders });
     }
-    if (path.startsWith("/api/v3/core/applications/?slug=") && method === "GET") {
-      const slug = new URL(url).searchParams.get("slug")!;
-      return json({ results: state.applications.filter((a) => a.slug === slug) });
+    if (path.startsWith("/api/v3/core/applications/?search=") && method === "GET") {
+      // Mirror Authentik's fuzzy search: substring match, caller picks exact slug.
+      const q = new URL(url).searchParams.get("search")!;
+      return json({ results: state.applications.filter((a) => a.slug.includes(q)) });
     }
 
     // --- mutations ---

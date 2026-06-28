@@ -103,22 +103,22 @@ export default function AddonsPage() {
                 {addon.requiresSetup ? <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">Setup required</span> : null}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 text-sm">
-                <div>
+              <div className="grid grid-cols-1 gap-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 text-sm min-[400px]:grid-cols-2">
+                <div className="min-w-0">
                   <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-[#888]">Status</p>
                   <p className="mt-1 font-medium text-gray-900 dark:text-[#f2f2f2]">{addon.enabled ? "Available" : "Disabled"}</p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-[#888]">Route</p>
-                  <p className="mt-1 truncate font-mono text-xs text-gray-700 dark:text-[#d4d4d4]">{addon.navItems?.[0]?.href ?? addon.setupPath ?? "—"}</p>
+                  <p className="mt-1 break-all font-mono text-xs text-gray-700 dark:text-[#d4d4d4]">{addon.navItems?.[0]?.href ?? addon.setupPath ?? "—"}</p>
                 </div>
               </div>
 
               <div className="mt-auto space-y-3 border-t border-gray-200 dark:border-[#2a2a2a] pt-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Toggle addon</p>
-                    <p className="truncate text-xs text-gray-500 dark:text-[#888]">AWS-style quick action with the most common state change inline.</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{addon.enabled ? "Enabled" : "Disabled"}</p>
+                    <p className="text-xs text-gray-500 dark:text-[#888]">{addon.enabled ? "Turn off to hide it from the sidebar." : "Turn on to add it to the sidebar."}</p>
                   </div>
                   <ToggleSwitch checked={addon.enabled} onChange={() => void handleToggle(addon)} disabled={isUpdating} className="shrink-0" />
                 </div>

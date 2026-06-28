@@ -147,3 +147,27 @@ export async function getARecord(name: string): Promise<{ id: string; name: stri
   const records = await listARecords(name);
   return records.find((record) => record.name === name) ?? null;
 }
+
+/**
+ * Create-or-update a CNAME for `name` → `target`. Idempotent: a re-provision
+ * updates the existing record rather than failing on "record already exists". Any
+ * conflicting A record at the same name is removed first (CNAME and A cannot
+ * coexist on one name).
+ */
+export async function upsertCnameRecord(name: string, target: string, proxied = false): Promise<{ id: string }> {
+  const conflicting = await listDnsRecords({ type: "A", name });
+  await Promise.all(conflicting.filter((r) => r.name === name).map((r) => deleteDnsRecordById(r.id)));
+  const existing = (await listDnsRecords({ type: "CNAME", name })).find((r) => r.name === name);
+  if (existing) {
+    await updateDnsRecord(existing.id, { content: target, proxied, ttl: proxied ? 1 : 120 });
+    return { id: existing.id };
+  }
+  const record = await createDnsRecord({ type: "CNAME", name, content: target, proxied, ttl: proxied ? 1 : 120 });
+  return { id: record.id };
+}
+
+/** Delete every DNS record (any type) for `name` — used when tearing a site down. */
+export async function deleteRecordsByName(name: string): Promise<void> {
+  const records = await listDnsRecords({ name });
+  await Promise.all(records.filter((r) => r.name === name).map((r) => deleteDnsRecordById(r.id)));
+}

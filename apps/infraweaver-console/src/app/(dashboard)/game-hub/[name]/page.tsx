@@ -519,13 +519,12 @@ function FilesTab({
   } = useQuery({
     queryKey: ["game-hub", "files", name, currentPath],
     queryFn: () =>
-      fetchJson<{ files: FileEntry[] }>(
+      fetchJson<{ files: FileEntry[]; readOnly?: boolean; offline?: boolean }>(
         `/api/game-hub/servers/${name}/files?path=${encodeURIComponent(currentPath)}`,
       ),
-    // The file browser reads files by exec'ing into the running pod. A stopped
-    // server has been scaled to 0 replicas, so there is no pod to read from —
-    // skip the request and show a call-to-action instead of a failing fetch.
-    enabled: status !== "stopped",
+    // Works whether the server is up or stopped: when offline, the API reads the
+    // data PVC through a short-lived read-only pod, so browsing (e.g. confirming
+    // a world save) no longer requires starting the server first.
     retry: 1,
   });
 
@@ -867,15 +866,7 @@ function FilesTab({
         </div>
       )}
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
-        {status === "stopped" ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-8 px-4 text-center text-gray-400 dark:text-[#555]">
-            <FolderOpen className="w-7 h-7" />
-            <p className="text-xs">
-              Start the server to browse its files. The file browser reads from
-              the running server, so it is unavailable while it is offline.
-            </p>
-          </div>
-        ) : isLoading ? (
+        {isLoading ? (
           <div className="flex items-center justify-center h-20">
             <Loader2 className="w-4 h-4 animate-spin text-gray-400 dark:text-[#555]" />
           </div>

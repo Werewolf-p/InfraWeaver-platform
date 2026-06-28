@@ -12,7 +12,8 @@ export type Permission =
   | "game-hub:read" | "game-hub:write" | "game-hub:admin"
   | "game-hub:players"
   | "game-hub:console" | "game-hub:files" | "game-hub:start" | "game-hub:stop" | "game-hub:scale"
-  | "wiki:read" | "wiki:edit";
+  | "wiki:read" | "wiki:edit"
+  | "wordpress:read" | "wordpress:write" | "wordpress:admin";
 
 /**
  * Runtime registry of every Permission in the union above. Kept next to the
@@ -34,6 +35,7 @@ export const ALL_PERMISSIONS = [
   "game-hub:players",
   "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop", "game-hub:scale",
   "wiki:read", "wiki:edit",
+  "wordpress:read", "wordpress:write", "wordpress:admin",
 ] as const satisfies readonly Permission[];
 
 // Compile-time exhaustiveness: every Permission must appear in ALL_PERMISSIONS.
@@ -82,6 +84,9 @@ export type BuiltInRoleId =
   | "game-hub-player"
   | "wiki-viewer"
   | "wiki-editor"
+  | "wordpress-admin"
+  | "wordpress-editor"
+  | "wordpress-viewer"
   | "support";
 
 export type RoleId = BuiltInRoleId | string;
@@ -92,7 +97,7 @@ export interface RoleDefinition {
   description: string;
   permissions: Permission[];
   isBuiltIn: boolean;
-  category?: "platform" | "game-hub" | "wiki";
+  category?: "platform" | "game-hub" | "wiki" | "wordpress";
   color?: "red" | "blue" | "green" | "purple" | "orange" | "yellow" | "teal" | "gray";
 }
 
@@ -134,6 +139,7 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
       "platform:update",
       "game-hub:read", "game-hub:write", "game-hub:admin", "game-hub:players",
       "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop", "game-hub:scale",
+      "wordpress:read", "wordpress:write", "wordpress:admin",
     ],
     isBuiltIn: true,
     category: "platform",
@@ -246,6 +252,33 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
     isBuiltIn: true,
     category: "wiki",
     color: "blue",
+  },
+  "wordpress-admin": {
+    id: "wordpress-admin",
+    name: "WordPress Admin",
+    description: "Full control over scoped WordPress site(s), including deletion and SSO.",
+    permissions: ["wordpress:read", "wordpress:write", "wordpress:admin"],
+    isBuiltIn: true,
+    category: "wordpress",
+    color: "purple",
+  },
+  "wordpress-editor": {
+    id: "wordpress-editor",
+    name: "WordPress Editor",
+    description: "Create scoped WordPress site(s) and manage their plugins and SSO.",
+    permissions: ["wordpress:read", "wordpress:write"],
+    isBuiltIn: true,
+    category: "wordpress",
+    color: "blue",
+  },
+  "wordpress-viewer": {
+    id: "wordpress-viewer",
+    name: "WordPress Viewer",
+    description: "Read-only access to scoped WordPress site(s).",
+    permissions: ["wordpress:read"],
+    isBuiltIn: true,
+    category: "wordpress",
+    color: "gray",
   },
   support: {
     id: "support",

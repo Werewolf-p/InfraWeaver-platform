@@ -158,6 +158,12 @@ const HISTORY_DEPTH_MAX_LINES: Record<ConsoleHistoryDepth, number> = {
 const HIGHLIGHT_KEY_PREFIX = "infraweaver:console-highlights";
 const ALERTS_KEY_PREFIX = "infraweaver:console-alerts";
 const MACROS_KEY_PREFIX = "infraweaver:console-macros";
+const WORLD_SAVED_KEY_PREFIX = "infraweaver:console-world-saved";
+// The live console stream ends the instant the server stops, so the world-save
+// confirmation scrolls away before it can be read. We watch the stream for the
+// save line and pin a durable timestamp (persisted to localStorage) that outlives
+// both the stop and a page reload — the answer to "did my world actually save?".
+const WORLD_SAVE_PATTERN = /world saved|saving world|world will be saved|worldsave|save complete/i;
 const THEME_MAP: Record<ConsoleThemeName, { bg: string; fg: string; accent: string }> = {
   dark: { bg: "#0a0a0a", fg: "#f0f0f0", accent: "#0078D4" },
   monokai: { bg: "#272822", fg: "#f8f8f2", accent: "#a6e22e" },
@@ -1020,6 +1026,14 @@ export function ConsoleTab({
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
   const [podLabel, setPodLabel] = useState("");
+  // Durable world-save confirmation — survives the console disconnect on stop and
+  // a full page reload, so the operator can always answer "did it save?".
+  const [worldSavedAt, setWorldSavedAt] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem(`${WORLD_SAVED_KEY_PREFIX}:${name}`);
+    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  });
   const [logSearch, setLogSearch] = useState("");
   const [logFilterMode, setLogFilterMode] = useState(true);
   const [history, setHistory] = useState<string[]>(() => readConsoleHistory(name));
@@ -1272,6 +1286,15 @@ export function ConsoleTab({
         receivedAt: Date.now(),
       };
       setLogLines((prev) => [...prev.slice(-(maxLines - 1)), entry]);
+      if (type !== "input" && WORLD_SAVE_PATTERN.test(line)) {
+        const savedAt = Date.now();
+        setWorldSavedAt(savedAt);
+        try {
+          window.localStorage.setItem(`${WORLD_SAVED_KEY_PREFIX}:${name}`, String(savedAt));
+        } catch {
+          // localStorage may be unavailable/full — the in-memory badge still works.
+        }
+      }
       if (recordingRef.current) {
         setRecordingLines((prev) => [...prev, { at: Date.now(), type, line, timestamp, user: options?.user }]);
       }
@@ -1288,7 +1311,7 @@ export function ConsoleTab({
       }
       return entry;
     },
-    [maxLines],
+    [maxLines, name],
   );
 
   const showBanner = useCallback((message: string | null, durationMs?: number) => {
@@ -2099,6 +2122,14 @@ export function ConsoleTab({
         <span className={cn("min-w-0 flex-1 truncate text-xs", isConnected ? "text-green-400" : "text-gray-400 dark:text-[#555]")}>
           {isConnected ? podLabel : status === "stopped" ? "Server stopped" : "Connecting…"}
         </span>
+        {worldSavedAt ? (
+          <span
+            title={`World saved at ${new Date(worldSavedAt).toLocaleString()}`}
+            className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-medium text-green-300"
+          >
+            <Save className="h-3 w-3" /> Saved {new Date(worldSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        ) : null}
         <PresenceIndicator name={name} currentUser={userName} />
         <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", useRcon ? "bg-green-500/15 text-green-300" : "bg-white/10 text-gray-300")}>{transportLabel}</span>
         {!isConnected && status !== "stopped" ? (

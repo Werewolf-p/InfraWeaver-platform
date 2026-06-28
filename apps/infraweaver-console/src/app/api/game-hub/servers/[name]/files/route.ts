@@ -3,11 +3,11 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
+import { appendServerAudit, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { validateContainerPath, validateContainerPathWithinRoot } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
-import { resolveServerDataRoot } from "./data-root";
+import { withServerFileExec } from "./server-file-exec";
 
 const mkdirBodySchema = z.object({
   action: z.literal("mkdir"),
@@ -106,6 +106,9 @@ async function writableAccess(req: NextRequest, name: string) {
   return { session, access };
 }
 
+const LISTING_SCRIPT = (path: string) =>
+  `cd ${shellQuote(path)} 2>/dev/null && for file in .[!.]* ..?* *; do [ -e "$file" ] || continue; stat -c '%n|%s|%Y|%A|%F' "$file" 2>/dev/null || ls -ld --color=never "$file"; done || echo ERROR:NO_SUCH_PATH`;
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -114,30 +117,24 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const canWrite = hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name);
 
   try {
     const clients = makeGameHubClients();
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
-    const rootPath = await resolveServerDataRoot(clients, name, pod);
-    const targetPath = req.nextUrl.searchParams.get("path") ?? rootPath;
-    if (!validateContainerPath(targetPath) || !validateContainerPathWithinRoot(targetPath, rootPath)) {
-      return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
-    }
-
-    const result = await execShell(
-      clients.kc,
-      pod.metadata.name,
-      getPrimaryContainerName(pod, name),
-      `cd ${shellQuote(targetPath)} 2>/dev/null && for file in .[!.]* ..?* *; do [ -e "$file" ] || continue; stat -c '%n|%s|%Y|%A|%F' "$file" 2>/dev/null || ls -ld --color=never "$file"; done || echo ERROR:NO_SUCH_PATH`,
-    );
-    if (result.stdout.includes("ERROR:NO_SUCH_PATH") || result.stdout.includes("No such file") || result.stderr.includes("No such file")) {
-      return NextResponse.json({ error: "Path not found", files: [] }, { status: 404 });
-    }
-    const files = result.stdout.includes("|")
-      ? parseStatOutput(result.stdout, targetPath)
-      : parseLsOutput(result.stdout, targetPath);
-    return NextResponse.json({ path: targetPath, files, readOnly: !hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name) });
+    return await withServerFileExec(clients, name, "read", async ({ exec, rootPath, offline }) => {
+      const targetPath = req.nextUrl.searchParams.get("path") ?? rootPath;
+      if (!validateContainerPath(targetPath) || !validateContainerPathWithinRoot(targetPath, rootPath)) {
+        return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+      }
+      const result = await exec(LISTING_SCRIPT(targetPath), 30_000);
+      if (result.stdout.includes("ERROR:NO_SUCH_PATH") || result.stdout.includes("No such file") || result.stderr.includes("No such file")) {
+        return NextResponse.json({ error: "Path not found", files: [] }, { status: 404 });
+      }
+      const files = result.stdout.includes("|")
+        ? parseStatOutput(result.stdout, targetPath)
+        : parseLsOutput(result.stdout, targetPath);
+      return NextResponse.json({ path: targetPath, files, readOnly: !canWrite, offline });
+    });
   } catch (error) {
     console.error("file listing failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
@@ -160,16 +157,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
 
   try {
     const clients = makeGameHubClients();
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
-    const rootPath = await resolveServerDataRoot(clients, name, pod);
-    if (!validateContainerPath(body.path) || !validateContainerPathWithinRoot(body.path, rootPath)) {
-      return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
-    }
-    await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `mkdir -p ${shellQuote(body.path)}`);
-    await auditLog("game-hub:mkdir", authz.session?.user?.email ?? "unknown", `${name} ${body.path}`);
-    await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:mkdir", details: body.path });
-    return NextResponse.json({ ok: true, path: body.path });
+    return await withServerFileExec(clients, name, "write", async ({ exec, rootPath }) => {
+      if (!validateContainerPath(body.path) || !validateContainerPathWithinRoot(body.path, rootPath)) {
+        return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+      }
+      await exec(`mkdir -p ${shellQuote(body.path)}`);
+      await auditLog("game-hub:mkdir", authz.session?.user?.email ?? "unknown", `${name} ${body.path}`);
+      await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:mkdir", details: body.path });
+      return NextResponse.json({ ok: true, path: body.path });
+    });
   } catch (error) {
     console.error("mkdir failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
@@ -192,47 +188,45 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
 
   try {
     const clients = makeGameHubClients();
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
-    const rootPath = await resolveServerDataRoot(clients, name, pod);
-
-    if (body.action === "rename") {
-      if (!body.from || !body.to) return NextResponse.json({ error: "rename from/to required" }, { status: 400 });
-      if (!validateContainerPath(body.from) || !validateContainerPath(body.to)
-        || !validateContainerPathWithinRoot(body.from, rootPath)
-        || !validateContainerPathWithinRoot(body.to, rootPath)) {
-        return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+    return await withServerFileExec(clients, name, "write", async ({ exec, rootPath }) => {
+      if (body.action === "rename") {
+        if (!body.from || !body.to) return NextResponse.json({ error: "rename from/to required" }, { status: 400 });
+        if (!validateContainerPath(body.from) || !validateContainerPath(body.to)
+          || !validateContainerPathWithinRoot(body.from, rootPath)
+          || !validateContainerPathWithinRoot(body.to, rootPath)) {
+          return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+        }
+        await exec(`mv ${shellQuote(body.from)} ${shellQuote(body.to)}`);
+        await auditLog("game-hub:rename", authz.session?.user?.email ?? "unknown", `${name} ${body.from} -> ${body.to}`);
+        await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:rename", details: `${body.from} -> ${body.to}` });
+        return NextResponse.json({ ok: true, from: body.from, to: body.to });
       }
-      await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `mv ${shellQuote(body.from)} ${shellQuote(body.to)}`);
-      await auditLog("game-hub:rename", authz.session?.user?.email ?? "unknown", `${name} ${body.from} -> ${body.to}`);
-      await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:rename", details: `${body.from} -> ${body.to}` });
-      return NextResponse.json({ ok: true, from: body.from, to: body.to });
-    }
 
-    if (body.action === "extract") {
-      if (!body.path) return NextResponse.json({ error: "path required" }, { status: 400 });
-      if (!validateContainerPath(body.path) || !validateContainerPathWithinRoot(body.path, rootPath)) {
-        return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+      if (body.action === "extract") {
+        if (!body.path) return NextResponse.json({ error: "path required" }, { status: 400 });
+        if (!validateContainerPath(body.path) || !validateContainerPathWithinRoot(body.path, rootPath)) {
+          return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+        }
+        const destDir = body.path.replace(/\/[^/]+$/, "") || "/";
+        const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
+        const extractCmd = body.path.endsWith(".tar.gz") || body.path.endsWith(".tgz")
+          ? `tar -xzf ${shellQuote(body.path)} -C ${shellQuote(destDir)}`
+          : body.path.endsWith(".zip")
+            ? `unzip -o ${shellQuote(body.path)} -d ${shellQuote(destDir)}`
+            : null;
+        if (!extractCmd) return NextResponse.json({ error: "Unsupported archive format" }, { status: 400 });
+        const command = `SIZE=$(stat -c %s ${shellQuote(body.path)} 2>/dev/null || echo 0); if [ "$SIZE" -gt ${MAX_ARCHIVE_BYTES} ]; then echo ARCHIVE_TOO_LARGE; else ${extractCmd}; fi`;
+        const result = await exec(command, 30_000);
+        if (result.stdout.includes("ARCHIVE_TOO_LARGE")) {
+          return NextResponse.json({ error: "Archive too large (max 512MB)" }, { status: 413 });
+        }
+        await auditLog("game-hub:extract", authz.session?.user?.email ?? "unknown", `${name} ${body.path}`);
+        await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:extract", details: body.path });
+        return NextResponse.json({ ok: true, path: body.path });
       }
-      const destDir = body.path.replace(/\/[^/]+$/, "") || "/";
-      const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
-      const extractCmd = body.path.endsWith(".tar.gz") || body.path.endsWith(".tgz")
-        ? `tar -xzf ${shellQuote(body.path)} -C ${shellQuote(destDir)}`
-        : body.path.endsWith(".zip")
-          ? `unzip -o ${shellQuote(body.path)} -d ${shellQuote(destDir)}`
-          : null;
-      if (!extractCmd) return NextResponse.json({ error: "Unsupported archive format" }, { status: 400 });
-      const command = `SIZE=$(stat -c %s ${shellQuote(body.path)} 2>/dev/null || echo 0); if [ "$SIZE" -gt ${MAX_ARCHIVE_BYTES} ]; then echo ARCHIVE_TOO_LARGE; else ${extractCmd}; fi`;
-      const result = await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), command, 30_000);
-      if (result.stdout.includes("ARCHIVE_TOO_LARGE")) {
-        return NextResponse.json({ error: "Archive too large (max 512MB)" }, { status: 413 });
-      }
-      await auditLog("game-hub:extract", authz.session?.user?.email ?? "unknown", `${name} ${body.path}`);
-      await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:extract", details: body.path });
-      return NextResponse.json({ ok: true, path: body.path });
-    }
 
-    return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+      return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+    });
   } catch (error) {
     console.error("file patch failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
@@ -252,17 +246,16 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
 
   try {
     const clients = makeGameHubClients();
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) return NextResponse.json({ error: "No pod found" }, { status: 404 });
-    const rootPath = await resolveServerDataRoot(clients, name, pod);
-    if (!validateContainerPath(path) || !validateContainerPathWithinRoot(path, rootPath) || path.replace(/\/$/, "") === rootPath.replace(/\/$/, "")) {
-      return NextResponse.json({ error: "Cannot delete this path" }, { status: 403 });
-    }
-    const result = await execShell(clients.kc, pod.metadata.name, getPrimaryContainerName(pod, name), `rm -rf ${shellQuote(path)}`);
-    if (result.stderr) return NextResponse.json({ error: safeError(result.stderr) }, { status: 500 });
-    await auditLog("game-hub:delete-file", authz.session?.user?.email ?? "unknown", `${name} ${path}`);
-    await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:delete", details: path });
-    return NextResponse.json({ deleted: true, path });
+    return await withServerFileExec(clients, name, "write", async ({ exec, rootPath }) => {
+      if (!validateContainerPath(path) || !validateContainerPathWithinRoot(path, rootPath) || path.replace(/\/$/, "") === rootPath.replace(/\/$/, "")) {
+        return NextResponse.json({ error: "Cannot delete this path" }, { status: 403 });
+      }
+      const result = await exec(`rm -rf ${shellQuote(path)}`);
+      if (result.stderr) return NextResponse.json({ error: safeError(result.stderr) }, { status: 500 });
+      await auditLog("game-hub:delete-file", authz.session?.user?.email ?? "unknown", `${name} ${path}`);
+      await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:delete", details: path });
+      return NextResponse.json({ deleted: true, path });
+    });
   } catch (error) {
     console.error("delete file failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
