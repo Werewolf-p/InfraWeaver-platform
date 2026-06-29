@@ -36,7 +36,15 @@ export function buildOidcSettings(creds: OidcCredentials): Record<string, string
     // after which login fails outright). Point it at Authentik's per-app JWKS.
     endpoint_jwks: creds.jwksUrl,
     identity_key: "email",
-    no_sslverify: 0,
+    // The server-side (token/userinfo/jwks) calls reach Authentik via the pod
+    // hostAlias (see config.authentikBackchannelHostAlias) — i.e. straight to
+    // authentik-server's :443, which presents Authentik's self-signed internal cert,
+    // not the public issuer-host cert Traefik would serve. So peer verification must
+    // be off for the backchannel. The hop is a Cilium-enforced in-cluster pod →
+    // ClusterIP connection (no external exposure), and the issuer claim is still
+    // validated against `issuer` above. When a site is wired to reach a valid-cert
+    // endpoint instead, flip this back to 0.
+    no_sslverify: 1,
     enforce_privacy: 0,
     link_existing_users: 1,
     create_if_does_not_exist: 1,
