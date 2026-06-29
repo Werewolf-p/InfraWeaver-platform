@@ -43,6 +43,22 @@ export const addonNavItemSchema = z.object({
   description: z.string().optional(),
 });
 
+/**
+ * A tab an addon contributes to the pod detail page. It is shown only on pods
+ * whose labels satisfy `matchLabels` (value "*" = key present with any value),
+ * the addon is enabled, and the session holds `permission` (if set). The
+ * component receives { namespace, name, labels } and is lazy-loaded.
+ */
+export const addonPodTabSchema = z.object({
+  value: z.string(),
+  label: z.string(),
+  icon: z.string(),
+  /** Relative path from addon root to the tab component, e.g. "components/pod-tab". */
+  component: z.string(),
+  matchLabels: z.record(z.string(), z.string()),
+  permission: z.string().optional(),
+});
+
 export const addonApiSchema = z.object({
   /** Path relative to /api/game-hub (or whatever prefix), e.g. "servers" */
   path: z.string(),
@@ -88,6 +104,8 @@ export const addonManifestSchema = z.object({
   setupPath: z.string().optional(),
   pages: z.array(addonPageSchema).optional(),
   navItems: z.array(addonNavItemSchema).optional(),
+  /** Tabs this addon injects into the pod detail page for matching pods. */
+  podTabs: z.array(addonPodTabSchema).optional(),
   api: z.array(addonApiSchema).optional(),
   permissions: z.array(addonPermissionSchema).optional(),
   /** Scope prefix used by navigation-rbac for per-scope permission checks */
@@ -101,6 +119,7 @@ export const addonManifestSchema = z.object({
 
 export type AddonPage = z.infer<typeof addonPageSchema>;
 export type AddonNavItemManifest = z.infer<typeof addonNavItemSchema>;
+export type AddonPodTab = z.infer<typeof addonPodTabSchema>;
 export type AddonApi = z.infer<typeof addonApiSchema>;
 export type AddonPermission = z.infer<typeof addonPermissionSchema>;
 export type AddonK8s = z.infer<typeof addonK8sSchema>;

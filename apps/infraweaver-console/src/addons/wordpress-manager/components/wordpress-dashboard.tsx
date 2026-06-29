@@ -443,7 +443,7 @@ export function WordpressDashboard() {
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">
-                    <Link href={`/wordpress/${site.site}`} className="font-medium text-zinc-100 hover:text-sky-300">
+                    <Link href={`/wordpress/${site.site}/pod`} className="font-medium text-zinc-100 hover:text-sky-300">
                       {site.site}
                     </Link>
                     <span
@@ -469,7 +469,7 @@ export function WordpressDashboard() {
                 </div>
                 <div className="mt-4 flex items-center justify-between">
                   <Link
-                    href={`/wordpress/${site.site}`}
+                    href={`/wordpress/${site.site}/pod`}
                     className="inline-flex items-center gap-1.5 text-sm text-sky-400 hover:text-sky-300"
                   >
                     <ShieldCheck className="h-4 w-4" aria-hidden /> Manage

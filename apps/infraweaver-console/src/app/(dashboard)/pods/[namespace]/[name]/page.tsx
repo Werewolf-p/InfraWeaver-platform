@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { ArrowLeft, FileText, Logs, Server, ShieldCheck, TerminalSquare } from "lucide-react";
@@ -10,7 +10,10 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SectionTabs } from "@/components/ui/section-tabs";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useRBAC } from "@/hooks/use-rbac";
+import { useAddons } from "@/hooks/use-addons";
 import { canAccessNavHref } from "@/lib/navigation-rbac";
+import { resolvePodTabs } from "@/lib/addon-pod-tabs";
+import { AddonPodTabRenderer } from "@/components/addons/addon-pod-tab-renderer";
 import { PodFirewallPanel } from "@/app/(dashboard)/network/firewall/_components/pod-firewall-panel";
 
 interface PodDetailResponse {
@@ -67,10 +70,20 @@ export default function PodDetailPage() {
   const params = useParams<{ namespace: string; name: string }>();
   const namespace = decodeURIComponent(String(params?.namespace ?? ""));
   const name = decodeURIComponent(String(params?.name ?? ""));
-  const [activeTab, setActiveTab] = useState("overview");
+  const searchParams = useSearchParams();
+  // Honour a deep-linked ?tab= (e.g. addons linking straight to their pod tab).
+  const [activeTab, setActiveTab] = useState(() => searchParams.get("tab") ?? "overview");
   const [selectedContainer, setSelectedContainer] = useState("");
-  const { permissions, assignments } = useRBAC();
+  const { permissions, assignments, can } = useRBAC();
+  const { addons } = useAddons();
   const canViewFirewall = canAccessNavHref("/network/firewall", permissions, assignments);
+
+  // Addon-contributed tabs for this pod, matched by the pod's labels and gated by
+  // addon-enabled state. Non-matching pods get nothing extra.
+  const enabledAddonIds = useMemo(
+    () => new Set(addons.filter((addon) => addon.enabled).map((addon) => addon.id)),
+    [addons],
+  );
 
   const { data, isLoading, error } = useQuery<PodDetailResponse>({
     queryKey: ["pod-detail", namespace, name],
@@ -109,11 +122,16 @@ export default function PodDetailPage() {
     return <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6 text-sm text-red-300">Failed to load pod details.</div>;
   }
 
+  const addonPodTabs = resolvePodTabs(data.labels, enabledAddonIds).filter(
+    (tab) => !tab.permission || can(tab.permission as Parameters<typeof can>[0]),
+  );
+
   const tabs = [
     { label: "Overview", value: "overview", icon: Server },
     { label: "Logs", value: "logs", icon: Logs, badge: data.containers.length },
     { label: "Terminal", value: "terminal", icon: TerminalSquare },
     ...(canViewFirewall ? [{ label: "Pod Security", value: "security", icon: ShieldCheck }] : []),
+    ...addonPodTabs.map((tab) => ({ label: tab.label, value: tab.tabId, icon: tab.icon })),
     { label: "Events", value: "events", icon: FileText, badge: eventsData?.events.length ?? 0 },
     { label: "Config", value: "config", icon: FileText },
   ];
@@ -269,6 +287,18 @@ export default function PodDetailPage() {
 
       {activeTab === "security" && canViewFirewall && (
         <PodFirewallPanel namespace={data.namespace} name={data.name} />
+      )}
+
+      {addonPodTabs.map((tab) =>
+        activeTab === tab.tabId ? (
+          <AddonPodTabRenderer
+            key={tab.tabId}
+            load={tab.load}
+            namespace={data.namespace}
+            name={data.name}
+            labels={data.labels}
+          />
+        ) : null,
       )}
 
       {activeTab === "events" && (

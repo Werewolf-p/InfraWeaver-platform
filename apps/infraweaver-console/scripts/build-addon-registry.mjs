@@ -67,6 +67,41 @@ function parseNavItems(src) {
   }).filter(n => n.href);
 }
 
+/** Parse a nested object literal field like `matchLabels: { "k": "v", ... }`. */
+function extractObjectPairs(itemSrc, key) {
+  const start = itemSrc.indexOf(`${key}:`);
+  if (start === -1) return {};
+  const open = itemSrc.indexOf("{", start);
+  if (open === -1) return {};
+  let depth = 0;
+  let end = open;
+  while (end < itemSrc.length) {
+    if (itemSrc[end] === "{") depth++;
+    else if (itemSrc[end] === "}") { depth--; if (depth === 0) break; }
+    end++;
+  }
+  const block = itemSrc.slice(open + 1, end);
+  const pairs = {};
+  const pairRe = /["']([^"']+)["']\s*:\s*["']([^"']+)["']/g;
+  let m;
+  while ((m = pairRe.exec(block)) !== null) pairs[m[1]] = m[2];
+  return pairs;
+}
+
+function parsePodTabs(src) {
+  const block = extractArrayOf(src, "podTabs");
+  return block
+    .map((item) => ({
+      value: extractString(item, "value") ?? "",
+      label: extractString(item, "label") ?? "",
+      icon: extractString(item, "icon") ?? "",
+      component: extractString(item, "component") ?? "",
+      matchLabels: extractObjectPairs(item, "matchLabels"),
+      ...(extractString(item, "permission") ? { permission: extractString(item, "permission") } : {}),
+    }))
+    .filter((tab) => tab.value && tab.component);
+}
+
 function parsePages(src) {
   const block = extractArrayOf(src, "pages");
   return block.map(item => ({
@@ -104,6 +139,7 @@ function parseAddonFolder(addonDir) {
     setupPath: extractString(src, "setupPath"),
     scopePrefix: extractString(src, "scopePrefix"),
     navItems: parseNavItems(src),
+    podTabs: parsePodTabs(src),
     pages: parsePages(src),
     k8s: parseK8s(src),
     // addonKey = folder name, used to build import paths
@@ -145,6 +181,14 @@ const pageLoaderLines = addonEntries.flatMap(addon =>
   })
 );
 
+const podTabLoaderLines = addonEntries.flatMap(addon =>
+  (addon.podTabs ?? []).map(tab => {
+    const importPath = `@/addons/${addon._folderName}/${tab.component}`;
+    const key = `${addon.id}::${tab.value}`;
+    return `  "${key}": () => import("${importPath}"),`;
+  })
+);
+
 const manifestLines = addonEntries.map(addon => {
   const importPath = `@/addons/${addon._folderName}/addon.manifest`;
   return `  "${addon.id}": () => import("${importPath}"),`;
@@ -169,6 +213,12 @@ ${manifestLines.join("\n")}
 
 export const ADDON_PAGE_LOADERS: Record<string, () => Promise<unknown>> = {
 ${pageLoaderLines.join("\n")}
+};
+
+// ── Pod-detail tab loaders keyed by "<addonId>::<value>" ────────────────────
+
+export const ADDON_POD_TAB_LOADERS: Record<string, () => Promise<unknown>> = {
+${podTabLoaderLines.join("\n")}
 };
 
 // ── API handler loaders (P2 — populated when addon api[] is non-empty) ───────

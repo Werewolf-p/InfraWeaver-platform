@@ -270,6 +270,25 @@ export async function deleteSite(site: string): Promise<void> {
   }
 }
 
+/**
+ * The WordPress pod name for a site (prefers a Running pod), or null if none
+ * exists yet. Safe/non-throwing — used to deep-link a site to its pod page.
+ */
+export async function findWpPodName(site: string): Promise<string | null> {
+  const { core } = clients();
+  try {
+    const pods = await core.listNamespacedPod({
+      namespace: WORDPRESS_NAMESPACE,
+      labelSelector: `infraweaver.io/site=${site},infraweaver.io/component=wordpress`,
+    });
+    const items = pods.items ?? [];
+    const pod = items.find((p) => p.status?.phase === "Running") ?? items[0];
+    return pod?.metadata?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function runningWpPod(core: k8s.CoreV1Api, site: string): Promise<string> {
   const pods = await core.listNamespacedPod({
     namespace: WORDPRESS_NAMESPACE,
