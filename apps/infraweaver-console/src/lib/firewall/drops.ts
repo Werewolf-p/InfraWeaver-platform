@@ -44,18 +44,26 @@ function num(s: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function classifyDestination(m: Record<string, string>): { kind: DestinationKind; target: string; namespace?: string } {
-  const fqdn = m.destination_dns || m.destination_fqdn || m.dns_name;
+type PeerRole = "source" | "destination";
+
+// Classify either end of a flow from Hubble metric labels. Egress denies care
+// about the destination; ingress denies care about the source. Behaviour for
+// role="destination" is identical to the original classifyDestination.
+function classifyPeer(m: Record<string, string>, role: PeerRole): { kind: DestinationKind; target: string; namespace?: string } {
+  const fqdn =
+    role === "destination"
+      ? m.destination_dns || m.destination_fqdn || m.dns_name
+      : m.source_dns || m.source_fqdn;
   if (fqdn && fqdn !== "" && fqdn !== "unknown") {
     // Hubble sometimes appends a trailing dot on FQDNs.
     return { kind: "fqdn", target: fqdn.replace(/\.$/, "") };
   }
-  const pod = m.destination_pod;
-  const ns = m.destination_namespace;
+  const pod = m[`${role}_pod`];
+  const ns = m[`${role}_namespace`];
   if (pod && pod !== "" && pod !== "unknown") {
     return { kind: "pod", target: pod, namespace: ns };
   }
-  const ip = m.destination_ip || m.destination;
+  const ip = m[`${role}_ip`] || m[role];
   if (ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
     return { kind: "ip", target: `${ip}/32` };
   }
@@ -67,7 +75,11 @@ function classifyDestination(m: Record<string, string>): { kind: DestinationKind
  * summary of recently blocked destinations, sorted by drop rate (noisiest first).
  * Tolerant of missing labels so it never throws on partial data.
  */
-export function summarizeBlockedFlows(result: PromQueryResult | null | undefined): PodBlockedSummary[] {
+function summarizeBy(
+  result: PromQueryResult | null | undefined,
+  subjectRole: PeerRole,
+  peerRole: PeerRole,
+): PodBlockedSummary[] {
   const samples = result?.data?.result ?? [];
   const byPod = new Map<string, PodBlockedSummary>();
 
@@ -76,15 +88,17 @@ export function summarizeBlockedFlows(result: PromQueryResult | null | undefined
     const dropRate = num(s.value?.[1]);
     if (dropRate <= 0) continue;
 
-    const namespace = m.source_namespace || "unknown";
-    const pod = m.source_pod || m.source || "unknown";
+    const namespace = m[`${subjectRole}_namespace`] || "unknown";
+    const pod = m[`${subjectRole}_pod`] || m[subjectRole] || "unknown";
     const podKey = `${namespace}/${pod}`;
 
-    const { kind, target, namespace: destNs } = classifyDestination(m);
+    const { kind, target, namespace: peerNs } = classifyPeer(m, peerRole);
     const dest: BlockedDestination = {
       kind,
       target,
-      namespace: destNs,
+      namespace: peerNs,
+      // The meaningful port is always the destination (listening) port, for both
+      // directions — the subject's own port on ingress, the peer's on egress.
       port: m.destination_port || m.port || undefined,
       protocol: m.protocol || undefined,
       reason: m.reason || undefined,
@@ -97,7 +111,7 @@ export function summarizeBlockedFlows(result: PromQueryResult | null | undefined
       byPod.set(podKey, summary);
     }
 
-    // Dedupe identical destination+port+protocol, summing the rate.
+    // Dedupe identical peer+port+protocol, summing the rate.
     const existing = summary.destinations.find(
       (d) => d.target === dest.target && d.port === dest.port && d.protocol === dest.protocol,
     );
@@ -115,14 +129,37 @@ export function summarizeBlockedFlows(result: PromQueryResult | null | undefined
   return out;
 }
 
+// Egress denies grouped by source pod; each "destination" is what the pod tried
+// to reach and was blocked from. Behaviour preserved from the original version.
+export function summarizeBlockedFlows(result: PromQueryResult | null | undefined): PodBlockedSummary[] {
+  return summarizeBy(result, "source", "destination");
+}
+
+// Ingress denies grouped by destination pod; each "destination" entry is in fact
+// the blocked *source* — who tried to reach this pod and was denied.
+export function summarizeBlockedIngress(result: PromQueryResult | null | undefined): PodBlockedSummary[] {
+  return summarizeBy(result, "destination", "source");
+}
+
+/** Direction of a flow / network-policy rule, from the subject pod's point of view. */
+export type FlowDirection = "egress" | "ingress";
+
+// Both queries group on the full source+destination identity so a single result
+// carries everything classifyPeer needs for either end.
+const FLOW_GROUP_BY =
+  "source_namespace, source_pod, source_ip, source_dns, " +
+  "destination_namespace, destination_pod, destination_dns, destination_ip, destination_port, protocol, reason";
+
 /** PromQL for recently-dropped EGRESS flows grouped by source pod + destination. */
 export function blockedFlowsQuery(windowMinutes = 10): string {
   const w = `${Math.max(1, Math.floor(windowMinutes))}m`;
-  return (
-    `topk(200, sum by ` +
-    `(source_namespace, source_pod, destination_namespace, destination_pod, destination_dns, destination_ip, destination_port, protocol, reason) ` +
-    `(rate(hubble_drop_total{direction="EGRESS"}[${w}])) > 0)`
-  );
+  return `topk(200, sum by (${FLOW_GROUP_BY}) (rate(hubble_drop_total{direction="EGRESS"}[${w}])) > 0)`;
+}
+
+/** PromQL for recently-dropped INGRESS flows grouped by destination pod + source. */
+export function blockedIngressQuery(windowMinutes = 10): string {
+  const w = `${Math.max(1, Math.floor(windowMinutes))}m`;
+  return `topk(200, sum by (${FLOW_GROUP_BY}) (rate(hubble_drop_total{direction="INGRESS"}[${w}])) > 0)`;
 }
 
 export interface AllowRule {
@@ -169,4 +206,58 @@ export function buildAllowRule(dest: BlockedDestination): AllowRule {
 
 export function isAllowable(dest: BlockedDestination): boolean {
   return dest.kind === "fqdn" || dest.kind === "ip" || dest.kind === "pod";
+}
+
+export interface IngressAllowRule {
+  // A single ingress entry to append to the subject pod's CiliumNetworkPolicy.
+  fromCIDR?: string[];
+  fromEndpoints?: { matchLabels: Record<string, string> }[];
+  toPorts?: { ports: { port: string; protocol: string }[] }[];
+}
+
+/**
+ * Build the ingress allow rule for a denied incoming flow. The peer here is the
+ * blocked *source*. Cilium ingress supports fromEndpoints (in-cluster pods) and
+ * fromCIDR (external IPs) — there is no fromFQDNs, so FQDN sources are not
+ * auto-allowable on ingress.
+ */
+export function buildIngressAllowRule(peer: BlockedDestination): IngressAllowRule {
+  const ports =
+    peer.port && peer.protocol
+      ? [{ ports: [{ port: peer.port, protocol: peer.protocol.toUpperCase() }] }]
+      : undefined;
+
+  switch (peer.kind) {
+    case "ip":
+      return { fromCIDR: [peer.target], ...(ports ? { toPorts: ports } : {}) };
+    case "pod":
+      return {
+        fromEndpoints: [
+          {
+            matchLabels: {
+              "k8s:io.kubernetes.pod.namespace": peer.namespace || "default",
+              "k8s:app": peer.target,
+            },
+          },
+        ],
+        ...(ports ? { toPorts: ports } : {}),
+      };
+    default:
+      // fqdn / unknown sources cannot be expressed as an ingress allow.
+      return {};
+  }
+}
+
+export function isIngressAllowable(peer: BlockedDestination): boolean {
+  return peer.kind === "ip" || peer.kind === "pod";
+}
+
+/** Whether a peer is an in-cluster pod, i.e. a bidirectional allow is meaningful. */
+export function isBidirectionalCandidate(peer: BlockedDestination): boolean {
+  return peer.kind === "pod" && !!peer.target && peer.target !== "unknown";
+}
+
+/** Strip a ReplicaSet/pod hash suffix to recover the app label (mariadb-abc12-x9 -> mariadb). */
+export function appLabelFromPod(name: string): string {
+  return name.replace(/-[a-z0-9]+(-[a-z0-9]+)?$/, "");
 }

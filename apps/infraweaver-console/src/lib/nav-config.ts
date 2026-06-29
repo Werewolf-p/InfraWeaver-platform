@@ -81,6 +81,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       { href: "/dns", icon: Globe, label: "DNS", shortcut: "G Z", description: "Manage internal and public Cloudflare records", pinnable: true, keywords: ["cloudflare", "records", "domain"] },
       { href: "/gameservers", icon: Network, label: "Port Routing", description: "DNS-based port routing for external services", keywords: ["ports", "tcp", "udp", "external services"] },
       { href: "/network-policies", icon: Network, label: "Net Policies", description: "Kubernetes NetworkPolicy rules", keywords: ["networkpolicy", "firewall"] },
+      { href: "/network/firewall", icon: ShieldCheck, label: "Pod Security", description: "Recent denies per pod — allow with one click, remove allowed rules", pinnable: true, keywords: ["firewall", "cilium", "hubble", "denied", "allow", "ingress", "egress", "networkpolicy", "block"] },
       { href: "/certificates", icon: ShieldCheck, label: "Certificates", description: "TLS certificate status and expiry", keywords: ["tls", "ssl", "cert-manager"] },
     ],
   },
