@@ -1,6 +1,6 @@
 import { generatePassword, generateSiteSecrets, generateWpSalts, vaultPaths, vaultData } from "@/addons/wordpress-manager/lib/secrets";
 import { isValidSiteName, assertValidSiteName, resourceNames, buildHost, deriveSiteId, legacySiteHost } from "@/addons/wordpress-manager/lib/naming";
-import { listDomains, defaultDomain, isAllowedDomain } from "@/addons/wordpress-manager/lib/config";
+import { listDomains, defaultDomain, isAllowedDomain, authentikBackchannelHostAlias } from "@/addons/wordpress-manager/lib/config";
 import { buildSiteManifests, buildIngressRoute, siteLabels } from "@/addons/wordpress-manager/lib/manifest";
 import { buildPluginSyncPlan, buildPluginSyncCommands, installPluginCommand, removePluginCommand, PLUGIN_CATALOG, AUTHENTIK_PLUGIN_SLUG } from "@/addons/wordpress-manager/lib/plugins";
 import { redirectUri, buildOidcSettings, OIDC_SETTINGS_OPTION, optionUpdateFromStdinCommand } from "@/addons/wordpress-manager/lib/authentik";
@@ -108,6 +108,20 @@ describe("config", () => {
   test("listDomains falls back to BASE_DOMAIN when no explicit list", () => {
     process.env = { ...ORIGINAL, WORDPRESS_DOMAINS: "", BASE_DOMAIN: "fallback.com" };
     expect(listDomains()).toEqual(["fallback.com"]);
+  });
+
+  test("authentikBackchannelHostAlias pins the issuer host to the configured ClusterIP", () => {
+    process.env = {
+      ...ORIGINAL,
+      WORDPRESS_AUTHENTIK_BACKCHANNEL_IP: "10.106.138.152",
+      WORDPRESS_AUTHENTIK_ISSUER: "https://auth.example.com",
+    };
+    expect(authentikBackchannelHostAlias()).toEqual({ ip: "10.106.138.152", hostnames: ["auth.example.com"] });
+  });
+
+  test("authentikBackchannelHostAlias returns undefined when the IP is unset", () => {
+    process.env = { ...ORIGINAL, WORDPRESS_AUTHENTIK_BACKCHANNEL_IP: "", WORDPRESS_AUTHENTIK_ISSUER: "https://auth.example.com" };
+    expect(authentikBackchannelHostAlias()).toBeUndefined();
   });
 });
 
@@ -388,6 +402,36 @@ describe("authentik SSO (WordPress plugin glue)", () => {
     // JWKS endpoint must be configured so the plugin verifies ID-token
     // signatures instead of using the insecure fallback (removed in 3.12.0).
     expect(settings.endpoint_jwks).toBe(creds.jwksUrl);
+    // Default (no backchannel pin): endpoints stay https, peer verification on,
+    // SSRF guard left enabled.
+    expect(settings.no_sslverify).toBe(0);
+    expect(settings.allow_internal_idp).toBe(0);
+  });
+
+  test("backchannel mode downgrades server-side endpoints + issuer to http and allows the internal IdP", () => {
+    const prev = process.env;
+    process.env = {
+      ...prev,
+      WORDPRESS_AUTHENTIK_BACKCHANNEL_IP: "10.106.138.152",
+      WORDPRESS_AUTHENTIK_ISSUER: "https://auth.example.com",
+    };
+    try {
+      const settings = buildOidcSettings(creds);
+      // Server-side (backchannel) endpoints + issuer go over http (no TLS, no
+      // self-signed cert to verify; matches the http `iss` Authentik then mints).
+      expect(settings.issuer).toBe("http://auth.example.com/application/o/wordpress-blog/");
+      expect(settings.endpoint_token).toBe("http://auth.example.com/application/o/token/");
+      expect(settings.endpoint_userinfo).toBe("http://auth.example.com/application/o/userinfo/");
+      expect(settings.endpoint_jwks).toBe("http://auth.example.com/application/o/wordpress-blog/jwks/");
+      // Front-channel (browser) endpoints stay https.
+      expect(settings.endpoint_login).toBe(creds.authorizeUrl);
+      expect(settings.endpoint_end_session).toBe(creds.endSessionUrl);
+      // Reach the private ClusterIP; never bypass cert verification.
+      expect(settings.allow_internal_idp).toBe(1);
+      expect(settings.no_sslverify).toBe(0);
+    } finally {
+      process.env = prev;
+    }
   });
 
   test("the client secret lives only in the stdin payload, never on the wp-cli command line", () => {

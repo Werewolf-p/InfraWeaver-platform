@@ -95,6 +95,38 @@ export function authentikIssuerBase(): string {
   return (process.env.WORDPRESS_AUTHENTIK_ISSUER || process.env.AUTHENTIK_URL_PUBLIC || "").trim().replace(/\/+$/, "");
 }
 
+/**
+ * Backchannel hostAlias for the OIDC server-side calls (token/userinfo/jwks).
+ *
+ * The OIDC issuer host (e.g. auth.rlservers.com) is a public, Cloudflare-fronted
+ * name. From inside the cluster the WordPress pod cannot reach it: resolving the
+ * public name NAT-hairpins back through the homelab's own edge and times out, and
+ * the Traefik LB path is not reachable pod-internally. So we pin the issuer host to
+ * Authentik's in-cluster Service IP via a pod hostAlias — the backchannel then goes
+ * pod → authentik-server directly over plain http (:9000; see buildOidcSettings for
+ * why http rather than the self-signed :9443), while the Host header stays the public
+ * name. The browser (front-channel) is unaffected — a hostAlias only changes the
+ * pod's own resolution, and the authorize/end-session URLs stay https.
+ *
+ * Requires `WORDPRESS_AUTHENTIK_BACKCHANNEL_IP` (the authentik-server ClusterIP) and
+ * a resolvable issuer host. Returns undefined when not configured, in which case no
+ * hostAlias is added and the plugin uses normal DNS (only viable when the issuer host
+ * resolves to a pod-reachable address, e.g. a split-horizon internal DNS record).
+ */
+export function authentikBackchannelHostAlias(): { ip: string; hostnames: string[] } | undefined {
+  const ip = (process.env.WORDPRESS_AUTHENTIK_BACKCHANNEL_IP || "").trim();
+  const base = authentikIssuerBase();
+  if (!ip || !base) return undefined;
+  let host: string;
+  try {
+    host = new URL(base).hostname;
+  } catch {
+    return undefined;
+  }
+  if (!host) return undefined;
+  return { ip, hostnames: [host] };
+}
+
 /** The local WordPress admin username seeded by `wp core install`. */
 export function adminUser(): string {
   return (process.env.WORDPRESS_ADMIN_USER || "admin").trim();

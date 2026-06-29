@@ -1,6 +1,6 @@
 import { WORDPRESS_NAMESPACE } from "./wordpress-rbac";
 import { resourceNames, legacySiteHost } from "./naming";
-import { forwardAuthMiddleware, secureHeadersMiddleware, certIssuer as configCertIssuer, authentikOutpostService } from "./config";
+import { forwardAuthMiddleware, secureHeadersMiddleware, certIssuer as configCertIssuer, authentikOutpostService, authentikBackchannelHostAlias } from "./config";
 
 const DEFAULT_WP_IMAGE = process.env.WORDPRESS_IMAGE || "wordpress:6-php8.3-apache";
 const DEFAULT_DB_IMAGE = process.env.WORDPRESS_DB_IMAGE || "mariadb:11";
@@ -268,6 +268,12 @@ export function buildWpManifests(site: string, opts: SiteManifestOptions = {}) {
         metadata: { labels },
         spec: {
           securityContext: { runAsNonRoot: true, fsGroup: 33, runAsUser: 33 },
+          // Pin the OIDC issuer host to Authentik's in-cluster Service IP so the
+          // server-side token/userinfo/jwks calls reach Authentik directly instead of
+          // NAT-hairpinning through the public Cloudflare edge. See
+          // authentikBackchannelHostAlias() for the full rationale. Omitted when not
+          // configured (WORDPRESS_AUTHENTIK_BACKCHANNEL_IP unset).
+          ...(authentikBackchannelHostAlias() ? { hostAliases: [authentikBackchannelHostAlias()] } : {}),
           // Stage a pinned, checksum-verified wp-cli into a shared volume so the
           // WordPress container can run `wp` (the official image bundles none).
           initContainers: [
