@@ -4,9 +4,46 @@ import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Loader2, KeyRound, Puzzle, CheckCircle2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  KeyRound,
+  Puzzle,
+  CheckCircle2,
+  CircleDashed,
+  ExternalLink,
+  Globe,
+  Lock,
+  ShieldCheck,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+
+type AuthMode = "none" | "admin" | "full";
+
+interface SiteStatus {
+  site: string;
+  host: string;
+  ready: boolean;
+  replicas: number;
+  domain?: string;
+  internal?: boolean;
+  authMode?: AuthMode;
+  dnsWarning?: string;
+}
+
+const AUTH_MODE_LABEL: Record<AuthMode, string> = {
+  none: "Public",
+  admin: "Admin paths protected",
+  full: "Behind Authentik",
+};
+
+async function fetchSiteStatus(site: string): Promise<SiteStatus | null> {
+  const res = await fetch("/api/wordpress/sites");
+  if (!res.ok) throw new Error("Failed to load site status");
+  const { sites } = (await res.json()) as { sites: SiteStatus[] };
+  return sites.find((entry) => entry.site === site) ?? null;
+}
 
 interface PluginDef {
   slug: string;
@@ -40,6 +77,12 @@ export function SiteDetailView({ site }: { site: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ["wordpress-plugins", site],
     queryFn: () => fetchPlugins(site),
+  });
+
+  const { data: status } = useQuery({
+    queryKey: ["wordpress-site-status", site],
+    queryFn: () => fetchSiteStatus(site),
+    refetchInterval: 8000,
   });
 
   const installed = new Set(data?.installed ?? []);
@@ -101,9 +144,56 @@ export function SiteDetailView({ site }: { site: string }) {
 
       <header className="mt-4 flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">{site}</h1>
+        {status && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs",
+              status.ready
+                ? "border-green-500/30 bg-green-500/15 text-green-300"
+                : "border-amber-500/30 bg-amber-500/15 text-amber-300",
+            )}
+          >
+            {status.ready ? <CheckCircle2 className="h-3 w-3" aria-hidden /> : <CircleDashed className="h-3 w-3 animate-pulse" aria-hidden />}
+            {status.ready ? "Ready" : "Starting"}
+          </span>
+        )}
       </header>
 
-      <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+      {/* Status & domain — the management panel's at-a-glance summary */}
+      <section className="mt-6 grid gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5 sm:grid-cols-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <Globe className="h-3.5 w-3.5" aria-hidden /> Address
+          </p>
+          {status ? (
+            <a
+              href={`https://${status.host}`}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex items-center gap-1 truncate text-sm text-sky-300 hover:text-sky-200"
+            >
+              {status.host} <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+            </a>
+          ) : (
+            <p className="mt-2 text-sm text-zinc-500">—</p>
+          )}
+          {status?.dnsWarning && <p className="mt-1 text-xs text-amber-400">{status.dnsWarning}</p>}
+        </div>
+        <div>
+          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <Lock className="h-3.5 w-3.5" aria-hidden /> Reachability
+          </p>
+          <p className="mt-2 text-sm text-zinc-200">{status?.internal ? "Internal only" : "Public"}</p>
+        </div>
+        <div>
+          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> Authentik
+          </p>
+          <p className="mt-2 text-sm text-zinc-200">{AUTH_MODE_LABEL[status?.authMode ?? "none"]}</p>
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
         <div className="flex items-center gap-2 text-zinc-200">
           <KeyRound className="h-5 w-5 text-violet-400" aria-hidden />
           <h2 className="text-lg font-medium">Authentik single sign-on</h2>

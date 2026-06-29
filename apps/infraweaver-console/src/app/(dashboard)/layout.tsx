@@ -21,6 +21,7 @@ import { NAV_GROUPS, GOTO_SHORTCUTS } from "@/lib/nav-config";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
 import { KeyboardShortcutsProvider } from "@/components/ui/keyboard-shortcuts-modal";
 import { GlobalSearch } from "@/components/search/global-search";
+import { ResourceResults } from "@/components/search/resource-results";
 import { useRecentPages } from "@/hooks/use-recent-pages";
 import { useAddons } from "@/hooks/use-addons";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -33,15 +34,13 @@ import { ClusterSelector } from "@/components/layout/cluster-selector";
 // ── Section accent colors (Iter 3: colored group identifiers) ─────────────────
 const GROUP_ACCENT: Record<string, string> = {
   overview: "bg-blue-500",
-  apps: "bg-violet-500",
-  compute: "bg-emerald-500",
-  infrastructure: "bg-cyan-500",
-  operations: "bg-amber-500",
-  monitoring: "bg-rose-500",
-  gaming: "bg-fuchsia-500",
-  services: "bg-sky-500",
-  tools: "bg-yellow-500",
-  settings: "bg-[#555]",
+  workloads: "bg-violet-500",
+  networking: "bg-cyan-500",
+  storage: "bg-emerald-500",
+  observability: "bg-rose-500",
+  security: "bg-amber-500",
+  platform: "bg-sky-500",
+  addons: "bg-fuchsia-500",
 };
 
 function isTypingTarget(target: EventTarget | null) {
@@ -169,7 +168,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
   const mobilePrimaryNavItems = useMemo(
     () =>
-      ["/home", "/game-hub", "/apps", "/cluster"]
+      ["/home", "/apps", "/pods", "/cluster"]
         .map((href) => flatNavItems.find((item) => item.href === href))
         .filter((item): item is (typeof flatNavItems)[number] => Boolean(item)),
     [flatNavItems],
@@ -506,11 +505,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </Link>
                       );
                     })}
+                    <ResourceResults
+                      query={drawerSearch}
+                      onNavigate={() => { setMobileOpen(false); setDrawerSearch(""); }}
+                      className="mt-2"
+                    />
                     {moreNavGroups.flatMap(g => g.items).filter(i =>
                       i.label.toLowerCase().includes(drawerSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(drawerSearch.toLowerCase())
                     ).length === 0 && (
-                      <div className="py-8 text-center text-gray-400 dark:text-[#444] text-sm">No results for &ldquo;{drawerSearch}&rdquo;</div>
+                      <div className="py-6 text-center text-gray-400 dark:text-[#444] text-sm">No pages match &ldquo;{drawerSearch}&rdquo; — searching resources…</div>
                     )}
                   </div>
                 )}
@@ -893,11 +897,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </Link>
                       );
                     })}
+                    <ResourceResults
+                      query={moreSearch}
+                      onNavigate={() => { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }}
+                      className="mt-2"
+                    />
                     {moreNavGroups.flatMap(g => g.items).filter(i =>
                       i.label.toLowerCase().includes(moreSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(moreSearch.toLowerCase())
                     ).length === 0 && (
-                      <div className="text-center py-10 text-gray-400 dark:text-[#444] text-sm">No results for &ldquo;{moreSearch}&rdquo;</div>
+                      <div className="text-center py-8 text-gray-400 dark:text-[#444] text-sm">No pages match &ldquo;{moreSearch}&rdquo; — searching resources…</div>
                     )}
                   </div>
                 )}

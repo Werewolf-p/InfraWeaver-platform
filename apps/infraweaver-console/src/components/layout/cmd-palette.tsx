@@ -10,6 +10,7 @@ import {
   Gamepad2,
   KeyRound,
   LayoutDashboard,
+  Network,
   Search,
   Server,
   Sparkles,
@@ -18,11 +19,14 @@ import {
 } from "lucide-react";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useRBAC } from "@/hooks/use-rbac";
+import { useAddons } from "@/hooks/use-addons";
+import { canAccessNavHref } from "@/lib/navigation-rbac";
 import { cn } from "@/lib/utils";
 
 const RECENT_KEY = "infraweaver:cmd-palette-recent";
 const MAX_RECENT = 5;
-const CATEGORY_ORDER = ["Navigation", "Apps", "Pods", "Game Servers"] as const;
+const CATEGORY_ORDER = ["Navigation", "Apps", "Pods", "Services", "Game Servers"] as const;
 
 type PaletteCategory = (typeof CATEGORY_ORDER)[number];
 
@@ -50,6 +54,7 @@ const categoryIcons: Record<PaletteCategory, IconType> = {
   Navigation: LayoutDashboard,
   Apps: Box,
   Pods: Server,
+  Services: Network,
   "Game Servers": Gamepad2,
 };
 
@@ -156,6 +161,21 @@ export function CmdPalette() {
   const [loading, setLoading] = useState(false);
   const [recentItems, setRecentItems] = useState<PaletteItem[]>([]);
   const [liveItems, setLiveItems] = useState<PaletteItem[]>([]);
+  const { permissions, assignments } = useRBAC();
+  const { isEnabled } = useAddons();
+
+  // Every result is gated by the same RBAC the sidebar uses, so the palette can
+  // never surface a page or resource the session isn't allowed to see. Game
+  // servers additionally require the Game Hub addon to be enabled.
+  const canApps = canAccessNavHref("/apps", permissions, assignments);
+  const canPods = canAccessNavHref("/pods", permissions, assignments);
+  const canServices = canAccessNavHref("/network", permissions, assignments);
+  const canGameServers = isEnabled("game-hub") && canAccessNavHref("/game-hub", permissions, assignments);
+
+  const allowedNavItems = useMemo(
+    () => navigationItems.filter((item) => canAccessNavHref(item.href, permissions, assignments)),
+    [permissions, assignments],
+  );
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -183,10 +203,11 @@ export function CmdPalette() {
 
     const fetchResources = async () => {
       setLoading(true);
-      const [appsResult, podsResult, gameServersResult] = await Promise.allSettled([
-        fetch("/api/argocd/apps").then((response) => (response.ok ? response.json() : [])),
-        fetch("/api/pods").then((response) => (response.ok ? response.json() : [])),
-        fetch("/api/gameservers").then((response) => (response.ok ? response.json() : [])),
+      const [appsResult, podsResult, servicesResult, gameServersResult] = await Promise.allSettled([
+        canApps ? fetch("/api/argocd/apps").then((response) => (response.ok ? response.json() : [])) : Promise.resolve([]),
+        canPods ? fetch("/api/pods").then((response) => (response.ok ? response.json() : [])) : Promise.resolve([]),
+        canServices ? fetch("/api/network/topology").then((response) => (response.ok ? response.json() : { nodes: [] })) : Promise.resolve({ nodes: [] }),
+        canGameServers ? fetch("/api/gameservers").then((response) => (response.ok ? response.json() : [])) : Promise.resolve([]),
       ]);
 
       const nextItems: PaletteItem[] = [];
@@ -235,6 +256,22 @@ export function CmdPalette() {
         );
       }
 
+      if (servicesResult.status === "fulfilled") {
+        const topology = servicesResult.value as { nodes?: Array<{ type?: string; name?: string; namespace?: string; status?: string }> };
+        const services = (topology.nodes ?? []).filter((node) => node.type === "service");
+        nextItems.push(
+          ...services.slice(0, 12).map((service) => ({
+            id: `service-${service.namespace ?? "default"}-${service.name ?? "unknown"}`,
+            title: service.name ?? "Unknown service",
+            subtitle: `${service.namespace ?? "default"} · ${service.status ?? "service"}`,
+            href: "/network",
+            category: "Services" as const,
+            icon: Network,
+            keywords: [service.namespace ?? "", "service", service.status ?? ""],
+          }))
+        );
+      }
+
       if (gameServersResult.status === "fulfilled") {
         const gameServers = gameServersResult.value as Array<{ name?: string; displayName?: string; gameType?: string; serviceStatus?: string }>;
         nextItems.push(
@@ -254,15 +291,21 @@ export function CmdPalette() {
       setLoading(false);
     };
 
+    void fetchResources();
+    // Re-fetch when access resolves so newly-permitted categories appear and
+    // forbidden ones never get queried.
+  }, [open, canApps, canPods, canServices, canGameServers]);
+
+  useEffect(() => {
+    if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuery("");
     setSelectedIndex(0);
     setRecentItems(loadRecent());
-    void fetchResources();
     window.setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
 
-  const allItems = useMemo(() => [...navigationItems, ...liveItems], [liveItems]);
+  const allItems = useMemo(() => [...allowedNavItems, ...liveItems], [allowedNavItems, liveItems]);
 
   const filteredItems = useMemo(() => {
     if (!query.trim()) return allItems;
@@ -272,6 +315,20 @@ export function CmdPalette() {
       return haystack.includes(value);
     });
   }, [allItems, query]);
+
+  const accessibleRecent = useMemo(
+    () =>
+      recentItems.filter((item) => {
+        switch (item.category) {
+          case "Apps": return canApps;
+          case "Pods": return canPods;
+          case "Services": return canServices;
+          case "Game Servers": return canGameServers;
+          default: return canAccessNavHref(item.href, permissions, assignments);
+        }
+      }),
+    [recentItems, canApps, canPods, canServices, canGameServers, permissions, assignments],
+  );
 
   const sections = useMemo(() => {
     if (query.trim()) {
@@ -283,13 +340,13 @@ export function CmdPalette() {
 
     const categorySections = CATEGORY_ORDER.map((category) => ({
       label: category,
-      items: (category === "Navigation" ? navigationItems : liveItems.filter((item) => item.category === category)).slice(0, category === "Pods" ? 10 : 8),
+      items: (category === "Navigation" ? allowedNavItems : liveItems.filter((item) => item.category === category)).slice(0, category === "Pods" ? 10 : 8),
     })).filter((section) => section.items.length > 0);
 
-    return recentItems.length > 0
-      ? [{ label: "Recent", items: recentItems }, ...categorySections]
+    return accessibleRecent.length > 0
+      ? [{ label: "Recent", items: accessibleRecent }, ...categorySections]
       : categorySections;
-  }, [filteredItems, liveItems, query, recentItems]);
+  }, [accessibleRecent, allowedNavItems, filteredItems, liveItems, query]);
 
   const flatItems = useMemo(() => sections.flatMap((section) => section.items), [sections]);
 
@@ -352,7 +409,7 @@ export function CmdPalette() {
                   setQuery(event.target.value);
                   setSelectedIndex(0);
                 }}
-                placeholder="Search navigation, apps, pods, and game servers..."
+                placeholder="Search navigation, apps, pods, services, and game servers..."
                 className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none"
               />
               {loading ? <LoadingSpinner size="sm" color="white" /> : null}

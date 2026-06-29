@@ -5,7 +5,7 @@ describe("page registry", () => {
     const page = getPageConfig("/settings");
     expect(page).toBeDefined();
     expect(page?.pageTitle).toBe("Settings");
-    expect(page?.groupId).toBe("settings");
+    expect(page?.groupId).toBe("platform");
   });
 
   it("creates nav items from page definitions", () => {
@@ -17,8 +17,8 @@ describe("page registry", () => {
   it("merges scaffoldable pages into existing nav groups", () => {
     const groups = mergeRegisteredPages([
       {
-        id: "settings",
-        label: "Settings",
+        id: "platform",
+        label: "Platform",
         description: "Preferences",
         icon: (() => null) as never,
         items: [],

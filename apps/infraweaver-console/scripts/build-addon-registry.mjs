@@ -54,12 +54,17 @@ function extractArrayOf(src, key) {
 
 function parseNavItems(src) {
   const block = extractArrayOf(src, "navItems");
-  return block.map(item => ({
-    href: extractString(item, "href") ?? "",
-    label: extractString(item, "label") ?? "",
-    icon: extractString(item, "icon") ?? "",
-    group: extractString(item, "group") ?? "",
-  })).filter(n => n.href);
+  return block.map(item => {
+    const nav = {
+      href: extractString(item, "href") ?? "",
+      label: extractString(item, "label") ?? "",
+      icon: extractString(item, "icon") ?? "",
+      group: extractString(item, "group") ?? "",
+    };
+    const description = extractString(item, "description");
+    if (description) nav.description = description;
+    return nav;
+  }).filter(n => n.href);
 }
 
 function parsePages(src) {

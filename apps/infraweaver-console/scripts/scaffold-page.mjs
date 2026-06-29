@@ -26,7 +26,7 @@ function parseArgs(argv) {
 
   const options = {
     slug,
-    group: "tools",
+    group: "platform",
     icon: "LayoutGrid",
     withApi: false,
     typeName: "",

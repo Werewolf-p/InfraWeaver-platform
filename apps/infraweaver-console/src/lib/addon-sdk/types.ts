@@ -7,6 +7,7 @@ export interface AddonNavItem {
   label: string;
   icon: string;
   group: string;
+  description?: string;
 }
 
 export interface Addon {
@@ -37,7 +38,9 @@ export const addonNavItemSchema = z.object({
   href: z.string(),
   label: z.string(),
   icon: z.string(),
+  /** Nav group the item is contributed to; "addons" routes it to the Addons group. */
   group: z.string(),
+  description: z.string().optional(),
 });
 
 export const addonApiSchema = z.object({
@@ -119,6 +122,7 @@ export function manifestToAddon(manifest: AddonManifest, enabled = false): Addon
     label: n.label,
     icon: n.icon,
     group: n.group,
+    description: n.description,
   }));
 
   return {

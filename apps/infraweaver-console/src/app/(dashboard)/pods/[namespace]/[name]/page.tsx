@@ -4,11 +4,14 @@ import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { ArrowLeft, FileText, Logs, Server, TerminalSquare } from "lucide-react";
+import { ArrowLeft, FileText, Logs, Server, ShieldCheck, TerminalSquare } from "lucide-react";
 import { LogStreamViewer } from "@/components/logs/log-stream-viewer";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionTabs } from "@/components/ui/section-tabs";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { useRBAC } from "@/hooks/use-rbac";
+import { canAccessNavHref } from "@/lib/navigation-rbac";
+import { PodFirewallPanel } from "@/app/(dashboard)/network/firewall/_components/pod-firewall-panel";
 
 interface PodDetailResponse {
   name: string;
@@ -66,6 +69,8 @@ export default function PodDetailPage() {
   const name = decodeURIComponent(String(params?.name ?? ""));
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedContainer, setSelectedContainer] = useState("");
+  const { permissions, assignments } = useRBAC();
+  const canViewFirewall = canAccessNavHref("/network/firewall", permissions, assignments);
 
   const { data, isLoading, error } = useQuery<PodDetailResponse>({
     queryKey: ["pod-detail", namespace, name],
@@ -108,6 +113,7 @@ export default function PodDetailPage() {
     { label: "Overview", value: "overview", icon: Server },
     { label: "Logs", value: "logs", icon: Logs, badge: data.containers.length },
     { label: "Terminal", value: "terminal", icon: TerminalSquare },
+    ...(canViewFirewall ? [{ label: "Pod Security", value: "security", icon: ShieldCheck }] : []),
     { label: "Events", value: "events", icon: FileText, badge: eventsData?.events.length ?? 0 },
     { label: "Config", value: "config", icon: FileText },
   ];
@@ -259,6 +265,10 @@ export default function PodDetailPage() {
             </Link>
           </div>
         </div>
+      )}
+
+      {activeTab === "security" && canViewFirewall && (
+        <PodFirewallPanel namespace={data.namespace} name={data.name} />
       )}
 
       {activeTab === "events" && (

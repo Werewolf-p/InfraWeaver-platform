@@ -13,7 +13,7 @@ const manifest: AddonManifest = {
   requiresSetup: false,
 
   navItems: [
-    { href: "/wordpress", label: "WordPress", icon: "Globe", group: "infrastructure" },
+    { href: "/wordpress", label: "WordPress", icon: "Globe", group: "addons", description: "Provision and manage secure WordPress sites" },
   ],
 
   pages: [

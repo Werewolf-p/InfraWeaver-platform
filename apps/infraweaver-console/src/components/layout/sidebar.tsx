@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, ChevronDown, Search, Star, Clock, Grid3X3, X, LogOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Search, Star, Clock, X, LogOut } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn } from "@/lib/utils";
 import { useSession, signOut } from "next-auth/react";
@@ -13,6 +13,7 @@ import { useRecentPages } from "@/hooks/use-recent-pages";
 import { useAddons } from "@/hooks/use-addons";
 import { filterNavGroupsByAddons } from "@/lib/addons";
 import { filterNavGroupsByPermissions } from "@/lib/navigation-rbac";
+import { ResourceResults } from "@/components/search/resource-results";
 import { NAV_GROUPS, type NavItem } from "@/lib/nav-config";
 import { springs, staggerContainer, staggerItem } from "@/lib/spring";
 
@@ -109,9 +110,8 @@ export function Sidebar() {
   const [search, setSearch] = useState("");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     const defaults: Record<string, boolean> = {
-      overview: true, apps: true, compute: false, networking: false, storage: false,
-      security: true, operations: false, monitoring: false, gaming: false, registry: false,
-      documentation: false, tools: false, admin: false,
+      overview: true, workloads: true, networking: false, storage: false,
+      observability: false, security: true, platform: false, addons: true,
     };
     if (typeof window === "undefined") return defaults;
     try {
@@ -236,19 +236,22 @@ export function Sidebar() {
       {/* Nav content - scrollable */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 px-2 scrollbar-none">
 
-        {/* Search results */}
+        {/* Search results — pages + live resources */}
         {filteredItems !== null && !collapsed && (
           <div className="mb-3">
-            <p className="px-2 py-1 text-[10px] text-gray-400 dark:text-[#555] uppercase tracking-wider">{filteredItems.length} results</p>
+            {filteredItems.length > 0 && (
+              <p className="px-2 py-1 text-[10px] text-gray-400 dark:text-[#555] uppercase tracking-wider">Pages</p>
+            )}
             <div className="space-y-0.5">
               {filteredItems.map(item => {
                 const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
                 return <NavItemRow key={item.href} item={item} isActive={isActive} collapsed={false} />;
               })}
-              {filteredItems.length === 0 && (
-                <p className="px-3 py-2 text-xs text-gray-400 dark:text-[#555]">No pages match &ldquo;{search}&rdquo;</p>
-              )}
             </div>
+            <ResourceResults query={search} className="mt-2" />
+            {filteredItems.length === 0 && (
+              <p className="px-3 py-2 text-xs text-gray-400 dark:text-[#555]">No pages match &ldquo;{search}&rdquo; — searching resources…</p>
+            )}
           </div>
         )}
 
@@ -289,8 +292,8 @@ export function Sidebar() {
           <div className="mx-2 border-b border-gray-200 dark:border-[#2a2a2a] my-2" />
         )}
 
-        {/* Main nav groups - COLLAPSIBLE accordion */}
-        {filteredItems === null && filteredNavGroups.filter((g) => g.id !== "settings").map(group => {
+        {/* Main nav groups - COLLAPSIBLE accordion (all 7 groups + Addons) */}
+        {filteredItems === null && filteredNavGroups.map(group => {
           if (collapsed) {
             return (
               <div key={group.id} className="py-0.5">
@@ -362,34 +365,7 @@ export function Sidebar() {
           );
         })}
 
-        {/* All Services link */}
-        {!collapsed && filteredItems === null && (
-          <div className="pt-1">
-            <Link
-              href="/all-services"
-              className={cn(
-                "flex items-center gap-2.5 px-3 py-1.5 rounded text-sm transition-all w-full",
-                pathname === "/all-services"
-                  ? "bg-[rgba(0,120,212,0.15)] text-[#0078D4] border-l-2 border-[#0078D4] pl-[10px] font-medium"
-                  : "text-gray-500 dark:text-[#9e9e9e] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
-              )}
-            >
-              <Grid3X3 className="w-4 h-4 flex-shrink-0" />
-              <span>All Services</span>
-            </Link>
-          </div>
-        )}
       </div>
-
-      {/* Settings group (always at bottom) */}
-      {!collapsed && (
-        <div className="px-2 py-2 border-t border-gray-200 dark:border-[#2a2a2a] flex-shrink-0 space-y-0.5">
-          {filteredNavGroups.find((g) => g.id === "settings")?.items.map(item => {
-            const isActive = pathname === item.href;
-            return <NavItemRow key={item.href} item={item} isActive={isActive} collapsed={false} />;
-          })}
-        </div>
-      )}
 
       {/* User footer */}
       <motion.div

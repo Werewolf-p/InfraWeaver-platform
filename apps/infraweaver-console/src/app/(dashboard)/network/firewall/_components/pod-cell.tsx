@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowDownLeft, ArrowUpRight, ChevronDown, ShieldHalf } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ChevronDown, ExternalLink, ShieldHalf } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   type AllowedRuleEntry,
@@ -104,10 +105,15 @@ export function PodCell({ pod, bidirectional, rules, onExpand, onAllow, onCommit
             )}
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--az-danger)]" />
           </span>
-          <div className="min-w-0 truncate">
+          <Link
+            href={`/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.pod)}`}
+            className="group/link min-w-0 truncate"
+            title="Open pod detail"
+          >
             <span className="font-mono text-xs text-slate-400 dark:text-[#777]">{pod.namespace}/</span>
-            <span className="font-medium text-slate-800 dark:text-[#ededed]">{pod.pod}</span>
-          </div>
+            <span className="font-medium text-slate-800 group-hover/link:underline dark:text-[#ededed]">{pod.pod}</span>
+            <ExternalLink className="ml-1 inline h-3 w-3 align-baseline text-slate-400 opacity-0 transition-opacity group-hover/link:opacity-100 dark:text-[#777]" aria-hidden />
+          </Link>
         </div>
         <span className="shrink-0 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
           {count} blocked

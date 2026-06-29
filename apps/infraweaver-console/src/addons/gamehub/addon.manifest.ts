@@ -14,7 +14,7 @@ const manifest: AddonManifest = {
   setupPath: "/game-hub/setup",
 
   navItems: [
-    { href: "/game-hub", label: "Game Hub", icon: "Gamepad2", group: "gaming" },
+    { href: "/game-hub", label: "Game Hub", icon: "Gamepad2", group: "addons", description: "Deploy and manage game servers on Kubernetes" },
   ],
 
   pages: [

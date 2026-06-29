@@ -180,15 +180,18 @@ function searchNavigation(
   for (const group of filteredGroups) {
     for (const item of group.items) {
       if (!includesQuery(query, item.label, item.description, item.href)) continue;
+      // Settings-style pages now live in the Platform group; bucket them by href
+      // so the search UI keeps its dedicated "settings" section.
+      const isSetting = item.href === "/profile" || item.href.startsWith("/settings");
       const result: SearchResult = {
         id: `nav-${item.href}`,
         title: item.label,
         subtitle: item.description,
         href: item.href,
-        category: group.id === "settings" ? "setting" : "navigation",
-        icon: group.id === "settings" ? "⚙️" : "🧭",
+        category: isSetting ? "setting" : "navigation",
+        icon: isSetting ? "⚙️" : "🧭",
       };
-      if (group.id === "settings") settings.push(result);
+      if (isSetting) settings.push(result);
       else navigation.push(result);
     }
   }

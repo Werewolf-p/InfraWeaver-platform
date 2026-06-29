@@ -58,7 +58,7 @@ export interface NavGroupLike {
 const REGISTERED_PAGE_DEFINITIONS: RegisteredPageDefinition[] = [
   {
     href: "/quota",
-    groupId: "compute",
+    groupId: "workloads",
     label: "Resource Quotas",
     iconName: "BarChart2",
     description: "Namespace resource limits and usage",
@@ -71,7 +71,7 @@ const REGISTERED_PAGE_DEFINITIONS: RegisteredPageDefinition[] = [
   },
   {
     href: "/cost",
-    groupId: "tools",
+    groupId: "overview",
     label: "Cost Estimate",
     iconName: "DollarSign",
     description: "Estimated resource cost breakdown",
@@ -84,7 +84,7 @@ const REGISTERED_PAGE_DEFINITIONS: RegisteredPageDefinition[] = [
   },
   {
     href: "/settings",
-    groupId: "settings",
+    groupId: "platform",
     label: "Settings",
     iconName: "Settings",
     description: "Console preferences and configuration",
@@ -94,7 +94,7 @@ const REGISTERED_PAGE_DEFINITIONS: RegisteredPageDefinition[] = [
   },
   {
     href: "/profile",
-    groupId: "settings",
+    groupId: "platform",
     label: "My Profile",
     iconName: "UserCircle",
     description: "Your profile and session info",
@@ -105,7 +105,7 @@ const REGISTERED_PAGE_DEFINITIONS: RegisteredPageDefinition[] = [
   },
   {
     href: "/wiki",
-    groupId: "documentation",
+    groupId: "overview",
     label: "Wiki",
     iconName: "BookOpen",
     shortcut: "G W",
@@ -117,7 +117,7 @@ const REGISTERED_PAGE_DEFINITIONS: RegisteredPageDefinition[] = [
   },
   {
     href: "/settings/infrastructure",
-    groupId: "settings",
+    groupId: "platform",
     label: "Infrastructure",
     iconName: "Sliders",
     description: "Read-only cluster configuration and infrastructure status",

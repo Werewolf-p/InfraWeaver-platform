@@ -1,15 +1,25 @@
 "use client";
 import { useState, useEffect } from "react";
+import type { SearchResponse } from "@/lib/search";
 
 export interface SearchResult {
   id: string;
-  type: "app" | "pod" | "nav";
+  type: "app" | "pod" | "game-server" | "nav";
   name: string;
   subtitle: string;
   href: string;
   icon?: string;
 }
 
+type ApiItem = SearchResponse["pods"][number];
+
+/**
+ * Live resource search for the inline search bars (sidebar filter, mobile
+ * drawer/more sheet) and the spotlight. Backed by /api/search, which is already
+ * RBAC-filtered server-side — it only returns the pods/apps/game-servers the
+ * session may see, and each result deep-links to its detail panel
+ * (pod → pod+firewall view, game server → game panel). Debounced.
+ */
 export function useResourceSearch(query: string) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -22,58 +32,45 @@ export function useResourceSearch(query: string) {
     }
 
     setLoading(true);
-    const q = query.toLowerCase();
+    const controller = new AbortController();
 
     const fetchAll = async () => {
-      const out: SearchResult[] = [];
-
       try {
-        const [appsRes, podsRes] = await Promise.allSettled([
-          fetch("/api/argocd/apps", { signal: AbortSignal.timeout(10000) }).then(r => r.ok ? r.json() : []),
-          fetch("/api/pods", { signal: AbortSignal.timeout(10000) }).then(r => r.ok ? r.json() : []),
-        ]);
-
-        if (appsRes.status === "fulfilled") {
-          const apps = appsRes.value as Array<{ metadata?: { name?: string }; spec?: { destination?: { namespace?: string } } }>;
-          for (const app of apps) {
-            const name = app.metadata?.name ?? "";
-            if (name.toLowerCase().includes(q)) {
-              out.push({
-                id: `app-${name}`,
-                type: "app",
-                name,
-                subtitle: app.spec?.destination?.namespace ?? "argocd",
-                href: "/apps",
-              });
-            }
-          }
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          setResults([]);
+          setLoading(false);
+          return;
         }
-
-        if (podsRes.status === "fulfilled") {
-          const pods = podsRes.value as Array<{ name?: string; namespace?: string; status?: string }>;
-          for (const pod of pods) {
-            const name = pod.name ?? "";
-            if (name.toLowerCase().includes(q)) {
-              out.push({
-                id: `pod-${name}`,
-                type: "pod",
-                name,
-                subtitle: pod.namespace ?? "",
-                href: "/pods",
-              });
-            }
-          }
-        }
+        const data = (await res.json()) as SearchResponse;
+        const map = (items: ApiItem[], type: SearchResult["type"]): SearchResult[] =>
+          items.map((item) => ({
+            id: item.id,
+            type,
+            name: item.title,
+            subtitle: item.subtitle ?? "",
+            href: item.href,
+            icon: item.icon,
+          }));
+        const out = [
+          ...map(data.pods ?? [], "pod"),
+          ...map(data.apps ?? [], "app"),
+          ...map(data.gameServers ?? [], "game-server"),
+        ];
+        setResults(out.slice(0, 24));
       } catch {
-        // ignore
+        // ignore (aborted or network) — leave previous results
       }
-
-      setResults(out.slice(0, 20));
       setLoading(false);
     };
 
-    const timer = setTimeout(() => void fetchAll(), 300);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => void fetchAll(), 250);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [query]);
 
   return { results, loading };

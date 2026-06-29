@@ -1,13 +1,15 @@
 import {
-  Archive, LayoutDashboard, Box, Settings, Users, HardDrive,
+  LayoutDashboard, Settings, Users, HardDrive,
   Network, Activity, Terminal, History, Cog,
   Package, FileText, ShieldCheck, Server,
   Sparkles, Home, Trash2, GitBranch, ArrowUpCircle,
-  Globe, BellOff, Shield, AlertTriangle, HeartPulse,
-  Calendar, TrendingUp, Gamepad2, Search, LayoutGrid, TestTube2, Puzzle, BookOpen, MemoryStick,
-  KeyRound, Lock, Database, Boxes, MessageSquarePlus,
+  Globe, BellOff, Shield, HeartPulse,
+  Calendar, TrendingUp, Search, LayoutGrid, TestTube2, Puzzle, MemoryStick,
+  KeyRound, Lock, Boxes, MessageSquarePlus,
 } from "lucide-react";
 import { mergeRegisteredPages, navItemFromPage } from "@/lib/page-registry";
+import { ADDON_MANIFESTS } from "@/generated/addon-registry";
+import { resolveAddonIcon } from "@/lib/addon-icons";
 
 export interface NavItem {
   href: string;
@@ -29,79 +31,115 @@ export interface NavGroup {
   items: NavItem[];
 }
 
+// Nav items contributed by enabled-capable addons, derived from each addon
+// manifest's `navItems` (group === "addons"). No hardcoded addon links — adding
+// an addon manifest is enough to surface it. Runtime visibility is gated by the
+// addon's enabled state via filterNavGroupsByAddons (and RBAC via NAV_REQUIREMENTS).
+const ADDON_NAV_ITEMS = ADDON_MANIFESTS.flatMap((manifest) =>
+  (manifest.navItems ?? [])
+    .filter((nav) => nav.group === "addons")
+    .map((nav) => ({
+      href: nav.href,
+      icon: resolveAddonIcon(nav.icon),
+      label: nav.label,
+      description: nav.description ?? manifest.description,
+    })),
+);
+
+// ── Target IA: 7 RBAC-gated groups + a conditional Addons group ────────────────
+// Groups auto-hide when RBAC grants none of their children
+// (filterNavGroupsByPermissions) and the Addons group auto-hides when no addon
+// is enabled (filterNavGroupsByAddons). Every legacy capability is preserved —
+// relocated/merged, never deleted. See docs/ia-restructure-plan.md.
 export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
   {
     id: "overview",
     label: "Overview",
-    description: "Home, dashboard, and platform status",
+    description: "Home, dashboard, cluster, cost, and platform status",
     icon: Home,
     defaultOpen: true,
     items: [
       { href: "/home", icon: Home, label: "Home Portal", shortcut: "G O", description: "Platform overview and quick access", pinnable: true },
       { href: "/", icon: LayoutDashboard, label: "Dashboard", shortcut: "G D", description: "Real-time cluster metrics and status", pinnable: true },
       { href: "/status", icon: Activity, label: "Platform Status", shortcut: "", description: "Live health of all platform services", pinnable: true },
-      { href: "/events", icon: History, label: "Activity Log", shortcut: "G E", description: "Cluster events and audit trail" },
+      { href: "/cluster", icon: Boxes, label: "Cluster Nodes", shortcut: "G K", description: "Node management and cluster overview" },
+      navItemFromPage("/cost"),
+      { href: "/feedback", icon: MessageSquarePlus, label: "Feedback & Fix Flow", description: "Review reported issues, run the Claude fix pipeline, preview, and publish", keywords: ["feedback", "report", "bug", "feature request", "note", "claude", "fix", "review", "publish", "preview"] },
+      navItemFromPage("/wiki"),
+      { href: "/changelog", icon: Sparkles, label: "What's New", description: "Recent platform updates" },
     ],
   },
   {
-    id: "apps",
-    label: "Applications",
-    description: "Deploy and manage all applications",
-    icon: Box,
+    id: "workloads",
+    label: "Workloads",
+    description: "Pods, apps, services, and scaling",
+    icon: Server,
     defaultOpen: true,
     items: [
+      { href: "/pods", icon: Server, label: "Pods", shortcut: "G P", description: "All pods with live status — logs, shell, and firewall" },
       { href: "/apps", icon: LayoutGrid, label: "Apps", shortcut: "G A", description: "Install and manage all platform applications", pinnable: true },
-      { href: "/power-groups", icon: Boxes, label: "Power Groups", description: "Group apps and stop/start them as one unit", pinnable: true },
-    ],
-  },
-  {
-    id: "compute",
-    label: "Compute & Workloads",
-    description: "Pods, nodes, and cluster resources",
-    icon: Server,
-    defaultOpen: false,
-    items: [
-      { href: "/pods", icon: Server, label: "Pods", shortcut: "G P", description: "All pods with live status" },
-      { href: "/cluster", icon: Boxes, label: "Cluster Nodes", shortcut: "G K", description: "Node management and cluster overview" },
+      { href: "/all-services", icon: Search, label: "All Services", description: "Searchable index of every console page and service" },
+      { href: "/app-graph", icon: Network, label: "App Graph", description: "Visual application dependency graph" },
+      { href: "/cronjobs", icon: Calendar, label: "CronJobs", description: "Scheduled Kubernetes cronjobs" },
+      { href: "/scheduled-tasks", icon: Calendar, label: "Scheduled Tasks", description: "View and manage scheduled operations" },
+      { href: "/deployment-compare", icon: GitBranch, label: "Deploy Compare", description: "Diff current vs previous deployment" },
+      { href: "/resource-optimizer", icon: Activity, label: "Optimizer", description: "Right-size CPU and memory requests" },
       { href: "/node-top", icon: Activity, label: "Node Metrics", description: "Live node CPU and memory usage" },
       { href: "/memory", icon: MemoryStick, label: "Memory Heatmap", description: "Namespace memory reservations and top consumers" },
-      { href: "/cronjobs", icon: Calendar, label: "CronJobs", description: "Scheduled Kubernetes cronjobs" },
       navItemFromPage("/quota"),
+      { href: "/power-groups", icon: Boxes, label: "Power Groups", description: "Group apps and stop/start them as one unit", pinnable: true },
+      { href: "/namespace-cleanup", icon: Trash2, label: "NS Cleanup", description: "Find and remove stale namespaces" },
+      { href: "/pod-shell", icon: Terminal, label: "Pod Shell", description: "Browser-based terminal into pods" },
     ],
   },
   {
     id: "networking",
     label: "Networking",
-    description: "Network, DNS, routes, and connectivity",
+    description: "Network, firewall, DNS, routes, and connectivity",
     icon: Network,
     defaultOpen: false,
     items: [
-      { href: "/network", icon: Network, label: "Network", shortcut: "G N", description: "Services, ingress, and network topology", pinnable: true, keywords: ["services", "topology", "connectivity"] },
-      { href: "/routes", icon: Globe, label: "Routing & DNS", description: "Routes, DNS records, access modes, middleware, and port routing — view and edit in one place", pinnable: true, keywords: ["routes", "ingress", "traefik", "external routes", "port routing", "hosts", "tls", "tier", "dns", "cloudflare", "middleware", "auth", "mode"] },
-      { href: "/dns", icon: Globe, label: "DNS", shortcut: "G Z", description: "Manage internal and public Cloudflare records", pinnable: true, keywords: ["cloudflare", "records", "domain"] },
-      { href: "/gameservers", icon: Network, label: "Port Routing", description: "DNS-based port routing for external services", keywords: ["ports", "tcp", "udp", "external services"] },
-      { href: "/network-policies", icon: Network, label: "Net Policies", description: "Kubernetes NetworkPolicy rules", keywords: ["networkpolicy", "firewall"] },
+      { href: "/network", icon: Network, label: "Network", shortcut: "G N", description: "Service topology, NetworkPolicies, and Ingress", pinnable: true, keywords: ["services", "topology", "connectivity", "networkpolicy", "policies", "ingress", "traefik", "hosts"] },
       { href: "/network/firewall", icon: ShieldCheck, label: "Pod Security", description: "Recent denies per pod — allow with one click, remove allowed rules", pinnable: true, keywords: ["firewall", "cilium", "hubble", "denied", "allow", "ingress", "egress", "networkpolicy", "block"] },
-      { href: "/certificates", icon: ShieldCheck, label: "Certificates", description: "TLS certificate status and expiry", keywords: ["tls", "ssl", "cert-manager"] },
+      { href: "/dns", icon: Globe, label: "DNS", shortcut: "G Z", description: "Manage internal and public Cloudflare records", pinnable: true, keywords: ["cloudflare", "records", "domain"] },
+      { href: "/routes", icon: Globe, label: "Routing & DNS", description: "Routes, DNS records, access modes, middleware, and port routing — view and edit in one place", pinnable: true, keywords: ["routes", "ingress", "traefik", "external routes", "port routing", "hosts", "tls", "tier", "dns", "cloudflare", "middleware", "auth", "mode"] },
+      { href: "/gameservers", icon: Network, label: "Port Routing", description: "DNS-based port routing for external services", keywords: ["ports", "tcp", "udp", "external services"] },
+      { href: "/uptime", icon: TrendingUp, label: "Uptime History", description: "Historical uptime for all services" },
     ],
   },
   {
     id: "storage",
-    label: "Storage",
-    description: "Volumes, backups, and capacity",
+    label: "Storage & Config",
+    description: "Volumes, backups, registry, config, and secrets",
     icon: HardDrive,
     defaultOpen: false,
     items: [
-      { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S", description: "Persistent volumes and storage classes", pinnable: true, keywords: ["pvc", "volumes", "storage classes"] },
-      { href: "/backups", icon: Archive, label: "Backups", description: "Browse Longhorn volume backups and trigger restores", pinnable: true, keywords: ["longhorn", "restore", "snapshot"] },
-      { href: "/pv-browser", icon: Database, label: "PV Browser", description: "Browse persistent volume contents", keywords: ["persistent volume", "files"] },
-      { href: "/storage-timeline", icon: TrendingUp, label: "Storage Timeline", description: "Historical storage usage charts" },
+      { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S", description: "Volumes, usage timeline, PV browser, and backups", pinnable: true, keywords: ["pvc", "volumes", "storage classes", "timeline", "pv browser", "backups", "longhorn", "restore", "snapshot", "files"] },
+      { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", description: "Container image registry browser", keywords: ["images", "containers", "harbor"] },
+      { href: "/config", icon: Cog, label: "Config", shortcut: "G C", description: "Config editor, ConfigMaps, and drift vs Git", pinnable: true, keywords: ["configmap", "config maps", "drift", "git", "secrets editor"] },
+      { href: "/secrets", icon: KeyRound, label: "Secrets & Certs", description: "Secret browser, expiry tracking, and TLS certificates", keywords: ["externalsecret", "credentials", "vault", "expiry", "rotation", "tls", "ssl", "cert-manager", "certificates"] },
+    ],
+  },
+  {
+    id: "observability",
+    label: "Observability",
+    description: "Monitoring, logs, events, health, and tests",
+    icon: Activity,
+    defaultOpen: false,
+    items: [
+      { href: "/monitoring", icon: HeartPulse, label: "Monitoring", description: "Unified observability dashboard", pinnable: true },
+      { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L", description: "Live streaming pod logs" },
+      { href: "/log-analytics", icon: FileText, label: "Log Analytics", description: "Search and analyze pod logs" },
+      { href: "/events", icon: History, label: "Activity Log", shortcut: "G E", description: "Cluster events and audit trail" },
+      { href: "/health", icon: Activity, label: "Health", shortcut: "G H", description: "Node and cluster health checks", pinnable: true },
+      { href: "/alert-silence", icon: BellOff, label: "Alert Silence", description: "Silence Prometheus alert rules" },
+      { href: "/tests", icon: TestTube2, label: "Diagnostics", description: "Platform tests, self-test, health probes, and webhook testing", pinnable: true, keywords: ["tests", "self test", "self-test", "health tester", "endpoint", "webhook", "diagnostics", "connectivity"] },
     ],
   },
   {
     id: "security",
-    label: "Security & Identity",
-    description: "Secrets, PIM, users, and access control",
+    label: "Security & Access",
+    description: "Posture, image scans, PIM, users, and RBAC",
     icon: Lock,
     defaultOpen: true,
     items: [
@@ -117,118 +155,36 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
         keywords: ["pim", "privileged", "elevation", "elevate", "just-in-time", "jit", "roles", "access", "identity", "activation", "eligible", "assignments", "groups"],
       },
       { href: "/users", icon: Users, label: "User Management", shortcut: "G M", description: "Manage users, groups, and SSO", pinnable: true, keywords: ["accounts", "sso", "groups", "members"] },
-      { href: "/settings/rbac", icon: Shield, label: "RBAC", description: "Manage role assignments and permissions (RBAC)", keywords: ["roles", "permissions", "role assignments"] },
       { href: "/rbac-viz", icon: Shield, label: "RBAC Visualizer", description: "Visual RBAC permission explorer", keywords: ["roles", "permissions", "graph"] },
-      { href: "/secrets", icon: KeyRound, label: "Secrets", description: "Read-only secret browser with ExternalSecret ownership", keywords: ["externalsecret", "credentials", "vault"] },
-      { href: "/secret-expiry", icon: ShieldCheck, label: "Secret Expiry", description: "Track certificate and secret expiry", keywords: ["expiry", "rotation"] },
     ],
   },
   {
-    id: "operations",
-    label: "Operations",
-    description: "Config, jobs, GitOps, and maintenance",
+    id: "platform",
+    label: "Platform",
+    description: "GitOps, automations, maintenance, and admin",
     icon: Cog,
     defaultOpen: false,
     items: [
-      { href: "/config", icon: Cog, label: "Config Editor", shortcut: "G C", description: "Edit Kubernetes ConfigMaps and Secrets", pinnable: true },
-      { href: "/config-maps", icon: FileText, label: "Config Maps", description: "Edit ConfigMap data across namespaces" },
-      { href: "/maintenance", icon: Settings, label: "Maintenance", description: "Drain, cordon, and node maintenance" },
       { href: "/gitops-diff", icon: GitBranch, label: "GitOps Diff", description: "ArgoCD app manifest diffs" },
-      { href: "/pipelines", icon: GitBranch, label: "Pipelines", description: "CI/CD pipeline overview" },
       { href: "/automations", icon: Sparkles, label: "Automation Hub", description: "Track self-healing jobs and workflow automations" },
-      { href: "/feedback", icon: MessageSquarePlus, label: "Feedback & Fix Flow", description: "Review reported issues, run the Claude fix pipeline, preview, and publish", keywords: ["feedback", "report", "bug", "feature request", "note", "claude", "fix", "review", "publish", "preview"] },
-      { href: "/scheduled-tasks", icon: Calendar, label: "Scheduled Tasks", description: "View and manage scheduled operations" },
-    ],
-  },
-  {
-    id: "monitoring",
-    label: "Monitoring & Logs",
-    description: "Health, uptime, and log analysis",
-    icon: Activity,
-    defaultOpen: false,
-    items: [
-      { href: "/monitoring", icon: HeartPulse, label: "Monitoring", description: "Unified observability dashboard", pinnable: true },
-      { href: "/health", icon: Activity, label: "Health", shortcut: "G H", description: "Node and cluster health checks", pinnable: true },
-      { href: "/uptime", icon: TrendingUp, label: "Uptime History", description: "Historical uptime for all services" },
-      { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L", description: "Live streaming pod logs" },
-      { href: "/log-analytics", icon: FileText, label: "Log Analytics", description: "Search and analyze pod logs" },
-    ],
-  },
-  {
-    id: "gaming",
-    label: "Game Hub",
-    description: "Game servers and gaming infrastructure",
-    icon: Gamepad2,
-    defaultOpen: false,
-    items: [
-      { href: "/game-hub", icon: Gamepad2, label: "Game Hub", description: "Deploy and manage game servers on Kubernetes" },
-    ],
-  },
-  {
-    id: "registry",
-    label: "Registry",
-    description: "Container image registry",
-    icon: Package,
-    defaultOpen: false,
-    items: [
-      { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", description: "Container image registry browser", keywords: ["images", "containers", "harbor"] },
-    ],
-  },
-  {
-    id: "documentation",
-    label: "Documentation",
-    description: "User manuals and developer guides",
-    icon: BookOpen,
-    defaultOpen: false,
-    items: [
-      navItemFromPage("/wiki"),
-    ],
-  },
-  {
-    id: "tools",
-    label: "Advanced Tools",
-    description: "Power-user utilities and debugging",
-    icon: Terminal,
-    defaultOpen: false,
-    items: [
-      { href: "/pod-shell", icon: Terminal, label: "Pod Shell", description: "Browser-based terminal into pods" },
-      { href: "/resource-optimizer", icon: Activity, label: "Optimizer", description: "Right-size CPU and memory requests" },
-      { href: "/app-graph", icon: Network, label: "App Graph", description: "Visual application dependency graph" },
-      { href: "/health-tester", icon: Activity, label: "Health Tester", description: "Test endpoint reachability" },
-      { href: "/webhook-tester", icon: Globe, label: "Webhook Tester", description: "Send test webhook payloads" },
-      { href: "/alert-silence", icon: BellOff, label: "Alert Silence", description: "Silence Prometheus alert rules" },
-      { href: "/config-drift", icon: AlertTriangle, label: "Config Drift", description: "Detect config changes vs Git" },
-      { href: "/deployment-compare", icon: GitBranch, label: "Deploy Compare", description: "Diff current vs previous deployment" },
-      { href: "/namespace-cleanup", icon: Trash2, label: "NS Cleanup", description: "Find and remove stale namespaces" },
-      navItemFromPage("/cost"),
-      { href: "/tests", icon: Activity, label: "Platform Tests", description: "Interactive platform test suite", pinnable: true },
-      { href: "/self-test", icon: TestTube2, label: "Self Test", description: "Verify console SA connectivity to the Kubernetes API" },
-    ],
-  },
-  {
-    id: "admin",
-    label: "Admin",
-    description: "Platform administration and update tooling",
-    icon: Shield,
-    defaultOpen: false,
-    items: [
+      { href: "/pipelines", icon: GitBranch, label: "Pipelines", description: "CI/CD pipeline overview" },
+      { href: "/maintenance", icon: Settings, label: "Maintenance", description: "Drain, cordon, and node maintenance" },
       { href: "/admin/updates", icon: ArrowUpCircle, label: "Update Manager", description: "Review GitOps versions and commit application updates", pinnable: true },
       { href: "/settings/platform", icon: ArrowUpCircle, label: "Platform Updates", description: "Pull latest InfraWeaver platform code and scripts from Onedev", pinnable: true },
+      { href: "/settings/rbac", icon: Shield, label: "RBAC", description: "Manage role assignments and permissions (RBAC)", keywords: ["roles", "permissions", "role assignments"] },
+      navItemFromPage("/settings"),
+      { href: "/settings/addons", icon: Puzzle, label: "Addons", description: "Enable/disable platform addons and features" },
+      navItemFromPage("/settings/infrastructure"),
+      navItemFromPage("/profile"),
     ],
   },
   {
-    id: "settings",
-    label: "Settings",
-    description: "Preferences and account",
-    icon: Settings,
-    defaultOpen: false,
-    items: [
-      navItemFromPage("/settings"),
-      navItemFromPage("/settings/infrastructure"),
-      { href: "/settings/addons", icon: Puzzle, label: "Addons", description: "Enable/disable platform addons and features" },
-      navItemFromPage("/profile"),
-      { href: "/changelog", icon: Sparkles, label: "What's New", description: "Recent platform updates" },
-    ],
+    id: "addons",
+    label: "Addons",
+    description: "Optional capabilities — visible only when enabled",
+    icon: Puzzle,
+    defaultOpen: true,
+    items: ADDON_NAV_ITEMS,
   },
 ]);
 
@@ -270,38 +226,13 @@ export const HREF_LABEL_MAP: Record<string, string> = Object.fromEntries(
   ALL_NAV_ITEMS.map(item => [item.href, item.label])
 );
 
-// Mobile bottom nav (4 items — 5th slot is "Menu" handled in layout.tsx)
+// Mobile bottom nav — stable core destinations (5th slot is "Menu" in layout.tsx).
+// Also seeds DEFAULT_FAVORITES. Kept addon-independent so it's always populated;
+// the live bottom bar (layout.tsx) reads these hrefs from the RBAC/addon-filtered
+// nav groups, and everything else lives in the "More" sheet.
 export const MOBILE_BOTTOM_NAV: NavItem[] = [
   { href: "/home", icon: Home, label: "Home" },
   { href: "/apps", icon: LayoutGrid, label: "Apps" },
-  { href: "/game-hub", icon: Gamepad2, label: "Game Hub" },
   { href: "/pods", icon: Server, label: "Pods" },
-];
-
-// Mobile drawer nav (shown in the "More" full-screen sheet)
-export const MOBILE_DRAWER_NAV: NavItem[] = [
-  { href: "/home", icon: Home, label: "Home Portal" },
-  { href: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/apps", icon: LayoutGrid, label: "Apps" },
-  { href: "/monitoring", icon: HeartPulse, label: "Monitoring" },
-  { href: "/health", icon: Activity, label: "Health" },
-  { href: "/network", icon: Network, label: "Network" },
-  { href: "/dns", icon: Globe, label: "DNS" },
-  { href: "/routes", icon: Globe, label: "Routing" },
-  { href: "/config", icon: Cog, label: "Config Editor" },
-  { href: "/config-maps", icon: FileText, label: "Config Maps" },
-  { href: "/secrets", icon: ShieldCheck, label: "Secrets" },
-  { href: "/security", icon: ShieldCheck, label: "Security" },
-  { href: "/cluster", icon: Server, label: "Cluster" },
-  { href: "/users", icon: Users, label: "User Management" },
-  { href: "/admin/updates", icon: ArrowUpCircle, label: "Update Manager" },
-  { href: "/gameservers", icon: Gamepad2, label: "Port Routing" },
-  { href: "/game-hub", icon: Gamepad2, label: "Game Hub" },
-  { href: "/wiki", icon: BookOpen, label: "Wiki" },
-  { href: "/uptime", icon: TrendingUp, label: "Uptime History" },
-  { href: "/certificates", icon: ShieldCheck, label: "Certificates" },
-  { href: "/all-services", icon: Search, label: "All Services" },
-  { href: "/tests", icon: Activity, label: "Platform Tests" },
-  { href: "/settings", icon: Settings, label: "Settings" },
-  { href: "/settings/addons", icon: Puzzle, label: "Addons" },
+  { href: "/cluster", icon: Boxes, label: "Cluster" },
 ];
