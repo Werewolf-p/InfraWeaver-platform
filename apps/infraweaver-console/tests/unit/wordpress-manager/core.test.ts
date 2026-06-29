@@ -402,10 +402,36 @@ describe("authentik SSO (WordPress plugin glue)", () => {
     // JWKS endpoint must be configured so the plugin verifies ID-token
     // signatures instead of using the insecure fallback (removed in 3.12.0).
     expect(settings.endpoint_jwks).toBe(creds.jwksUrl);
-    // The backchannel reaches Authentik via the pod hostAlias (authentik-server's
-    // self-signed :443), so peer cert verification is off; the issuer claim above
-    // is still validated.
-    expect(settings.no_sslverify).toBe(1);
+    // Default (no backchannel pin): endpoints stay https, peer verification on,
+    // SSRF guard left enabled.
+    expect(settings.no_sslverify).toBe(0);
+    expect(settings.allow_internal_idp).toBe(0);
+  });
+
+  test("backchannel mode downgrades server-side endpoints + issuer to http and allows the internal IdP", () => {
+    const prev = process.env;
+    process.env = {
+      ...prev,
+      WORDPRESS_AUTHENTIK_BACKCHANNEL_IP: "10.106.138.152",
+      WORDPRESS_AUTHENTIK_ISSUER: "https://auth.example.com",
+    };
+    try {
+      const settings = buildOidcSettings(creds);
+      // Server-side (backchannel) endpoints + issuer go over http (no TLS, no
+      // self-signed cert to verify; matches the http `iss` Authentik then mints).
+      expect(settings.issuer).toBe("http://auth.example.com/application/o/wordpress-blog/");
+      expect(settings.endpoint_token).toBe("http://auth.example.com/application/o/token/");
+      expect(settings.endpoint_userinfo).toBe("http://auth.example.com/application/o/userinfo/");
+      expect(settings.endpoint_jwks).toBe("http://auth.example.com/application/o/wordpress-blog/jwks/");
+      // Front-channel (browser) endpoints stay https.
+      expect(settings.endpoint_login).toBe(creds.authorizeUrl);
+      expect(settings.endpoint_end_session).toBe(creds.endSessionUrl);
+      // Reach the private ClusterIP; never bypass cert verification.
+      expect(settings.allow_internal_idp).toBe(1);
+      expect(settings.no_sslverify).toBe(0);
+    } finally {
+      process.env = prev;
+    }
   });
 
   test("the client secret lives only in the stdin payload, never on the wp-cli command line", () => {

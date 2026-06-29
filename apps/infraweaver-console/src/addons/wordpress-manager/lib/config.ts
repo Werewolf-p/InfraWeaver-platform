@@ -103,10 +103,10 @@ export function authentikIssuerBase(): string {
  * public name NAT-hairpins back through the homelab's own edge and times out, and
  * the Traefik LB path is not reachable pod-internally. So we pin the issuer host to
  * Authentik's in-cluster Service IP via a pod hostAlias — the backchannel then goes
- * pod → authentik-server :443 (https, self-signed) directly, while the Host header
- * and TLS SNI stay the public name so Authentik still mints the correct
- * `https://<issuer-host>/…` issuer. The browser (front-channel) is unaffected — a
- * hostAlias only changes the pod's own resolution.
+ * pod → authentik-server directly over plain http (:9000; see buildOidcSettings for
+ * why http rather than the self-signed :9443), while the Host header stays the public
+ * name. The browser (front-channel) is unaffected — a hostAlias only changes the
+ * pod's own resolution, and the authorize/end-session URLs stay https.
  *
  * Requires `WORDPRESS_AUTHENTIK_BACKCHANNEL_IP` (the authentik-server ClusterIP) and
  * a resolvable issuer host. Returns undefined when not configured, in which case no
