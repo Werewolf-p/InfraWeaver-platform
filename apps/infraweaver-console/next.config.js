@@ -13,6 +13,15 @@ const nextConfig = {
   // the cgroup and SIGSEGV-ing the build / page-data workers. Pin an explicit, small
   // worker count so the build is deterministic inside the constrained build sandbox.
   experimental: { cpus: 2 },
+  async redirects() {
+    return [
+      // The standalone Pods page was folded into the Apps page (each app drills
+      // into its own pods). Keep old links/bookmarks working — both the index and
+      // any old per-pod detail route (/pods/<ns>/<name>) land on /apps.
+      { source: '/pods', destination: '/apps', permanent: false },
+      { source: '/pods/:path*', destination: '/apps', permanent: false },
+    ]
+  },
   async headers() {
     return [
       {

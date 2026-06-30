@@ -61,7 +61,7 @@ const categoryIcons: Record<PaletteCategory, IconType> = {
 const navigationItems: PaletteItem[] = [
   { id: "nav-dashboard", title: "Dashboard", subtitle: "Overview", href: "/", category: "Navigation", icon: LayoutDashboard },
   { id: "nav-apps", title: "Applications", subtitle: "ArgoCD workloads", href: "/apps", category: "Navigation", icon: Box },
-  { id: "nav-pods", title: "Pods", subtitle: "Cluster pods", href: "/pods", category: "Navigation", icon: Server },
+  { id: "nav-pods", title: "Pods", subtitle: "Now under Apps", href: "/apps", category: "Navigation", icon: Server },
   { id: "nav-logs", title: "Pod Logs", subtitle: "Live log streaming", href: "/logs", category: "Navigation", icon: FileText },
   { id: "nav-health", title: "Health", subtitle: "Platform health", href: "/health", category: "Navigation", icon: Activity },
   {

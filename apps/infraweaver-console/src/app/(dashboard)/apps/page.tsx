@@ -8,7 +8,7 @@ import {
   PlusCircle, Search, ExternalLink, AlertTriangle, Info, CheckCircle,
   Globe, Star, X, Shield, Zap, GitBranch, Eye, Store,
   Terminal, Download, RefreshCw, LayoutGrid, Layers, Settings2,
-  Power, Play,
+  Power, Play, ChevronDown,
 } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,8 @@ import { UpdatePolicyModal } from "@/components/apps/update-policy-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { resolveAppRouteAccess, type AppRouteAccessSummary } from "@/lib/app-route-access";
 import type { AccessTier } from "@/lib/access-tier";
+import { AppPodsDrilldown } from "@/components/apps/app-pods-drilldown";
+import type { AppIdentity } from "@/lib/pod-app-grouping";
 
 
 
@@ -397,6 +399,7 @@ function AllInstalledTab() {
   const [bulkUninstalling, setBulkUninstalling] = useState(false);
   const [optimisticSyncing, setOptimisticSyncing] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [expandedApp, setExpandedApp] = useState<string | null>(null);
   const [updatePolicyApp, setUpdatePolicyApp] = useState<{ name: string; slug: string } | null>(null);
   const [recentlyUninstalled, setRecentlyUninstalled] = useState<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -525,6 +528,19 @@ function AllInstalledTab() {
     () => Array.from(new Set(allRows.map(row => row.namespace).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
     [allRows],
   );
+
+  // Apps grouped by destination namespace, so the pod drill-down can disambiguate
+  // pods when several apps share a namespace.
+  const appsByNamespace = useMemo(() => {
+    const map = new Map<string, AppIdentity[]>();
+    for (const row of allRows) {
+      if (!row.namespace) continue;
+      const list = map.get(row.namespace) ?? [];
+      list.push({ name: row.name, namespace: row.namespace });
+      map.set(row.namespace, list);
+    }
+    return map;
+  }, [allRows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -683,7 +699,7 @@ function AllInstalledTab() {
       open: true,
       title: action === "stop" ? `Stop "${name}"?` : `Start "${name}"?`,
       description: action === "stop"
-        ? "Scales the app to zero and pauses ArgoCD auto-sync so it stays stopped. Data volumes are kept — you can start it again anytime."
+        ? "Scales every controller in the app's namespace to zero — which terminates all of its pods — and pauses ArgoCD auto-sync so it stays stopped. Data volumes are kept; you can start it again anytime."
         : "Restores ArgoCD auto-sync and scales the app back up from git.",
       confirmText: action === "stop" ? "Stop app" : "Start app",
       danger: action === "stop",
@@ -1314,13 +1330,25 @@ function AllInstalledTab() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(row => (
-                <tr key={row.id} className={cn("border-b border-gray-200 dark:border-[#1e1e1e] transition-colors", selectedIds.has(row.id) ? "bg-[rgba(0,120,212,0.06)]" : "hover:bg-gray-100 dark:hover:bg-[#1a1a1a]")}>
+              {filtered.map(row => {
+                const isExpanded = expandedApp === row.id;
+                return (
+                <React.Fragment key={row.id}>
+                <tr className={cn("border-b border-gray-200 dark:border-[#1e1e1e] transition-colors", selectedIds.has(row.id) ? "bg-[rgba(0,120,212,0.06)]" : "hover:bg-gray-100 dark:hover:bg-[#1a1a1a]")}>
                   <td className="py-2.5 px-3 align-top">
                     <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleSelected(row.id)} />
                   </td>
                   <td className="py-2.5 px-3 font-medium text-gray-900 dark:text-[#f2f2f2] align-top">
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedApp(current => current === row.id ? null : row.id)}
+                        aria-label={isExpanded ? `Hide pods for ${row.name}` : `Show pods for ${row.name}`}
+                        aria-expanded={isExpanded}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-gray-200 dark:border-[#2a2a2a] text-slate-500 transition hover:text-gray-900 dark:hover:text-white"
+                      >
+                        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-180")} />
+                      </button>
                       <Link href={`/apps/${encodeURIComponent(row.name)}`} className="transition hover:text-[#7cb9ff]">{row.name}</Link>
                       <CopyButton text={row.name} className="h-7 px-2 text-[11px]" />
                       {primaryAppUrl(row) && (
@@ -1355,7 +1383,24 @@ function AllInstalledTab() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                {isExpanded && (
+                  <tr className="border-b border-gray-200 dark:border-[#1e1e1e] bg-gray-50/60 dark:bg-[#0d0d0d]">
+                    <td colSpan={simpleMode ? 6 : 8} className="px-3 pb-4 pt-1">
+                      <AppPodsDrilldown
+                        app={{ name: row.name, namespace: row.namespace }}
+                        siblingApps={appsByNamespace.get(row.namespace) ?? []}
+                        powerState={row.powerState}
+                        canPower={canPowerApps && row.source === "Catalog"}
+                        powering={poweringApp === row.name}
+                        onStop={() => requestPower(row.name, "stop")}
+                        onStart={() => requestPower(row.name, "start")}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -1369,7 +1414,17 @@ function AllInstalledTab() {
                 <button onClick={() => toggleSelected(row.id)} className={cn("rounded-full border px-2 py-1 transition-colors", selectedIds.has(row.id) ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]" : "border-gray-200 dark:border-[#2a2a2a]")}>
                   {selectedIds.has(row.id) ? "Selected" : "Select"}
                 </button>
-                <span>{row.createdAt ? <RelativeTime date={row.createdAt} live={false} className="text-xs text-gray-500 dark:text-[#888]" /> : "Age unavailable"}</span>
+                <div className="flex items-center gap-2">
+                  <span>{row.createdAt ? <RelativeTime date={row.createdAt} live={false} className="text-xs text-gray-500 dark:text-[#888]" /> : "Age unavailable"}</span>
+                  <button
+                    onClick={() => setExpandedApp(current => current === row.id ? null : row.id)}
+                    aria-expanded={expandedApp === row.id}
+                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-[#2a2a2a] px-2 py-1 transition-colors hover:text-gray-900 dark:hover:text-white"
+                  >
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expandedApp === row.id && "rotate-180")} />
+                    Pods
+                  </button>
+                </div>
               </div>
               <SwipeableAppCard
                 row={row}
@@ -1386,6 +1441,19 @@ function AllInstalledTab() {
                   <button onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })} disabled={!canManageApps} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors min-h-[36px] disabled:opacity-50">
                     <Settings2 className="w-3.5 h-3.5" /> Update Policy
                   </button>
+                </div>
+              )}
+              {expandedApp === row.id && (
+                <div className="mt-2">
+                  <AppPodsDrilldown
+                    app={{ name: row.name, namespace: row.namespace }}
+                    siblingApps={appsByNamespace.get(row.namespace) ?? []}
+                    powerState={row.powerState}
+                    canPower={canPowerApps && row.source === "Catalog"}
+                    powering={poweringApp === row.name}
+                    onStop={() => requestPower(row.name, "stop")}
+                    onStart={() => requestPower(row.name, "start")}
+                  />
                 </div>
               )}
             </motion.div>

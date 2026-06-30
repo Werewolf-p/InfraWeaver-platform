@@ -1,3 +1,8 @@
+export interface KubernetesPodOwnerReference {
+  kind: string;
+  name: string;
+}
+
 export interface KubernetesPod {
   name: string;
   namespace: string;
@@ -6,6 +11,10 @@ export interface KubernetesPod {
   nodeName?: string;
   createdAt: string;
   restartCount?: number;
+  /** Pod labels, when the backend includes them — used to resolve pod→app ownership. */
+  labels?: Record<string, string>;
+  /** Controller owner references (Deployment/ReplicaSet/StatefulSet), when available. */
+  ownerReferences?: KubernetesPodOwnerReference[];
 }
 
 export interface KubernetesDeployment {
