@@ -11,7 +11,7 @@ import {
 } from "../lib/wordpress-rbac";
 import { isValidSiteName, isValidSiteId } from "../lib/naming";
 import { PLUGIN_CATALOG } from "../lib/plugins";
-import { listDomains, defaultDomain, internalSubdomain, isAllowedDomain } from "../lib/config";
+import { listDomains, internalSubdomain, isAllowedDomain } from "../lib/config";
 import { createSite, deleteSite, listSites, listInstalledPlugins, setPlugins, enableSso } from "../lib/provision";
 
 function json(data: unknown, status = 200) {
@@ -79,7 +79,7 @@ const STORAGE_RE = /^[1-9]\d*[GMK]i$/;
 const createSchema = z.object({
   // Subdomain — optional; empty/omitted means the root domain.
   name: z.string().refine((v) => v === "" || isValidSiteName(v), "invalid subdomain").optional(),
-  domain: z.string().refine(isAllowedDomain, "unknown domain"),
+  domain: z.string().min(1, "domain is required"),
   internal: z.boolean().optional(),
   authMode: z.enum(["none", "admin", "full"]).optional(),
   plugins: z.array(z.string().regex(/^[a-z0-9-]+$/)).max(50).optional(),
@@ -122,6 +122,7 @@ export async function createSiteHandler(req: NextRequest): Promise<NextResponse>
   const parsed = createSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid request", 400);
   return guard(async () => {
+    if (!(await isAllowedDomain(parsed.data.domain))) return fail("unknown domain", 400);
     const summary = await createSite({
       name: parsed.data.name ?? "",
       domain: parsed.data.domain,
@@ -139,11 +140,14 @@ export async function createSiteHandler(req: NextRequest): Promise<NextResponse>
 export async function getConfigHandler(): Promise<NextResponse> {
   const gate = await authorize("wordpress:read");
   if (!gate.ok && !gate.ctx) return gate.error;
-  return json({
-    domains: listDomains(),
-    defaultDomain: defaultDomain(),
-    internalSubdomain: internalSubdomain(),
-    catalog: PLUGIN_CATALOG,
+  return guard(async () => {
+    const domains = await listDomains();
+    return json({
+      domains,
+      defaultDomain: domains[0] ?? "",
+      internalSubdomain: internalSubdomain(),
+      catalog: PLUGIN_CATALOG,
+    });
   });
 }
 

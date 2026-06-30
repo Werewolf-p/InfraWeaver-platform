@@ -1,6 +1,6 @@
 import { generatePassword, generateSiteSecrets, generateWpSalts, vaultPaths, vaultData } from "@/addons/wordpress-manager/lib/secrets";
 import { isValidSiteName, assertValidSiteName, resourceNames, buildHost, deriveSiteId, legacySiteHost } from "@/addons/wordpress-manager/lib/naming";
-import { listDomains, defaultDomain, isAllowedDomain, authentikBackchannelHostAlias } from "@/addons/wordpress-manager/lib/config";
+import { listDomains, isAllowedDomain, authentikBackchannelHostAlias } from "@/addons/wordpress-manager/lib/config";
 import { buildSiteManifests, buildIngressRoute, siteLabels } from "@/addons/wordpress-manager/lib/manifest";
 import { buildPluginSyncPlan, buildPluginSyncCommands, installPluginCommand, removePluginCommand, PLUGIN_CATALOG, AUTHENTIK_PLUGIN_SLUG } from "@/addons/wordpress-manager/lib/plugins";
 import { redirectUri, buildOidcSettings, OIDC_SETTINGS_OPTION, optionUpdateFromStdinCommand } from "@/addons/wordpress-manager/lib/authentik";
@@ -10,6 +10,17 @@ import { getScopedWordpressSites, wordpressScope, hasWordpressPermission } from 
 import { isK8sNotFound, k8sErrorStatus } from "@/addons/wordpress-manager/lib/k8s-errors";
 import { AddonHttpError, SiteNotFoundError, ServiceUnavailableError } from "@/addons/wordpress-manager/lib/errors";
 import { BUILT_IN_ROLES, resolveRoleDefinition, type RoleAssignment } from "@/lib/rbac";
+import { listZones } from "@/lib/cloudflare";
+
+// The domain list is sourced from Cloudflare zones; mock the client so config tests
+// stay offline. `cloudflareConfigured` reads the env live so each test can pick the
+// Cloudflare path (token set) or the env-fallback path (token cleared).
+jest.mock("@/lib/cloudflare", () => ({
+  listZones: jest.fn(),
+  cloudflareConfigured: () => !!process.env.CLOUDFLARE_API_TOKEN,
+}));
+
+const listZonesMock = listZones as jest.Mock;
 
 describe("secrets", () => {
   test("generatePassword returns the requested length from the safe alphabet", () => {
@@ -97,17 +108,35 @@ describe("config", () => {
   const ORIGINAL = process.env;
   afterEach(() => { process.env = ORIGINAL; });
 
-  test("listDomains parses + dedups the env list; isAllowedDomain gates writes", () => {
-    process.env = { ...ORIGINAL, WORDPRESS_DOMAINS: "a.com, b.com a.com" };
-    expect(listDomains()).toEqual(["a.com", "b.com"]);
-    expect(defaultDomain()).toBe("a.com");
-    expect(isAllowedDomain("b.com")).toBe(true);
-    expect(isAllowedDomain("evil.com")).toBe(false);
+  test("without a Cloudflare token, listDomains uses the env allowlist; isAllowedDomain gates writes", async () => {
+    process.env = { ...ORIGINAL, CLOUDFLARE_API_TOKEN: "", WORDPRESS_DOMAINS: "a.com, b.com a.com" };
+    expect(await listDomains()).toEqual(["a.com", "b.com"]);
+    expect(await isAllowedDomain("b.com")).toBe(true);
+    expect(await isAllowedDomain("evil.com")).toBe(false);
   });
 
-  test("listDomains falls back to BASE_DOMAIN when no explicit list", () => {
-    process.env = { ...ORIGINAL, WORDPRESS_DOMAINS: "", BASE_DOMAIN: "fallback.com" };
-    expect(listDomains()).toEqual(["fallback.com"]);
+  test("without a Cloudflare token, listDomains falls back to BASE_DOMAIN when no explicit list", async () => {
+    process.env = { ...ORIGINAL, CLOUDFLARE_API_TOKEN: "", WORDPRESS_DOMAINS: "", BASE_DOMAIN: "fallback.com" };
+    expect(await listDomains()).toEqual(["fallback.com"]);
+  });
+
+  test("with a Cloudflare token, listDomains returns every manageable zone", async () => {
+    process.env = { ...ORIGINAL, CLOUDFLARE_API_TOKEN: "tok", CF_ZONE_ID: "z", WORDPRESS_DOMAINS: "" };
+    listZonesMock.mockResolvedValueOnce([
+      { id: "1", name: "rlservers.com", status: "active" },
+      { id: "2", name: "Example.com", status: "active" },
+      { id: "3", name: "third.net", status: "active" },
+    ]);
+    expect(await listDomains()).toEqual(["rlservers.com", "example.com", "third.net"]);
+  });
+
+  test("with a Cloudflare token, WORDPRESS_DOMAINS narrows the zone list to an allowlist", async () => {
+    process.env = { ...ORIGINAL, CLOUDFLARE_API_TOKEN: "tok", CF_ZONE_ID: "z", WORDPRESS_DOMAINS: "third.net" };
+    listZonesMock.mockResolvedValueOnce([
+      { id: "1", name: "rlservers.com", status: "active" },
+      { id: "3", name: "third.net", status: "active" },
+    ]);
+    expect(await listDomains()).toEqual(["third.net"]);
   });
 
   test("authentikBackchannelHostAlias pins the issuer host to the configured ClusterIP", () => {

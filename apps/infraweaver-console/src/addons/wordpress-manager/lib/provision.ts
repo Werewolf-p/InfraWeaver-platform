@@ -1,6 +1,6 @@
 import * as k8s from "@kubernetes/client-node";
 import { loadKubeConfig } from "@/lib/k8s";
-import { upsertCnameRecord, deleteRecordsByName } from "@/lib/cloudflare";
+import { upsertCnameRecord, deleteRecordsByName, resolveZoneId } from "@/lib/cloudflare";
 import { WORDPRESS_NAMESPACE } from "./wordpress-rbac";
 import { assertValidSiteName, assertValidSiteId, resourceNames, deriveSiteId, buildHost, legacySiteHost } from "./naming";
 import { isAllowedDomain, publicCnameTarget, publicDnsProxied, authentikIssuerBase, adminUser, adminEmail } from "./config";
@@ -118,7 +118,7 @@ export async function createSite(input: CreateSiteInput): Promise<SiteSummary> {
   const domain = input.domain.trim().toLowerCase();
   const internal = !!input.internal;
   const authMode: AuthMode = input.authMode ?? "none";
-  if (!isAllowedDomain(domain)) throw new Error(`Domain "${domain}" is not configured`);
+  if (!(await isAllowedDomain(domain))) throw new Error(`Domain "${domain}" is not configured`);
   if (name) assertValidSiteName(name);
   const site = assertValidSiteId(deriveSiteId(name, domain));
   const host = buildHost({ name, domain, internal });
@@ -165,7 +165,8 @@ export async function createSite(input: CreateSiteInput): Promise<SiteSummary> {
   let dnsWarning: string | undefined;
   if (!internal && name) {
     try {
-      await upsertCnameRecord(host, publicCnameTarget() ?? domain, publicDnsProxied());
+      const zoneId = await resolveZoneId(domain);
+      await upsertCnameRecord(host, publicCnameTarget() ?? domain, publicDnsProxied(), zoneId);
     } catch (err) {
       dnsWarning = `DNS record for ${host} could not be created: ${err instanceof Error ? err.message : "unknown error"}`;
       console.warn(`[wordpress] ${dnsWarning}`);
@@ -256,7 +257,9 @@ export async function deleteSite(site: string): Promise<void> {
       }),
     ),
   ]);
-  await deleteRecordsByName(host).catch(() => undefined);
+  await resolveZoneId(host)
+    .then((zoneId) => deleteRecordsByName(host, zoneId))
+    .catch(() => undefined);
   // De-register the Authentik application/providers and drop the proxy provider
   // from the embedded outpost so a deleted host doesn't linger as a stale gate.
   await removeSsoGate(`wordpress-${site}`, host).catch((err) =>

@@ -1,9 +1,11 @@
 /**
  * Env-driven configuration for the WordPress Manager addon. Nothing here is
- * hardcoded to a particular deployment: domains, the internal subdomain label,
- * the public DNS target, the forward-auth middleware and the cert issuer all come
- * from the environment so the addon works unchanged for any fork/operator.
+ * hardcoded to a particular deployment: the internal subdomain label, the public
+ * DNS target, the forward-auth middleware and the cert issuer all come from the
+ * environment so the addon works unchanged for any fork/operator. The deployable
+ * domains are sourced live from Cloudflare (see `listDomains`).
  */
+import { listZones, cloudflareConfigured } from "@/lib/cloudflare";
 
 /** Split a comma/space separated env list into a clean, de-duplicated array. */
 function envList(value: string | undefined): string[] {
@@ -11,24 +13,38 @@ function envList(value: string | undefined): string[] {
   return [...new Set(value.split(/[,\s]+/).map((v) => v.trim().toLowerCase()).filter(Boolean))];
 }
 
+/** An optional operator allowlist (WORDPRESS_DOMAINS) that narrows the offered zones. */
+function allowlist(): string[] {
+  return envList(process.env.WORDPRESS_DOMAINS);
+}
+
 /**
  * The root domains an operator can deploy sites under (the create-form dropdown).
- * Falls back to BASE_DOMAIN so a single-domain deployment needs no extra config.
+ *
+ * When a Cloudflare API token is configured, the list is exactly the set of zones
+ * that token can manage — so every domain the operator owns appears automatically
+ * with no per-domain configuration. WORDPRESS_DOMAINS, when set, then acts purely
+ * as an allowlist that narrows that set. A Cloudflare API failure propagates to the
+ * caller rather than being masked by a stale single-domain fallback.
+ *
+ * With no Cloudflare token (e.g. a fork that manages DNS elsewhere) it falls back to
+ * the explicit WORDPRESS_DOMAINS list, then to BASE_DOMAIN.
  */
-export function listDomains(): string[] {
-  const domains = envList(process.env.WORDPRESS_DOMAINS);
-  if (domains.length > 0) return domains;
+export async function listDomains(): Promise<string[]> {
+  if (cloudflareConfigured()) {
+    const zoneNames = (await listZones()).map((z) => z.name.trim().toLowerCase());
+    const allow = allowlist();
+    return allow.length > 0 ? zoneNames.filter((z) => allow.includes(z)) : zoneNames;
+  }
+  const allow = allowlist();
+  if (allow.length > 0) return allow;
   const base = (process.env.WORDPRESS_BASE_DOMAIN || process.env.BASE_DOMAIN || "").trim().toLowerCase();
   return base ? [base] : [];
 }
 
-export function defaultDomain(): string {
-  return listDomains()[0] ?? "";
-}
-
-/** Reject a domain that isn't one of the configured ones (defence in depth). */
-export function isAllowedDomain(domain: string): boolean {
-  return listDomains().includes(domain.trim().toLowerCase());
+/** Reject a domain that isn't one of the available ones (defence in depth). */
+export async function isAllowedDomain(domain: string): Promise<boolean> {
+  return (await listDomains()).includes(domain.trim().toLowerCase());
 }
 
 /** The label inserted for internal-only hosts, e.g. `int` → `<site>.int.<domain>`. */

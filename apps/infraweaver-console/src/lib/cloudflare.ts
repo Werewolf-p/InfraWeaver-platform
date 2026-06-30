@@ -26,14 +26,30 @@ export interface CloudflareDnsRecord {
   modified_on?: string;
 }
 
-function assertCloudflareConfig() {
-  if (!CF_TOKEN || !CF_ZONE_ID) {
-    throw new Error("Cloudflare DNS is not configured");
-  }
+export interface CloudflareZone {
+  id: string;
+  name: string;
+  status: string;
+}
+
+function assertToken(): void {
+  if (!CF_TOKEN) throw new Error("Cloudflare API token is not configured");
+}
+
+/** Whether a Cloudflare API token is present — domains go dynamic only when true. */
+export function cloudflareConfigured(): boolean {
+  return !!CF_TOKEN;
+}
+
+/** Resolve the zone a record-level call targets: an explicit id, else the env default. */
+function requireZoneId(zoneId?: string): string {
+  const id = (zoneId ?? CF_ZONE_ID ?? "").trim();
+  if (!id) throw new Error("Cloudflare zone is not configured");
+  return id;
 }
 
 function headers() {
-  assertCloudflareConfig();
+  assertToken();
   return {
     Authorization: `Bearer ${CF_TOKEN}`,
     "Content-Type": "application/json",
@@ -61,11 +77,48 @@ export async function cfFetch<T>(path: string, options?: RequestInit): Promise<T
   return data.result;
 }
 
+/**
+ * Every zone the configured API token can manage. A zone-scoped token returns
+ * exactly the zones in its scope, so this is the authoritative set of domains an
+ * operator can deploy under — no domain list is ever hardcoded. Paginated.
+ */
+export async function listZones(): Promise<CloudflareZone[]> {
+  const perPage = 50;
+  let page = 1;
+  let totalPages = 1;
+  const zones: CloudflareZone[] = [];
+
+  while (page <= totalPages) {
+    const params = new URLSearchParams({ per_page: String(perPage), page: String(page) });
+    const response = await cfRequest<CloudflareZone[]>(`/zones?${params}`);
+    zones.push(...(response.result ?? []));
+    totalPages = response.result_info?.total_pages ?? 1;
+    page += 1;
+  }
+
+  return zones;
+}
+
+/**
+ * The id of the zone that manages `name`, chosen as the longest zone whose name is
+ * `name` itself or a suffix of it (so `blog.example.com` resolves to the
+ * `example.com` zone). Throws when no managed zone covers the name.
+ */
+export async function resolveZoneId(name: string): Promise<string> {
+  const host = name.trim().toLowerCase();
+  const match = (await listZones())
+    .filter((z) => host === z.name.toLowerCase() || host.endsWith(`.${z.name.toLowerCase()}`))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (!match) throw new Error(`No Cloudflare zone manages "${name}"`);
+  return match.id;
+}
+
 export async function listDnsRecords(filters: {
   type?: string;
   name?: string;
   perPage?: number;
-} = {}): Promise<CloudflareDnsRecord[]> {
+} = {}, zoneId?: string): Promise<CloudflareDnsRecord[]> {
+  const zone = requireZoneId(zoneId);
   const perPage = filters.perPage ?? 100;
   let page = 1;
   let totalPages = 1;
@@ -76,7 +129,7 @@ export async function listDnsRecords(filters: {
     if (filters.type) params.set("type", filters.type);
     if (filters.name) params.set("name", filters.name);
 
-    const response = await cfRequest<CloudflareDnsRecord[]>(`/zones/${CF_ZONE_ID}/dns_records?${params}`);
+    const response = await cfRequest<CloudflareDnsRecord[]>(`/zones/${zone}/dns_records?${params}`);
     records.push(...(response.result ?? []));
     totalPages = response.result_info?.total_pages ?? 1;
     page += 1;
@@ -91,8 +144,8 @@ export async function createDnsRecord(input: {
   content: string;
   ttl?: number;
   proxied?: boolean;
-}) {
-  return cfFetch<CloudflareDnsRecord>(`/zones/${CF_ZONE_ID}/dns_records`, {
+}, zoneId?: string) {
+  return cfFetch<CloudflareDnsRecord>(`/zones/${requireZoneId(zoneId)}/dns_records`, {
     method: "POST",
     body: JSON.stringify({
       type: input.type,
@@ -107,8 +160,9 @@ export async function createDnsRecord(input: {
 export async function updateDnsRecord(
   id: string,
   input: { content?: string; ttl?: number; proxied?: boolean },
+  zoneId?: string,
 ) {
-  return cfFetch<CloudflareDnsRecord>(`/zones/${CF_ZONE_ID}/dns_records/${id}`, {
+  return cfFetch<CloudflareDnsRecord>(`/zones/${requireZoneId(zoneId)}/dns_records/${id}`, {
     method: "PATCH",
     body: JSON.stringify({
       ...(typeof input.content === "string" ? { content: input.content } : {}),
@@ -118,8 +172,8 @@ export async function updateDnsRecord(
   });
 }
 
-export async function deleteDnsRecordById(id: string): Promise<void> {
-  await cfFetch(`/zones/${CF_ZONE_ID}/dns_records/${id}`, { method: "DELETE" });
+export async function deleteDnsRecordById(id: string, zoneId?: string): Promise<void> {
+  await cfFetch(`/zones/${requireZoneId(zoneId)}/dns_records/${id}`, { method: "DELETE" });
 }
 
 export async function createARecord(name: string, ip: string, proxied = false): Promise<{ id: string }> {
@@ -154,20 +208,20 @@ export async function getARecord(name: string): Promise<{ id: string; name: stri
  * conflicting A record at the same name is removed first (CNAME and A cannot
  * coexist on one name).
  */
-export async function upsertCnameRecord(name: string, target: string, proxied = false): Promise<{ id: string }> {
-  const conflicting = await listDnsRecords({ type: "A", name });
-  await Promise.all(conflicting.filter((r) => r.name === name).map((r) => deleteDnsRecordById(r.id)));
-  const existing = (await listDnsRecords({ type: "CNAME", name })).find((r) => r.name === name);
+export async function upsertCnameRecord(name: string, target: string, proxied = false, zoneId?: string): Promise<{ id: string }> {
+  const conflicting = await listDnsRecords({ type: "A", name }, zoneId);
+  await Promise.all(conflicting.filter((r) => r.name === name).map((r) => deleteDnsRecordById(r.id, zoneId)));
+  const existing = (await listDnsRecords({ type: "CNAME", name }, zoneId)).find((r) => r.name === name);
   if (existing) {
-    await updateDnsRecord(existing.id, { content: target, proxied, ttl: proxied ? 1 : 120 });
+    await updateDnsRecord(existing.id, { content: target, proxied, ttl: proxied ? 1 : 120 }, zoneId);
     return { id: existing.id };
   }
-  const record = await createDnsRecord({ type: "CNAME", name, content: target, proxied, ttl: proxied ? 1 : 120 });
+  const record = await createDnsRecord({ type: "CNAME", name, content: target, proxied, ttl: proxied ? 1 : 120 }, zoneId);
   return { id: record.id };
 }
 
 /** Delete every DNS record (any type) for `name` — used when tearing a site down. */
-export async function deleteRecordsByName(name: string): Promise<void> {
-  const records = await listDnsRecords({ name });
-  await Promise.all(records.filter((r) => r.name === name).map((r) => deleteDnsRecordById(r.id)));
+export async function deleteRecordsByName(name: string, zoneId?: string): Promise<void> {
+  const records = await listDnsRecords({ name }, zoneId);
+  await Promise.all(records.filter((r) => r.name === name).map((r) => deleteDnsRecordById(r.id, zoneId)));
 }
