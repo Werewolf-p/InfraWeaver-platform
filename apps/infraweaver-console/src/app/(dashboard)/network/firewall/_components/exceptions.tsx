@@ -72,7 +72,9 @@ export function Exceptions({ pod, rules, onRemove }: ExceptionsProps) {
   if (!rules) {
     return <p className="px-3 py-2 text-xs text-slate-400 dark:text-[#777]">Reading active exceptions…</p>;
   }
-  const all = [...rules.ingress, ...rules.egress];
+  // The pod-rules API can return { available:false } with no arrays (sealed pod /
+  // dataplane not reporting) — guard so we never spread null/undefined.
+  const all = [...(rules.ingress ?? []), ...(rules.egress ?? [])];
   if (all.length === 0) {
     return (
       <p className="px-3 py-2 text-xs text-slate-400 dark:text-[#777]">

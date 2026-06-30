@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useRef, memo } from "react";
+import React, { useCallback, memo } from "react";
 import { cn } from "@/lib/utils";
 
 interface Tab {
@@ -50,28 +50,12 @@ const TabButton = memo(function TabButton({ tab, active, onTabChange }: TabButto
 });
 
 export function SectionTabs({ tabs, activeTab, onTabChange, className }: SectionTabsProps) {
-  const touchStartX = useRef(0);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-  }, []);
-
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    const delta = e.changedTouches[0].clientX - touchStartX.current;
-    if (Math.abs(delta) < 50) return;
-    const currentIndex = tabs.findIndex(t => t.value === activeTab);
-    if (delta < 0 && currentIndex < tabs.length - 1) {
-      onTabChange(tabs[currentIndex + 1].value);
-    } else if (delta > 0 && currentIndex > 0) {
-      onTabChange(tabs[currentIndex - 1].value);
-    }
-  }, [tabs, activeTab, onTabChange]);
-
+  // The bar is horizontally scrollable; swiping/dragging sideways should scroll to
+  // reveal more tabs, never change the selection. (A swipe-to-switch gesture here
+  // is the same horizontal gesture as scrolling, so it mis-fired tab changes.)
   return (
     <div
       className={cn("border-b border-gray-200 dark:border-[#2a2a2a] flex overflow-x-auto scrollbar-none flex-shrink-0", className)}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
     >
       {tabs.map(tab => (
         <TabButton

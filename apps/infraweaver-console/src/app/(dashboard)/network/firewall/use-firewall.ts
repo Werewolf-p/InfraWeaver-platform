@@ -149,7 +149,14 @@ export function useFirewall(): FirewallState & FirewallActions {
         { cache: "no-store" },
       );
       const body = (await res.json()) as RulesResponse;
-      setRules((r) => ({ ...r, [key]: body }));
+      // Normalize: the API may omit ingress/egress when unavailable — keep them
+      // arrays so consumers can spread/iterate without guarding everywhere.
+      const normalized: RulesResponse = {
+        available: body.available ?? false,
+        ingress: body.ingress ?? [],
+        egress: body.egress ?? [],
+      };
+      setRules((r) => ({ ...r, [key]: normalized }));
     } catch {
       setRules((r) => ({ ...r, [key]: { available: false, ingress: [], egress: [] } }));
     }
