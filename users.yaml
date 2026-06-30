@@ -11,9 +11,9 @@
 #    akadmin is created automatically by Authentik bootstrap — it is separate and should
 #    only be used for emergency access. Your personal account is defined here.
 users:
-  ${ADMIN_USERNAME}:
-    name: ${ADMIN_NAME}
-    email: "admin@example.com"
+  remon:
+    name: Remon Hulst
+    email: "remonhulst@gmail.com"
     access_level: admin
     authentik_groups:
       - platform-admins
@@ -30,15 +30,15 @@ users:
         roleId: platform-owner
         scope: /
         principalType: user
-        principalId: ${ADMIN_USERNAME}
-        grantedBy: "admin@example.com"
+        principalId: remon
+        grantedBy: "remonhulst@gmail.com"
         grantedAt: '2026-01-01T00:00:00.000Z'
       - id: ra-admin-wiki-editor
         roleId: wiki-editor
         scope: /wiki
         principalType: user
-        principalId: ${ADMIN_USERNAME}
-        grantedBy: "admin@example.com"
+        principalId: remon
+        grantedBy: "remonhulst@gmail.com"
         grantedAt: '2026-01-01T00:00:00.000Z'
   # ── Example additional user (remove or replace) ──────────────────────────
   # example-user:
