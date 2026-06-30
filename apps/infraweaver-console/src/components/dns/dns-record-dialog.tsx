@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Select } from "@/components/ui/select";
 import {
   INTERNAL_DNS_DOMAIN,
   MANAGED_RECORD_TYPES,
@@ -22,6 +23,7 @@ import {
   type ManagedDnsRecord,
   type ManagedRecordType,
 } from "@/lib/dns";
+import type { DnsZoneSummary } from "@/hooks/use-dns-zones";
 import { cn } from "@/lib/utils";
 
 interface TemplateTarget {
@@ -38,6 +40,7 @@ interface FormState {
   type: ManagedRecordType;
   internal: boolean;
   ttl: number;
+  zoneId: string;
 }
 
 export type DnsRecordDefaults = Partial<FormState>;
@@ -52,6 +55,12 @@ interface DnsRecordDialogProps {
   gameServerTargets?: TemplateTarget[];
   onSubmitted?: () => void | Promise<void>;
   canWrite: boolean;
+  /** Manageable Cloudflare zones; when more than one, the user can pick a domain. */
+  zones?: DnsZoneSummary[];
+  /** Currently selected zone id (from the DNS page) — the dialog's default. */
+  selectedZoneId?: string;
+  /** Env default zone id — when the selection equals this, keep internal/public. */
+  defaultZoneId?: string | null;
 }
 
 const DEFAULT_FORM: FormState = {
@@ -60,6 +69,7 @@ const DEFAULT_FORM: FormState = {
   type: "A",
   internal: true,
   ttl: 120,
+  zoneId: "",
 };
 
 function readDraft(draftKey?: string): Partial<FormState> {
@@ -86,6 +96,9 @@ export function DnsRecordDialog({
   gameServerTargets = [],
   onSubmitted,
   canWrite,
+  zones = [],
+  selectedZoneId,
+  defaultZoneId = null,
 }: DnsRecordDialogProps) {
   const isEditing = Boolean(record);
   const initialState = useMemo<FormState>(() => {
@@ -96,15 +109,20 @@ export function DnsRecordDialog({
         type: (MANAGED_RECORD_TYPES.includes(record.type as ManagedRecordType) ? record.type : "A") as ManagedRecordType,
         internal: record.internal,
         ttl: record.ttl || 120,
+        zoneId: selectedZoneId ?? "",
       };
     }
 
     return {
       ...DEFAULT_FORM,
+      zoneId: selectedZoneId ?? "",
       ...readDraft(draftKey),
       ...defaultValues,
     };
-  }, [defaultValues, draftKey, record]);
+  }, [defaultValues, draftKey, record, selectedZoneId]);
+
+  // A non-default zone has no internal/public split — records go under its domain.
+  const hasMultipleZones = zones.length > 1;
 
   const [form, setForm] = useState<FormState>(initialState);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
@@ -136,6 +154,10 @@ export function DnsRecordDialog({
   }, [form, initialState, open]);
 
   const isDirty = JSON.stringify(form) !== JSON.stringify(initialState);
+
+  const isDefaultZone = !form.zoneId || form.zoneId === defaultZoneId;
+  const selectedZoneName = zones.find((zone) => zone.id === form.zoneId)?.name ?? null;
+  const zoneIdPayload = !isDefaultZone && form.zoneId ? { zoneId: form.zoneId } : {};
 
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -174,13 +196,14 @@ export function DnsRecordDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           isEditing
-            ? { value: form.value.trim(), ttl: form.ttl }
+            ? { value: form.value.trim(), ttl: form.ttl, ...zoneIdPayload }
             : {
                 name: form.name.trim(),
                 value: form.value.trim(),
                 type: form.type,
                 internal: form.internal,
                 ttl: form.ttl,
+                ...zoneIdPayload,
               },
         ),
       });
@@ -296,6 +319,23 @@ export function DnsRecordDialog({
                 </div>
               )}
 
+              {!isEditing && hasMultipleZones ? (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Domain (Cloudflare zone)</label>
+                  <Select
+                    value={form.zoneId}
+                    onChange={(event) => updateField("zoneId", event.target.value)}
+                  >
+                    {zones.map((zone) => (
+                      <option key={zone.id} value={zone.id}>{zone.name}</option>
+                    ))}
+                  </Select>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-[#888]">
+                    Records are created in the selected zone&apos;s domain.
+                  </p>
+                </div>
+              ) : null}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Record name</label>
@@ -311,7 +351,11 @@ export function DnsRecordDialog({
                     )}
                   />
                   <p className="mt-1 text-xs text-gray-500 dark:text-[#888]">
-                    {form.internal ? `Creates *.${INTERNAL_DNS_DOMAIN} for internal/VPN access` : `Creates *.${ROOT_DNS_DOMAIN} for public access`}
+                    {!isDefaultZone && selectedZoneName
+                      ? `Creates ${form.name.trim() || "<name>"}.${selectedZoneName} in the selected zone`
+                      : form.internal
+                        ? `Creates *.${INTERNAL_DNS_DOMAIN} for internal/VPN access`
+                        : `Creates *.${ROOT_DNS_DOMAIN} for public access`}
                   </p>
                   {errors.name ? <p className="mt-1 text-xs text-red-400">{errors.name}</p> : null}
                 </div>
@@ -338,6 +382,11 @@ export function DnsRecordDialog({
               <div className="grid gap-4 md:grid-cols-[1.1fr_1.1fr_0.8fr]">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Scope</label>
+                  {!isDefaultZone ? (
+                    <div className="flex h-[44px] items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 text-sm text-emerald-700 dark:text-emerald-200">
+                      <Globe className="h-4 w-4" /> Public ({selectedZoneName})
+                    </div>
+                  ) : (
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       onClick={() => updateField("internal", true)}
@@ -362,6 +411,7 @@ export function DnsRecordDialog({
                       <Globe className="h-4 w-4" /> Public
                     </button>
                   </div>
+                  )}
                 </div>
 
                 <div>

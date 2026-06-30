@@ -8,6 +8,7 @@ import { defaultTlsSecretForHost, type AccessTier } from "@/lib/access-tier";
 import type { ExternalRouteItem, ExternalRouteTargetType } from "@/lib/external-routes";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+import { useDnsZones } from "@/hooks/use-dns-zones";
 
 export interface RouteFormState {
   name: string;
@@ -85,6 +86,34 @@ function validate(form: RouteFormState): string | null {
 export function RouteEditorSheet({ open, editingRoute, canWrite, onClose, onSaved }: RouteEditorSheetProps) {
   const [form, setForm] = useState<RouteFormState>(DEFAULT_ROUTE_FORM);
   const [saving, setSaving] = useState(false);
+  const { zones } = useDnsZones();
+
+  // The subdomain label of `host` after stripping whichever managed zone it ends
+  // with (so swapping the domain keeps the user's chosen subdomain).
+  function subdomainOf(host: string): string {
+    const normalized = host.trim().toLowerCase().replace(/\.+$/, "");
+    for (const zone of zones) {
+      const domain = zone.name.toLowerCase();
+      if (normalized === domain) return "";
+      if (normalized.endsWith(`.${domain}`)) return normalized.slice(0, -(domain.length + 1));
+    }
+    const dot = normalized.indexOf(".");
+    return dot === -1 ? normalized : normalized.slice(0, dot);
+  }
+
+  function selectedDomain(host: string): string {
+    const normalized = host.trim().toLowerCase().replace(/\.+$/, "");
+    const match = zones.find((zone) => {
+      const domain = zone.name.toLowerCase();
+      return normalized === domain || normalized.endsWith(`.${domain}`);
+    });
+    return match?.name ?? "";
+  }
+
+  function applyZoneDomain(domain: string) {
+    const sub = subdomainOf(form.host) || form.name;
+    updateHost(sub ? `${sub}.${domain}` : domain);
+  }
 
   // Reset the form whenever the sheet opens for a different target. Done during
   // render (the documented React pattern for prop-derived resets) rather than in
@@ -210,6 +239,23 @@ export function RouteEditorSheet({ open, editingRoute, canWrite, onClose, onSave
               placeholder="bitwarden.rlservers.com"
               className={inputClass}
             />
+            {zones.length > 0 ? (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-xs text-slate-500 dark:text-slate-400">Domain</span>
+                <Select
+                  selectSize="sm"
+                  value={selectedDomain(form.host)}
+                  onChange={(event) => applyZoneDomain(event.target.value)}
+                  className="w-auto min-w-[180px]"
+                  title="Cloudflare zone for this hostname"
+                >
+                  <option value="">Custom…</option>
+                  {zones.map((zone) => (
+                    <option key={zone.id} value={zone.name}>{zone.name}</option>
+                  ))}
+                </Select>
+              </div>
+            ) : null}
           </div>
         </div>
 

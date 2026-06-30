@@ -32,6 +32,9 @@ interface WordpressSite {
   domain?: string;
 }
 
+/** The resource-group scope: a grant here cascades to every WordPress site. */
+const WORDPRESS_ALL_SCOPE = "/wordpress";
+
 /** Canonical scope used across the platform for a per-site WordPress grant. */
 function wordpressSiteScope(site: string): string {
   return `/wordpress/sites/${site}`;
@@ -161,13 +164,17 @@ function GrantSiteAccessModal({
   onSave: (payload: { roleId: string; scope: string; expiresAt?: string }) => void;
   saving: boolean;
 }) {
+  const [scopeLevel, setScopeLevel] = useState<"all" | "site">("site");
   const [site, setSite] = useState<string>("");
   const [tier, setTier] = useState<WordpressTier>("editor");
   const [expiresAt, setExpiresAt] = useState("");
 
   const selectedTier = WORDPRESS_TIERS.find((entry) => entry.tier === tier) ?? WORDPRESS_TIERS[1];
-  const alreadyGranted = site ? existingScopes.has(wordpressSiteScope(site)) : false;
-  const canSubmit = Boolean(site) && !alreadyGranted && !saving;
+  // "All WordPress sites" is the resource-group scope (/wordpress): a grant here
+  // cascades to every site. A specific site targets just /wordpress/sites/<site>.
+  const targetScope = scopeLevel === "all" ? WORDPRESS_ALL_SCOPE : site ? wordpressSiteScope(site) : "";
+  const alreadyGranted = Boolean(targetScope) && existingScopes.has(targetScope);
+  const canSubmit = Boolean(targetScope) && !alreadyGranted && !saving;
 
   return (
     <ResponsiveSheet
@@ -205,55 +212,90 @@ function GrantSiteAccessModal({
     >
       <div className="space-y-6">
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Site</label>
-          {sitesLoading ? (
-            <div className="flex items-center gap-2 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 py-3 text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading sites…
-            </div>
-          ) : sites.length === 0 ? (
-            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-              No WordPress sites found. Create a site first from the WordPress section.
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {sites.map((entry) => {
-                const granted = existingScopes.has(wordpressSiteScope(entry.site));
-                const active = site === entry.site;
-                return (
-                  <button
-                    key={entry.site}
-                    type="button"
-                    onClick={() => setSite(entry.site)}
-                    className={cn(
-                      "inline-flex min-h-[44px] items-center gap-2 rounded-2xl border px-4 py-2 text-sm transition-colors",
-                      active
-                        ? "border-indigo-500/60 bg-indigo-500/15 text-indigo-700 dark:text-indigo-200"
-                        : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 hover:border-indigo-500/30",
-                    )}
-                  >
-                    <Globe className="h-3.5 w-3.5 opacity-70" />
-                    <span className="font-medium">{entry.site}</span>
-                    {granted && (
-                      <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-300">
-                        has access
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {site && (
-            <p className="mt-2 text-sm text-slate-500">
-              Scope <span className="font-mono text-slate-600 dark:text-slate-400">{wordpressSiteScope(site)}</span>
-            </p>
-          )}
-          {alreadyGranted && (
-            <p className="mt-2 text-sm text-amber-600 dark:text-amber-300">
-              This user already has access to <span className="font-semibold">{site}</span>. Remove the existing grant first to change the level.
-            </p>
-          )}
+          <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Apply to</label>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {([
+              { value: "all" as const, title: "All WordPress sites", desc: "Resource-group grant — cascades to every site, current and future." },
+              { value: "site" as const, title: "A specific site", desc: "Scopes the grant to a single WordPress container only." },
+            ]).map((opt) => {
+              const active = scopeLevel === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setScopeLevel(opt.value)}
+                  aria-pressed={active}
+                  className={cn(
+                    "flex flex-col rounded-2xl border-2 p-3 text-left transition-all",
+                    active
+                      ? "border-indigo-500/60 bg-indigo-500/10"
+                      : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 hover:border-gray-300 dark:hover:border-white/20",
+                  )}
+                >
+                  <span className={cn("flex items-center gap-1.5 text-sm font-semibold", active ? "text-indigo-700 dark:text-indigo-200" : "text-gray-900 dark:text-white")}>
+                    {opt.value === "all" ? <Layers className="h-4 w-4" /> : <Globe className="h-4 w-4" />}
+                    {opt.title}
+                  </span>
+                  <span className="mt-1 text-xs leading-snug text-slate-500 dark:text-slate-400">{opt.desc}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
+
+        {scopeLevel === "site" && (
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Site</label>
+            {sitesLoading ? (
+              <div className="flex items-center gap-2 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 py-3 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading sites…
+              </div>
+            ) : sites.length === 0 ? (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+                No WordPress sites found. Create a site first from the WordPress section.
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {sites.map((entry) => {
+                  const granted = existingScopes.has(wordpressSiteScope(entry.site));
+                  const active = site === entry.site;
+                  return (
+                    <button
+                      key={entry.site}
+                      type="button"
+                      onClick={() => setSite(entry.site)}
+                      className={cn(
+                        "inline-flex min-h-[44px] items-center gap-2 rounded-2xl border px-4 py-2 text-sm transition-colors",
+                        active
+                          ? "border-indigo-500/60 bg-indigo-500/15 text-indigo-700 dark:text-indigo-200"
+                          : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 hover:border-indigo-500/30",
+                      )}
+                    >
+                      <Globe className="h-3.5 w-3.5 opacity-70" />
+                      <span className="font-medium">{entry.site}</span>
+                      {granted && (
+                        <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-300">
+                          has access
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {targetScope && (
+          <p className="text-sm text-slate-500">
+            Scope <span className="font-mono text-slate-600 dark:text-slate-400">{targetScope}</span>
+          </p>
+        )}
+        {alreadyGranted && (
+          <p className="text-sm text-amber-600 dark:text-amber-300">
+            This user already has {scopeLevel === "all" ? "access to all WordPress sites" : <>access to <span className="font-semibold">{site}</span></>}. Remove the existing grant first to change the level.
+          </p>
+        )}
 
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Access level</label>
@@ -471,7 +513,7 @@ export function UserAccessPanel({ user, isAdmin }: Props) {
             <p className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500">
               <Sparkles className="h-3.5 w-3.5" /> Resolved permissions
             </p>
-            {assignmentsQuery.isLoading ? (
+            {assignmentsQuery.isFetching ? (
               <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Resolving…</div>
             ) : effectivePermissions.length === 0 ? (
               <p className="text-sm text-slate-500">No effective permissions.</p>
@@ -525,7 +567,7 @@ export function UserAccessPanel({ user, isAdmin }: Props) {
 
         {!canView ? (
           <div className="px-4 py-10 text-center text-sm text-slate-500">You do not have permission to view access grants.</div>
-        ) : assignmentsQuery.isLoading ? (
+        ) : assignmentsQuery.isFetching ? (
           <div className="flex items-center justify-center px-4 py-10 text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /></div>
         ) : wordpressGrants.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-slate-500">

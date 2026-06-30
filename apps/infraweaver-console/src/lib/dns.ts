@@ -58,3 +58,34 @@ export function buildDnsName(input: string, internal: boolean) {
   const shortName = normalizeRelativeDnsName(input);
   return internal ? `${shortName}.${INTERNAL_DNS_DOMAIN}` : `${shortName}.${ROOT_DNS_DOMAIN}`;
 }
+
+// --- Arbitrary-zone helpers ---------------------------------------------
+// The env zone (BASE_DOMAIN) splits into internal (`*.int.<domain>`) and public
+// records. Any OTHER Cloudflare zone selected in the console has no such split,
+// so these helpers operate relative to an explicit zone domain instead of the
+// env constants. They keep the single-zone behavior above untouched.
+
+/** Whether `name` is the apex of, or a subdomain under, `zoneDomain`. */
+export function isManagedDnsNameForDomain(name: string, zoneDomain: string) {
+  const normalized = name.trim().toLowerCase().replace(/\.+$/, "");
+  const domain = zoneDomain.trim().toLowerCase();
+  return normalized === domain || normalized.endsWith(`.${domain}`);
+}
+
+/** The label of `name` relative to `zoneDomain` (`@` for the apex record). */
+export function relativeDnsNameForDomain(name: string, zoneDomain: string) {
+  const normalized = name.trim().toLowerCase().replace(/\.+$/, "");
+  const domain = zoneDomain.trim().toLowerCase();
+  if (normalized === domain) return "@";
+  if (normalized.endsWith(`.${domain}`)) return normalized.slice(0, -(domain.length + 1));
+  return normalized;
+}
+
+/** Build a fully-qualified hostname for `input` under `zoneDomain`. */
+export function buildDnsNameForDomain(input: string, zoneDomain: string) {
+  const trimmed = input.trim().toLowerCase().replace(/^\.+|\.+$/g, "");
+  const domain = zoneDomain.trim().toLowerCase();
+  if (!trimmed || trimmed === "@") return domain;
+  const shortName = normalizeRelativeDnsName(trimmed);
+  return `${shortName}.${domain}`;
+}

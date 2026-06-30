@@ -24,6 +24,7 @@ import {
 } from "@/components/dns/dns-record-dialog";
 import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Select } from "@/components/ui/select";
 import { CopyButton } from "@/components/ui/copy-button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -37,6 +38,7 @@ import {
 import { cn, timeAgo } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
+import { useDnsZones } from "@/hooks/use-dns-zones";
 
 interface DnsResponse {
   records: ManagedDnsRecord[];
@@ -82,6 +84,17 @@ function matchesWildcardHostname(wildcardHostname: string, hostname: string) {
 export default function DnsManagementPage() {
   const { can } = useRBAC();
   const canWriteDns = can("config:write");
+  const { zones, defaultZoneId, hasMultipleZones } = useDnsZones();
+  // The user's explicit pick ("" until they choose). The effective zone falls
+  // back to the env default (or the first zone), derived during render so no
+  // effect is needed to seed it.
+  const [pickedZoneId, setPickedZoneId] = useState<string>("");
+  const fallbackZoneId = (defaultZoneId && zones.some((zone) => zone.id === defaultZoneId) ? defaultZoneId : zones[0]?.id) ?? "";
+  const selectedZoneId = pickedZoneId && zones.some((zone) => zone.id === pickedZoneId) ? pickedZoneId : fallbackZoneId;
+  const setSelectedZoneId = setPickedZoneId;
+
+  const isDefaultZone = !selectedZoneId || selectedZoneId === defaultZoneId;
+  const zoneQuery = selectedZoneId ? `?zoneId=${encodeURIComponent(selectedZoneId)}` : "";
   const [tab, setTab] = useState<DnsTab>(() => {
     if (typeof window === "undefined") return "internal";
     const stored = window.localStorage.getItem(TAB_STORAGE_KEY);
@@ -110,9 +123,9 @@ export default function DnsManagementPage() {
     dataUpdatedAt,
     refetch,
   } = useQuery({
-    queryKey: ["dns", "records"],
+    queryKey: ["dns", "records", selectedZoneId],
     queryFn: async () => {
-      const res = await fetch("/api/dns", { cache: "no-store" });
+      const res = await fetch(`/api/dns${zoneQuery}`, { cache: "no-store" });
       const payload = await res.json() as DnsResponse & { error?: string };
       if (!res.ok) throw new Error(payload.error ?? "Failed to load DNS records");
       return payload;
@@ -240,7 +253,7 @@ export default function DnsManagementPage() {
       const res = await fetch(`/api/dns/${record.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proxied: !record.proxied }),
+        body: JSON.stringify({ proxied: !record.proxied, ...(isDefaultZone ? {} : { zoneId: selectedZoneId }) }),
       });
       const payload = await res.json() as { error?: string };
       if (!res.ok) throw new Error(payload.error ?? "Failed to update proxy status");
@@ -260,7 +273,7 @@ export default function DnsManagementPage() {
       return;
     }
     try {
-      const res = await fetch(`/api/dns/${recordToDelete.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/dns/${recordToDelete.id}${isDefaultZone ? "" : `?zoneId=${encodeURIComponent(selectedZoneId)}`}`, { method: "DELETE" });
       const payload = await res.json() as { error?: string };
       if (!res.ok) throw new Error(payload.error ?? "Failed to delete DNS record");
       toast.success(`Deleted ${recordToDelete.name}`);
@@ -415,6 +428,25 @@ export default function DnsManagementPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {hasMultipleZones ? (
+              <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <span className="uppercase tracking-[0.2em]">Zone</span>
+                <Select
+                  selectSize="sm"
+                  value={selectedZoneId}
+                  onChange={(event) => {
+                    setSelectedZoneId(event.target.value);
+                    setPage(1);
+                  }}
+                  className="w-auto min-w-[180px]"
+                  title="Cloudflare zone to manage"
+                >
+                  {zones.map((zone) => (
+                    <option key={zone.id} value={zone.id}>{zone.name}</option>
+                  ))}
+                </Select>
+              </label>
+            ) : null}
             <input
               value={search}
               onChange={(event) => {
@@ -730,6 +762,9 @@ export default function DnsManagementPage() {
           draftKey={!editingRecord ? "infraweaver:dns-create-draft" : undefined}
           currentMachineTargets={machineTargets}
           gameServerTargets={gameServerTargets}
+          zones={zones}
+          selectedZoneId={selectedZoneId}
+          defaultZoneId={defaultZoneId}
           onSubmitted={async () => {
             await Promise.all([refetch(), refetchTraefikRoutes()]);
           }}

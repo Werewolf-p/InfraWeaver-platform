@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { deleteARecord } from "@/lib/cloudflare";
+import { deleteARecord, resolveZoneIdForHost } from "@/lib/cloudflare";
 import { validateK8sName } from "@/lib/api-security";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
@@ -81,9 +81,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       backendType = cm.data?.["backend-type"] ?? "external";
     } catch {}
 
-    // Delete DNS records
-    if (publicDns) { try { await deleteARecord(publicHost(name)); } catch {} }
-    if (internalDns) { try { await deleteARecord(internalHost(name)); } catch {} }
+    // Delete DNS records from whichever Cloudflare zone manages each hostname
+    if (publicDns) { try { const fqdn = publicHost(name); await deleteARecord(fqdn, await resolveZoneIdForHost(fqdn)); } catch {} }
+    if (internalDns) { try { const fqdn = internalHost(name); await deleteARecord(fqdn, await resolveZoneIdForHost(fqdn)); } catch {} }
 
     // Delete ConfigMap
     try { await coreApi.deleteNamespacedConfigMap({ name, namespace: "game-servers" }); } catch {}

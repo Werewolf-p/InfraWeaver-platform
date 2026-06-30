@@ -7,6 +7,7 @@ import {
   getWordpressAccessContext,
   hasWordpressPermission,
   getScopedWordpressSites,
+  hasAllWordpressAccess,
   type WordpressPermission,
 } from "../lib/wordpress-rbac";
 import { isValidSiteName, isValidSiteId } from "../lib/naming";
@@ -104,6 +105,10 @@ export async function listSitesHandler(): Promise<NextResponse> {
     // A user scoped to specific sites can still list those. Reuse the context the
     // gate already resolved rather than re-authenticating.
     if (!gate.ctx) return gate.error;
+    // A blanket "/wordpress" (resource-group) grant cascades to every site.
+    if (hasAllWordpressAccess(gate.ctx.roleAssignments)) {
+      return guard(async () => json({ sites: await listSites() }));
+    }
     const allowed = new Set(getScopedWordpressSites(gate.ctx.roleAssignments));
     if (allowed.size === 0) return gate.error;
     return guard(async () => {

@@ -1,8 +1,16 @@
 import type { Session } from "next-auth";
-import { getRole, hasPermission, type Permission, type RoleAssignment } from "@/lib/rbac";
+import { getRole, hasPermission, resolveRoleDefinition, type Permission, type RoleAssignment } from "@/lib/rbac";
 import { getRoleAssignmentsForSession } from "@/lib/users-config";
 
 export const WORDPRESS_NAMESPACE = "wordpress";
+
+/**
+ * Scopes that confer access to EVERY WordPress site (the "resource group" tier,
+ * Azure-style): the platform root and the WordPress namespace itself, plus the
+ * `/wordpress/sites` collection. A grant at any of these cascades to all sites,
+ * whereas `/wordpress/sites/<site>` targets a single one.
+ */
+const WORDPRESS_ALL_SITES_SCOPES: ReadonlySet<string> = new Set(["/", "/wordpress", "/wordpress/sites"]);
 
 /**
  * WordPress addon permissions. These are first-class members of core's
@@ -53,6 +61,28 @@ export function getScopedWordpressSites(roleAssignments: RoleAssignment[]): stri
     if (match) scoped.add(match[1]);
   }
   return [...scoped];
+}
+
+/**
+ * Whether the user has a blanket ("resource-group") WordPress grant that cascades
+ * to every site — a non-expired assignment at `/`, `/wordpress` or `/wordpress/sites`
+ * whose role carries any wordpress permission (or `*`). When true, callers should
+ * treat the user as having access to ALL sites rather than enumerating specific
+ * ones via {@link getScopedWordpressSites}. (Platform admins pass via group role
+ * checks elsewhere and need no assignment.)
+ */
+export function hasAllWordpressAccess(roleAssignments: RoleAssignment[]): boolean {
+  const now = new Date();
+  for (const assignment of roleAssignments) {
+    if (assignment.expiresAt && new Date(assignment.expiresAt) < now) continue;
+    if (!WORDPRESS_ALL_SITES_SCOPES.has(assignment.scope)) continue;
+    const role = resolveRoleDefinition(assignment.roleId);
+    if (!role) continue;
+    if (role.permissions.includes("*") || role.permissions.some((p) => p.startsWith("wordpress:"))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export async function getWordpressAccessContext(session: Session | null, revalidateSeconds = 60) {

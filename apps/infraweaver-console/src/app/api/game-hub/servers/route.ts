@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { auditLog } from "@/lib/audit-log";
-import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts } from "@/lib/game-eggs";
+import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts, sanitizeLabelValue } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
@@ -34,23 +34,6 @@ const createServerBodySchema = z.object({
 
 function pvcSuffixForMountPath(mountPath: string) {
   return (mountPath.split("/").filter(Boolean).pop() ?? "data").replace(/[^a-z0-9-]/g, "-") || "data";
-}
-
-/**
- * Sanitize a value to be safe for use as a Kubernetes label value.
- * Must match: (([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])? — max 63 chars.
- */
-function sanitizeLabelValue(value: string): string {
-  // Replace anything not alphanumeric, hyphen, underscore, or dot with a hyphen
-  let sanitized = value.replace(/[^A-Za-z0-9\-_.]/g, "-");
-  // Collapse consecutive hyphens
-  sanitized = sanitized.replace(/-{2,}/g, "-");
-  // Strip leading/trailing non-alphanumeric characters
-  sanitized = sanitized.replace(/^[^A-Za-z0-9]+/, "").replace(/[^A-Za-z0-9]+$/, "");
-  // Truncate to 63 chars
-  sanitized = sanitized.slice(0, 63);
-  // If empty after sanitization, fall back to "unknown"
-  return sanitized || "unknown";
 }
 
 function quantityToString(value: string | number | null | undefined) {

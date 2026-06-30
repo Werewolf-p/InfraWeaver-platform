@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { getARecord, createARecord, deleteARecord } from "@/lib/cloudflare";
+import { getARecord, createARecord, deleteARecord, resolveZoneIdForHost } from "@/lib/cloudflare";
 import { validateK8sName } from "@/lib/api-security";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
@@ -36,9 +36,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
     internalIP = cm.data?.["internal-ip"] ?? "";
   } catch {}
 
+  const publicFqdn = publicHost(name);
+  const internalFqdn = internalHost(name);
+  const [publicZone, internalZone] = await Promise.all([
+    resolveZoneIdForHost(publicFqdn),
+    resolveZoneIdForHost(internalFqdn),
+  ]);
   const [publicRecord, internalRecord] = await Promise.all([
-    getARecord(publicHost(name)).catch(() => null),
-    getARecord(internalHost(name)).catch(() => null),
+    getARecord(publicFqdn, publicZone).catch(() => null),
+    getARecord(internalFqdn, internalZone).catch(() => null),
   ]);
 
   return NextResponse.json({
@@ -67,13 +73,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   const results: Record<string, unknown> = {};
   const intIP = internalIP || targetIP;
 
+  const publicFqdn = publicHost(name);
+  const internalFqdn = internalHost(name);
+
   if (publicDns) {
-    await deleteARecord(publicHost(name)).catch(() => {});
-    try { results.public = await createARecord(publicHost(name), targetIP, false); } catch (e) { results.publicError = safeError(e); }
+    const zone = await resolveZoneIdForHost(publicFqdn);
+    await deleteARecord(publicFqdn, zone).catch(() => {});
+    try { results.public = await createARecord(publicFqdn, targetIP, false, zone); } catch (e) { results.publicError = safeError(e); }
   }
   if (internalDns) {
-    await deleteARecord(internalHost(name)).catch(() => {});
-    try { results.internal = await createARecord(internalHost(name), intIP, false); } catch (e) { results.internalError = safeError(e); }
+    const zone = await resolveZoneIdForHost(internalFqdn);
+    await deleteARecord(internalFqdn, zone).catch(() => {});
+    try { results.internal = await createARecord(internalFqdn, intIP, false, zone); } catch (e) { results.internalError = safeError(e); }
   }
 
   return NextResponse.json({ success: true, ...results });

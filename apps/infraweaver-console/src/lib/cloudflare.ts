@@ -41,6 +41,27 @@ export function cloudflareConfigured(): boolean {
   return !!CF_TOKEN;
 }
 
+/** The env-configured default zone id (CF_ZONE_ID), or undefined when unset. */
+export function defaultZoneId(): string | undefined {
+  const id = CF_ZONE_ID?.trim();
+  return id ? id : undefined;
+}
+
+/**
+ * Best-effort variant of {@link resolveZoneId}: returns the id of the managed
+ * zone covering `name`, or `undefined` when Cloudflare is unconfigured or no
+ * zone matches. Callers fall back to the env default zone on `undefined`, so
+ * single-zone deployments keep working unchanged.
+ */
+export async function resolveZoneIdForHost(name: string): Promise<string | undefined> {
+  if (!cloudflareConfigured()) return undefined;
+  try {
+    return await resolveZoneId(name);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Resolve the zone a record-level call targets: an explicit id, else the env default. */
 function requireZoneId(zoneId?: string): string {
   const id = (zoneId ?? CF_ZONE_ID ?? "").trim();
@@ -176,29 +197,29 @@ export async function deleteDnsRecordById(id: string, zoneId?: string): Promise<
   await cfFetch(`/zones/${requireZoneId(zoneId)}/dns_records/${id}`, { method: "DELETE" });
 }
 
-export async function createARecord(name: string, ip: string, proxied = false): Promise<{ id: string }> {
+export async function createARecord(name: string, ip: string, proxied = false, zoneId?: string): Promise<{ id: string }> {
   const record = await createDnsRecord({
     type: "A",
     name,
     content: ip,
     proxied,
     ttl: proxied ? 1 : 120,
-  });
+  }, zoneId);
   return { id: record.id };
 }
 
-export async function deleteARecord(name: string): Promise<void> {
-  const records = await listARecords(name);
-  await Promise.all(records.map((record) => deleteDnsRecordById(record.id)));
+export async function deleteARecord(name: string, zoneId?: string): Promise<void> {
+  const records = await listARecords(name, zoneId);
+  await Promise.all(records.map((record) => deleteDnsRecordById(record.id, zoneId)));
 }
 
-export async function listARecords(nameFilter?: string): Promise<Array<{ id: string; name: string; content: string; type: string }>> {
-  const records = await listDnsRecords({ type: "A", ...(nameFilter ? { name: nameFilter } : {}) });
+export async function listARecords(nameFilter?: string, zoneId?: string): Promise<Array<{ id: string; name: string; content: string; type: string }>> {
+  const records = await listDnsRecords({ type: "A", ...(nameFilter ? { name: nameFilter } : {}) }, zoneId);
   return records.map(({ id, name, content, type }) => ({ id, name, content, type }));
 }
 
-export async function getARecord(name: string): Promise<{ id: string; name: string; content: string } | null> {
-  const records = await listARecords(name);
+export async function getARecord(name: string, zoneId?: string): Promise<{ id: string; name: string; content: string } | null> {
+  const records = await listARecords(name, zoneId);
   return records.find((record) => record.name === name) ?? null;
 }
 

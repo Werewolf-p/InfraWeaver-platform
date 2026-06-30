@@ -4,6 +4,7 @@ export * from "./use-argocd";
 export * from "./use-audit-log";
 export * from "./use-bookmarks";
 export * from "./use-config-drift";
+export * from "./use-dns-zones";
 export * from "./use-copy-to-clipboard";
 export * from "./use-debounce";
 export * from "./use-favorites";

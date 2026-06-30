@@ -9,6 +9,7 @@ const patchBodySchema = z.object({
   value: z.string().optional(),
   ttl: z.number().optional(),
   proxied: z.boolean().optional(),
+  zoneId: z.string().optional(),
 }).refine((body) => (
   typeof body.value === "string"
   || typeof body.ttl === "number"
@@ -32,7 +33,7 @@ async function requireAccess() {
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await requireAccess();
@@ -40,7 +41,8 @@ export async function DELETE(
 
   try {
     const { id } = await params;
-    await deleteDnsRecordById(id);
+    const zoneId = req.nextUrl.searchParams.get("zoneId")?.trim() || undefined;
+    await deleteDnsRecordById(id, zoneId);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
@@ -74,8 +76,9 @@ export async function PATCH(
 
     const ttl = typeof parsed.data.ttl === "number" ? Math.max(1, Math.min(86400, Math.round(parsed.data.ttl))) : undefined;
     const proxied = typeof parsed.data.proxied === "boolean" ? parsed.data.proxied : undefined;
+    const zoneId = parsed.data.zoneId?.trim() || undefined;
 
-    const record = await updateDnsRecord(id, { content: value, ttl, proxied });
+    const record = await updateDnsRecord(id, { content: value, ttl, proxied }, zoneId);
     return NextResponse.json({
       record: {
         id: record.id,

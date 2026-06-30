@@ -528,6 +528,25 @@ export function getEggEnvironmentDefaults(egg: GameEgg): Record<string, string> 
   return Object.fromEntries(egg.environment.map((entry) => [entry.name, entry.defaultValue]));
 }
 
+/**
+ * Sanitize a value so it is safe for use as a Kubernetes label value.
+ * Must match: (([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])? — max 63 chars.
+ * Pelican egg IDs can contain '/', '[', ']' etc. which K8s rejects, so any
+ * egg-derived value placed in a label MUST pass through this first.
+ */
+export function sanitizeLabelValue(value: string): string {
+  // Replace anything not alphanumeric, hyphen, underscore, or dot with a hyphen
+  let sanitized = value.replace(/[^A-Za-z0-9\-_.]/g, "-");
+  // Collapse consecutive hyphens
+  sanitized = sanitized.replace(/-{2,}/g, "-");
+  // Strip leading/trailing non-alphanumeric characters
+  sanitized = sanitized.replace(/^[^A-Za-z0-9]+/, "").replace(/[^A-Za-z0-9]+$/, "");
+  // Truncate to 63 chars
+  sanitized = sanitized.slice(0, 63);
+  // If empty after sanitization, fall back to "unknown"
+  return sanitized || "unknown";
+}
+
 export function buildEggConfigMap(
   namespace: string,
   serverName: string,
@@ -542,8 +561,14 @@ export function buildEggConfigMap(
       namespace,
       labels: {
         "infraweaver.io/type": "game-egg",
-        "infraweaver.io/game-type": egg.id,
+        // egg.id is a Pelican catalog id that can contain '/', '[', ']' — sanitize
+        // for the label and keep the unmodified id in an annotation below.
+        "infraweaver.io/game-type": sanitizeLabelValue(egg.id),
         "infraweaver.io/server-name": serverName,
+      },
+      annotations: {
+        // Full, unmodified egg id (annotations have no charset restrictions).
+        "infraweaver.io/egg-id": egg.id,
       },
     },
     data: {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { GET as getGameHubServers } from "@/app/api/game-hub/servers/route";
-import { createARecord, deleteARecord } from "@/lib/cloudflare";
+import { createARecord, deleteARecord, resolveZoneIdForHost } from "@/lib/cloudflare";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import { internalHost, publicHost } from "@/lib/domain";
@@ -163,16 +163,20 @@ export async function POST(req: NextRequest) {
       await coreApi.createNamespacedService({ namespace: "game-servers", body: svc });
     }
 
-    // Create DNS records
+    // Create DNS records (each hostname targets the Cloudflare zone that manages it)
     const dnsIP = targetIP;
     const intDnsIP = internalIP || targetIP;
     if (publicDns) {
-      try { await deleteARecord(publicHost(name)); } catch {}
-      try { await createARecord(publicHost(name), dnsIP, false); } catch {}
+      const fqdn = publicHost(name);
+      const zone = await resolveZoneIdForHost(fqdn);
+      try { await deleteARecord(fqdn, zone); } catch {}
+      try { await createARecord(fqdn, dnsIP, false, zone); } catch {}
     }
     if (internalDns) {
-      try { await deleteARecord(internalHost(name)); } catch {}
-      try { await createARecord(internalHost(name), intDnsIP, false); } catch {}
+      const fqdn = internalHost(name);
+      const zone = await resolveZoneIdForHost(fqdn);
+      try { await deleteARecord(fqdn, zone); } catch {}
+      try { await createARecord(fqdn, intDnsIP, false, zone); } catch {}
     }
 
     return NextResponse.json({ success: true, name });
