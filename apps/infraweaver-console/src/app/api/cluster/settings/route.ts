@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as jsYaml from "js-yaml";
 import { withAuth } from "@/lib/with-auth";
-import { getGitAccessToken, gitCommitFiles, gitReadFile } from "@/lib/git-provider";
+import { getGitAccessToken } from "@/lib/git-provider";
+import { readInfraRepoFile, writeInfraRepoFiles } from "@/lib/infra-repo";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 import { withRoute } from "@/lib/route-utils";
@@ -224,7 +225,7 @@ export const GET = withAuth({ permission: "config:read" }, async () => {
     const uniqueFiles = Array.from(new Set(RESOURCE_DEFS.map((d) => d.file)));
     const fileEntries = await Promise.all(
       uniqueFiles.map(async (filePath) => {
-        const file = await gitReadFile(filePath);
+        const file = await readInfraRepoFile(filePath);
         if (!file) throw new Error(`Repository file not found: ${filePath}`);
         const parsed = toRecord(jsYaml.load(file.content));
         return [filePath, { parsed, sha: file.sha }] as const;
@@ -291,7 +292,7 @@ export const PUT = withRoute("config:write", async (req: NextRequest) => {
 
     const filesToWrite = await Promise.all(
       Array.from(byFile.entries()).map(async ([filePath, changes]) => {
-        const file = await gitReadFile(filePath);
+        const file = await readInfraRepoFile(filePath);
         if (!file) throw new Error(`Repository file not found: ${filePath}`);
         const parsed = toRecord(jsYaml.load(file.content));
         for (const { def, value } of changes) setNestedPath(parsed, def.yamlPath, value);
@@ -302,10 +303,7 @@ export const PUT = withRoute("config:write", async (req: NextRequest) => {
       }),
     );
 
-    await gitCommitFiles({
-      message: commitMsg,
-      addOrUpdateFiles: filesToWrite,
-    });
+    await writeInfraRepoFiles(filesToWrite, commitMsg);
 
     return NextResponse.json({
       ok: true,

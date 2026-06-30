@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as jsYaml from "js-yaml";
 import { withAuth } from "@/lib/with-auth";
-import { getGitAccessToken, gitReadFile, gitWriteFile } from "@/lib/git-provider";
+import { getGitAccessToken } from "@/lib/git-provider";
+import { readInfraRepoFile, writeInfraRepoFile } from "@/lib/infra-repo";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 import { withRoute } from "@/lib/route-utils";
@@ -83,7 +84,7 @@ export const GET = withAuth({ permission: "config:read" }, async () => {
   if (!GIT_TOKEN) return NextResponse.json({ error: "Missing git provider token" }, { status: 503 });
 
   try {
-    const file = await gitReadFile(CLUSTER_YAML_PATH);
+    const file = await readInfraRepoFile(CLUSTER_YAML_PATH);
     if (!file) throw new Error(`Repository file not found: ${CLUSTER_YAML_PATH}`);
     const parsed = jsYaml.load(file.content) as ClusterYaml;
 
@@ -144,7 +145,7 @@ export const PUT = withRoute("config:write", async (req: NextRequest) => {
     }
 
     // Read current cluster.yaml
-    const file = await gitReadFile(CLUSTER_YAML_PATH);
+    const file = await readInfraRepoFile(CLUSTER_YAML_PATH);
     if (!file) throw new Error(`Repository file not found: ${CLUSTER_YAML_PATH}`);
     const parsed = jsYaml.load(file.content) as ClusterYaml;
 
@@ -168,7 +169,7 @@ export const PUT = withRoute("config:write", async (req: NextRequest) => {
     const nodesSummary = changedNodeNames.join(", ");
     const commitMsg = `feat(cluster): update node specs for ${nodesSummary} via InfraWeaver Console\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`;
     const updatedYaml = jsYaml.dump(parsed, { lineWidth: -1, indent: 2 });
-    await gitWriteFile(CLUSTER_YAML_PATH, updatedYaml, commitMsg, file.sha);
+    await writeInfraRepoFile(CLUSTER_YAML_PATH, updatedYaml, commitMsg, file.sha);
 
     // Dispatch the rolling-update workflow
     await dispatchWorkflow(NODE_UPDATE_WORKFLOW, {
