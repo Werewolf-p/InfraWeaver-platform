@@ -178,10 +178,15 @@ function buildInstallInitContainer(
   _runtimeMountPath: string,
   installScript: { script: string; container: string; entrypoint: string },
   env: Record<string, string>,
-  isRoot: boolean,
 ) {
   // Pelican install scripts always write to /mnt/server — mount the PVC there.
   const INSTALL_MOUNT = "/mnt/server";
+
+  // Pelican/parkervcp egg scripts are authored on Windows and ship with CRLF
+  // line endings. Injected raw, the literal carriage returns corrupt shell
+  // keywords ("then\r", "fi\r") and break the script with exit code 2. Normalize
+  // CRLF (and lone CR) to LF before wrapping so bash parses the script correctly.
+  const normalizedScript = installScript.script.replace(/\r\n?/g, "\n");
 
   const wrappedScript = [
     "#!/bin/sh",
@@ -189,7 +194,7 @@ function buildInstallInitContainer(
     '  echo "[install] Already installed — skipping"',
     "  exit 0",
     "fi",
-    installScript.script,
+    normalizedScript,
     `touch "${INSTALL_MOUNT}/.installed"`,
     'echo "[install] Installation complete"',
   ].join("\n");
@@ -199,7 +204,11 @@ function buildInstallInitContainer(
     image: installScript.container,
     command: [installScript.entrypoint, "-c", wrappedScript],
     env: Object.entries(env).map(([key, value]) => ({ name: key, value })),
-    securityContext: isRoot ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000 },
+    // The install phase always runs as root: Pelican install scripts apt-install
+    // packages and write into a fresh PVC, both of which require uid 0. The egg's
+    // run_as_root feature (isRoot) governs only the long-running runtime container,
+    // not this ephemeral installer.
+    securityContext: { runAsUser: 0, runAsGroup: 0 },
     // Mount at /mnt/server so the Pelican install script can find its target dir.
     volumeMounts: [{ name: "data", mountPath: INSTALL_MOUNT }],
     // Installation can be slow (SteamCMD downloads, large assets) — be generous.
@@ -321,7 +330,7 @@ async function createServer(body: {
 
   // Build init container if the egg ships an installation script.
   const installInitContainer = egg.installScript
-    ? buildInstallInitContainer(egg.mountPath, egg.installScript, allEnv, isRoot)
+    ? buildInstallInitContainer(egg.mountPath, egg.installScript, allEnv)
     : null;
 
   // Heavy games (installs take >10 min) get extra startup time.
