@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { KeyRound, Layers, ShieldCheck, Clock, Users } from "lucide-react";
 import { ROLE_COLOR_CLASSES } from "@/lib/rbac";
+import { ScopeTreePanel } from "./scope-tree-panel";
 import type { SubjectBinding, SubjectKind } from "./types";
 
 interface VizSubject {
@@ -93,6 +94,8 @@ export function SubjectDetailPanel({ subject }: SubjectDetailPanelProps) {
           </div>
         )}
       </section>
+
+      {subject.bindings.length > 0 ? <ScopeTreePanel bindings={subject.bindings} /> : null}
 
       {subject.permissions.length > 0 ? (
         <section>

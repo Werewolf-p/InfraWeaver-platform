@@ -34,11 +34,17 @@ const MINT_GATE_PERMISSIONS: Permission[] = ["users:write", "rbac:admin", "clust
 //   - rbac/assignments POST              -> any of ["users:write", "rbac:admin"]
 //   - groups POST / groups/[id] PATCH    -> any of ["rbac:admin", "cluster:admin"]
 //
-// The intended invariant: only platform-owner and platform-admin may pass that
-// gate. These tests pin it so a future role-definition change can't quietly let
-// a lower-privileged role (operator, developer, viewer, game-*) mint users:write.
+// The intended invariant: only the full-control owner tier and platform-admin
+// may pass that gate. These tests pin it so a future role-definition change
+// can't quietly let a lower-privileged role (operator, developer, viewer,
+// game-*, or the resource-tier reader/editor/admin) mint users:write.
+//
+// `owner` is the Azure-style generic full-control role ("*"); it is the
+// scope-assignable equivalent of platform-owner, so it is intentionally part of
+// the privileged set. The resource-tier reader/editor/admin roles are derived
+// to EXCLUDE the escalation tier and must stay non-privileged.
 
-const PRIVILEGED_ROLES: BuiltInRoleId[] = ["platform-owner", "platform-admin"];
+const PRIVILEGED_ROLES: BuiltInRoleId[] = ["owner", "platform-owner", "platform-admin"];
 const ALL_BUILT_IN_ROLE_IDS = Object.keys(BUILT_IN_ROLES) as BuiltInRoleId[];
 
 /** Effective permissions a user gains from holding `roleId` cluster-wide. */

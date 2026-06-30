@@ -24,17 +24,21 @@ interface PlatformUser { username: string; name?: string; email?: string }
 
 // ─── Category icons ───────────────────────────────────────────────────────────
 const CATEGORY_ICON: Record<string, React.ElementType> = {
+  scoped: ShieldCheck,
   platform: Shield,
   "game-hub": Gamepad2,
   wiki: BookOpen,
+  wordpress: Package,
   storage: HardDrive,
   network: Network,
   catalog: Package,
 };
 const CATEGORY_LABEL: Record<string, string> = {
+  scoped: "Scoped (Azure-style)",
   platform: "Platform",
   "game-hub": "Game Hub",
   wiki: "Wiki",
+  wordpress: "WordPress",
   storage: "Storage",
   network: "Network",
   catalog: "Catalog",
@@ -187,7 +191,7 @@ function AddAssignmentModal({
               className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
             >
               <option value="">Select a role…</option>
-              {["platform", "game-hub", "wiki", "storage", "catalog"].map(cat => (
+              {["scoped", "platform", "game-hub", "wiki", "storage", "catalog"].map(cat => (
                 <optgroup key={cat} label={CATEGORY_LABEL[cat]}>
                   {builtInRoles.filter((role) => role.category === cat).map((role) => (
                     <option key={role.id} value={role.id}>{role.name}</option>
