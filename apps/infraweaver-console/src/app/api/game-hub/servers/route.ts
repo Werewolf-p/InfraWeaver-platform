@@ -178,9 +178,16 @@ function buildInstallInitContainer(
   _runtimeMountPath: string,
   installScript: { script: string; container: string; entrypoint: string },
   env: Record<string, string>,
+  isRoot: boolean,
 ) {
   // Pelican install scripts always write to /mnt/server — mount the PVC there.
   const INSTALL_MOUNT = "/mnt/server";
+  // Non-root runtime containers run as this uid/gid (see the pod securityContext
+  // in the create path). The installer runs as root, so without a hand-off the
+  // runtime can't open the files it wrote (e.g. TShock's GeoIP db → "Permission
+  // denied"). chown the install output to the runtime user, mirroring how
+  // Pterodactyl/Pelican wings hands a fresh install over to the container user.
+  const RUNTIME_UID = 1000;
 
   // Pelican/parkervcp egg scripts are authored on Windows and ship with CRLF
   // line endings. Injected raw, the literal carriage returns corrupt shell
@@ -195,6 +202,9 @@ function buildInstallInitContainer(
     "  exit 0",
     "fi",
     normalizedScript,
+    // Hand root-installed files to the runtime user for non-root eggs (a root
+    // runtime already owns them, so the chown is skipped there).
+    ...(isRoot ? [] : [`chown -R ${RUNTIME_UID}:${RUNTIME_UID} "${INSTALL_MOUNT}"`]),
     `touch "${INSTALL_MOUNT}/.installed"`,
     'echo "[install] Installation complete"',
   ].join("\n");
@@ -330,7 +340,7 @@ async function createServer(body: {
 
   // Build init container if the egg ships an installation script.
   const installInitContainer = egg.installScript
-    ? buildInstallInitContainer(egg.mountPath, egg.installScript, allEnv)
+    ? buildInstallInitContainer(egg.mountPath, egg.installScript, allEnv, isRoot)
     : null;
 
   // Heavy games (installs take >10 min) get extra startup time.
