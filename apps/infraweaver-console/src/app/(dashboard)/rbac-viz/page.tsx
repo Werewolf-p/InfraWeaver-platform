@@ -100,7 +100,7 @@ export default function RbacVizPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Shield} title="RBAC Visualizer" description="Browse effective role bindings by platform user, group, or Kubernetes service account." />
+      <PageHeader icon={Shield} title="RBAC Visualizer" description="Browse effective role bindings and Azure-style scope inheritance by platform user, group, or Kubernetes service account." />
 
       {isLoading ? (
         <div className="grid gap-4 lg:grid-cols-2">

@@ -70,6 +70,12 @@ export function isGroupAllowedPermission(permission: Permission): boolean {
 }
 
 export type BuiltInRoleId =
+  // Azure-style generic scope roles — a small fixed set assignable at ANY scope
+  // in the hierarchy, inheriting downward (see scopeCovers / isAllowed).
+  | "owner"
+  | "admin"
+  | "editor"
+  | "reader"
   | "platform-owner"
   | "platform-admin"
   | "platform-operator"
@@ -97,7 +103,7 @@ export interface RoleDefinition {
   description: string;
   permissions: Permission[];
   isBuiltIn: boolean;
-  category?: "platform" | "game-hub" | "wiki" | "wordpress";
+  category?: "scoped" | "platform" | "game-hub" | "wiki" | "wordpress";
   color?: "red" | "blue" | "green" | "purple" | "orange" | "yellow" | "teal" | "gray";
 }
 
@@ -113,7 +119,76 @@ export interface RoleAssignment {
   conditions?: string;
 }
 
+/**
+ * Azure-style generic scope roles. The platform deliberately keeps a SMALL fixed
+ * set of roles that can be assigned at any scope in the hierarchy and inherit
+ * downward (platform → resource group → resource; see scopeCovers / isAllowed):
+ *
+ *   Reader  – view resources within the scope
+ *   Editor  – Reader + create/modify/operate resources (Azure "Contributor")
+ *   Admin   – Editor + full management of the resource type (delete, *:admin)
+ *   Owner   – full control, including managing access ("*")
+ *
+ * Reader/Editor/Admin are RESOURCE-tier: their permission sets are derived from
+ * the permission registry and NEVER include the platform-escalation tier
+ * (GROUP_DENIED_PERMISSIONS), so a scoped Admin can never mint users:write /
+ * rbac:admin / cluster:admin. Owner is the single full-control role ("*").
+ */
+function permissionVerb(permission: Permission): string {
+  const separator = permission.indexOf(":");
+  return separator === -1 ? permission : permission.slice(separator + 1);
+}
+
+const READER_VERBS: ReadonlySet<string> = new Set(["read"]);
+const EDITOR_VERBS: ReadonlySet<string> = new Set([
+  "read", "write", "edit", "sync", "start", "stop", "scale", "console", "files", "players",
+]);
+
+/** Resource-tier permissions = everything assignable except the escalation tier. */
+const RESOURCE_TIER_PERMISSIONS: Permission[] = ALL_PERMISSIONS.filter(
+  (permission) => permission !== "*" && isGroupAllowedPermission(permission),
+);
+const READER_PERMISSIONS: Permission[] = RESOURCE_TIER_PERMISSIONS.filter((p) => READER_VERBS.has(permissionVerb(p)));
+const EDITOR_PERMISSIONS: Permission[] = RESOURCE_TIER_PERMISSIONS.filter((p) => EDITOR_VERBS.has(permissionVerb(p)));
+const ADMIN_PERMISSIONS: Permission[] = [...RESOURCE_TIER_PERMISSIONS];
+
 export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
+  owner: {
+    id: "owner",
+    name: "Owner",
+    description: "Full control within the assigned scope, including managing access. Inherits to all child scopes.",
+    permissions: ["*"],
+    isBuiltIn: true,
+    category: "scoped",
+    color: "red",
+  },
+  admin: {
+    id: "admin",
+    name: "Admin",
+    description: "Full management of every resource within the assigned scope (create, modify, delete). Inherits to all child scopes.",
+    permissions: ADMIN_PERMISSIONS,
+    isBuiltIn: true,
+    category: "scoped",
+    color: "purple",
+  },
+  editor: {
+    id: "editor",
+    name: "Editor",
+    description: "Create, modify, and operate resources within the assigned scope. Inherits to all child scopes.",
+    permissions: EDITOR_PERMISSIONS,
+    isBuiltIn: true,
+    category: "scoped",
+    color: "blue",
+  },
+  reader: {
+    id: "reader",
+    name: "Reader",
+    description: "Read-only access to resources within the assigned scope. Inherits to all child scopes.",
+    permissions: READER_PERMISSIONS,
+    isBuiltIn: true,
+    category: "scoped",
+    color: "gray",
+  },
   "platform-owner": {
     id: "platform-owner",
     name: "Platform Owner",
@@ -371,6 +446,57 @@ export function scopesOverlap(a: string, b: string): boolean {
   return scopeCovers(a, b) || scopeCovers(b, a);
 }
 
+/**
+ * A scope path in the InfraWeaver hierarchy, Azure-style:
+ *   platform (root "/") → resource group ("/wordpress", "/game-hub/servers")
+ *   → resource ("/wordpress/sites/foo", "/game-hub/servers/tmodloader").
+ * A role assigned on any scope inherits to every descendant scope.
+ */
+export type ScopePath = string;
+
+export const ROOT_SCOPE: ScopePath = "/";
+
+/** Strips a trailing "/" (except on the root) so scope comparisons are stable. */
+function normalizeScope(scope: ScopePath): ScopePath {
+  if (!scope || scope === ROOT_SCOPE) return ROOT_SCOPE;
+  return scope.endsWith("/") ? scope.slice(0, -1) : scope;
+}
+
+/** Path segments of a scope, e.g. "/wordpress/sites/foo" -> [wordpress, sites, foo]. */
+export function scopeSegments(scope: ScopePath): string[] {
+  return normalizeScope(scope).split("/").filter(Boolean);
+}
+
+/** The immediate parent scope, or null for the root. */
+export function scopeParent(scope: ScopePath): ScopePath | null {
+  const normalized = normalizeScope(scope);
+  if (normalized === ROOT_SCOPE) return null;
+  const segments = scopeSegments(normalized);
+  if (segments.length <= 1) return ROOT_SCOPE;
+  return `/${segments.slice(0, -1).join("/")}`;
+}
+
+/**
+ * The scope itself and every ancestor up to the root, most-specific first.
+ * Walking this chain IS the Azure inheritance lookup: a role assigned on any
+ * entry applies to `scope`.
+ */
+export function scopeAncestors(scope: ScopePath): ScopePath[] {
+  const chain: ScopePath[] = [];
+  let current: ScopePath | null = normalizeScope(scope);
+  while (current) {
+    chain.push(current);
+    current = scopeParent(current);
+  }
+  if (chain[chain.length - 1] !== ROOT_SCOPE) chain.push(ROOT_SCOPE);
+  return chain;
+}
+
+/** True when `ancestor` is a STRICT ancestor of `scope` (covers it but isn't it). */
+export function isStrictAncestorScope(ancestor: ScopePath, scope: ScopePath): boolean {
+  return scopeCovers(ancestor, scope) && normalizeScope(ancestor) !== normalizeScope(scope);
+}
+
 export function hasAssignedPermissionForScope(
   roleAssignments: RoleAssignment[],
   permission: Permission,
@@ -464,6 +590,57 @@ export function checkPermission(
   return hasPermission(groups, permission, roleAssignments, scope, username);
 }
 
+/** A principal (user or group member) whose access is being evaluated. */
+export interface RbacSubject {
+  groups: string[];
+  username: string;
+  roleAssignments: RoleAssignment[];
+}
+
+/**
+ * Azure-style scoped permission check. Resolves `action` for `subject` at
+ * `scope` by inheriting any role assignment made on `scope` or any ANCESTOR
+ * scope (walk via scopeCovers / scopeAncestors). Legacy group roles and the
+ * platform-owner "*" are honored by the same underlying resolver, so this is a
+ * drop-in, identity-aware entry point that keeps every existing permission
+ * string and caller working unchanged.
+ */
+export function isAllowed(
+  subject: RbacSubject,
+  action: Permission,
+  scope: ScopePath = ROOT_SCOPE,
+): boolean {
+  return hasPermission(subject.groups, action, subject.roleAssignments, scope, subject.username);
+}
+
+/** A resolved grant: which role applies at a scope, and whether it was inherited. */
+export interface ScopeGrant {
+  assignment: RoleAssignment;
+  role: RoleDefinition;
+  /** True when the grant comes from an ancestor scope rather than `scope` itself. */
+  inherited: boolean;
+}
+
+/**
+ * Every non-expired role assignment that applies to `subject` at `scope`, each
+ * tagged `inherited` (assigned on an ancestor scope) or direct (assigned on
+ * `scope` itself). Powers the RBAC Visualizer's inheritance view and mirrors the
+ * resolution {@link isAllowed} performs.
+ */
+export function grantsForScope(subject: RbacSubject, scope: ScopePath): ScopeGrant[] {
+  const grants: ScopeGrant[] = [];
+  for (const assignment of subject.roleAssignments) {
+    if (isAssignmentExpired(assignment)) continue;
+    if (!scopeCovers(assignment.scope, scope)) continue;
+    if (assignment.principalType === "group" && assignment.principalId && !subject.groups.includes(assignment.principalId)) continue;
+    if (assignment.principalType === "user" && assignment.principalId && subject.username && assignment.principalId !== subject.username) continue;
+    const role = resolveRoleDefinition(assignment.roleId);
+    if (!role) continue;
+    grants.push({ assignment, role, inherited: isStrictAncestorScope(assignment.scope, scope) });
+  }
+  return grants;
+}
+
 export function getBuiltInRoles(): RoleDefinition[] {
   return Object.values(BUILT_IN_ROLES);
 }
@@ -486,8 +663,12 @@ export function gameServerScope(serverName: string): string {
 export function scopeLabel(scope: string): string {
   const known = STATIC_SCOPES.find((entry) => entry.value === scope);
   if (known) return known.label;
+  if (scope === "/game-hub" || scope === "/game-hub/servers") return "All Game Hub servers";
   const serverMatch = scope.match(/^\/game-hub\/servers\/(.+)$/);
   if (serverMatch) return `Server: ${serverMatch[1]}`;
+  const wordpressSiteMatch = scope.match(/^\/wordpress\/sites\/(.+)$/);
+  if (wordpressSiteMatch) return `WordPress: ${wordpressSiteMatch[1]}`;
+  if (scope === "/wordpress" || scope === "/wordpress/sites") return "All WordPress sites";
   return scope;
 }
 
