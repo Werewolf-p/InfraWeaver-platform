@@ -19,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Select } from "@/components/ui/select";
 import { isValidSiteName } from "../lib/naming";
 
 interface SiteSummary {
@@ -246,18 +247,18 @@ export function WordpressDashboard() {
                         Domain
                       </label>
                       <p className="mt-1 text-xs text-zinc-500">The base domain the site is served under.</p>
-                      <select
+                      <Select
                         id="wp-domain"
+                        className="mt-3"
                         value={selectedDomain}
                         onChange={(event) => setDomain(event.target.value)}
-                        className="mt-3 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:border-sky-500 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
                       >
                         {config?.domains.map((option) => (
                           <option key={option} value={option}>
                             {option}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </div>
 
                     <div>

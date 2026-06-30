@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AccessTierBadge } from "@/components/access-tier-badge";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
+import { Select } from "@/components/ui/select";
 import { defaultTlsSecretForHost, type AccessTier } from "@/lib/access-tier";
 import type { ExternalRouteItem, ExternalRouteTargetType } from "@/lib/external-routes";
 import { cn } from "@/lib/utils";
@@ -295,10 +296,10 @@ export function RouteEditorSheet({ open, editingRoute, canWrite, onClose, onSave
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">Scheme</label>
-              <select value={form.scheme} onChange={(event) => updateForm("scheme", event.target.value as "http" | "https")} className={inputClass}>
+              <Select value={form.scheme} onChange={(event) => updateForm("scheme", event.target.value as "http" | "https")}>
                 <option value="http">http</option>
                 <option value="https">https</option>
-              </select>
+              </Select>
             </div>
           </div>
         )}

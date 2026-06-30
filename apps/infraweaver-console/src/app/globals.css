@@ -6,6 +6,10 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  /* Default to dark so native controls (select option lists, scrollbars,
+     date pickers) render dark unless the .light class overrides below. */
+  color-scheme: dark;
+
   /* ── Foreground / background legacy (body text/bg) ───────── */
   --foreground-rgb: 255, 255, 255;
   --background-start-rgb: 15, 15, 15;
@@ -91,6 +95,8 @@ body {
 }
 
 .light {
+  color-scheme: light;
+
   --color-surface-base:    255 255 255;
   --color-surface-raised:  249 250 251;
   --color-surface-overlay: 243 244 246;
@@ -108,6 +114,8 @@ body {
 }
 
 .dark {
+  color-scheme: dark;
+
   --color-surface-base:    10 10 10;
   --color-surface-raised:  18 18 18;
   --color-surface-overlay: 26 26 26;

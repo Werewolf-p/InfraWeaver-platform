@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { StorageTab } from "@/components/users/storage-tab";
 import { RoleAssignmentsPanel } from "@/components/users/role-assignments-panel";
+import { UserAccessPanel } from "@/components/users/user-access-panel";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 
 const ACCESS_LEVELS = ["admin", "platform-user", "viewer"] as const;
@@ -965,6 +966,8 @@ export default function UsersPage() {
               <div className="py-12 text-center text-slate-500 text-sm">No users found. Try a different name, username, email, or sort order.</div>
             )}
           </div>
+
+          <UserAccessPanel user={selectedUser} isAdmin={isAdmin} />
 
           <RoleAssignmentsPanel user={selectedUser} isAdmin={isAdmin} />
 

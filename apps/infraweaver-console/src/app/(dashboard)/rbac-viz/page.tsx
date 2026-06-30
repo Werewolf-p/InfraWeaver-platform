@@ -1,85 +1,127 @@
 "use client";
+
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Shield } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { SubjectsPanel, type KindFilter } from "./subjects-panel";
+import { SubjectDetailPanel } from "./subject-detail-panel";
+import type { PlatformSubjectsResponse, SubjectBinding, SubjectKind } from "./types";
 
-interface Binding {
+interface K8sBinding {
   name: string;
-  namespace?: string;
   role: string;
   subjects: { kind: string; name: string; namespace?: string }[];
+  isClusterAdmin: boolean;
 }
 
-interface RbacData {
-  serviceAccounts: { name: string; namespace: string }[];
-  bindings: Binding[];
+interface K8sServiceAccount {
+  name: string;
+  namespace: string;
+  bindings: string[];
+  isClusterAdmin: boolean;
+}
+
+interface K8sRbacData {
+  serviceAccounts: K8sServiceAccount[];
+  bindings: K8sBinding[];
+}
+
+interface VizSubject {
+  id: string;
+  kind: SubjectKind;
+  name: string;
+  secondary?: string;
+  related: string[];
+  bindings: SubjectBinding[];
+  permissions: string[];
+}
+
+function serviceAccountSubjects(data: K8sRbacData | undefined): VizSubject[] {
+  if (!data) return [];
+  return data.serviceAccounts.map((sa) => {
+    const matched = data.bindings.filter((binding) =>
+      binding.subjects.some((subject) => subject.name === sa.name && subject.namespace === sa.namespace),
+    );
+    const bindings: SubjectBinding[] = matched.map((binding) => ({
+      roleId: binding.role,
+      roleName: binding.role,
+      scope: "cluster",
+      scopeLabel: "Cluster (Kubernetes)",
+      permissions: [],
+      color: binding.isClusterAdmin ? "red" : "gray",
+      sourceLabel: `ClusterRoleBinding: ${binding.name}`,
+    }));
+    return {
+      id: `sa:${sa.namespace}/${sa.name}`,
+      kind: "ServiceAccount" as const,
+      name: `${sa.namespace}/${sa.name}`,
+      secondary: sa.isClusterAdmin ? "cluster-admin" : "service account",
+      related: [],
+      bindings,
+      permissions: [],
+    };
+  });
 }
 
 export default function RbacVizPage() {
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<KindFilter>("all");
+  const [search, setSearch] = useState("");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["security", "rbac"],
+  const platformQuery = useQuery({
+    queryKey: ["rbac", "subjects"],
     queryFn: async () => {
-      const res = await fetch("/api/security/rbac");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<RbacData>;
+      const res = await fetch("/api/rbac/subjects");
+      if (!res.ok) throw new Error("Failed to load platform subjects");
+      return res.json() as Promise<PlatformSubjectsResponse>;
     },
   });
 
-  const sas = data?.serviceAccounts ?? [];
-  const bindings = data?.bindings ?? [];
-  const subjects = [...new Set(bindings.flatMap(b => b.subjects.map(s => s.name)))];
-  const selectedBindings = selected ? bindings.filter(b => b.subjects.some(s => s.name === selected)) : [];
+  const k8sQuery = useQuery({
+    queryKey: ["security", "rbac"],
+    queryFn: async () => {
+      const res = await fetch("/api/security/rbac");
+      if (!res.ok) throw new Error("Failed to load service accounts");
+      return res.json() as Promise<K8sRbacData>;
+    },
+  });
 
-  if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
+  const subjects = useMemo<VizSubject[]>(() => {
+    const users = platformQuery.data?.users ?? [];
+    const groups = platformQuery.data?.groups ?? [];
+    return [...users, ...groups, ...serviceAccountSubjects(k8sQuery.data)];
+  }, [platformQuery.data, k8sQuery.data]);
+
+  const selected = useMemo(() => subjects.find((subject) => subject.id === selectedId) ?? null, [subjects, selectedId]);
+
+  const isLoading = platformQuery.isLoading || k8sQuery.isLoading;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Shield} title="RBAC Visualizer" />
-      <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><Shield className="w-5 h-5 text-slate-500 dark:text-slate-400" />RBAC Permission Visualizer</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Browse role bindings by subject</p>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Subjects ({subjects.length})</h3>
-          <div className="space-y-1 max-h-96 overflow-y-auto">
-            {subjects.map(s => (
-              <button key={s} onClick={() => setSelected(s === selected ? null : s)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${s === selected ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30" : "text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5"}`}>
-                {s}
-              </button>
-            ))}
-            {subjects.length === 0 && <p className="text-slate-500 text-sm">No subjects found</p>}
-          </div>
-          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-white/10">
-            <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">Service Accounts ({sas.length})</h4>
-            <div className="space-y-1 max-h-32 overflow-y-auto">
-              {sas.slice(0, 10).map(sa => (
-                <div key={`${sa.namespace}/${sa.name}`} className="text-xs text-slate-500 px-2">{sa.namespace}/{sa.name}</div>
-              ))}
-            </div>
-          </div>
+      <PageHeader icon={Shield} title="RBAC Visualizer" description="Browse effective role bindings by platform user, group, or Kubernetes service account." />
+
+      {isLoading ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="h-96 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" />
+          ))}
         </div>
-        <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-            {selected ? `Bindings for "${selected}"` : "Select a subject"}
-          </h3>
-          {!selected && <p className="text-slate-500 text-sm">Click a subject to see their bindings</p>}
-          <div className="space-y-2">
-            {selectedBindings.map(b => (
-              <div key={b.name} className="p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10">
-                <p className="text-sm font-medium text-gray-900 dark:text-white">{b.name}</p>
-                <p className="text-xs text-indigo-400 mt-0.5">Role: {b.role}</p>
-                {b.namespace && <p className="text-xs text-slate-500 mt-0.5">Namespace: {b.namespace}</p>}
-              </div>
-            ))}
-            {selected && selectedBindings.length === 0 && <p className="text-slate-500 text-sm">No bindings found</p>}
-          </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <SubjectsPanel
+            subjects={subjects}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            filter={filter}
+            onFilterChange={setFilter}
+            search={search}
+            onSearchChange={setSearch}
+          />
+          <SubjectDetailPanel subject={selected} />
         </div>
-      </div>
+      )}
     </motion.div>
   );
 }

@@ -44,6 +44,7 @@ export * from "./responsive-sheet";
 export * from "./rolling-update-tracker";
 export * from "./search-input";
 export * from "./section-tabs";
+export * from "./select";
 export * from "./segmented-bar";
 export * from "./settings-card";
 export * from "./skeleton-card";
