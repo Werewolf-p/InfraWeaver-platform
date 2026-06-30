@@ -76,8 +76,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     icon: Server,
     defaultOpen: true,
     items: [
-      { href: "/pods", icon: Server, label: "Pods", shortcut: "G P", description: "All pods with live status — logs, shell, and firewall" },
-      { href: "/apps", icon: LayoutGrid, label: "Apps", shortcut: "G A", description: "Install and manage all platform applications", pinnable: true },
+      { href: "/apps", icon: LayoutGrid, label: "Apps", shortcut: "G A", description: "Install and manage all platform applications — drill into each app's pods and stop them", pinnable: true, keywords: ["pods", "workloads", "applications", "argocd", "stop", "scale"] },
       { href: "/all-services", icon: Search, label: "All Services", description: "Searchable index of every console page and service" },
       { href: "/app-graph", icon: Network, label: "App Graph", description: "Visual application dependency graph" },
       { href: "/cronjobs", icon: Calendar, label: "CronJobs", description: "Scheduled Kubernetes cronjobs" },
@@ -233,6 +232,6 @@ export const HREF_LABEL_MAP: Record<string, string> = Object.fromEntries(
 export const MOBILE_BOTTOM_NAV: NavItem[] = [
   { href: "/home", icon: Home, label: "Home" },
   { href: "/apps", icon: LayoutGrid, label: "Apps" },
-  { href: "/pods", icon: Server, label: "Pods" },
+  { href: "/logs", icon: FileText, label: "Logs" },
   { href: "/cluster", icon: Boxes, label: "Cluster" },
 ];
