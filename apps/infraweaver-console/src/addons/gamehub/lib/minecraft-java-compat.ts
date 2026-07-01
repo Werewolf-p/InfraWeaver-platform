@@ -13,38 +13,63 @@ interface ManifestEntry {
   url: string;
 }
 
-let manifestCache: { fetchedAt: number; byId: Map<string, ManifestEntry> } | null = null;
+interface ManifestData {
+  byId: Map<string, ManifestEntry>;
+  latest: { release: string; snapshot: string };
+  releaseIds: string[];
+}
+
+let manifestCache: { fetchedAt: number; data: ManifestData } | null = null;
 const requiredJavaCache = new Map<string, number | null>();
 
-async function loadManifest(): Promise<Map<string, ManifestEntry>> {
+async function loadManifest(): Promise<ManifestData> {
   if (manifestCache && Date.now() - manifestCache.fetchedAt < CACHE_TTL_MS) {
-    return manifestCache.byId;
+    return manifestCache.data;
   }
   const res = await fetch(MANIFEST_URL, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`Mojang manifest fetch failed: ${res.status}`);
-  const data = (await res.json()) as { versions: ManifestEntry[] };
+  const data = (await res.json()) as { versions: ManifestEntry[]; latest?: { release?: string; snapshot?: string } };
   const byId = new Map(data.versions.map((v) => [v.id, v]));
-  manifestCache = { fetchedAt: Date.now(), byId };
-  return byId;
+  const releaseIds = data.versions.filter((v) => v.type === "release").map((v) => v.id);
+  const parsed: ManifestData = {
+    byId,
+    latest: { release: data.latest?.release ?? releaseIds[0] ?? "", snapshot: data.latest?.snapshot ?? "" },
+    releaseIds,
+  };
+  manifestCache = { fetchedAt: Date.now(), data: parsed };
+  return parsed;
 }
 
-/** Values that mean "let the installer resolve it" — no fixed version to validate. */
-const DYNAMIC_VERSIONS = new Set(["", "latest", "snapshot", "recommended"]);
+/** The list of Minecraft *release* version ids, newest first. */
+export async function listMinecraftReleaseVersions(): Promise<{ versions: string[]; latestRelease: string }> {
+  try {
+    const { releaseIds, latest } = await loadManifest();
+    return { versions: releaseIds, latestRelease: latest.release };
+  } catch {
+    return { versions: [], latestRelease: "" };
+  }
+}
+
+/** Values that mean "resolve to the newest build" — mapped to the manifest's latest release/snapshot. */
+const DYNAMIC_TO_LATEST = new Map([["latest", "release"], ["recommended", "release"], ["snapshot", "snapshot"]]);
 
 /**
  * The minimum Java major version required to run a given Minecraft version.
- * Returns null when the version is dynamic ("latest"), unknown, or the lookup
- * fails — callers treat null as "no constraint" and fall back to the
- * installer-side cap.
+ * Dynamic values ("latest"/"recommended"/"snapshot") resolve to the manifest's
+ * newest build so we can still constrain the runtime image. Returns null only
+ * when the version is empty, unknown, or the lookup fails.
  */
 export async function requiredJavaForMinecraftVersion(version: string): Promise<number | null> {
   const v = version.trim().toLowerCase();
-  if (DYNAMIC_VERSIONS.has(v)) return null;
+  if (v === "") return null;
   if (requiredJavaCache.has(v)) return requiredJavaCache.get(v) ?? null;
 
   try {
-    const byId = await loadManifest();
-    const entry = byId.get(version.trim());
+    const manifest = await loadManifest();
+    // Resolve "latest"/"snapshot"/"recommended" to a concrete manifest id.
+    const dynamicKind = DYNAMIC_TO_LATEST.get(v);
+    const concreteId = dynamicKind ? (dynamicKind === "snapshot" ? manifest.latest.snapshot : manifest.latest.release) : version.trim();
+    const entry = manifest.byId.get(concreteId);
     if (!entry) {
       requiredJavaCache.set(v, null);
       return null;

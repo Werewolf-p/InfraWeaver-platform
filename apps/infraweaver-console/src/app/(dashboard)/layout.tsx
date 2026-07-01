@@ -283,12 +283,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return;
       }
 
-      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "/" && !typingTarget) {
-        event.preventDefault();
-        resetGotoShortcut();
-        setSearchOpen(true);
-        return;
-      }
+      // Quick search opens with Cmd/Ctrl+K only. The bare "/" shortcut was removed
+      // because "/" is needed for typing commands in the game-server terminal, and
+      // it hijacked that input (and the log scrollback) when pressed.
 
       if (event.key === "Escape") {
         resetGotoShortcut();
@@ -716,7 +713,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#141414] px-3 py-1.5 text-xs text-gray-500 dark:text-[#9e9e9e] transition-colors hover:border-[#0078D4]/40 hover:text-gray-900 dark:hover:text-white"
           >
             Quick search
-            <span className="rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-1.5 py-0.5 font-mono text-[10px] text-gray-400 dark:text-[#666]">/</span>
+            <span className="rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-1.5 py-0.5 font-mono text-[10px] text-gray-400 dark:text-[#666]">⌘K</span>
           </button>
         </div>
         <main

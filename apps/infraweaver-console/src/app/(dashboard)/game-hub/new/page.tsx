@@ -31,6 +31,7 @@ import { INTERNAL_DNS_DOMAIN, ROOT_DNS_DOMAIN } from "@/lib/dns";
 import type { CatalogCategory, CatalogEntry } from "@/lib/pelican-eggs";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+import { explainEvent, severityFor, isNoiseEvent } from "@/addons/gamehub/lib/event-explain";
 
 const STEPS = [
   { id: 1, label: "Browse Eggs" },
@@ -366,7 +367,10 @@ const PRESETS_STORAGE_KEY = "infraweaver-game-server-presets";
 const DRAFT_STORAGE_KEY  = "infraweaver-game-server-draft";
 
 // ─── Installation log entry ──────────────────────────────────────────────────
-type InstallLogEntry = { ts: string; kind: "event" | "info" | "error"; message: string };
+// `reason` is the raw Kubernetes reason (used for phase detection); `message`
+// is the plain-language explanation shown to the operator; `count` collapses
+// repeated identical events into a single row rather than flooding the log.
+type InstallLogEntry = { ts: string; kind: "event" | "info" | "warning"; reason: string; message: string; count: number };
 type InstallPhase = "idle" | "deploying" | "running" | "error";
 
 export default function NewGameServerPage() {
@@ -374,7 +378,6 @@ export default function NewGameServerPage() {
   const [step, setStep] = useState(1);
   const [sourceTab, setSourceTab] = useState<"built-in" | "pelican">("pelican");
   const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedBuiltInId, setSelectedBuiltInId] = useState<string | null>(null);
   const [selectedRemoteEntry, setSelectedRemoteEntry] = useState<CatalogEntry | null>(null);
   const [serverName, setServerName] = useState("");
@@ -484,18 +487,46 @@ export default function NewGameServerPage() {
       try {
         const r = await fetch(`/api/game-hub/servers/${deployedServerName}/events`);
         if (!r.ok) return;
-        const d = await r.json() as { events: Array<{ type: string; reason: string; message: string; timestamp: string | null }> };
+        const d = await r.json() as { events: Array<{ type: string; reason: string; message: string; timestamp: string | null; count?: number }> };
         if (!alive) return;
         setInstallLog((prev) => {
-          const existingMsgs = new Set(prev.map((e) => e.message));
-          const newEntries: InstallLogEntry[] = (d.events ?? [])
-            .filter((ev) => !existingMsgs.has(ev.message))
-            .map((ev) => ({
-              ts: ev.timestamp ?? new Date().toISOString(),
-              kind: ev.type === "Warning" ? "error" : "event",
-              message: `[${ev.reason}] ${ev.message}`,
-            }));
-          return newEntries.length ? [...prev, ...newEntries].slice(-60) : prev;
+          // Rebuild the log from the authoritative event list each poll and
+          // collapse by reason+message. The previous version keyed dedup on the
+          // raw message but stored a "[reason] message" string, so nothing ever
+          // matched and every poll re-appended the whole list — that is why a
+          // normal deploy scrolled dozens of identical "FailedScheduling" lines.
+          const byKey = new Map<string, InstallLogEntry>();
+          // Keep locally-seeded info lines (e.g. "resources submitted") that
+          // have no matching Kubernetes event.
+          for (const info of prev) {
+            if (info.kind === "info") byKey.set(`${info.reason}|${info.message}`, info);
+          }
+          for (const ev of d.events ?? []) {
+            if (isNoiseEvent(ev.reason, ev.message)) continue; // pure scheduler churn while storage comes online
+            const key = `${ev.reason}|${ev.message}`;
+            const ts = ev.timestamp ?? new Date().toISOString();
+            const count = Math.max(1, ev.count ?? 1);
+            const existing = byKey.get(key);
+            if (existing) {
+              existing.count += count;
+              if (ts > existing.ts) existing.ts = ts;
+            } else {
+              byKey.set(key, {
+                ts,
+                kind: severityFor(ev) === "warning" ? "warning" : "event",
+                reason: ev.reason,
+                message: explainEvent(ev.reason, ev.message),
+                count,
+              });
+            }
+          }
+          const next = [...byKey.values()].sort((a, b) => a.ts.localeCompare(b.ts)).slice(-60);
+          // Preserve object identity when nothing changed so React can skip the
+          // re-render (and keep the auto-scroll from thrashing).
+          if (next.length === prev.length && next.every((e, i) => prev[i] && prev[i].ts === e.ts && prev[i].message === e.message && prev[i].count === e.count)) {
+            return prev;
+          }
+          return next;
         });
       } catch {}
     };
@@ -589,6 +620,13 @@ export default function NewGameServerPage() {
     }
   }, [dnsType, serverName]);
 
+  // The env key this egg uses to hold the Minecraft version (if it's an MC egg).
+  const mcVersionEnvKey = useMemo(
+    () => activeEgg?.environment.find((entry) => MC_VERSION_ENV_KEYS.includes(entry.name))?.name ?? null,
+    [activeEgg],
+  );
+  const isMinecraftEgg = mcVersionEnvKey != null;
+
   // The Minecraft version the user selected (if this egg exposes one).
   const mcVersion = useMemo(() => {
     for (const k of MC_VERSION_ENV_KEYS) {
@@ -598,13 +636,12 @@ export default function NewGameServerPage() {
     return null;
   }, [envValues]);
 
-  // Ask the backend what Java a concrete Minecraft version needs, so we can stop
-  // the user pairing it with a too-old runtime image. Dynamic values ("latest")
-  // are resolved (and capped) at install time, so we don't constrain those.
-  const isConcreteMcVersion = !!mcVersion && !["latest", "snapshot", "recommended"].includes(mcVersion.toLowerCase());
+  // Ask the backend what Java the chosen Minecraft version needs, so we can stop
+  // the user pairing it with a too-old runtime image. "latest"/"snapshot" now
+  // resolve server-side to the manifest's newest build, so we constrain those too.
   const { data: javaCompat } = useQuery({
     queryKey: ["java-compat", mcVersion],
-    enabled: isConcreteMcVersion,
+    enabled: !!mcVersion,
     staleTime: 60 * 60 * 1000,
     queryFn: async () => {
       const res = await fetch(`/api/game-hub/java-compat?version=${encodeURIComponent(mcVersion!)}`);
@@ -614,13 +651,64 @@ export default function NewGameServerPage() {
   });
   const requiredJava = javaCompat?.requiredJava ?? null;
 
+  // The newest Java the egg's runtime images provide — the version picker is
+  // capped to what this Java can run, so it can never land on a version needing a
+  // newer Java than the egg ships (e.g. an egg maxing at Java 21 must not offer
+  // MC versions that require Java 25).
+  const eggMaxJava = useMemo(() => {
+    const images = activeEgg?.dockerImages ? Object.values(activeEgg.dockerImages) : activeEgg?.dockerImage ? [activeEgg.dockerImage] : [];
+    const javas = images.map((image) => javaMajorFromImage(image)).filter((java): java is number => java != null);
+    return javas.length ? Math.max(...javas) : null;
+  }, [activeEgg]);
+
+  // Concrete Minecraft release versions for the up-front version picker.
+  const { data: mcVersionList } = useQuery({
+    queryKey: ["minecraft-versions"],
+    enabled: isMinecraftEgg,
+    staleTime: 60 * 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch("/api/game-hub/minecraft-versions");
+      if (!res.ok) return { versions: [] as string[], latestRelease: "" };
+      return (await res.json()) as { versions: string[]; latestRelease: string };
+    },
+  });
+
+  // Runtime images the egg ships, plus — when the chosen Minecraft version needs
+  // a newer Java than any of them provide — the matching newest yolks Java image
+  // (yolks publishes java_NN for every major), so the latest Minecraft is
+  // actually runnable instead of leaving every runtime option disabled.
+  const augmentedImages = useMemo<Record<string, string>>(() => {
+    const base: Record<string, string> = activeEgg?.dockerImages && Object.keys(activeEgg.dockerImages).length
+      ? { ...activeEgg.dockerImages }
+      : activeEgg?.dockerImage ? { [eggMaxJava != null ? `Java ${eggMaxJava}` : "Default"]: activeEgg.dockerImage } : {};
+    if (requiredJava != null && eggMaxJava != null && eggMaxJava < requiredJava) {
+      base[`Java ${requiredJava}`] = `ghcr.io/pterodactyl/yolks:java_${requiredJava}`;
+    }
+    return base;
+  }, [activeEgg, requiredJava, eggMaxJava]);
+
+  // The runtime image that will actually be deployed, and the Java it ships. Used
+  // to hard-block advancing/deploying when it can't run the chosen Minecraft
+  // version — so a wrong Java/version pairing can never leave this screen (the
+  // backend rejects it too, but we stop it in the UI before the user gets there).
+  const effectiveImage = selectedDockerImage ?? activeEgg?.dockerImage ?? null;
+  const effectiveImageJava = effectiveImage ? javaMajorFromImage(effectiveImage) : null;
+  const javaIncompatible = requiredJava != null && effectiveImageJava != null && effectiveImageJava < requiredJava;
+  const hasNewerCompatibleImage = Boolean(
+    Object.values(augmentedImages).some((image) => {
+      const java = javaMajorFromImage(image);
+      return java != null && requiredJava != null && java >= requiredJava;
+    })
+  );
+
   // If the chosen image can't run the chosen version, auto-correct to the newest
-  // image that can — the user never ends up with a broken combination.
+  // image that can (including the augmented newest-Java image) — the user never
+  // ends up with a broken combination.
   useEffect(() => {
-    if (!activeEgg?.dockerImages || requiredJava == null) return;
+    if (requiredJava == null) return;
     const curJava = selectedDockerImage ? javaMajorFromImage(selectedDockerImage) : null;
     if (curJava != null && curJava < requiredJava) {
-      const compatible = Object.values(activeEgg.dockerImages).filter((image) => {
+      const compatible = Object.values(augmentedImages).filter((image) => {
         const j = javaMajorFromImage(image);
         return j == null || j >= requiredJava;
       });
@@ -628,7 +716,7 @@ export default function NewGameServerPage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- dependency-driven correction, not derived render state
       if (next) setSelectedDockerImage(next);
     }
-  }, [requiredJava, activeEgg, selectedDockerImage]);
+  }, [requiredJava, augmentedImages, selectedDockerImage]);
 
   useEffect(() => {
     if (!targetNode || clusterNodes.length === 0) return;
@@ -701,14 +789,40 @@ export default function NewGameServerPage() {
     });
   }, [search]);
 
-  const filteredRemoteEggs = useMemo(() => {
+  // Collapse the Pelican catalog into one entry per game (category). The first
+  // screen then shows only the main games; every variant of a game (e.g. each
+  // Minecraft flavour) is chosen from a dropdown on the setup screen instead of
+  // cluttering the browse grid with near-identical cards. Search matches a game
+  // by its own name or by any of its variants, narrowing to the matched variants.
+  type RemoteGame = { path: string; name: string; eggs: typeof remoteEggs };
+  const remoteGames = useMemo<RemoteGame[]>(() => {
+    const byCategory = new Map<string, RemoteGame>();
+    for (const egg of remoteEggs) {
+      const existing = byCategory.get(egg.categoryPath);
+      if (existing) existing.eggs.push(egg);
+      else byCategory.set(egg.categoryPath, { path: egg.categoryPath, name: egg.categoryName, eggs: [egg] });
+    }
+    const order = new Map(remoteCategories.map((category, index) => [category.path, index]));
     const query = search.trim().toLowerCase();
-    return remoteEggs.filter((egg) => {
-      if (selectedCategory !== "all" && egg.categoryPath !== selectedCategory) return false;
-      if (!query) return true;
-      return [egg.name, egg.description, egg.dockerImage, egg.author, egg.id, egg.categoryName].some((value) => value.toLowerCase().includes(query));
-    });
-  }, [remoteEggs, search, selectedCategory]);
+    let games = [...byCategory.values()];
+    if (query) {
+      games = games
+        .map((game) => {
+          if (game.name.toLowerCase().includes(query)) return game;
+          const matched = game.eggs.filter((egg) => [egg.name, egg.description, egg.dockerImage, egg.author, egg.id].some((value) => (value ?? "").toLowerCase().includes(query)));
+          return matched.length ? { ...game, eggs: matched } : null;
+        })
+        .filter((game): game is RemoteGame => game !== null);
+    }
+    return games.sort((left, right) => (order.get(left.path) ?? 999) - (order.get(right.path) ?? 999));
+  }, [remoteEggs, remoteCategories, search]);
+
+  // Sibling variants of the currently selected Pelican game — powers the variant
+  // dropdown on the setup screen. Empty for built-in eggs or single-variant games.
+  const selectedGameVariants = useMemo(() => {
+    if (sourceTab !== "pelican" || !selectedRemoteEntry) return [];
+    return remoteEggs.filter((egg) => egg.categoryPath === selectedRemoteEntry.categoryPath);
+  }, [remoteEggs, sourceTab, selectedRemoteEntry]);
 
   const needsEula = Boolean(activeEgg?.features?.includes("eula"));
   // A required field is "missing" when it has no value AND no default to fall back on.
@@ -736,7 +850,7 @@ export default function NewGameServerPage() {
       return !isLocked;
     }) ?? [];
   const canContinueFromConfigure = Boolean(
-    activeEgg && serverName.trim() && !requiredEnvMissing && (!needsEula || eulaAccepted)
+    activeEgg && serverName.trim() && !requiredEnvMissing && (!needsEula || eulaAccepted) && !javaIncompatible
   );
 
   function selectBuiltInEgg(egg: GameEgg) {
@@ -798,7 +912,7 @@ export default function NewGameServerPage() {
       setDeployedServerName(result.name);
       // Transition to install console instead of redirecting immediately
       setInstallPhase("deploying");
-      setInstallLog([{ ts: new Date().toISOString(), kind: "info", message: "Kubernetes resources submitted — waiting for pod to start..." }]);
+      setInstallLog([{ ts: new Date().toISOString(), kind: "info", reason: "Submitted", message: "Kubernetes resources submitted — waiting for the pod to start…", count: 1 }]);
       // Clear the auto-saved draft now that we've deployed
       try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch {}
     } catch (error) {
@@ -1134,35 +1248,6 @@ export default function NewGameServerPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setSelectedCategory("all")}
-                      className={cn(
-                        "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                        selectedCategory === "all"
-                          ? "border-[#0078D4]/40 bg-[#0078D4]/15 text-[#7cc4ff]"
-                          : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-white"
-                      )}
-                    >
-                      All Categories
-                    </button>
-                    {remoteCategories.map((category) => (
-                      <button
-                        key={category.path}
-                        onClick={() => setSelectedCategory(category.path)}
-                        className={cn(
-                          "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                          selectedCategory === category.path
-                            ? "border-[#0078D4]/40 bg-[#0078D4]/15 text-[#7cc4ff]"
-                            : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-white"
-                        )}
-                      >
-                        <span className="mr-1.5">{categoryIcon(category.path)}</span>
-                        {category.name}
-                      </button>
-                    ))}
-                  </div>
-
                   {catalogLoading ? (
                     <div className="flex h-48 items-center justify-center gap-3 text-gray-500 dark:text-[#777]">
                       <Loader2 className="h-5 w-5 animate-spin" /> Loading Pelican egg catalog...
@@ -1171,39 +1256,45 @@ export default function NewGameServerPage() {
                     <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
                       {catalogError instanceof Error ? catalogError.message : "Failed to load the Pelican egg catalog."}
                     </div>
+                  ) : remoteGames.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-10 text-center text-sm text-gray-400 dark:text-[#666]">
+                      No games matched the current search.
+                    </div>
                   ) : (
+                    // One card per game. Games with several eggs are picked here, then
+                    // the specific variant is chosen from a dropdown on the setup screen.
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                      {filteredRemoteEggs.map((egg) => (
-                        <button
-                          key={`${egg.path}-${egg.id}`}
-                          onClick={() => selectRemoteEgg(egg)}
-                          className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 text-left transition-colors hover:border-[#0078D4]/50 hover:bg-[#0078D4]/5"
-                        >
-                          <div className="mb-4 flex items-start gap-3">
-                            <div className="text-3xl">{categoryIcon(egg.categoryPath)}</div>
-                            <div className="min-w-0">
-                              <p className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{egg.name}</p>
-                              <p className="mt-1 line-clamp-2 text-sm text-gray-500 dark:text-[#777]">{egg.description || "No description provided."}</p>
+                      {remoteGames.map((game) => {
+                        const variantCount = game.eggs.length;
+                        const primary = game.eggs[0];
+                        return (
+                          <button
+                            key={game.path}
+                            onClick={() => selectRemoteEgg(primary)}
+                            className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-5 text-left transition-colors hover:border-[#0078D4]/50 hover:bg-[#0078D4]/5"
+                          >
+                            <div className="mb-4 flex items-start gap-3">
+                              <div className="text-3xl">{categoryIcon(game.path)}</div>
+                              <div className="min-w-0">
+                                <p className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{game.name}</p>
+                                <p className="mt-1 line-clamp-2 text-sm text-gray-500 dark:text-[#777]">
+                                  {variantCount > 1 ? `${variantCount} variants to choose from` : (primary.description || "No description provided.")}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                          <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-[#999]">
-                            <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-2 py-1 text-gray-700 dark:text-[#cfcfcf]">{egg.categoryName}</span>
-                            {egg.hasMultipleImages && (
-                              <span className="rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-2 py-1 text-[#7cc4ff]">multi-image</span>
-                            )}
-                            {egg.features?.includes("eula") && (
-                              <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">EULA</span>
-                            )}
-                            {egg.author ? <span>by {egg.author}</span> : null}
-                          </div>
-                          <p className="truncate font-mono text-xs text-gray-700 dark:text-[#cfcfcf]">{egg.dockerImage}</p>
-                        </button>
-                      ))}
-                      {filteredRemoteEggs.length === 0 && (
-                        <div className="col-span-full rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-10 text-center text-sm text-gray-400 dark:text-[#666]">
-                          No Pelican eggs matched the current search.
-                        </div>
-                      )}
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-[#999]">
+                              {variantCount > 1 ? (
+                                <span className="rounded-full border border-[#0078D4]/30 bg-[#0078D4]/10 px-2 py-1 text-[#7cc4ff]">{variantCount} variants</span>
+                              ) : (
+                                <span className="truncate font-mono text-gray-700 dark:text-[#cfcfcf]">{primary.dockerImage}</span>
+                              )}
+                              {game.eggs.some((egg) => egg.features?.includes("eula")) && (
+                                <span className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-1 text-yellow-300">EULA</span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1230,8 +1321,33 @@ export default function NewGameServerPage() {
                     <p className="mt-2 font-mono text-xs text-gray-500 dark:text-[#999]">{activeEgg?.dockerImage ?? selectedRemoteEntry?.dockerImage ?? "—"}</p>
                   </div>
                 </div>
-                <button onClick={() => setStep(1)} className="text-sm text-[#7cc4ff] hover:text-gray-900 dark:hover:text-white">Change egg</button>
+                <button onClick={() => setStep(1)} className="text-sm text-[#7cc4ff] hover:text-gray-900 dark:hover:text-white">Change game</button>
               </div>
+
+              {/* Variant picker — shown only when the chosen game ships multiple eggs. */}
+              {sourceTab === "pelican" && selectedGameVariants.length > 1 && (
+                <div className="flex flex-col gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 sm:flex-row sm:items-center">
+                  <div className="flex items-center gap-1.5">
+                    <label htmlFor="egg-variant" className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Variant</label>
+                    <HelpTooltip>
+                      This game offers several server flavours (e.g. Paper, Fabric, Forge for Minecraft). Pick the one you want — the rest of the setup adjusts to your choice.
+                    </HelpTooltip>
+                  </div>
+                  <select
+                    id="egg-variant"
+                    value={selectedRemoteEntry?.id ?? ""}
+                    onChange={(event) => {
+                      const next = selectedGameVariants.find((egg) => egg.id === event.target.value);
+                      if (next) selectRemoteEgg(next);
+                    }}
+                    className="min-h-[44px] flex-1 cursor-pointer rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                  >
+                    {selectedGameVariants.map((egg) => (
+                      <option key={`${egg.path}-${egg.id}`} value={egg.id}>{egg.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {sourceTab === "pelican" && remoteEggLoading && (
                 <div className="flex h-40 items-center justify-center gap-3 text-gray-500 dark:text-[#777]">
@@ -1339,8 +1455,37 @@ export default function NewGameServerPage() {
                       <p className="text-sm text-gray-500 dark:text-[#777]">Configure environment variables from the selected egg.</p>
                     </div>
 
-                    {/* Docker image picker (PTDL_v2 eggs with multiple images, e.g. Java 17 vs 21) */}
-                    {activeEgg.dockerImages && Object.keys(activeEgg.dockerImages).length > 1 && (
+                    {/* Minecraft version — asked first, so the runtime image list below
+                        can be constrained to the Java versions that can run it. */}
+                    {isMinecraftEgg && mcVersionEnvKey && (
+                      <div className="rounded-2xl border border-[#0078D4]/20 bg-[#0078D4]/5 p-4 space-y-2">
+                        <div className="flex items-center gap-1.5">
+                          <label htmlFor="mc-version" className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7cc4ff]">Minecraft Version</label>
+                          <HelpTooltip>
+                            Pick the Minecraft version first. The runtime image list below is filtered to the Java versions that can actually run it, so you can&apos;t choose an incompatible one.
+                          </HelpTooltip>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-[#777]">
+                          Choose which Minecraft version to run — runtime images too old for it are disabled below.
+                          {requiredJava != null && <span className="text-[#7cc4ff]"> This version needs Java {requiredJava}+.</span>}
+                        </p>
+                        <select
+                          id="mc-version"
+                          value={envValues[mcVersionEnvKey] ?? ""}
+                          onChange={(event) => setEnvValues((current) => ({ ...current, [mcVersionEnvKey]: event.target.value }))}
+                          className="min-h-[44px] w-full cursor-pointer rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                        >
+                          <option value="latest">Latest release{mcVersionList?.latestRelease ? ` (${mcVersionList.latestRelease})` : ""}</option>
+                          {(mcVersionList?.versions ?? []).map((version) => (
+                            <option key={version} value={version}>{version}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Runtime image picker — the egg's images plus, when needed, the
+                        newest yolks Java image so the chosen Minecraft version is runnable. */}
+                    {Object.keys(augmentedImages).length > 1 && (
                       <div className="rounded-2xl border border-[#0078D4]/20 bg-[#0078D4]/5 p-4 space-y-2">
                         <label className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7cc4ff]">Runtime Image</label>
                         <p className="text-xs text-gray-500 dark:text-[#777]">
@@ -1350,7 +1495,7 @@ export default function NewGameServerPage() {
                           )}
                         </p>
                         <div className="grid gap-2 sm:grid-cols-2">
-                          {Object.entries(activeEgg.dockerImages).map(([label, image]) => {
+                          {Object.entries(augmentedImages).map(([label, image]) => {
                             const imgJava = javaMajorFromImage(image);
                             const incompatible = requiredJava != null && imgJava != null && imgJava < requiredJava;
                             const selected = (selectedDockerImage ?? activeEgg.dockerImage) === image;
@@ -1375,6 +1520,23 @@ export default function NewGameServerPage() {
                             </button>
                             );
                           })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Hard block: the selected runtime can't run the chosen Minecraft
+                        version. Covers single-image eggs (no picker above) and any race
+                        before auto-correction resolves. Continue/Deploy stay disabled. */}
+                    {javaIncompatible && (
+                      <div className="flex items-start gap-3 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+                        <div className="text-red-200">
+                          <p className="font-medium">Minecraft {mcVersion} needs Java {requiredJava} or newer, but the selected runtime ships Java {effectiveImageJava}.</p>
+                          <p className="mt-1 text-red-300/80">
+                            {hasNewerCompatibleImage
+                              ? "Pick a newer runtime image above to continue."
+                              : "This egg only ships an older Java runtime — choose an earlier Minecraft version, or a different egg, to continue."}
+                          </p>
                         </div>
                       </div>
                     )}
@@ -1415,7 +1577,7 @@ export default function NewGameServerPage() {
                         </InfoPopover>
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
-                        {activeEgg.environment.filter((v) => v.userViewable !== false).map((variable) => {
+                        {activeEgg.environment.filter((v) => v.userViewable !== false && v.name !== mcVersionEnvKey).map((variable) => {
                           const fieldType = variable.fieldType ?? "text";
                           const label = variable.description.split(":")[0] || variable.name;
                           const helperText = variable.description;
@@ -2008,7 +2170,7 @@ export default function NewGameServerPage() {
                 </button>
                 <button
                   onClick={() => void deployServer()}
-                  disabled={deploying || serverNameTaken === true}
+                  disabled={deploying || serverNameTaken === true || javaIncompatible}
                   className={cn(
                     "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-gray-900 dark:text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                     capacityData && !capacityData.canSafelyDeploy ? "bg-amber-600 hover:bg-amber-500" : "bg-green-600 hover:bg-green-500"
@@ -2060,8 +2222,8 @@ export default function NewGameServerPage() {
               <div className="grid gap-2 sm:grid-cols-4">
                 {[
                   { key: "submitted",  label: "Resources submitted",   done: true },
-                  { key: "scheduled",  label: "Pod scheduled",         done: installLog.some((l) => l.message.includes("Scheduled")) || installPhase === "running" },
-                  { key: "pulling",    label: "Image pulled",          done: installLog.some((l) => l.message.includes("Pulled") || l.message.includes("AlreadyPulled")) || installPhase === "running" },
+                  { key: "scheduled",  label: "Pod scheduled",         done: installLog.some((l) => l.reason === "Scheduled") || installPhase === "running" },
+                  { key: "pulling",    label: "Image pulled",          done: installLog.some((l) => l.reason === "Pulled") || installPhase === "running" },
                   { key: "running",    label: "Server running",        done: installPhase === "running" },
                 ].map((phase, idx) => (
                   <div key={phase.key} className={cn(
@@ -2087,12 +2249,13 @@ export default function NewGameServerPage() {
                   {installLog.length === 0 ? (
                     <p className="text-[#444]">Waiting for events…</p>
                   ) : installLog.map((entry, i) => (
-                    <p key={i} className={cn(
+                    <p key={`${entry.reason}-${entry.message}-${i}`} className={cn(
                       "leading-5",
-                      entry.kind === "error" ? "text-red-400" : entry.kind === "info" ? "text-[#7cc4ff]" : "text-[#aaa]"
+                      entry.kind === "warning" ? "text-amber-400" : entry.kind === "info" ? "text-[#7cc4ff]" : "text-[#aaa]"
                     )}>
                       <span className="text-[#444] mr-2">{new Date(entry.ts).toLocaleTimeString()}</span>
                       {entry.message}
+                      {entry.count > 1 && <span className="text-[#555] ml-2">×{entry.count}</span>}
                     </p>
                   ))}
                 </div>
