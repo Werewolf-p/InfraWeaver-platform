@@ -20,6 +20,19 @@
  */
 const EULA_SNIPPET = `if [ ! -f eula.txt ] || ! grep -q '^eula=true' eula.txt 2>/dev/null; then echo "eula=true" > eula.txt; echo "Accepted Mojang EULA (eula.txt)"; fi`;
 
+// Enable RCON in server.properties so the console can deliver commands. These
+// yolks run the server on a PTY, so writing to its stdin only echoes and never
+// executes — RCON is the only reliable command channel. Password is the
+// RCON_PASSWORD env injected at server-create time. Idempotent.
+const RCON_ENABLE_SNIPPET = `if [ -n "\${RCON_PASSWORD}" ]; then
+  touch server.properties
+  iw_set() { k="\$1"; v="\$2"; if grep -q "^\${k}=" server.properties; then sed -i "s|^\${k}=.*|\${k}=\${v}|" server.properties; else printf '%s=%s\\n' "\${k}" "\${v}" >> server.properties; fi; }
+  iw_set enable-rcon true
+  iw_set rcon.port "\${RCON_PORT:-25575}"
+  iw_set rcon.password "\${RCON_PASSWORD}"
+  echo "InfraWeaver: RCON enabled in server.properties"
+fi`;
+
 /**
  * Shell snippet that resolves the newest official Minecraft release whose
  * required Java (from the Mojang manifest's javaVersion.majorVersion) does not
@@ -130,6 +143,9 @@ if [ ! -f server.properties ]; then
     echo -e "Downloading MC server.properties"
     curl -o server.properties https://raw.githubusercontent.com/parkervcp/eggs/master/minecraft/java/server.properties
 fi
+
+# InfraWeaver: enable RCON so the console can deliver commands (PTY stdin is unreachable).
+${RCON_ENABLE_SNIPPET}
 `;
 }
 
@@ -167,6 +183,9 @@ curl -fsSL -o "\${SERVER_JARFILE}" "\${SERVER_URL}"
 if [ ! -f server.properties ]; then
     curl -o server.properties https://raw.githubusercontent.com/parkervcp/eggs/master/minecraft/java/server.properties
 fi
+
+# InfraWeaver: enable RCON so the console can deliver commands (PTY stdin is unreachable).
+${RCON_ENABLE_SNIPPET}
 `;
 }
 
@@ -207,10 +226,12 @@ function patchForgeScript(script: string): string {
   return appendEula(withCap);
 }
 
-/** Append EULA acceptance (idempotent) to a script that installs into /mnt/server. */
+/** Append EULA acceptance + RCON enablement (idempotent) for a /mnt/server installer. */
 function appendEula(script: string): string {
-  if (/eula\.txt/.test(script)) return script;
-  return `${script.replace(/\s*$/, "")}\n\n# InfraWeaver: accept Mojang EULA so the server does not exit on first boot.\ncd /mnt/server\n${EULA_SNIPPET}\n`;
+  const withEula = /eula\.txt/.test(script)
+    ? script
+    : `${script.replace(/\s*$/, "")}\n\n# InfraWeaver: accept Mojang EULA so the server does not exit on first boot.\ncd /mnt/server\n${EULA_SNIPPET}\n`;
+  return `${withEula.replace(/\s*$/, "")}\n\n# InfraWeaver: enable RCON so the console can deliver commands.\ncd /mnt/server\n${RCON_ENABLE_SNIPPET}\n`;
 }
 
 /**
