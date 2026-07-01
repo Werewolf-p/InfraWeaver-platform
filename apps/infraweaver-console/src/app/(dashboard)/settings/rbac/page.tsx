@@ -105,7 +105,9 @@ function AddAssignmentModal({
   onClose, users, preselectedRoleId, gameServers,
 }: { onClose: () => void; users: PlatformUser[]; preselectedRoleId?: string; gameServers: string[] }) {
   const qc = useQueryClient();
+  const [principalType, setPrincipalType] = useState<"user" | "group">("user");
   const [username, setUsername] = useState("");
+  const [groupName, setGroupName] = useState("");
   const [roleId, setRoleId] = useState(preselectedRoleId ?? "");
   const [scope, setScope] = useState("/");
 
@@ -123,10 +125,13 @@ function AddAssignmentModal({
 
   const mutation = useMutation({
     mutationFn: async () => {
+      const body = principalType === "group"
+        ? { principalType, group: groupName.trim(), roleId, scope }
+        : { principalType, username, roleId, scope };
       const res = await fetch("/api/rbac/assignments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, roleId, scope }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "Failed"); }
       return res.json();
@@ -165,22 +170,57 @@ function AddAssignmentModal({
         </div>
 
         <div className="p-5 space-y-4">
-          {/* User */}
+          {/* Principal type toggle */}
           <div>
-            <label className="block text-xs text-gray-500 dark:text-[#888] mb-1.5 font-medium">Member</label>
-            <select
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
-            >
-              <option value="">Select a user…</option>
-              {users.map(u => (
-                <option key={u.username} value={u.username}>
-                  {u.name ?? u.username} ({u.email ?? u.username})
-                </option>
+            <label className="block text-xs text-gray-500 dark:text-[#888] mb-1.5 font-medium">Assign to</label>
+            <div className="inline-flex rounded-lg border border-gray-200 dark:border-[#2a2a2a] p-0.5">
+              {(["user", "group"] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setPrincipalType(type)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+                    principalType === type ? "bg-[#0078D4] text-white" : "text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2]",
+                  )}
+                >
+                  {type === "user" ? <User className="w-3 h-3" /> : <Users className="w-3 h-3" />} {type}
+                </button>
               ))}
-            </select>
+            </div>
           </div>
+
+          {/* Principal */}
+          {principalType === "user" ? (
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-[#888] mb-1.5 font-medium">Member</label>
+              <select
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              >
+                <option value="">Select a user…</option>
+                {users.map(u => (
+                  <option key={u.username} value={u.username}>
+                    {u.name ?? u.username} ({u.email ?? u.username})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-[#888] mb-1.5 font-medium">Authentik group</label>
+              <input
+                value={groupName}
+                onChange={e => setGroupName(e.target.value)}
+                placeholder="e.g. platform-operators"
+                className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
+              />
+              <p className="text-[10px] text-gray-400 dark:text-[#555] mt-1 flex items-center gap-1">
+                <Info className="w-3 h-3" /> The role applies to every member of this Authentik group.
+              </p>
+            </div>
+          )}
 
           {/* Role */}
           <div>
@@ -237,7 +277,7 @@ function AddAssignmentModal({
           <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2] transition-colors">Cancel</button>
           <button
             onClick={() => mutation.mutate()}
-            disabled={!username || !roleId || mutation.isPending}
+            disabled={(principalType === "user" ? !username : !groupName.trim()) || !roleId || mutation.isPending}
             className="flex items-center gap-1.5 px-4 py-1.5 bg-[#0078D4] hover:bg-[#006cbd] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-xs font-medium text-white transition-colors"
           >
             {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
@@ -288,11 +328,12 @@ export default function RBACPage() {
   const gameServers = (gameServersData?.servers ?? []).map(s => s.name);
 
   const revokeMutation = useMutation({
-    mutationFn: async ({ id, username }: { id: string; username: string }) => {
+    mutationFn: async ({ id, principal, principalType }: { id: string; principal: string; principalType: "user" | "group" }) => {
+      const body = principalType === "group" ? { id, group: principal, principalType } : { id, username: principal, principalType };
       const res = await fetch("/api/rbac/assignments", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, username }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "Failed"); }
     },
@@ -462,14 +503,16 @@ export default function RBACPage() {
                   const colors = role ? ROLE_COLOR_CLASSES[role.color ?? "gray"] : ROLE_COLOR_CLASSES.gray;
                   return (
                     <div key={a.id} className="grid grid-cols-[1fr_1fr_auto_auto] gap-3 px-4 py-3 items-center hover:bg-[#0d0d0d] transition-colors">
-                      {/* User */}
+                      {/* Principal */}
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="w-6 h-6 rounded-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] flex items-center justify-center flex-shrink-0">
-                          <User className="w-3 h-3 text-gray-400 dark:text-[#666]" />
+                          {a.principalType === "group"
+                            ? <Users className="w-3 h-3 text-indigo-400" />
+                            : <User className="w-3 h-3 text-gray-400 dark:text-[#666]" />}
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs text-gray-900 dark:text-[#f2f2f2] truncate">{a.userName || a.username}</p>
-                          <p className="text-[10px] text-gray-400 dark:text-[#555] truncate">{a.userEmail}</p>
+                          <p className="text-[10px] text-gray-400 dark:text-[#555] truncate">{a.principalType === "group" ? "Group" : a.userEmail}</p>
                         </div>
                       </div>
                       {/* Role badge */}
@@ -482,7 +525,7 @@ export default function RBACPage() {
                       </span>
                       {/* Revoke */}
                       <button
-                        onClick={() => revokeMutation.mutate({ id: a.id, username: a.username })}
+                        onClick={() => revokeMutation.mutate({ id: a.id, principal: a.username, principalType: a.principalType })}
                         disabled={revokeMutation.isPending}
                         className="text-gray-400 dark:text-[#444] hover:text-red-400 transition-colors p-1 self-center"
                         title="Revoke assignment"

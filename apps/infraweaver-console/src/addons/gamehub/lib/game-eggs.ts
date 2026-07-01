@@ -53,6 +53,18 @@ export interface GameEgg {
   startupCommand: string;
   stopCommand: string;
   /**
+   * In-game command that flushes the world to disk (best-effort quiesce before
+   * backups). MC: "save-all flush", Factorio: "/server-save",
+   * Valheim: "save", Terraria: "save", ARK: "saveworld".
+   */
+  saveCommand?: string;
+  /** Command that pauses autosaves/holds writes (MC: "save-off"). Omit where the game has no hold semantics. */
+  saveOffCommand?: string;
+  /** Command that resumes autosaves (MC: "save-on"). Pairs with saveOffCommand. */
+  saveOnCommand?: string;
+  /** True when the stopCommand itself persists the world (MC "stop", Terraria "exit"). */
+  stopSavesWorld?: boolean;
+  /**
    * Log line pattern that signals the server has finished starting.
    * From `config.startup.done` in the Pelican egg.
    * Example: ")! For help, type " (Minecraft Paper)
@@ -89,6 +101,21 @@ export interface GameEgg {
   author?: string;
   /** ISO timestamp when the egg was exported from Pterodactyl/Pelican */
   exportedAt?: string;
+}
+
+/**
+ * Resolve the ordered save/quiesce commands for an egg. Returns undefined
+ * entries for games that lack a given capability. Used to bracket backups:
+ * `off` (hold writes) → `flush` (persist) → work → `on` (resume writes).
+ */
+export function getSaveCommands(
+  egg: Pick<GameEgg, "saveOffCommand" | "saveCommand" | "saveOnCommand">,
+): { off?: string; flush?: string; on?: string } {
+  return {
+    off: egg.saveOffCommand,
+    flush: egg.saveCommand,
+    on: egg.saveOnCommand,
+  };
 }
 
 function defaultCommandAcl(egg: Pick<GameEgg, "quickCommands">): Record<string, string[]> {
@@ -138,6 +165,10 @@ const minecraftJava: GameEgg = {
   dockerImage: "itzg/minecraft-server:latest",
   startupCommand: "java -Xmx{{MEMORY}} -Xms{{MEMORY}} -jar server.jar nogui",
   stopCommand: "stop",
+  saveCommand: "save-all flush",
+  saveOffCommand: "save-off",
+  saveOnCommand: "save-on",
+  stopSavesWorld: true,
   gamePort: 25565,
   queryPort: 25565,
   mountPath: "/data",
@@ -177,6 +208,8 @@ export const GAME_EGGS: Record<string, GameEgg> = {
     dockerImages: { "dotnet 9 (Recommended)": "ghcr.io/parkervcp/yolks:dotnet_9", "dotnet 6": "ghcr.io/parkervcp/yolks:dotnet_6" },
     startupCommand: "./TShock.Server -ip 0.0.0.0 -port {{SERVER_PORT}} -maxplayers {{MAX_PLAYERS}} -world {{WORLD_NAME}}.wld -autocreate {{WORLD_SIZE}}",
     stopCommand: "exit",
+    saveCommand: "save",
+    stopSavesWorld: true,
     startupReadySignal: "Type 'help' for a list of commands",
     gamePort: 7777,
     mountPath: "/home/container",
@@ -238,6 +271,7 @@ echo "TShock install complete"`,
     dockerImage: "lloesche/valheim-server:latest",
     startupCommand: "/start_server.sh",
     stopCommand: "exit",
+    saveCommand: "save",
     gamePort: 2456,
     queryPort: 2457,
     mountPath: "/config",
@@ -323,6 +357,7 @@ echo "TShock install complete"`,
     dockerImage: "jammsen/palworld-dedicated-server:latest",
     startupCommand: "./PalServer.sh -useperfthreads -NoAsyncLoadingThread -UseMultithreadForDS",
     stopCommand: "DoExit",
+    saveCommand: "Save",
     gamePort: 8211,
     queryPort: 27015,
     mountPath: "/palworld",
@@ -356,6 +391,7 @@ echo "TShock install complete"`,
     dockerImage: "didstopia/rust-server:latest",
     startupCommand: "/start.sh",
     stopCommand: "quit",
+    saveCommand: "server.save",
     gamePort: 28015,
     queryPort: 28017,
     mountPath: "/steamcmd/rust",
@@ -389,6 +425,7 @@ echo "TShock install complete"`,
     dockerImage: "hermsi1337/docker-ark-server:latest",
     startupCommand: "/home/steam/ark-server/ShooterGame/Binaries/Linux/ShooterGameServer TheIsland",
     stopCommand: "exit",
+    saveCommand: "saveworld",
     gamePort: 7777,
     queryPort: 27015,
     mountPath: "/ark",
@@ -451,6 +488,7 @@ echo "TShock install complete"`,
     dockerImage: "factoriotools/factorio:stable",
     startupCommand: "/docker-entrypoint.sh",
     stopCommand: "/quit",
+    saveCommand: "/server-save",
     gamePort: 34197,
     queryPort: 27015,
     mountPath: "/factorio",

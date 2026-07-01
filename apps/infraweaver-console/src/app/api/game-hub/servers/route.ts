@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { auditLog } from "@/lib/audit-log";
-import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts, javaMajorFromImage, pelicanRuntimeEnv, sanitizeLabelValue } from "@/lib/game-eggs";
+import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts, javaMajorFromImage, memoryQuantityToMB, pelicanRuntimeEnv, sanitizeLabelValue } from "@/lib/game-eggs";
 import { checkJavaCompatibility, minecraftVersionFromEnv } from "@/addons/gamehub/lib/minecraft-java-compat";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
-import { derivePowerStatus, getNodeIp, getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg } from "@/lib/game-hub-server";
+import { derivePowerStatus, getDeploymentGameType, getNodeIp, getRconConnection, getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg, type RconConnection } from "@/lib/game-hub-server";
 import { getPelicanGameEgg } from "@/lib/pelican-eggs";
 import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
 import { withAuth } from "@/lib/with-auth";
@@ -81,19 +81,31 @@ const SIGNAL_MAP: Record<string, number> = { "^C": 2, "^Z": 19, "^\\": 3 };
  */
 function buildStopSpec(
   stopCommand: string | undefined,
-  env: Record<string, string>,
+  rcon: RconConnection | null,
 ): {
-  lifecycleHook: { preStop: { exec: { command: string[] } } };
+  // Pod-level graceful-stop fields — shared by createServer and cloneServer so
+  // clones behave identically to freshly-created servers.
+  terminationGracePeriodSeconds: number;
+  shareProcessNamespace: boolean;
+  // Container-level fields.
+  stdin: boolean;
+  tty: boolean;
+  lifecycle: { preStop: { exec: { command: string[] } } };
   extraEnv: Record<string, string>;
 } {
   const sig = stopCommand ? (SIGNAL_MAP[stopCommand] ?? 2) : 2;
   const isText = stopCommand ? !(stopCommand in SIGNAL_MAP) : false;
-  const hasRcon = Boolean(env["RCON_PORT"]);
+  // Only enable Tier-1 RCON when a password is actually resolvable for this egg.
+  const hasRcon = Boolean(rcon?.password);
 
   const extraEnv: Record<string, string> = {
     _IW_STOP_SIGNAL: String(sig),
     _IW_STOP_CMD: isText ? stopCommand! : "stop",
     ...(isText ? { _IW_STOP_STDIN: "1" } : {}),
+    // Resolve the real per-game RCON creds up front (eggs use SERVER_RCON_PASSWORD,
+    // SRCDS_RCONPW, ARK_RCON_PASSWORD, …) and expose them under stable _IW_ names
+    // so the preStop script doesn't have to know each game's variable naming.
+    ...(hasRcon ? { _IW_RCON_PASSWORD: rcon!.password, _IW_RCON_PORT: String(rcon!.port) } : {}),
   };
 
   // Source RCON protocol in ~10 lines of Python3. All strings use double quotes
@@ -103,8 +115,8 @@ function buildStopSpec(
     "import socket,struct,os,sys",
     "try:",
     " s=socket.socket();s.settimeout(5)",
-    " s.connect((\"127.0.0.1\",int(os.environ.get(\"RCON_PORT\",\"25575\"))))",
-    " pw=(os.environ.get(\"RCON_PASSWORD\") or os.environ.get(\"RCON_PASS\") or \"\").encode()",
+    " s.connect((\"127.0.0.1\",int(os.environ.get(\"_IW_RCON_PORT\",\"25575\"))))",
+    " pw=(os.environ.get(\"_IW_RCON_PASSWORD\") or \"\").encode()",
     " cmd=os.environ.get(\"_IW_STOP_CMD\",\"stop\").encode()",
     " def p(i,t,b):d=struct.pack(\"<ii\",i,t)+b+bytes(2);return struct.pack(\"<i\",len(d))+d",
     " s.sendall(p(1,3,pw));r=s.recv(4096)",
@@ -132,7 +144,7 @@ function buildStopSpec(
   if (hasRcon) {
     tiers.push(
       "# Tier 1: RCON — ACK-confirmed stop via Source RCON protocol (Python3)",
-      "if [ -n \"${RCON_PORT}\" ] && command -v python3 >/dev/null 2>&1; then",
+      "if [ -n \"${_IW_RCON_PORT}\" ] && command -v python3 >/dev/null 2>&1; then",
       "  python3 -c '" + pythonRcon + "' 2>/dev/null && sleep 10 && exit 0",
       "fi",
     );
@@ -154,7 +166,11 @@ function buildStopSpec(
   );
 
   return {
-    lifecycleHook: {
+    terminationGracePeriodSeconds: 120,
+    shareProcessNamespace: true,
+    stdin: true,
+    tty: true,
+    lifecycle: {
       preStop: {
         exec: { command: ["/bin/sh", "-c", tiers.join("\n")] },
       },
@@ -363,9 +379,12 @@ async function createServer(body: {
     }
   }
 
-  // Build 3-tier stop spec (RCON → stdin → signal). Extra env vars it needs are
-  // merged into the container env so the preStop script can read them at runtime.
-  const stopSpec = buildStopSpec(egg.stopCommand, gameEnv);
+  // Build 3-tier stop spec (RCON → stdin → signal). Resolve the real per-game
+  // RCON creds so Tier-1 is only enabled when a password actually exists. Extra
+  // env vars it needs are merged into the container env so the preStop script
+  // can read them at runtime.
+  const stopRcon = getRconConnection(egg.id.toLowerCase(), egg, gameEnv);
+  const stopSpec = buildStopSpec(egg.stopCommand, stopRcon);
   const allEnv: Record<string, string> = { ...gameEnv, ...stopSpec.extraEnv };
 
   // Build init container if the egg ships an installation script.
@@ -373,8 +392,13 @@ async function createServer(body: {
     ? buildInstallInitContainer(egg.mountPath, egg.installScript, allEnv, isRoot)
     : null;
 
-  // Heavy games (installs take >10 min) get extra startup time.
-  const isHeavy = (egg.defaultStorage ?? "10Gi") >= "20Gi" || (egg.defaultMemory ?? "2Gi") >= "4Gi";
+  // Heavy games (installs take >10 min) get extra startup time. Compare
+  // NUMERICALLY — a lexicographic string compare gets this wrong ("16Gi" < "4Gi",
+  // "100Gi" < "20Gi"), so large servers would get the SMALL startup budget and be
+  // killed mid world-gen.
+  const isHeavy =
+    memoryQuantityToMB(egg.defaultStorage ?? "10Gi") >= 20 * 1024 ||
+    memoryQuantityToMB(egg.defaultMemory ?? "2Gi") >= 4 * 1024;
   const startupMinutes = isHeavy ? 20 : 10;
 
   await coreApi.createNamespacedPersistentVolumeClaim({
@@ -397,8 +421,8 @@ async function createServer(body: {
           metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true", "infraweaver/game-type": eggLabel, "infraweaver.io/game-type": eggLabel, "infraweaver/egg": eggLabel, "infraweaver.io/egg": eggLabel }, annotations },
           spec: {
             priorityClassName: "game-server",
-            terminationGracePeriodSeconds: 120,
-            shareProcessNamespace: true,
+            terminationGracePeriodSeconds: stopSpec.terminationGracePeriodSeconds,
+            shareProcessNamespace: stopSpec.shareProcessNamespace,
             topologySpreadConstraints: [{
               maxSkew: 1,
               topologyKey: "kubernetes.io/hostname",
@@ -411,13 +435,13 @@ async function createServer(body: {
               name: slug,
               image: egg.dockerImage,
               imagePullPolicy: "IfNotPresent",
-              stdin: true,
-              tty: true,
+              stdin: stopSpec.stdin,
+              tty: stopSpec.tty,
               ports: getEggPorts(egg).map((port) => ({ containerPort: port.port, protocol: port.protocol })),
               env: Object.entries(allEnv).map(([key, value]) => ({ name: key, value })),
               resources,
               volumeMounts: [{ name: "data", mountPath: egg.mountPath }],
-              lifecycle: stopSpec.lifecycleHook,
+              lifecycle: stopSpec.lifecycle,
               ...buildUniversalGameServerProbes(startupMinutes, getEggPorts(egg)),
             }],
             volumes: [{ name: "data", persistentVolumeClaim: { claimName: pvcName } }],
@@ -490,7 +514,9 @@ async function cloneServer(source: string, newName: string) {
       metadata: { name: pvcName, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true", "infraweaver/egg": sanitizeLabelValue(sourceEgg.id), "infraweaver.io/egg": sanitizeLabelValue(sourceEgg.id) } },
       spec: {
         accessModes: sourcePvc?.spec?.accessModes ?? ["ReadWriteOnce"],
-        storageClassName: sourcePvc?.spec?.storageClassName ?? "longhorn",
+        // Align with createServer's default storage class so clones land on the
+        // same game-optimized storage as freshly-created servers.
+        storageClassName: sourcePvc?.spec?.storageClassName ?? "longhorn-game",
         resources: { requests: { storage: sourcePvc?.spec?.resources?.requests?.storage ?? sourceEgg.defaultStorage ?? "10Gi" } },
       },
     },
@@ -501,6 +527,13 @@ async function cloneServer(source: string, newName: string) {
     quantityToString(container?.resources?.limits?.memory) ?? quantityToString(container?.resources?.requests?.memory) ?? sourceEgg.defaultMemory ?? "2Gi",
     quantityToString(container?.resources?.limits?.cpu) ?? quantityToString(container?.resources?.requests?.cpu) ?? sourceEgg.defaultCpu ?? "1",
   );
+
+  // Reconstruct the graceful-stop spec from the source so the clone inherits the
+  // exact same shutdown behavior (grace period, shared PID namespace, preStop
+  // hook, TTY, resolved RCON creds) as a freshly-created server.
+  const cloneEnv = Object.fromEntries((container?.env ?? []).map((entry) => [entry.name, entry.value ?? ""]));
+  const cloneGameType = (sourceEgg.id || getDeploymentGameType(sourceDeployment)).toLowerCase();
+  const cloneStopSpec = buildStopSpec(sourceEgg.stopCommand, getRconConnection(cloneGameType, sourceEgg, cloneEnv));
   await appsApi.createNamespacedDeployment({
     namespace: GAME_HUB_NAMESPACE,
     body: {
@@ -532,22 +565,28 @@ async function cloneServer(source: string, newName: string) {
           },
           spec: {
             priorityClassName: "game-server",
-            terminationGracePeriodSeconds: 60,
+            terminationGracePeriodSeconds: cloneStopSpec.terminationGracePeriodSeconds,
+            shareProcessNamespace: cloneStopSpec.shareProcessNamespace,
             securityContext: sourceDeployment.spec?.template?.spec?.securityContext,
             containers: [{
               name: slug,
               image: container?.image ?? sourceEgg.dockerImage,
               imagePullPolicy: "IfNotPresent",
-              stdin: true,  // required: lets /proc/1/fd/0 work for in-pod console commands
+              stdin: cloneStopSpec.stdin,  // required: lets /proc/1/fd/0 work for in-pod console commands
+              tty: cloneStopSpec.tty,
               // Base the env on the wings runtime contract so a clone of a pre-fix
               // server (missing SERVER_MEMORY etc.) still boots; source env wins.
+              // Stop-spec env (_IW_*) is applied last so the preStop hook always
+              // has fresh, correctly-named RCON creds.
               env: Object.entries({
                 ...pelicanRuntimeEnv(resources.limits.memory, container?.ports?.[0]?.containerPort ?? sourceEgg.gamePort),
-                ...Object.fromEntries((container?.env ?? []).map((entry) => [entry.name, entry.value ?? ""])),
+                ...cloneEnv,
+                ...cloneStopSpec.extraEnv,
               }).map(([name, value]) => ({ name, value })),
               ports: (container?.ports ?? []).map((port) => ({ containerPort: port.containerPort, protocol: port.protocol })),
               resources,
               volumeMounts: [{ name: "data", mountPath: volumeMount?.mountPath ?? sourceEgg.mountPath }],
+              lifecycle: cloneStopSpec.lifecycle,
               ...buildUniversalGameServerProbes(10, (container?.ports ?? getEggPorts(sourceEgg)).map((port) => ({
                 port: "containerPort" in port ? port.containerPort : port.port,
                 protocol: port.protocol,

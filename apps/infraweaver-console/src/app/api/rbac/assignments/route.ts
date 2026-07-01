@@ -1,25 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { auditLog } from "@/lib/audit-log";
-import { assignmentExceedsGranter, getBuiltInRoles, type RoleAssignment } from "@/lib/rbac";
+import { type RoleAssignment } from "@/lib/rbac";
 import { getSessionEffectivePermissions, getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { grantRoleAssignment, revokeRoleAssignment } from "@/lib/rbac-assignments";
 import { safeError } from "@/lib/utils";
-import { loadUsersConfig, normalizeRoleAssignments, saveUsersConfig } from "@/lib/users-config";
-import { randomUUID } from "crypto";
+import { loadUsersConfig, normalizeGroupRoleAssignments, normalizeRoleAssignments } from "@/lib/users-config";
 import { z } from "zod";
 
 const SAFE_SCOPE_RE = /^\/(|[a-z0-9/_-]+)$/;
+const SAFE_GROUP_RE = /^[\w .@+/-]{1,100}$/;
 const assignmentBodySchema = z.object({
-  username: z.string().min(1).max(100),
+  username: z.string().min(1).max(100).optional(),
+  group: z.string().min(1).max(100).optional(),
   roleId: z.string().min(1).max(100),
   scope: z.string().min(1).max(200),
   principalType: z.enum(["user", "group"]).optional(),
   expiresAt: z.string().max(100).optional(),
+  effect: z.enum(["Allow", "Deny"]).optional(),
 }).strict();
 const revokeAssignmentBodySchema = z.object({
   id: z.string().min(1).max(100),
-  username: z.string().min(1).max(100),
+  username: z.string().min(1).max(100).optional(),
+  group: z.string().min(1).max(100).optional(),
+  principalType: z.enum(["user", "group"]).optional(),
 }).strict();
+
+/** An assignment enriched with the display fields the RBAC settings table expects. */
+type AssignmentRow = RoleAssignment & { username: string; userEmail: string; userName: string };
 
 export async function GET() {
   const session = await auth();
@@ -29,15 +36,16 @@ export async function GET() {
 
   try {
     const file = await loadUsersConfig();
-    const assignments: Array<RoleAssignment & { username: string; userEmail: string; userName: string }> = [];
+    const assignments: AssignmentRow[] = [];
     for (const [username, user] of Object.entries(file.users)) {
       for (const assignment of normalizeRoleAssignments(username, user.role_assignments)) {
-        assignments.push({
-          ...assignment,
-          username,
-          userEmail: user.email ?? "",
-          userName: user.name ?? username,
-        });
+        assignments.push({ ...assignment, username, userEmail: user.email ?? "", userName: user.name ?? username });
+      }
+    }
+    // Group-principal assignments live under the top-level groups: section.
+    for (const [groupName, group] of Object.entries(file.groups)) {
+      for (const assignment of normalizeGroupRoleAssignments(groupName, group.role_assignments)) {
+        assignments.push({ ...assignment, username: groupName, userEmail: "", userName: groupName });
       }
     }
     return NextResponse.json({ assignments });
@@ -59,39 +67,21 @@ export async function POST(req: NextRequest) {
 
   const body = result.data;
   if (!SAFE_SCOPE_RE.test(body.scope)) return NextResponse.json({ error: "Invalid scope" }, { status: 400 });
-  if (!getBuiltInRoles().some((role) => role.id === body.roleId)) return NextResponse.json({ error: "Unknown role" }, { status: 400 });
 
-  // Privilege ceiling: a granter cannot assign a role conferring permissions they
-  // do not themselves hold (no admin -> owner escalation). The mint gate above
-  // controls *who* can reach this route; this narrows *what* they can grant.
+  const principalType = body.principalType ?? (body.group ? "group" : "user");
+  const principal = principalType === "group" ? (body.group ?? body.username) : body.username;
+  if (!principal) return NextResponse.json({ error: "Missing principal (username or group)" }, { status: 400 });
+  if (principalType === "group" && !SAFE_GROUP_RE.test(principal)) return NextResponse.json({ error: "Invalid group name" }, { status: 400 });
+
   const granterPerms = getSessionEffectivePermissions(access, "/");
-  if (assignmentExceedsGranter(granterPerms, body.roleId)) {
-    await auditLog("rbac:assign:denied", session.user?.email ?? "unknown", `Denied granting role '${body.roleId}' to '${body.username}': exceeds granter permissions`);
-    return NextResponse.json({ error: "Cannot grant a role that exceeds your own permissions" }, { status: 403 });
-  }
-
+  const actor = session.user?.email ?? "unknown";
   try {
-    const file = await loadUsersConfig();
-    if (!file.users[body.username]) return NextResponse.json({ error: "User not found" }, { status: 404 });
-    const existing = normalizeRoleAssignments(body.username, file.users[body.username].role_assignments);
-    if (existing.some((assignment) => assignment.roleId === body.roleId && assignment.scope === body.scope)) {
-      return NextResponse.json({ error: "Assignment already exists" }, { status: 409 });
-    }
-
-    const newAssignment: RoleAssignment = {
-      id: randomUUID(),
-      roleId: body.roleId,
-      scope: body.scope,
-      principalType: body.principalType ?? "user",
-      principalId: body.username,
-      grantedBy: session.user?.email ?? "unknown",
-      grantedAt: new Date().toISOString(),
-      expiresAt: body.expiresAt,
-    };
-    file.users[body.username].role_assignments = [...existing, newAssignment];
-    await saveUsersConfig(file.users, file.sha, `rbac: grant ${body.roleId} to ${body.username} at ${body.scope}`);
-    await auditLog("rbac:assign", session.user?.email ?? "unknown", `Granted role '${body.roleId}' to '${body.username}' at scope '${body.scope}'`);
-    return NextResponse.json({ ok: true, assignment: { ...newAssignment, username: body.username } });
+    const outcome = await grantRoleAssignment(
+      { roleId: body.roleId, scope: body.scope, principalType, principal, expiresAt: body.expiresAt, effect: body.effect },
+      { granterPerms, actor },
+    );
+    if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+    return NextResponse.json({ ok: true, assignment: { ...outcome.assignment, username: principal } });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
@@ -108,17 +98,14 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Validation failed", details: result.error.flatten() }, { status: 400 });
   }
 
-  const { id, username } = result.data;
+  const { id, username, group } = result.data;
+  const principalType = result.data.principalType ?? (group ? "group" : "user");
+  const principal = principalType === "group" ? (group ?? username) : username;
+  if (!principal) return NextResponse.json({ error: "Missing principal (username or group)" }, { status: 400 });
 
   try {
-    const file = await loadUsersConfig();
-    if (!file.users[username]) return NextResponse.json({ error: "User not found" }, { status: 404 });
-    const before = normalizeRoleAssignments(username, file.users[username].role_assignments);
-    const after = before.filter((assignment) => assignment.id !== id);
-    if (before.length === after.length) return NextResponse.json({ error: "Assignment not found" }, { status: 404 });
-    file.users[username].role_assignments = after;
-    await saveUsersConfig(file.users, file.sha, `rbac: revoke assignment ${id} from ${username}`);
-    await auditLog("rbac:revoke", session.user?.email ?? "unknown", `Revoked assignment '${id}' from '${username}'`);
+    const outcome = await revokeRoleAssignment({ assignmentId: id, principalType, principal }, session.user?.email ?? "unknown");
+    if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });

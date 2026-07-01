@@ -114,7 +114,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { name } = await params;
   const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
+  // Reading the file browser can expose secrets (e.g. server.properties contains
+  // rcon.password), so gate listing at the same files tier as writes — not the
+  // broad game-hub:read that read-only/player roles hold.
+  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const canWrite = hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/game-hub";
+import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/logs-access";
 import { createMockPodLogStreamResponse, createPodLogStreamResponse } from "@/lib/pod-log-stream";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { isValidContainerName, isValidK8sName, isValidNamespace } from "@/lib/validate";

@@ -44,6 +44,25 @@ const _allPermissionsCovered: _PermissionsCovered = true;
 void _allPermissionsCovered;
 
 /**
+ * A grantable permission on the ROLE (granted) side. In addition to concrete
+ * `Permission` values, a role may hold action/prefix wildcards so custom or
+ * admin roles need not enumerate every verb:
+ *   - `"*"`            — all permissions (Owner)
+ *   - `"<resource>:*"` — every verb of a resource (e.g. `game-hub:*`)
+ *   - `"*:<verb>"`     — a verb across every resource (e.g. `*:read`)
+ * REQUESTED actions stay the concrete `Permission` union; only the granted side
+ * is widened. See {@link permissionMatches} / {@link expandPermissionPattern}.
+ */
+export type PermissionPattern = Permission | `${string}:*` | `*:${string}`;
+
+const CONCRETE_PERMISSION_SET = new Set<string>(ALL_PERMISSIONS);
+
+/** True if `value` is a concrete member of the `Permission` union. */
+export function isConcretePermission(value: string): value is Permission {
+  return CONCRETE_PERMISSION_SET.has(value);
+}
+
+/**
  * Deny-list of permissions a custom group may NOT contain. Deny-list (not
  * allow-list) chosen deliberately: new resource-level permissions (apps:*,
  * game-hub:*, wiki:*, *:read, etc.) should be groupable by default, so only the
@@ -101,7 +120,14 @@ export interface RoleDefinition {
   id: RoleId;
   name: string;
   description: string;
-  permissions: Permission[];
+  /** Granted permissions — concrete or wildcard patterns (see PermissionPattern). */
+  permissions: PermissionPattern[];
+  /**
+   * Azure-style deny list: permissions this role explicitly withholds even when
+   * `permissions` (or a wildcard) would otherwise grant them. notActions always
+   * subtract and win over the role's own allows.
+   */
+  notActions?: Permission[];
   isBuiltIn: boolean;
   category?: "scoped" | "platform" | "game-hub" | "wiki" | "wordpress";
   color?: "red" | "blue" | "green" | "purple" | "orange" | "yellow" | "teal" | "gray";
@@ -117,6 +143,12 @@ export interface RoleAssignment {
   grantedAt: string;
   expiresAt?: string;
   conditions?: string;
+  /**
+   * Azure-style assignment effect. Defaults to "Allow". A "Deny" assignment
+   * removes its role's permissions from the principal at (and below) its scope
+   * and wins over any Allow. Absent === "Allow" for full back-compat.
+   */
+  effect?: "Allow" | "Deny";
 }
 
 /**
@@ -134,9 +166,44 @@ export interface RoleAssignment {
  * (GROUP_DENIED_PERMISSIONS), so a scoped Admin can never mint users:write /
  * rbac:admin / cluster:admin. Owner is the single full-control role ("*").
  */
-function permissionVerb(permission: Permission): string {
+function permissionVerb(permission: string): string {
   const separator = permission.indexOf(":");
   return separator === -1 ? permission : permission.slice(separator + 1);
+}
+
+/**
+ * True if a GRANTED permission (concrete or wildcard) satisfies a concrete
+ * REQUESTED permission. Supports `"*"`, `"<resource>:*"`, and `"*:<verb>"`.
+ * Boundary-aware on the `:` separator so `game-hub:*` never matches
+ * `game-hub-other:read`.
+ */
+export function permissionMatches(granted: string, requested: Permission): boolean {
+  if (granted === "*") return true;
+  if (granted === requested) return true;
+  if (granted.endsWith(":*")) return requested.startsWith(granted.slice(0, -1));
+  if (granted.startsWith("*:")) return permissionVerb(requested) === granted.slice(2);
+  return false;
+}
+
+/**
+ * Expands a granted permission (concrete or wildcard) into the concrete
+ * `Permission` values it confers. `"*"` is preserved as the wildcard token so
+ * Owner semantics are unchanged; a concrete permission expands to itself; an
+ * unknown/malformed token expands to nothing (grants no access).
+ */
+export function expandPermissionPattern(pattern: string): Permission[] {
+  if (pattern === "*") return ["*"];
+  if (isConcretePermission(pattern)) return [pattern];
+  if (pattern.endsWith(":*") || pattern.startsWith("*:")) {
+    return ALL_PERMISSIONS.filter((p) => p !== "*" && permissionMatches(pattern, p));
+  }
+  return [];
+}
+
+/** Like {@link expandPermissionPattern} but `"*"` fans out to every concrete permission. */
+function expandToConcrete(pattern: string): Permission[] {
+  if (pattern === "*") return ALL_PERMISSIONS.filter((p) => p !== "*");
+  return expandPermissionPattern(pattern);
 }
 
 const READER_VERBS: ReadonlySet<string> = new Set(["read"]);
@@ -403,8 +470,15 @@ export function resolveRoleDefinition(roleId: RoleId): RoleDefinition | null {
   return normalized ? BUILT_IN_ROLES[normalized] : null;
 }
 
+/** True if the role's notActions explicitly withhold `permission`. */
+function roleNotActionsCovers(role: RoleDefinition, permission: Permission): boolean {
+  return Boolean(role.notActions && role.notActions.some((granted) => permissionMatches(granted, permission)));
+}
+
 export function roleHasPermission(role: RoleDefinition | null, permission: Permission): boolean {
-  return Boolean(role && (role.permissions.includes("*") || role.permissions.includes(permission)));
+  if (!role) return false;
+  if (roleNotActionsCovers(role, permission)) return false;
+  return role.permissions.some((granted) => permissionMatches(granted, permission));
 }
 
 /**
@@ -422,7 +496,10 @@ export function assignmentExceedsGranter(granterPerms: Set<Permission>, roleId: 
   if (granterPerms.has("*")) return false;
   const role = resolveRoleDefinition(roleId);
   if (!role) return false;
-  return role.permissions.some((permission) => !granterPerms.has(permission));
+  return role.permissions.some((permission) => {
+    if (permission === "*") return true; // needs "*", which the granter lacks (checked above)
+    return expandPermissionPattern(permission).some((concrete) => !granterPerms.has(concrete));
+  });
 }
 
 /**
@@ -523,16 +600,27 @@ export function hasAssignedPermissionInScopeTree(
   });
 }
 
+/** Adds a granted permission (concrete or wildcard) to an allow set, expanding patterns. */
+function addAllowedPermission(allow: Set<Permission>, permission: PermissionPattern): void {
+  if (permission === "*") {
+    allow.add("*");
+    return;
+  }
+  for (const concrete of expandPermissionPattern(permission)) allow.add(concrete);
+}
+
 export function getEffectivePermissions(
   groups: string[],
   username: string,
   roleAssignments: RoleAssignment[],
   scope = "/"
 ): Set<Permission> {
-  const perms = new Set<Permission>();
+  const allow = new Set<Permission>();
+  const deny = new Set<Permission>();
+  let hasNegation = false;
 
   if (groups.length > 0 || Boolean(username) || roleAssignments.length > 0) {
-    perms.add("wiki:read");
+    allow.add("wiki:read");
   }
 
   const legacyRole = getRole(groups);
@@ -540,10 +628,10 @@ export function getEffectivePermissions(
 
   if (legacyRoleId) {
     for (const permission of BUILT_IN_ROLES[legacyRoleId].permissions) {
-      perms.add(permission);
+      addAllowedPermission(allow, permission);
     }
     if (legacyRole === "admin") {
-      perms.add("*");
+      allow.add("*");
     }
   }
 
@@ -557,12 +645,29 @@ export function getEffectivePermissions(
     const roleDef = resolveRoleDefinition(assignment.roleId);
     if (!roleDef) continue;
 
-    for (const permission of roleDef.permissions) {
-      perms.add(permission);
+    if (assignment.effect === "Deny") {
+      hasNegation = true;
+      for (const permission of roleDef.permissions) for (const concrete of expandToConcrete(permission)) deny.add(concrete);
+    } else {
+      for (const permission of roleDef.permissions) addAllowedPermission(allow, permission);
+    }
+    if (roleDef.notActions && roleDef.notActions.length > 0) {
+      hasNegation = true;
+      for (const permission of roleDef.notActions) for (const concrete of expandToConcrete(permission)) deny.add(concrete);
     }
   }
 
-  return perms;
+  // Back-compat fast path: with no Deny/notActions in play, the allow set IS the
+  // effective set (identical to the pre-deny behavior).
+  if (!hasNegation || deny.size === 0) return allow;
+
+  // final = allow − deny. Materialize a "*" allow into every concrete permission
+  // so a specific Deny can carve out of it; the "*" token is dropped so the
+  // subtraction is observable to `hasPermission`.
+  const final = allow.has("*") ? new Set<Permission>(ALL_PERMISSIONS.filter((p) => p !== "*")) : new Set<Permission>();
+  for (const permission of allow) if (permission !== "*") final.add(permission);
+  for (const permission of deny) final.delete(permission);
+  return final;
 }
 
 export function hasPermission(
@@ -639,6 +744,64 @@ export function grantsForScope(subject: RbacSubject, scope: ScopePath): ScopeGra
     grants.push({ assignment, role, inherited: isStrictAncestorScope(assignment.scope, scope) });
   }
   return grants;
+}
+
+/** True when an assignment applies to this subject at `scope` (scope + principal + not expired). */
+function assignmentAppliesToSubject(
+  assignment: RoleAssignment,
+  groups: string[],
+  username: string,
+  scope: ScopePath,
+): boolean {
+  if (isAssignmentExpired(assignment)) return false;
+  if (!scopeCovers(assignment.scope, scope)) return false;
+  if (assignment.principalType === "group" && assignment.principalId && !groups.includes(assignment.principalId)) return false;
+  if (assignment.principalType === "user" && assignment.principalId && username && assignment.principalId !== username) return false;
+  return true;
+}
+
+export type PermissionEffect = "Allow" | "Deny" | "NotApplicable";
+
+export interface PermissionExplanation {
+  allowed: boolean;
+  effect: PermissionEffect;
+  /** The assignment(s) that decided the outcome (the denies, or the allows). */
+  decidingAssignments: RoleAssignment[];
+}
+
+/**
+ * Explains WHY `action` is (dis)allowed for a subject at `scope`: the boolean
+ * decision plus the assignment(s) that decided it. Deny wins over Allow, matching
+ * {@link getEffectivePermissions}. When only legacy group roles / defaults decide
+ * (no per-assignment reason), `decidingAssignments` is empty. Powers the RBAC
+ * "explain access" surface.
+ */
+export function explainPermission(
+  groups: string[],
+  username: string,
+  roleAssignments: RoleAssignment[],
+  action: Permission,
+  scope: ScopePath = ROOT_SCOPE,
+): PermissionExplanation {
+  const applicable = roleAssignments.filter((a) => assignmentAppliesToSubject(a, groups, username, scope));
+
+  const denies = applicable.filter((assignment) => {
+    const role = resolveRoleDefinition(assignment.roleId);
+    if (!role) return false;
+    if (assignment.effect === "Deny") return role.permissions.some((granted) => permissionMatches(granted, action));
+    return roleNotActionsCovers(role, action);
+  });
+  if (denies.length > 0) return { allowed: false, effect: "Deny", decidingAssignments: denies };
+
+  const allows = applicable.filter((assignment) => {
+    if (assignment.effect === "Deny") return false;
+    return roleHasPermission(resolveRoleDefinition(assignment.roleId), action);
+  });
+  if (allows.length > 0) return { allowed: true, effect: "Allow", decidingAssignments: allows };
+
+  // No per-assignment reason: defer to the full resolver (legacy group roles, defaults).
+  const allowed = hasPermission(groups, action, roleAssignments, scope, username);
+  return { allowed, effect: allowed ? "Allow" : "NotApplicable", decidingAssignments: [] };
 }
 
 export function getBuiltInRoles(): RoleDefinition[] {

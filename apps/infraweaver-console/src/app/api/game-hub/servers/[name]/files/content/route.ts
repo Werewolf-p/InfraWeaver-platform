@@ -18,7 +18,9 @@ async function requireRead(name: string) {
   const session = await auth();
   if (!session) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
+  // File contents can contain secrets (e.g. server.properties → rcon.password),
+  // so require the files tier for reads, not the broad game-hub:read.
+  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name)) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
   return { session, access };
@@ -40,7 +42,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
         return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
       }
 
-      const result = await exec(`SIZE=$(stat -c %s ${shellQuote(filePath)} 2>/dev/null || echo 0); if [ \"$SIZE\" -gt 52428800 ]; then echo TOO_LARGE:$SIZE; else base64 ${shellQuote(filePath)} 2>&1; fi`);
+      // base64-streaming a file up to 50MB over k8s exec can exceed the 15s
+      // default; the exec now rejects on timeout (a truncated read must not
+      // surface as HTTP 200), so give it explicit headroom.
+      const result = await exec(`SIZE=$(stat -c %s ${shellQuote(filePath)} 2>/dev/null || echo 0); if [ \"$SIZE\" -gt 52428800 ]; then echo TOO_LARGE:$SIZE; else base64 ${shellQuote(filePath)} 2>&1; fi`, 60_000);
       if (result.stdout.startsWith("TOO_LARGE:")) {
         return NextResponse.json({ error: "File too large (max 50MB)", size: Number.parseInt(result.stdout.split(":")[1] ?? "0", 10) }, { status: 413 });
       }

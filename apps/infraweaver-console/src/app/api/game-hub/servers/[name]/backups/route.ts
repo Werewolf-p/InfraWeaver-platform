@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
+import { getSaveCommands } from "@/lib/game-eggs";
 import {
   appendServerAudit,
   execShell,
@@ -13,6 +14,7 @@ import {
   isKubernetesNotFoundError,
   makeGameHubClients,
   readServerEgg,
+  runServerCommand,
   shellQuote,
 } from "@/lib/game-hub-server";
 import { validateK8sName } from "@/lib/api-security";
@@ -37,7 +39,10 @@ interface BackupEntry {
   bytes: number;
   createdAt: string;
   checksum: string;
-  status: "verified" | "warning";
+  // "unverified": archive exists and its sha256 was computed, but integrity has
+  // not been proven by re-extraction. "warning": suspiciously small (likely
+  // incomplete). We never claim "verified" without a real integrity check.
+  status: "unverified" | "warning";
 }
 
 function formatBackupSize(bytes: number) {
@@ -65,7 +70,7 @@ function parseBackups(output: string): BackupEntry[] {
       if (parts.length < 5) return [];
       const bytes = Number.parseInt(parts[2] ?? "0", 10);
       const status: BackupEntry["status"] =
-        bytes < 1_048_576 ? "warning" : "verified";
+        bytes < 1_048_576 ? "warning" : "unverified";
       return [
         {
           path: parts[0] ?? "",
@@ -251,6 +256,10 @@ export async function POST(
         .deleteNamespacedPod({ name: restorePodName, namespace: "game-hub" })
         .catch(() => undefined);
 
+      // Classify the outcome without relying on exec error-message text: the
+      // check exec exits 0 and prints a token; extraction failures throw.
+      let restoreStatus: "ok" | "missing" | "corrupt" | "failed" = "failed";
+      let restoreError: unknown = null;
       try {
         await clients.coreApi.createNamespacedPod({
           namespace: "game-hub",
@@ -286,19 +295,47 @@ export async function POST(
           },
         });
         await waitForPodRunning(clients.coreApi, restorePodName);
-        await execShell(
+
+        // Pre-flight: prove the archive exists and is a readable gzip tar BEFORE
+        // we touch the live world. Emits a token on stdout for reliable
+        // classification (stderr/exit-code text is not carried by k8s exec).
+        const check = await execShell(
           clients.kc,
           restorePodName,
           "restore",
-          `backup_dir=${shellQuote(backupDir)}; mount_path=${shellQuote(egg.mountPath)}; backup_file="$backup_dir/${backupName}"; [ -f "$backup_file" ] && find "$mount_path" -mindepth 1 -maxdepth 1 ! -name '.infraweaver-backups' -exec rm -rf {} + && tar -xzf "$backup_file" -C "$mount_path"`,
-          120_000,
+          `backup_file=${shellQuote(`${backupDir}/${backupName}`)}; if [ ! -f "$backup_file" ]; then echo IW_MISSING; elif ! tar -tzf "$backup_file" >/dev/null 2>&1; then echo IW_CORRUPT; else echo IW_OK; fi`,
+          30_000,
         );
+        if (check.stdout.includes("IW_MISSING")) {
+          restoreStatus = "missing";
+        } else if (check.stdout.includes("IW_CORRUPT")) {
+          restoreStatus = "corrupt";
+        } else if (check.stdout.includes("IW_OK")) {
+          // Atomic extraction: unpack into a sibling temp dir on the same volume,
+          // and only wipe+swap the live world once the archive is fully
+          // extracted. If tar fails the live world is left untouched.
+          await execShell(
+            clients.kc,
+            restorePodName,
+            "restore",
+            `set -e; mount_path=${shellQuote(egg.mountPath)}; backup_file=${shellQuote(`${backupDir}/${backupName}`)}; if [ ! -f "$backup_file" ]; then echo MISSING >&2; exit 3; fi; rm -rf "$mount_path/.restore-tmp"; mkdir -p "$mount_path/.restore-tmp" && tar -xzf "$backup_file" -C "$mount_path/.restore-tmp" && find "$mount_path" -mindepth 1 -maxdepth 1 ! -name '.restore-tmp' ! -name '.infraweaver-backups' -exec rm -rf {} + && mv "$mount_path/.restore-tmp"/* "$mount_path"/ 2>/dev/null; mv "$mount_path/.restore-tmp"/.[!.]* "$mount_path"/ 2>/dev/null; rmdir "$mount_path/.restore-tmp"`,
+            // Large-world extraction can legitimately take minutes; the exec now
+            // rejects on timeout, so give it ample headroom (10 min).
+            600_000,
+          );
+          restoreStatus = "ok";
+        }
+      } catch (error) {
+        restoreStatus = "failed";
+        restoreError = error;
       } finally {
         await clients.coreApi
           .deleteNamespacedPod({ name: restorePodName, namespace: "game-hub" })
           .catch(() => undefined);
       }
 
+      // Always bring the server back to its desired replica count — a failed or
+      // aborted restore must never leave the workload stopped.
       await clients.appsApi.patchNamespacedDeployment({
         name,
         namespace: "game-hub",
@@ -306,6 +343,32 @@ export async function POST(
 
         fieldManager: "infraweaver",
       });
+
+      if (restoreStatus !== "ok") {
+        await appendServerAudit(clients.coreApi, name, {
+          timestamp: new Date().toISOString(),
+          user: session.user?.email ?? "unknown",
+          action: "backup:restore-failed",
+          details: `${backupName} (${restoreStatus})`,
+        });
+        if (restoreStatus === "missing") {
+          return NextResponse.json(
+            { error: `Backup ${backupName} not found` },
+            { status: 404 },
+          );
+        }
+        if (restoreStatus === "corrupt") {
+          return NextResponse.json(
+            { error: `Backup ${backupName} is not a readable archive` },
+            { status: 409 },
+          );
+        }
+        return NextResponse.json(
+          { error: `Restore failed: ${safeError(restoreError)}` },
+          { status: 500 },
+        );
+      }
+
       await auditLog(
         "game-hub:backup-restore",
         session.user?.email ?? "unknown",
@@ -378,13 +441,36 @@ export async function POST(
         10,
       ) || 7;
     const backupDir = backupDirForMountPath(egg.mountPath);
-    await execShell(
-      clients.kc,
-      pod.metadata.name,
-      getPrimaryContainerName(pod, name),
-      `backup_dir=${shellQuote(backupDir)}; mkdir -p "$backup_dir" && cd ${shellQuote(egg.mountPath)} && filename="$backup_dir/gameserver-backup-$(date +%Y%m%d-%H%M%S).tar.gz" && tar --exclude='.infraweaver-backups' -czf "$filename" . && ls -1t "$backup_dir"/gameserver-backup-*.tar.gz 2>/dev/null | tail -n +${retention + 1} | xargs -r rm -f`,
-      30_000,
-    );
+
+    // Quiesce the world before archiving so the tar captures a consistent
+    // snapshot: pause autosaves (off), flush to disk (flush), take the backup,
+    // then always resume autosaves (on). Every RCON call is best-effort — a
+    // game that lacks the command must not fail the backup.
+    const saves = getSaveCommands(egg);
+    const quiesce = async (command: string | undefined) => {
+      if (!command) return;
+      try {
+        await runServerCommand(clients, name, command);
+      } catch (rconError) {
+        console.error(`backup quiesce command failed (${command})`, rconError);
+      }
+    };
+
+    await quiesce(saves.off);
+    await quiesce(saves.flush);
+    try {
+      await execShell(
+        clients.kc,
+        pod.metadata.name,
+        getPrimaryContainerName(pod, name),
+        `backup_dir=${shellQuote(backupDir)}; mkdir -p "$backup_dir" && cd ${shellQuote(egg.mountPath)} && filename="$backup_dir/gameserver-backup-$(date +%Y%m%d-%H%M%S).tar.gz" && tar --exclude='.infraweaver-backups' -czf "$filename" . && ls -1t "$backup_dir"/gameserver-backup-*.tar.gz 2>/dev/null | tail -n +${retention + 1} | xargs -r rm -f`,
+        // Archiving a large world can take minutes; the exec rejects on timeout
+        // (a truncated archive must never be stored as a good backup), so allow 5 min.
+        300_000,
+      );
+    } finally {
+      await quiesce(saves.on);
+    }
     await auditLog(
       "game-hub:backup",
       session.user?.email ?? "unknown",

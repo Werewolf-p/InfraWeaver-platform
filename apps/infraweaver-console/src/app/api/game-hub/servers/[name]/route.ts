@@ -135,6 +135,20 @@ function replaceImageTag(image: string, nextTag: string) {
   return `${base}:${nextTag}`;
 }
 
+/**
+ * All deployment PATCHes go out as strategic-merge-patch, which merges the `env`
+ * list by `name` and NEVER deletes entries. So removing an env var (a full env
+ * replace, or clearing a join password) silently no-ops — the old value persists
+ * while the UI reports it gone. Prepending the strategic-merge `$patch: replace`
+ * directive forces the API server to replace the entire env list, so removed vars
+ * are actually deleted.
+ */
+function envListReplacingAll(
+  envVars: Array<{ name: string; value?: string }>,
+): Array<{ name: string; value?: string }> {
+  return [{ $patch: "replace" }, ...envVars] as unknown as Array<{ name: string; value?: string }>;
+}
+
 type ServerAnnouncement = {
   id: string;
   schedule: string;
@@ -768,10 +782,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       const nextEnv = body.replaceEnv ? (body.env ?? {}) : { ...currentEnv, ...(body.env ?? {}) };
       const envVars = Object.entries(nextEnv).map(([key, value]) => ({ name: key, value }));
       const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
+      // A full replace must actually DELETE vars the caller dropped; strategic
+      // merge alone would keep them. Merge mode intentionally upserts by name.
+      const envForPatch = body.replaceEnv ? envListReplacingAll(envVars) : envVars;
       await clients.appsApi.patchNamespacedDeployment({
         name,
         namespace: GAME_HUB_NAMESPACE,
-        body: { spec: { template: { spec: { containers: [{ name: containerName, env: envVars }] } } } },
+        body: { spec: { template: { spec: { containers: [{ name: containerName, env: envForPatch }] } } } },
 
         fieldManager: "infraweaver",
       });
@@ -1044,10 +1061,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       const envVars = primaryContainer.env ?? [];
       const filtered = envVars.filter((entry) => entry.name !== "SERVER_PASSWORD");
       if (password) filtered.push({ name: "SERVER_PASSWORD", value: password });
+      // Clearing the password must truly remove SERVER_PASSWORD; strategic merge
+      // would otherwise retain the old value while we report it removed. Replace
+      // the whole env list so the deletion actually takes effect.
       await clients.appsApi.patchNamespacedDeployment({
         name,
         namespace: GAME_HUB_NS,
-        body: { spec: { template: { spec: { containers: [{ ...primaryContainer, env: filtered }] } } } },
+        body: { spec: { template: { spec: { containers: [{ ...primaryContainer, env: envListReplacingAll(filtered) }] } } } },
       });
       actionResult = { ok: true, passwordSet: !!password };
     } else if (body.action === "set-command-blocklist") {

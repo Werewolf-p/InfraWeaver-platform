@@ -25,9 +25,14 @@ function matchesRequestHost(value: string, host: string) {
   }
 }
 
+// CSRF same-origin check. Only invoked for state-changing (mutation) methods —
+// see proxy.ts — so it fails CLOSED: a request whose origin cannot be verified
+// against the server host is rejected.
 export function checkSameOrigin(req: Pick<Request, "headers">) {
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host")
-  if (!host) return true
+  // Derive the host from the `host` header ONLY. `x-forwarded-host` is
+  // client-settable and must never be trusted as the CSRF origin baseline.
+  const host = req.headers.get("host")
+  if (!host) return false
 
   const origin = req.headers.get("origin")
   if (origin) return matchesRequestHost(origin, host)
@@ -35,7 +40,8 @@ export function checkSameOrigin(req: Pick<Request, "headers">) {
   const referer = req.headers.get("referer")
   if (referer) return matchesRequestHost(referer, host)
 
-  return true
+  // No Origin and no Referer on a mutating request: reject.
+  return false
 }
 
 export function getRequestBodyLimit(pathname: string) {

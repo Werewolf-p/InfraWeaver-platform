@@ -4,9 +4,8 @@ import { sanitizeConsoleCommand } from "@/lib/api-helpers";
 import { validateK8sName } from "@/lib/api-security";
 import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, getServerDeployment, isKubernetesNotFoundError, isServerStartingError, makeGameHubClients, readServerEgg, runServerCommand } from "@/lib/game-hub-server";
+import { appendServerAudit, assertCommandAllowed, isKubernetesNotFoundError, isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { getEffectivePermissions } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -14,15 +13,6 @@ const MAX_COMMAND_LENGTH = 512;
 const commandBodySchema = z.object({
   command: z.string().min(1).max(1000),
 }).strict();
-
-function allowedForRole(commandAcl: Record<string, string[]> | undefined, roleKey: string) {
-  return commandAcl?.[roleKey] ?? [];
-}
-
-function isCommandAllowed(command: string, allowed: string[]) {
-  if (allowed.includes("*")) return true;
-  return allowed.some((entry) => command === entry || command.startsWith(`${entry} `));
-}
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   if (!checkRateLimit(rateLimitKey("game-hub-command", req), 20, 60_000)) {
@@ -52,18 +42,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
 
   try {
     const clients = makeGameHubClients();
-    const deployment = await getServerDeployment(clients.appsApi, name);
-    const egg = await readServerEgg(clients.coreApi, name, deployment);
-    const perms = getEffectivePermissions(access.groups, access.username, access.roleAssignments, `/game-hub/servers/${name}`);
-    const roleKey = perms.has("*") || perms.has("game-hub:admin")
-      ? "game-server-admin"
-      : perms.has("game-hub:write") || perms.has("game-hub:console") || perms.has("game-hub:files") || perms.has("game-hub:start") || perms.has("game-hub:stop")
-        ? "game-server-operator"
-        : "game-server-viewer";
-    const allowed = allowedForRole(egg.commandAcl, roleKey);
-    if (!isCommandAllowed(command, allowed)) {
-      await auditUnauthorizedAccess("game-hub:command-acl-denied", req, session.user?.email ?? "unknown", `${name} denied command ${command}`);
-      return NextResponse.json({ error: "Command not allowed for your role", stdout: "", stderr: "", success: false }, { status: 403 });
+    // Shared blocklist + per-role ACL enforcement (identical to /rcon and /exec).
+    const guard = await assertCommandAllowed(clients, name, command, {
+      groups: access.groups,
+      username: access.username,
+      roleAssignments: access.roleAssignments,
+    });
+    if (!guard.allowed) {
+      await auditUnauthorizedAccess(`game-hub:command-${guard.reason}-denied`, req, session.user?.email ?? "unknown", `${name} denied command ${command}`);
+      return NextResponse.json({ error: guard.message, stdout: "", stderr: "", success: false }, { status: 403 });
     }
 
     const commandResult = await runServerCommand(clients, name, command, 10_000);

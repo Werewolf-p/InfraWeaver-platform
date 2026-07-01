@@ -3,11 +3,23 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Shield } from "lucide-react";
+import { Grid3x3, HelpCircle, MapPin, Shield, Users } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { AccessMatrix } from "@/components/rbac/access-matrix";
+import { ScopeAccessPanel } from "@/components/rbac/scope-access-panel";
+import { ExplainWidget } from "@/components/rbac/explain-widget";
 import { SubjectsPanel, type KindFilter } from "./subjects-panel";
 import { SubjectDetailPanel } from "./subject-detail-panel";
 import type { PlatformSubjectsResponse, SubjectBinding, SubjectKind } from "./types";
+
+type VizTab = "matrix" | "subjects" | "resource" | "explain";
+const TABS: { id: VizTab; label: string; icon: React.ElementType }[] = [
+  { id: "matrix", label: "Access matrix", icon: Grid3x3 },
+  { id: "subjects", label: "By subject", icon: Users },
+  { id: "resource", label: "By resource", icon: MapPin },
+  { id: "explain", label: "Explain access", icon: HelpCircle },
+];
 
 interface K8sBinding {
   name: string;
@@ -66,6 +78,7 @@ function serviceAccountSubjects(data: K8sRbacData | undefined): VizSubject[] {
 }
 
 export default function RbacVizPage() {
+  const [tab, setTab] = useState<VizTab>("matrix");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<KindFilter>("all");
   const [search, setSearch] = useState("");
@@ -100,27 +113,49 @@ export default function RbacVizPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Shield} title="RBAC Visualizer" description="Browse effective role bindings and Azure-style scope inheritance by platform user, group, or Kubernetes service account." />
+      <PageHeader icon={Shield} title="RBAC Visualizer" description="See who has access to what, where — an Azure-portal-style view of every principal, scope, and grant, with inheritance, expiry, and deny handling." />
 
-      {isLoading ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {[0, 1].map((i) => (
-            <div key={i} className="h-96 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <SubjectsPanel
-            subjects={subjects}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            filter={filter}
-            onFilterChange={setFilter}
-            search={search}
-            onSearchChange={setSearch}
-          />
-          <SubjectDetailPanel subject={selected} />
-        </div>
+      <div className="flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1 dark:border-white/10 dark:bg-white/5">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+              tab === id
+                ? "bg-white text-[#0078D4] shadow-sm dark:bg-[#111] dark:text-[#4fc3f7]"
+                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "matrix" && <AccessMatrix />}
+      {tab === "resource" && <ScopeAccessPanel />}
+      {tab === "explain" && <ExplainWidget />}
+      {tab === "subjects" && (
+        isLoading ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {[0, 1].map((i) => (
+              <div key={i} className="h-96 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SubjectsPanel
+              subjects={subjects}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              filter={filter}
+              onFilterChange={setFilter}
+              search={search}
+              onSearchChange={setSearch}
+            />
+            <SubjectDetailPanel subject={selected} />
+          </div>
+        )
       )}
     </motion.div>
   );

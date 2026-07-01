@@ -134,7 +134,7 @@ const ACTION_LABELS: Record<string, string> = {
   edit: "Edit",
 };
 
-function humanizePermission(permission: Permission): string {
+function humanizePermission(permission: string): string {
   if (permission === "*") return "Full platform access";
   const [resource, action] = permission.split(":");
   const verb = ACTION_LABELS[action] ?? action;

@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
-import { loadUsersConfig, normalizeRoleAssignments, type UsersConfigUser } from "@/lib/users-config";
+import { loadUsersConfig, normalizeGroupRoleAssignments, normalizeRoleAssignments, type UsersConfigUser } from "@/lib/users-config";
 import {
   getLegacyRoleId,
   resolveRoleDefinition,
   scopeLabel,
-  type Permission,
+  type PermissionPattern,
   type RoleAssignment,
 } from "@/lib/rbac";
 import type { PlatformSubject, PlatformSubjectsResponse, SubjectBinding } from "@/app/(dashboard)/rbac-viz/types";
@@ -42,8 +42,8 @@ function dedupeBindings(bindings: SubjectBinding[]): SubjectBinding[] {
   });
 }
 
-function unionPermissions(bindings: SubjectBinding[]): Permission[] {
-  const set = new Set<Permission>();
+function unionPermissions(bindings: SubjectBinding[]): PermissionPattern[] {
+  const set = new Set<PermissionPattern>();
   for (const binding of bindings) for (const permission of binding.permissions) set.add(permission);
   return [...set];
 }
@@ -113,12 +113,18 @@ export async function GET() {
       for (const group of user.authentik_groups ?? []) {
         ensureGroup(group).members.add(username);
       }
-      // Group-targeted role assignments are stored on whichever user record
-      // carries them; collect them under the named group.
+      // Legacy: group-targeted assignments once stored on a user record.
       for (const assignment of normalizeRoleAssignments(username, user.role_assignments)) {
         if (assignment.principalType === "group" && assignment.principalId) {
           ensureGroup(assignment.principalId).assignments.push(assignment);
         }
+      }
+    }
+
+    // Current model: group-principal assignments live under the top-level groups: section.
+    for (const [groupName, group] of Object.entries(file.groups)) {
+      for (const assignment of normalizeGroupRoleAssignments(groupName, group.role_assignments)) {
+        ensureGroup(groupName).assignments.push(assignment);
       }
     }
 

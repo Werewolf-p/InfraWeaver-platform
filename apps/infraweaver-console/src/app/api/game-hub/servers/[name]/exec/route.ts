@@ -4,7 +4,7 @@ import { sanitizeConsoleCommand } from "@/lib/api-helpers";
 import { validateK8sName } from "@/lib/api-security";
 import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
+import { assertCommandAllowed, isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
@@ -49,6 +49,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
 
   try {
     const clients = makeGameHubClients();
+    // Enforce the same blocklist + per-role ACL as /command and /rcon — /exec is
+    // not a policy bypass.
+    const guard = await assertCommandAllowed(clients, name, command, {
+      groups: access.groups,
+      username: access.username,
+      roleAssignments: access.roleAssignments,
+    });
+    if (!guard.allowed) {
+      await auditUnauthorizedAccess(
+        `game-hub:exec-${guard.reason}-denied`,
+        req,
+        session.user?.email ?? "unknown",
+        `${name} denied command ${command}`,
+      );
+      return NextResponse.json({ error: guard.message }, { status: 403 });
+    }
     const commandResult = await runServerCommand(clients, name, command);
     await auditLog("game-hub:exec", session.user?.email ?? "unknown", `${name} — ${command}`);
     return NextResponse.json({ stdout: commandResult.stdout, stderr: commandResult.stderr, method: commandResult.method });

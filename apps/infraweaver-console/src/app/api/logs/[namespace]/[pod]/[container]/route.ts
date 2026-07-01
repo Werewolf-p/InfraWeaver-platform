@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/game-hub";
+import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/logs-access";
 import { loadKubeConfig } from "@/lib/k8s";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { isValidContainerName, isValidK8sName, isValidNamespace } from "@/lib/validate";
