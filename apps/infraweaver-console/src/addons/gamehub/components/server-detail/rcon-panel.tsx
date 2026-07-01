@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import { toast } from "@/lib/notify";
 import type { ServerDetail } from "./types";
-import { fetchJson } from "./utils";
+import { fetchJson, stripMinecraftColors } from "./utils";
 
 interface RconPanelProps {
   serverName: string;
@@ -143,7 +143,7 @@ export function RconPanel({ serverName, gameType, permissions }: RconPanelProps)
         // eslint-disable-next-line react-hooks/purity -- event handler legitimately reads current time/random to build a unique history entry
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         command: value,
-        output: response.output,
+        output: stripMinecraftColors(response.output),
         error: errorMessage,
         // eslint-disable-next-line react-hooks/purity -- event handler legitimately reads current time/random to build a unique history entry
         createdAt: Date.now(),
