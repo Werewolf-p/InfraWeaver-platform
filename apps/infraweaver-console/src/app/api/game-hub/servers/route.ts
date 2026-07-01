@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import { z } from "zod";
 import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts, javaMajorFromImage, pelicanRuntimeEnv, sanitizeLabelValue } from "@/lib/game-eggs";
+import { checkJavaCompatibility, minecraftVersionFromEnv } from "@/addons/gamehub/lib/minecraft-java-compat";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
@@ -311,7 +312,7 @@ async function createServer(body: {
   const pvcName = `${slug}-${pvcSuffixForMountPath(egg.mountPath)}`;
   const imageVersion = parseImageVersion(egg.dockerImage);
   const baseDomain = process.env.BASE_DOMAIN ?? "local";
-  const dnsHostname = typeof body.dnsHostname === "string" ? body.dnsHostname.trim().toLowerCase() : `${slug}.games.int.${baseDomain}`;
+  const dnsHostname = typeof body.dnsHostname === "string" ? body.dnsHostname.trim().toLowerCase() : `${slug}.games.${baseDomain}`;
   const annotations = {
     "infraweaver.io/groups": (body.groups ?? []).join(","),
     "infraweaver.io/image-version": imageVersion.version,
@@ -340,6 +341,18 @@ async function createServer(body: {
     ...env,
     ...(egg.startupCommand ? { STARTUP: egg.startupCommand } : {}),
   };
+
+  // Guard: reject a Java runtime image too old for the requested Minecraft
+  // version (e.g. java_17 with MC 1.21.4). Only fires for a concrete version —
+  // "latest" is resolved (and Java-capped) at install time. Non-Java images and
+  // unknown versions are treated as compatible.
+  const requestedMcVersion = minecraftVersionFromEnv(gameEnv);
+  if (requestedMcVersion) {
+    const compat = await checkJavaCompatibility(egg.dockerImage, requestedMcVersion);
+    if (!compat.compatible) {
+      throw Object.assign(new Error(compat.reason ?? "Incompatible Java runtime for the selected Minecraft version"), { statusCode: 400 });
+    }
+  }
 
   // Build 3-tier stop spec (RCON → stdin → signal). Extra env vars it needs are
   // merged into the container env so the preStop script can read them at runtime.
@@ -445,7 +458,7 @@ async function cloneServer(source: string, newName: string) {
   const container = sourceDeployment.spec?.template?.spec?.containers?.[0];
   const imageVersion = parseImageVersion(container?.image ?? sourceEgg.dockerImage);
   const baseDomainClone = process.env.BASE_DOMAIN ?? "local";
-  const dnsHostname = `${slug}.games.int.${baseDomainClone}`;
+  const dnsHostname = `${slug}.games.${baseDomainClone}`;
 
   await coreApi.createNamespacedPersistentVolumeClaim({
     namespace: GAME_HUB_NAMESPACE,
@@ -793,6 +806,12 @@ export const POST = withAuth(
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
+    // Validation errors (e.g. incompatible Java/Minecraft combo) carry a
+    // statusCode and a user-facing message — surface them as 400, not 500.
+    const statusCode = (error as { statusCode?: number })?.statusCode;
+    if (statusCode === 400) {
+      return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    }
     console.error("game hub server create failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }

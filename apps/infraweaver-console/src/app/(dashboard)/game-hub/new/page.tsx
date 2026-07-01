@@ -13,7 +13,20 @@ import {
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { InfoPopover } from "@/components/game-hub/info-popover";
-import { BUILT_IN_EGGS, type GameEgg, validateEggVariable, describeEggVariableRules } from "@/lib/game-eggs";
+import { BUILT_IN_EGGS, type GameEgg, validateEggVariable, describeEggVariableRules, javaMajorFromImage } from "@/lib/game-eggs";
+
+// Env keys the various Minecraft eggs use to hold the game version.
+const MC_VERSION_ENV_KEYS = ["MINECRAFT_VERSION", "MC_VERSION", "VANILLA_VERSION"];
+
+/** Pick the newest Java runtime image from an egg's image list (else the first). */
+function pickNewestJavaImage(images: string[]): string | undefined {
+  if (images.length === 0) return undefined;
+  const withJava = images
+    .map((image) => ({ image, java: javaMajorFromImage(image) }))
+    .filter((e): e is { image: string; java: number } => e.java !== null);
+  if (withJava.length === 0) return images[0];
+  return withJava.reduce((best, e) => (e.java > best.java ? e : best)).image;
+}
 import { INTERNAL_DNS_DOMAIN, ROOT_DNS_DOMAIN } from "@/lib/dns";
 import type { CatalogCategory, CatalogEntry } from "@/lib/pelican-eggs";
 import { cn } from "@/lib/utils";
@@ -366,7 +379,9 @@ export default function NewGameServerPage() {
   const [selectedRemoteEntry, setSelectedRemoteEntry] = useState<CatalogEntry | null>(null);
   const [serverName, setServerName] = useState("");
   const [dnsHostname, setDnsHostname] = useState("");
-  const [dnsType, setDnsType] = useState<"internal" | "public" | "custom">("internal");
+  // Game servers default to PUBLIC DNS — players connect from outside the LAN, so
+  // an internal (.int) record would be unreachable for them.
+  const [dnsType, setDnsType] = useState<"internal" | "public" | "custom">("public");
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [memoryMi, setMemoryMi] = useState(2048);
   const [cpuCores, setCpuCores] = useState(1);
@@ -551,9 +566,10 @@ export default function NewGameServerPage() {
     setMemoryMi(parseMemoryToMi(activeEgg.defaultMemory));
     setCpuCores(parseCpuToCores(activeEgg.defaultCpu));
     setStorageGi(parseStorageToGi(activeEgg.defaultStorage));
-    // Auto-select the recommended (first) docker image when egg has multiple options
+    // Auto-select the newest Java runtime image (older Java can't run modern
+    // Minecraft versions). Falls back to the first entry for non-Java eggs.
     if (activeEgg.dockerImages && Object.keys(activeEgg.dockerImages).length > 0) {
-      setSelectedDockerImage(Object.values(activeEgg.dockerImages)[0]);
+      setSelectedDockerImage(pickNewestJavaImage(Object.values(activeEgg.dockerImages)) ?? null);
     } else {
       setSelectedDockerImage(null);
     }
@@ -572,6 +588,47 @@ export default function NewGameServerPage() {
       setDnsHostname(normalized ? `${normalized}.games.${ROOT_DNS_DOMAIN}` : "");
     }
   }, [dnsType, serverName]);
+
+  // The Minecraft version the user selected (if this egg exposes one).
+  const mcVersion = useMemo(() => {
+    for (const k of MC_VERSION_ENV_KEYS) {
+      const v = envValues[k]?.trim();
+      if (v) return v;
+    }
+    return null;
+  }, [envValues]);
+
+  // Ask the backend what Java a concrete Minecraft version needs, so we can stop
+  // the user pairing it with a too-old runtime image. Dynamic values ("latest")
+  // are resolved (and capped) at install time, so we don't constrain those.
+  const isConcreteMcVersion = !!mcVersion && !["latest", "snapshot", "recommended"].includes(mcVersion.toLowerCase());
+  const { data: javaCompat } = useQuery({
+    queryKey: ["java-compat", mcVersion],
+    enabled: isConcreteMcVersion,
+    staleTime: 60 * 60 * 1000,
+    queryFn: async () => {
+      const res = await fetch(`/api/game-hub/java-compat?version=${encodeURIComponent(mcVersion!)}`);
+      if (!res.ok) return { requiredJava: null as number | null };
+      return (await res.json()) as { version: string; requiredJava: number | null };
+    },
+  });
+  const requiredJava = javaCompat?.requiredJava ?? null;
+
+  // If the chosen image can't run the chosen version, auto-correct to the newest
+  // image that can — the user never ends up with a broken combination.
+  useEffect(() => {
+    if (!activeEgg?.dockerImages || requiredJava == null) return;
+    const curJava = selectedDockerImage ? javaMajorFromImage(selectedDockerImage) : null;
+    if (curJava != null && curJava < requiredJava) {
+      const compatible = Object.values(activeEgg.dockerImages).filter((image) => {
+        const j = javaMajorFromImage(image);
+        return j == null || j >= requiredJava;
+      });
+      const next = pickNewestJavaImage(compatible);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- dependency-driven correction, not derived render state
+      if (next) setSelectedDockerImage(next);
+    }
+  }, [requiredJava, activeEgg, selectedDockerImage]);
 
   useEffect(() => {
     if (!targetNode || clusterNodes.length === 0) return;
@@ -1286,24 +1343,38 @@ export default function NewGameServerPage() {
                     {activeEgg.dockerImages && Object.keys(activeEgg.dockerImages).length > 1 && (
                       <div className="rounded-2xl border border-[#0078D4]/20 bg-[#0078D4]/5 p-4 space-y-2">
                         <label className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7cc4ff]">Runtime Image</label>
-                        <p className="text-xs text-gray-500 dark:text-[#777]">This egg supports multiple runtime versions. Select which one to use.</p>
+                        <p className="text-xs text-gray-500 dark:text-[#777]">
+                          This egg supports multiple runtime versions. Select which one to use.
+                          {requiredJava != null && mcVersion && (
+                            <span className="text-[#7cc4ff]"> Minecraft {mcVersion} needs Java {requiredJava}+; older images are disabled.</span>
+                          )}
+                        </p>
                         <div className="grid gap-2 sm:grid-cols-2">
-                          {Object.entries(activeEgg.dockerImages).map(([label, image]) => (
+                          {Object.entries(activeEgg.dockerImages).map(([label, image]) => {
+                            const imgJava = javaMajorFromImage(image);
+                            const incompatible = requiredJava != null && imgJava != null && imgJava < requiredJava;
+                            const selected = (selectedDockerImage ?? activeEgg.dockerImage) === image;
+                            return (
                             <button
                               key={image}
                               type="button"
+                              disabled={incompatible}
+                              title={incompatible ? `Java ${imgJava} cannot run Minecraft ${mcVersion} (needs Java ${requiredJava}+)` : undefined}
                               onClick={() => setSelectedDockerImage(image)}
                               className={cn(
                                 "rounded-xl border px-3 py-2 text-left text-xs transition-colors",
-                                (selectedDockerImage ?? activeEgg.dockerImage) === image
+                                incompatible
+                                  ? "border-gray-200 dark:border-[#2a2a2a] bg-gray-100 dark:bg-[#0a0a0a] text-gray-400 dark:text-[#555] opacity-50 cursor-not-allowed"
+                                  : selected
                                   ? "border-[#0078D4]/50 bg-[#0078D4]/15 text-[#7cc4ff]"
                                   : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:border-[#3a3a3a] hover:text-gray-700 dark:hover:text-[#ccc]"
                               )}
                             >
-                              <span className="font-medium block">{label}</span>
+                              <span className="font-medium block">{label}{incompatible && " — too old"}</span>
                               <span className="font-mono opacity-60 truncate block mt-0.5">{image}</span>
                             </button>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
