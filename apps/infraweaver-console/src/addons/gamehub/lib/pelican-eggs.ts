@@ -1,11 +1,29 @@
 import type { GameEgg } from "@/lib/game-eggs";
 import { javaMajorFromImage } from "@/addons/gamehub/lib/game-eggs";
-import { patchPelicanInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
+import { patchPelicanInstallContainer, patchPelicanInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
+
+// Newest widely-available Java yolk tag. Egg image lists are often stale (they
+// stop at java_18) even though the registry ships java_21, so we upgrade to this
+// when an egg's newest listed Java is older — lets modern game versions run.
+// Bump when a newer LTS yolk becomes broadly available.
+const MODERN_JAVA_YOLK = 21;
+
+/**
+ * If an image is a pterodactyl/parkervcp `java_NN` yolk older than the modern
+ * baseline, rewrite the tag to the modern one (the registry ships it even when
+ * the egg does not list it). Non-yolk or already-modern images are returned
+ * unchanged.
+ */
+function upgradeJavaYolkImage(image: string): string {
+  const yolk = image.match(/^(.*\/yolks):java_(\d{1,2})$/i);
+  if (!yolk) return image;
+  return parseInt(yolk[2], 10) < MODERN_JAVA_YOLK ? `${yolk[1]}:java_${MODERN_JAVA_YOLK}` : image;
+}
 
 /**
  * Choose the default runtime image from an egg's image list. When the images are
- * Java yolks, prefer the highest java_NN so modern game versions run; otherwise
- * fall back to the first entry. Returns undefined for an empty list.
+ * Java yolks, prefer the highest java_NN (upgraded to the modern baseline);
+ * otherwise fall back to the first entry. Returns undefined for an empty list.
  */
 function pickNewestDockerImage(images: string[]): string | undefined {
   if (images.length === 0) return undefined;
@@ -13,7 +31,8 @@ function pickNewestDockerImage(images: string[]): string | undefined {
     .map((image) => ({ image, java: javaMajorFromImage(image) }))
     .filter((entry): entry is { image: string; java: number } => entry.java !== null);
   if (withJava.length === 0) return images[0];
-  return withJava.reduce((best, entry) => (entry.java > best.java ? entry : best)).image;
+  const newest = withJava.reduce((best, entry) => (entry.java > best.java ? entry : best)).image;
+  return upgradeJavaYolkImage(newest);
 }
 
 const PELICAN_REPO = "pelican-eggs/eggs";
@@ -449,7 +468,10 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
     installScript: pelican.scripts?.installation
       ? {
           script: patchPelicanInstallScript(pelican.scripts.installation.script),
-          container: pelican.scripts.installation.container,
+          container: patchPelicanInstallContainer(
+            pelican.scripts.installation.container,
+            pelican.scripts.installation.script,
+          ),
           entrypoint: pelican.scripts.installation.entrypoint,
         }
       : undefined,
