@@ -30,7 +30,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import type { MetricPoint, SavedCommand, ServerDetail } from "./types";
-import { fetchJson } from "./utils";
+import { fetchJson, stripMinecraftColors } from "./utils";
 
 type ConsoleHistoryDepth = "1h" | "6h" | "1d" | "3d" | "7d";
 type ConsoleThemeName = "dark" | "monokai" | "nord" | "dracula" | "solarized";
@@ -1277,16 +1277,19 @@ export function ConsoleTab({
       timestamp?: string | null,
       options?: { user?: string; trackStats?: boolean },
     ) => {
+      // Server output carries Minecraft §-color codes; strip them for display,
+      // stats, and pattern matching. User input is echoed verbatim.
+      const cleanLine = type === "input" ? line : stripMinecraftColors(line);
       const entry: ConsoleLogEntry = {
         type,
-        line,
+        line: cleanLine,
         timestamp,
         id: logIdRef.current++,
         user: options?.user,
         receivedAt: Date.now(),
       };
       setLogLines((prev) => [...prev.slice(-(maxLines - 1)), entry]);
-      if (type !== "input" && WORLD_SAVE_PATTERN.test(line)) {
+      if (type !== "input" && WORLD_SAVE_PATTERN.test(cleanLine)) {
         const savedAt = Date.now();
         setWorldSavedAt(savedAt);
         try {
@@ -1296,11 +1299,11 @@ export function ConsoleTab({
         }
       }
       if (recordingRef.current) {
-        setRecordingLines((prev) => [...prev, { at: Date.now(), type, line, timestamp, user: options?.user }]);
+        setRecordingLines((prev) => [...prev, { at: Date.now(), type, line: cleanLine, timestamp, user: options?.user }]);
       }
       if (options?.trackStats !== false && type !== "system" && type !== "history-marker" && type !== "input") {
         setTotalCount((count) => count + 1);
-        const level = detectLogLevel(type, line);
+        const level = detectLogLevel(type, cleanLine);
         if (level === "error") {
           setErrorCount((count) => count + 1);
           setRecentErrorTimes((prev) => [...prev, Date.now()].slice(-500));
