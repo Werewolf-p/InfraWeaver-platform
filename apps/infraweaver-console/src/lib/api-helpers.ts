@@ -1,10 +1,12 @@
 // Positive allowlist for game-server console commands. Permits letters, digits,
 // whitespace, and the punctuation real commands use (Minecraft selectors `@`,
-// JSON `{}"[],:` for tellraw, relative coords `~^`, paths `/`, negatives `-`).
-// Everything else — notably the shell metacharacters $ ` | & ; \ ( ) < > and
-// newlines — is rejected, so a command can never be reinterpreted as a shell
-// expression even if a downstream caller were to pass it to a shell.
-const ALLOWED_CONSOLE_COMMAND_RE = /^[A-Za-z0-9 \t.,:'"_\-/@#!?=+*~^%[\]{}]+$/
+// JSON `{}"[],:` and escaped quotes `\"` for tellraw, relative coords `~^`,
+// paths `/`, negatives `-`). Backslash is allowed for JSON escapes but the
+// command-separator and substitution metacharacters $ ` | & ; ( ) < > and
+// newlines stay rejected — so a command can never introduce a second command or
+// a subshell even if a downstream caller passed it to a shell unquoted (the
+// stdin path already shell-quotes it, and RCON sends it as a raw payload).
+const ALLOWED_CONSOLE_COMMAND_RE = /^[A-Za-z0-9 \t.,:'"_\-/@#!?=+*~^%\\[\]{}]+$/
 const DEFAULT_API_BODY_LIMIT = 512 * 1024
 const API_BODY_LIMIT_OVERRIDES = [
   { prefix: "/api/platform-editor", bytes: 2 * 1024 * 1024 },

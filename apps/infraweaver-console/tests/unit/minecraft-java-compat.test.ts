@@ -1,7 +1,9 @@
 import { checkJavaCompatibility, minecraftVersionFromEnv, requiredJavaForMinecraftVersion } from "@/addons/gamehub/lib/minecraft-java-compat";
 
 // Mojang manifest fetch is stubbed so the validator logic is deterministic.
+// `latest` drives dynamic-version resolution ("latest"/"snapshot"/"recommended").
 const MANIFEST = {
+  latest: { release: "1.21.4", snapshot: "1.21.4" },
   versions: [
     { id: "1.21.4", type: "release", url: "https://mojang/1.21.4.json" },
     { id: "1.16.5", type: "release", url: "https://mojang/1.16.5.json" },
@@ -36,9 +38,16 @@ describe("requiredJavaForMinecraftVersion", () => {
     expect(await requiredJavaForMinecraftVersion("1.21.4")).toBe(21);
     expect(await requiredJavaForMinecraftVersion("1.16.5")).toBe(8);
   });
-  it("returns null for dynamic or unknown versions (no constraint)", async () => {
-    expect(await requiredJavaForMinecraftVersion("latest")).toBeNull();
-    expect(await requiredJavaForMinecraftVersion("snapshot")).toBeNull();
+  it("resolves dynamic 'latest'/'snapshot'/'recommended' to the manifest's newest build and constrains on it", async () => {
+    // "latest" resolves to the newest release (1.21.4 → Java 21) so the wizard
+    // can still pick a compatible runtime image instead of silently skipping the
+    // check — a server that boots on the latest MC must not run an old Java.
+    expect(await requiredJavaForMinecraftVersion("latest")).toBe(21);
+    expect(await requiredJavaForMinecraftVersion("recommended")).toBe(21);
+    expect(await requiredJavaForMinecraftVersion("snapshot")).toBe(21);
+  });
+  it("returns null for empty or unknown concrete versions (no constraint)", async () => {
+    expect(await requiredJavaForMinecraftVersion("")).toBeNull();
     expect(await requiredJavaForMinecraftVersion("9.9.9")).toBeNull();
   });
 });
@@ -55,8 +64,14 @@ describe("checkJavaCompatibility", () => {
     expect((await checkJavaCompatibility("ghcr.io/pterodactyl/yolks:java_21", "1.21.4")).compatible).toBe(true);
     expect((await checkJavaCompatibility("ghcr.io/pterodactyl/yolks:java_8", "1.16.5")).compatible).toBe(true);
   });
-  it("does not constrain non-Java images or dynamic versions", async () => {
+  it("now constrains dynamic 'latest' by resolving it to the newest build", async () => {
+    // java_8 can no longer run "latest" (resolves to 1.21.4 → needs Java 21).
+    const r = await checkJavaCompatibility("ghcr.io/pterodactyl/yolks:java_8", "latest");
+    expect(r.compatible).toBe(false);
+    expect(r.requiredJava).toBe(21);
+  });
+  it("does not constrain non-Java images or unknown versions", async () => {
     expect((await checkJavaCompatibility("ghcr.io/parkervcp/yolks:dotnet_9", "1.21.4")).compatible).toBe(true);
-    expect((await checkJavaCompatibility("ghcr.io/pterodactyl/yolks:java_8", "latest")).compatible).toBe(true);
+    expect((await checkJavaCompatibility("ghcr.io/pterodactyl/yolks:java_8", "9.9.9")).compatible).toBe(true);
   });
 });
