@@ -76,6 +76,15 @@ fi
 
 cd /mnt/server
 
+# Minecraft servers (paper/folia) exit on first boot unless the Mojang EULA is
+# accepted in eula.txt. Creating the server through the console is the consent
+# action, so record acceptance here. Harmless for proxy variants (velocity/
+# waterfall) which ignore the file.
+if [ ! -f eula.txt ] || ! grep -q '^eula=true' eula.txt 2>/dev/null; then
+    echo "eula=true" > eula.txt
+    echo -e "Accepted Mojang EULA (eula.txt)"
+fi
+
 echo -e "Running curl -o \${SERVER_JARFILE} \${DOWNLOAD_URL}"
 if [ -f "\${SERVER_JARFILE}" ]; then
     mv "\${SERVER_JARFILE}" "\${SERVER_JARFILE}.old"

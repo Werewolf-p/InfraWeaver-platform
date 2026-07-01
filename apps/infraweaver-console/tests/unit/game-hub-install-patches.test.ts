@@ -49,6 +49,12 @@ describe("patchPelicanInstallScript", () => {
     expect(patched).toContain(".version.java.version.minimum");
   });
 
+  it("accepts the Mojang EULA so the minecraft server does not exit on first boot", () => {
+    const patched = patchPelicanInstallScript(v2Paper);
+    expect(patched).toContain("eula=true");
+    expect(patched).toContain("eula.txt");
+  });
+
   it("is a no-op for scripts that do not use the broken API", () => {
     const steam = "#!/bin/bash\nsteamcmd +login anonymous +app_update 896660 validate +quit";
     expect(patchPelicanInstallScript(steam)).toBe(steam);
