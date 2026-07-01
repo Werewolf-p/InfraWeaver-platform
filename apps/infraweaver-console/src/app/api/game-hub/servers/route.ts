@@ -305,6 +305,15 @@ async function createServer(body: {
     ports: customPorts ?? getEggPorts({ ...baseEgg, gamePort: body.port ?? baseEgg.gamePort }),
   };
   const env = autoInjectRconForEgg(egg, { ...getEggEnvironmentDefaults(egg), ...(body.env ?? {}) });
+  // Minecraft servers can only receive console commands via RCON: the yolk runs the
+  // server on a PTY, so writing to the process stdin only echoes and never executes.
+  // Ensure RCON is enabled with a generated password so the console's native RCON
+  // path works out of the box; the install patch mirrors these into server.properties.
+  if (/minecraft|paper|spigot|fabric|forge|vanilla/i.test(egg.id) && !env.RCON_PASSWORD) {
+    env.ENABLE_RCON = "true";
+    env.RCON_PORT = env.RCON_PORT || "25575";
+    env.RCON_PASSWORD = randomBytes(12).toString("hex");
+  }
   const memory = body.memory ?? egg.defaultMemory ?? "2Gi";
   const cpu = body.cpu ?? egg.defaultCpu ?? "1";
   const storage = body.storage ?? egg.defaultStorage ?? "10Gi";

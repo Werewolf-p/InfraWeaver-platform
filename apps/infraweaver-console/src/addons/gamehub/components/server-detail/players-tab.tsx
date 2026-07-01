@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Users, UserMinus, Clock } from "lucide-react";
 import { toast } from "@/lib/notify";
@@ -9,11 +10,14 @@ import { countryFlag, fetchJson } from "./utils";
 export function PlayersTab({ name, server }: { name: string; server: ServerDetail }) {
   const queryClient = useQueryClient();
   void server;
+  // Live player tracking is opt-in: it runs `list` on the game server, which spams
+  // the server log when polled. Off by default; the toggle enables a 30s refresh.
+  const [live, setLive] = useState(false);
 
   const { data: players } = useQuery({
-    queryKey: ["game-hub", "players", name],
-    queryFn: () => fetchJson<{ players: PlayerEntry[]; count: number }>(`/api/game-hub/servers/${name}/players`),
-    refetchInterval: 30000,
+    queryKey: ["game-hub", "players", name, live],
+    queryFn: () => fetchJson<{ players: PlayerEntry[]; count: number }>(`/api/game-hub/servers/${name}/players${live ? "?live=1" : ""}`),
+    refetchInterval: live ? 30000 : false,
   });
 
   const { data: stats } = useQuery({
@@ -48,12 +52,21 @@ export function PlayersTab({ name, server }: { name: string; server: ServerDetai
             <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
               <Users className="w-4 h-4 text-[#38bdf8]" /> Online Players
             </div>
-            <span className="text-sm font-mono text-gray-900 dark:text-[#f2f2f2]">{players?.count ?? 0}</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setLive((v) => !v)}
+                title="Live tracking polls the server every 30s (runs the `list` command). Off by default to keep the server log clean."
+                className={`min-h-[32px] rounded-lg px-2.5 py-1 text-xs transition-colors ${live ? "bg-[#38bdf8]/15 text-[#38bdf8]" : "text-gray-500 hover:text-gray-700 dark:text-[#888] dark:hover:text-[#bbb]"}`}
+              >
+                {live ? "● Live" : "○ Live off"}
+              </button>
+              <span className="text-sm font-mono text-gray-900 dark:text-[#f2f2f2]">{players?.count ?? 0}</span>
+            </div>
           </div>
 
           <div className="space-y-2">
             {onlinePlayers.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-[#666]">No players online</p>
+              <p className="text-sm text-gray-400 dark:text-[#666]">{live ? "No players online" : "Live tracking off — tap “Live off” to poll the server"}</p>
             ) : onlinePlayers.map((player) => (
               <div key={player.name} className="rounded-lg border border-gray-200 dark:border-[#222] px-3 py-3 flex flex-col gap-3 text-sm sm:flex-row sm:items-center">
                 <span className="text-base flex-shrink-0">{countryFlag(player.countryCode)}</span>
