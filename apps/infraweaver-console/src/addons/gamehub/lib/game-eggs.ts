@@ -529,6 +529,50 @@ export function getEggEnvironmentDefaults(egg: GameEgg): Record<string, string> 
 }
 
 /**
+ * Convert a Kubernetes memory quantity ("2Gi", "2G", "512Mi", "2048") to whole
+ * megabytes. Bare numbers are assumed to already be MB.
+ */
+export function memoryQuantityToMB(quantity: string | number | null | undefined): number {
+  if (typeof quantity === "number") return Math.floor(quantity);
+  const trimmed = quantity?.trim();
+  if (!trimmed) return 0;
+  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*(Gi|Mi|Ki|G|M|K)?$/);
+  if (!match) return 0;
+  const value = parseFloat(match[1]);
+  switch (match[2]) {
+    case "Gi": return Math.floor(value * 1024);
+    case "Mi": return Math.floor(value);
+    case "Ki": return Math.floor(value / 1024);
+    case "G": return Math.floor(value * 1000);
+    case "M": return Math.floor(value);
+    case "K": return Math.floor(value / 1000);
+    default: return Math.floor(value); // bare number = MB
+  }
+}
+
+/**
+ * Pelican/Pterodactyl yolk images expect the wings daemon to inject a handful of
+ * runtime variables (SERVER_MEMORY in MB, SERVER_IP, SERVER_PORT). We have no
+ * wings, so startup commands like `-Xmx{{SERVER_MEMORY}}M` resolve to `-XmxM`
+ * and the server never boots. Synthesize the same contract from the actual pod
+ * allocation so every yolk egg gets a valid launch command — game-agnostic.
+ *
+ * SERVER_MEMORY is deliberately set BELOW the container memory limit: a JVM run
+ * with -Xmx == the cgroup limit is OOM-killed once metaspace/threads/direct
+ * buffers are added on top of the heap. We reserve max(512MB, 15%) of headroom.
+ */
+export function pelicanRuntimeEnv(memoryQuantity: string | number | null | undefined, gamePort: number): Record<string, string> {
+  const limitMB = memoryQuantityToMB(memoryQuantity);
+  const headroom = Math.max(512, Math.ceil(limitMB * 0.15));
+  const serverMemory = Math.max(512, limitMB - headroom);
+  return {
+    SERVER_MEMORY: String(serverMemory),
+    SERVER_IP: "0.0.0.0",
+    SERVER_PORT: String(gamePort),
+  };
+}
+
+/**
  * Sanitize a value so it is safe for use as a Kubernetes label value.
  * Must match: (([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])? — max 63 chars.
  * Pelican egg IDs can contain '/', '[', ']' etc. which K8s rejects, so any

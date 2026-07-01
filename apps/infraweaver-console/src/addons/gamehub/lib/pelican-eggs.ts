@@ -1,4 +1,5 @@
 import type { GameEgg } from "@/lib/game-eggs";
+import { patchPelicanInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
 
 const PELICAN_REPO = "pelican-eggs/eggs";
 const PELICAN_TREE_API = `https://api.github.com/repos/${PELICAN_REPO}/git/trees`;
@@ -428,7 +429,7 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
     exportedAt: pelican.exported_at || undefined,
     installScript: pelican.scripts?.installation
       ? {
-          script: pelican.scripts.installation.script,
+          script: patchPelicanInstallScript(pelican.scripts.installation.script),
           container: pelican.scripts.installation.container,
           entrypoint: pelican.scripts.installation.entrypoint,
         }

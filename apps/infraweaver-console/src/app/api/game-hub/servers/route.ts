@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { auditLog } from "@/lib/audit-log";
-import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts, sanitizeLabelValue } from "@/lib/game-eggs";
+import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts, pelicanRuntimeEnv, sanitizeLabelValue } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
@@ -328,7 +328,11 @@ async function createServer(body: {
 
   // Pelican yolk images read a STARTUP env var and run it via their entrypoint.
   // Always set STARTUP so yolk-compatible images apply the correct launch command.
+  // pelicanRuntimeEnv synthesizes the wings-injected contract (SERVER_MEMORY /
+  // SERVER_IP / SERVER_PORT) as a BASE layer so every yolk egg gets a valid
+  // launch command; egg-defined defaults and user overrides take precedence.
   const gameEnv: Record<string, string> = {
+    ...pelicanRuntimeEnv(memory, egg.gamePort),
     ...env,
     ...(egg.startupCommand ? { STARTUP: egg.startupCommand } : {}),
   };
@@ -494,7 +498,12 @@ async function cloneServer(source: string, newName: string) {
               image: container?.image ?? sourceEgg.dockerImage,
               imagePullPolicy: "IfNotPresent",
               stdin: true,  // required: lets /proc/1/fd/0 work for in-pod console commands
-              env: (container?.env ?? []).map((entry) => ({ name: entry.name, value: entry.value ?? "" })),
+              // Base the env on the wings runtime contract so a clone of a pre-fix
+              // server (missing SERVER_MEMORY etc.) still boots; source env wins.
+              env: Object.entries({
+                ...pelicanRuntimeEnv(resources.limits.memory, container?.ports?.[0]?.containerPort ?? sourceEgg.gamePort),
+                ...Object.fromEntries((container?.env ?? []).map((entry) => [entry.name, entry.value ?? ""])),
+              }).map(([name, value]) => ({ name, value })),
               ports: (container?.ports ?? []).map((port) => ({ containerPort: port.containerPort, protocol: port.protocol })),
               resources,
               volumeMounts: [{ name: "data", mountPath: volumeMount?.mountPath ?? sourceEgg.mountPath }],
