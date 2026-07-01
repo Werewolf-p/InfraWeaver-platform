@@ -425,10 +425,7 @@ async function createServer(body: {
         name: slug,
         namespace: GAME_HUB_NAMESPACE,
         labels: { app: slug, "infraweaver/game": "true" },
-        annotations: dnsHostname ? {
-          "external-dns.alpha.kubernetes.io/hostname": dnsHostname,
-          "external-dns.alpha.kubernetes.io/ttl": "60",
-        } : undefined,
+        annotations: dnsHostname ? gameDnsAnnotations(dnsHostname) : undefined,
       },
       spec: {
         type: "NodePort",
@@ -444,6 +441,24 @@ async function createServer(body: {
   });
 
   return { name: slug, game: egg.id, gameId: egg.id, status: "creating" };
+}
+
+/**
+ * external-dns annotations for a game server Service. Game servers are exposed via
+ * NodePort straight to the internet (they bypass Traefik), so the DNS record must be
+ * DNS-only and point at the public ingress IP *explicitly*: external-dns runs as a
+ * Helm app whose `--default-targets` placeholder is not env-substituted, so a record
+ * without its own target never resolves. `managed: "true"` opts the Service into
+ * external-dns's annotation-filter; the target is the public IP (PUBLIC_INGRESS_IP).
+ */
+function gameDnsAnnotations(dnsHostname: string): Record<string, string> {
+  const publicIp = process.env.PUBLIC_INGRESS_IP?.trim();
+  return {
+    "external-dns.alpha.kubernetes.io/hostname": dnsHostname,
+    "external-dns.alpha.kubernetes.io/ttl": "60",
+    "external-dns.alpha.kubernetes.io/managed": "true",
+    ...(publicIp ? { "external-dns.alpha.kubernetes.io/target": publicIp } : {}),
+  };
 }
 
 async function cloneServer(source: string, newName: string) {
@@ -543,10 +558,7 @@ async function cloneServer(source: string, newName: string) {
         name: slug,
         namespace: GAME_HUB_NAMESPACE,
         labels: { ...(sourceService.metadata?.labels ?? {}), app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true" },
-        annotations: {
-          "external-dns.alpha.kubernetes.io/hostname": dnsHostname,
-          "external-dns.alpha.kubernetes.io/ttl": "60",
-        },
+        annotations: gameDnsAnnotations(dnsHostname),
       },
       spec: {
         type: sourceService.spec?.type ?? "NodePort",
