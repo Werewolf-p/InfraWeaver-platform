@@ -1,4 +1,20 @@
-import { memoryQuantityToMB, pelicanRuntimeEnv } from "@/lib/game-eggs";
+import { javaMajorFromImage, memoryQuantityToMB, pelicanRuntimeEnv } from "@/lib/game-eggs";
+
+describe("javaMajorFromImage", () => {
+  it.each([
+    ["ghcr.io/pterodactyl/yolks:java_21", 21],
+    ["ghcr.io/pterodactyl/yolks:java_8", 8],
+    ["ghcr.io/parkervcp/yolks:java_17", 17],
+  ])("extracts major java from %s", (image, expected) => {
+    expect(javaMajorFromImage(image)).toBe(expected);
+  });
+
+  it("returns null for non-java images", () => {
+    expect(javaMajorFromImage("ghcr.io/parkervcp/yolks:dotnet_9")).toBeNull();
+    expect(javaMajorFromImage("ubuntu:22.04")).toBeNull();
+    expect(javaMajorFromImage(undefined)).toBeNull();
+  });
+});
 
 // These vars are the wings-injected contract every Pelican yolk egg relies on.
 // The fix must be GENERAL (derived from the pod allocation, not per-game) so any

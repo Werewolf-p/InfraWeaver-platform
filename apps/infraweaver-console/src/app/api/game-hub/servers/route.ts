@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { auditLog } from "@/lib/audit-log";
-import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts, pelicanRuntimeEnv, sanitizeLabelValue } from "@/lib/game-eggs";
+import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts, javaMajorFromImage, pelicanRuntimeEnv, sanitizeLabelValue } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
@@ -331,8 +331,12 @@ async function createServer(body: {
   // pelicanRuntimeEnv synthesizes the wings-injected contract (SERVER_MEMORY /
   // SERVER_IP / SERVER_PORT) as a BASE layer so every yolk egg gets a valid
   // launch command; egg-defined defaults and user overrides take precedence.
+  const runtimeJavaMajor = javaMajorFromImage(egg.dockerImage);
   const gameEnv: Record<string, string> = {
     ...pelicanRuntimeEnv(memory, egg.gamePort),
+    // Tell the (patched) installer which Java the runtime image ships so "latest"
+    // version resolution never picks a build the container can't run.
+    ...(runtimeJavaMajor != null ? { RUNTIME_JAVA_MAJOR: String(runtimeJavaMajor) } : {}),
     ...env,
     ...(egg.startupCommand ? { STARTUP: egg.startupCommand } : {}),
   };

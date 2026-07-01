@@ -41,6 +41,14 @@ describe("patchPelicanInstallScript", () => {
     expect(patched).toContain("Resolving latest stable");
   });
 
+  it("respects the runtime Java ceiling so 'latest' never picks an unrunnable build", () => {
+    const patched = patchPelicanInstallScript(v2Paper);
+    // Uses the per-version minimum Java from the v3 API and compares to the
+    // image's Java so e.g. a Java 21 image resolves 1.21.x, not a Java 25 build.
+    expect(patched).toContain("RUNTIME_JAVA_MAJOR");
+    expect(patched).toContain(".version.java.version.minimum");
+  });
+
   it("is a no-op for scripts that do not use the broken API", () => {
     const steam = "#!/bin/bash\nsteamcmd +login anonymous +app_update 896660 validate +quit";
     expect(patchPelicanInstallScript(steam)).toBe(steam);

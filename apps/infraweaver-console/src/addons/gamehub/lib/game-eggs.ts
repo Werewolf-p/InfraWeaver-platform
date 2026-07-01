@@ -551,6 +551,17 @@ export function memoryQuantityToMB(quantity: string | number | null | undefined)
 }
 
 /**
+ * Extract the major Java version from a yolk image reference
+ * (e.g. "ghcr.io/pterodactyl/yolks:java_21" -> 21). Returns null when the image
+ * is not a Java runtime, so callers can skip Java-specific handling.
+ */
+export function javaMajorFromImage(image: string | null | undefined): number | null {
+  if (!image) return null;
+  const match = image.match(/java[_-]?(\d{1,2})\b/i);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/**
  * Pelican/Pterodactyl yolk images expect the wings daemon to inject a handful of
  * runtime variables (SERVER_MEMORY in MB, SERVER_IP, SERVER_PORT). We have no
  * wings, so startup commands like `-Xmx{{SERVER_MEMORY}}M` resolve to `-XmxM`

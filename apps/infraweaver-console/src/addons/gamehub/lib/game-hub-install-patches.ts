@@ -36,8 +36,16 @@ else
 
     BUILD_JSON=""
     if [ -z "\${VALID}" ]; then
-        echo -e "Resolving latest stable \${PROJECT} version"
-        for V in \`echo "\${ALL_VERSIONS}" | jq -r '.[0:15][]'\`; do
+        echo -e "Resolving latest stable \${PROJECT} version compatible with Java \${RUNTIME_JAVA_MAJOR:-any}"
+        for V in \`echo "\${ALL_VERSIONS}" | jq -r '.[0:25][]'\`; do
+            # Skip versions whose minimum Java exceeds the runtime image's Java, so
+            # "latest" never resolves to a build the container cannot run.
+            if [ -n "\${RUNTIME_JAVA_MAJOR}" ]; then
+                JAVA_MIN=\`curl -s "\${API}/versions/\${V}" | jq -r '.version.java.version.minimum // 0'\`
+                if [ -n "\${JAVA_MIN}" ] && [ "\${JAVA_MIN}" -gt "\${RUNTIME_JAVA_MAJOR}" ] 2>/dev/null; then
+                    continue
+                fi
+            fi
             CANDIDATE=\`curl -s "\${API}/versions/\${V}/builds" | jq -c 'map(select(.channel=="STABLE")) | last // empty'\`
             if [ -n "\${CANDIDATE}" ] && [ "\${CANDIDATE}" != "null" ]; then
                 MINECRAFT_VERSION=\${V}

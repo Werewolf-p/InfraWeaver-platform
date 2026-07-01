@@ -1,5 +1,20 @@
 import type { GameEgg } from "@/lib/game-eggs";
+import { javaMajorFromImage } from "@/addons/gamehub/lib/game-eggs";
 import { patchPelicanInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
+
+/**
+ * Choose the default runtime image from an egg's image list. When the images are
+ * Java yolks, prefer the highest java_NN so modern game versions run; otherwise
+ * fall back to the first entry. Returns undefined for an empty list.
+ */
+function pickNewestDockerImage(images: string[]): string | undefined {
+  if (images.length === 0) return undefined;
+  const withJava = images
+    .map((image) => ({ image, java: javaMajorFromImage(image) }))
+    .filter((entry): entry is { image: string; java: number } => entry.java !== null);
+  if (withJava.length === 0) return images[0];
+  return withJava.reduce((best, entry) => (entry.java > best.java ? entry : best)).image;
+}
 
 const PELICAN_REPO = "pelican-eggs/eggs";
 const PELICAN_TREE_API = `https://api.github.com/repos/${PELICAN_REPO}/git/trees`;
@@ -371,8 +386,12 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
     : pelican.docker_image
     ? { [pelican.docker_image]: pelican.docker_image }
     : {};
+  // Default to the NEWEST runtime image rather than the first listed: eggs list
+  // Java images oldest-first (java_8 … java_21), so Object.values()[0] would pin
+  // Java 8 and refuse to run modern game versions. Prefer the highest java_NN
+  // when present; otherwise keep the first entry. General across all eggs.
   const dockerImage =
-    Object.values(dockerImages)[0] ?? pelican.docker_image ?? "ubuntu:22.04";
+    pickNewestDockerImage(Object.values(dockerImages)) ?? pelican.docker_image ?? "ubuntu:22.04";
 
   const label = `${pelican.name} ${id}`;
   const features = (pelican.features ?? []).filter((f): f is string => typeof f === "string" && f.length > 0);
