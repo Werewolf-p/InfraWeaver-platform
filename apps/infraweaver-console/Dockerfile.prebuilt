@@ -1,7 +1,9 @@
 # Dockerfile.prebuilt — uses pre-built Next.js .next/standalone output.
-# Build on host first:
-#   NEXT_PUBLIC_APP_VERSION=<tag> npm run build
-# Then:
+# Build on host first (NEXT_PUBLIC_* is inlined into the client bundle at
+# `npm run build` time, so BASE_DOMAIN must be set HERE, not just at image build):
+#   NEXT_PUBLIC_APP_VERSION=<tag> NEXT_PUBLIC_BASE_DOMAIN=<domain> npm run build
+# e.g. NEXT_PUBLIC_BASE_DOMAIN=rlservers.com so game hosts resolve to
+# games.rlservers.com and not the example.com fork default. Then:
 #   buildah build -f Dockerfile.prebuilt --build-arg APP_VERSION=<tag> apps/infraweaver-console/
 FROM public.ecr.aws/docker/library/node:20-alpine
 WORKDIR /app
