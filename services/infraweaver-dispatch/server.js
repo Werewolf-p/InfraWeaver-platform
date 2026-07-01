@@ -101,6 +101,12 @@ const GIT_REMOTE = process.env.GIT_REMOTE || 'origin';
 // The single live console. /approve ships straight here (no preview env): each
 // approve bumps the prod image pin so ArgoCD syncs the fix onto infraweaver.int.
 const CONSOLE_HOST = process.env.CONSOLE_HOST || 'infraweaver.int.example.com';
+// Public base domain baked into the console client bundle. NEXT_PUBLIC_BASE_DOMAIN
+// is inlined by Next.js at `npm run build` time, so it MUST be present as a build
+// arg — a build without it silently ships the example.com fork default (that was
+// the bug that made game hosts resolve to games.example.com instead of the live
+// games.<domain>). Defaults to example.com for forks; prod sets BASE_DOMAIN.
+const BASE_DOMAIN = process.env.BASE_DOMAIN || 'example.com';
 const BUILDKIT_NODEPORT = process.env.BUILDKIT_NODEPORT || '31234';
 const BUILDCTL = process.env.BUILDCTL || '/home/runner/.local/bin/buildctl';
 // Infra repo (ArgoCD source of truth) for the live console image-pin bump.
@@ -354,6 +360,7 @@ async function buildImage(tag, run) {
     '--local', 'dockerfile=.',
     '--opt', 'filename=Dockerfile',
     `--opt build-arg:APP_VERSION=${tag}`,
+    `--opt build-arg:NEXT_PUBLIC_BASE_DOMAIN=${BASE_DOMAIN}`,
     `--opt build-arg:CACHEBUST=${Date.now()}`,
     '--allow', 'security.insecure',
     '--output', `type=image,name=${IMAGE}:${tag},push=true,oci-mediatypes=true`,
