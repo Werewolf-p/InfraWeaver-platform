@@ -130,4 +130,21 @@ describe("patchPelicanInstallContainer", () => {
     const mc = "curl https://meta.fabricmc.net/x";
     expect(patchPelicanInstallContainer("ghcr.io/parkervcp/installers:debian", mc)).toBe("ghcr.io/parkervcp/installers:debian");
   });
+
+  it("replaces the dead vanilla installer image with a pullable ghcr alpine image", () => {
+    const vanilla = "curl -o vanillacord.jar https://src.me1312.net/jenkins/...";
+    expect(patchPelicanInstallContainer("openjdk:8-jre-alpine", vanilla)).toBe("ghcr.io/parkervcp/installers:alpine");
+  });
+});
+
+describe("version-cap snippet self-sufficiency", () => {
+  it("bootstraps curl+jq so the cap works even before the egg installs them", () => {
+    // Fabric installs curl/jq itself AFTER the prepended cap ran, so the cap
+    // must not depend on them being present. Regression for MC_VERSION=latest
+    // silently falling through to a Java-25 build.
+    const fabric = "#!/bin/bash\napt install -y curl jq\ncurl https://meta.fabricmc.net/v2/versions/game";
+    const patched = patchPelicanInstallScript(fabric);
+    expect(patched).toContain("command -v jq");
+    expect(patched).toContain("apk add --no-cache curl jq");
+  });
 });

@@ -31,7 +31,9 @@ const EULA_SNIPPET = `if [ ! -f eula.txt ] || ! grep -q '^eula=true' eula.txt 2>
  *   "\${RUNTIME_JAVA_MAJOR}" or a literal like "17")
  */
 function mojangVersionCapSnippet(varName: string, javaCeilExpr: string): string {
-  return `MC_JAVA_CEIL="${javaCeilExpr}"
+  return `# Ensure curl + jq exist (this snippet may run before the egg installs them).
+command -v jq >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 || { apk add --no-cache curl jq 2>/dev/null || { apt-get update >/dev/null 2>&1 && apt-get install -y curl jq >/dev/null 2>&1; }; }
+MC_JAVA_CEIL="${javaCeilExpr}"
 if [ -z "\${${varName}}" ] || [ "\${${varName}}" = "latest" ]; then
     curl -s "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json" > /tmp/mc_manifest.json
     for _v in \`jq -r '.versions[] | select(.type=="release") | .id' /tmp/mc_manifest.json | head -40\`; do
@@ -259,12 +261,22 @@ export function patchPelicanInstallScript(script: string): string {
  */
 const MODERN_JDK_INSTALL_IMAGE = "eclipse-temurin:21-jdk";
 
+const ALPINE_INSTALLER_IMAGE = "ghcr.io/parkervcp/installers:alpine";
+
 export function patchPelicanInstallContainer(container: string, script: string): string {
   if (!container) return container;
   const isMinecraft = /fabricmc|minecraftforge|BuildTools|papermc|launchermeta\.mojang|src\.me1312/.test(script);
   if (!isMinecraft) return container;
-  // openjdk:8 / openjdk:11 / :16 / :17 style images that predate what modern
-  // installers need. eslint-safe numeric parse of the major version.
+
+  // The vanilla egg is rewritten to a pure download installer (no Java needed),
+  // but its original container (openjdk:8-jre-alpine) is a dead docker.io tag.
+  // Use the reliable ghcr alpine installer (curl/jq/apk, airgap-friendly).
+  if (script.includes("src.me1312")) {
+    return ALPINE_INSTALLER_IMAGE;
+  }
+
+  // openjdk:8 / :11 / :16 / :17 JDK images predate what modern installers need
+  // (e.g. Forge's installer requires a recent JDK to run). Bump to a modern JDK.
   const major = container.match(/openjdk:(\d{1,2})/i)?.[1];
   if (major && parseInt(major, 10) < 21 && !/-jre/.test(container)) {
     return MODERN_JDK_INSTALL_IMAGE;
