@@ -112,8 +112,11 @@ const BUILDCTL = process.env.BUILDCTL || '/home/runner/.local/bin/buildctl';
 // Infra repo (ArgoCD source of truth) for the live console image-pin bump.
 const INFRA_DIR = process.env.INFRA_DIR || '/home/runner/InfraWeaver-infra';
 // Kustomize param file (base/ + overlays/prod/). The live console image pin is
-// the `newTag:` field here — NOT a raw image line in a deployment manifest.
-// Env name kept as INFRA_DEPLOYMENT for backward compat with existing units.
+// the concrete `image: .../infraweaver-console:<tag>` lines in this overlay (the
+// initContainer + the console container) — the `images:` transformer / a `newTag:`
+// field can't match the ${BASE_DOMAIN} placeholder in the base image name, so the
+// tag is bumped in place by bumpConsoleImageTag(). Env name kept as
+// INFRA_DEPLOYMENT for backward compat with existing units.
 const INFRA_DEPLOYMENT = process.env.INFRA_DEPLOYMENT ||
   'kubernetes/catalog/infraweaver-console/overlays/prod/kustomization.yaml';
 // Records the live prod image pin + the one before it, so /rollback can re-pin the
@@ -380,26 +383,50 @@ function writePinState(state) {
   fs.writeFileSync(PROD_PIN_STATE, JSON.stringify(state, null, 2));
 }
 
+// Bump every console image ref in the prod overlay to `:tag`, returning the new
+// file contents and the tag that was pinned before. The overlay pins the image
+// via concrete `image: <registry>/infraweaver-console:<tag>` lines (two of them:
+// the initContainer + the console container), NOT a kustomize `newTag:` field —
+// the old `newTag:` sed silently matched nothing, so /approve and /rollback never
+// actually moved the pin. Pure/string-based so it is unit-tested (pin.test.js)
+// independently of git and the filesystem.
+const CONSOLE_IMAGE_TAG_RE = /(infraweaver-console:)([^\s"']+)/g;
+function bumpConsoleImageTag(contents, tag) {
+  const first = contents.match(/infraweaver-console:([^\s"']+)/);
+  const previousTag = first ? first[1] : null;
+  return { contents: contents.replace(CONSOLE_IMAGE_TAG_RE, `$1${tag}`), previousTag };
+}
+
 // Bump the live console image pin to `image` and push to the infra repo. Captures
 // the prior pin (read from origin/main inside the same checkout) into prod-pin.json
 // as `previous` so a rollback can re-pin it. Resolves the sh() result.
 async function bumpProdPin(image, tag, run) {
-  const bump = await sh(`
+  // Sync to origin/main first so we rewrite the file that is actually live-pinned,
+  // then do the tag bump in JS (matches the concrete `image:` lines the overlay
+  // really uses) and let the shell handle only git.
+  const sync = await sh(`
     set -e
     cd ${INFRA_DIR}
     git fetch origin --prune || true
     git checkout -B main origin/main || git checkout main
-    PREV=$(grep -oE '^[[:space:]]*newTag:[[:space:]]*\\S+' ${INFRA_DEPLOYMENT} | head -1 | awk '{print $2}')
-    echo "PREV_PIN=${REGISTRY}/infraweaver-console:$PREV"
-    sed -i -E 's#^([[:space:]]*newTag:[[:space:]]*).*#\\1${tag}#' ${INFRA_DEPLOYMENT}
+  `, { run, cwd: INFRA_DIR });
+  if (sync.code !== 0) return sync;
+
+  const file = path.join(INFRA_DIR, INFRA_DEPLOYMENT);
+  const { contents, previousTag } = bumpConsoleImageTag(fs.readFileSync(file, 'utf8'), tag);
+  fs.writeFileSync(file, contents);
+  const prevPin = previousTag ? `${IMAGE}:${previousTag}` : readPinState().current;
+  if (run) run.append(`pin: ${prevPin || '(none)'} -> ${IMAGE}:${tag}\n`);
+
+  const bump = await sh(`
+    set -e
+    cd ${INFRA_DIR}
     git add ${INFRA_DEPLOYMENT}
     git commit -m "deploy(feedback): console ${tag}" || echo "no pin change"
     git push origin main
   `, { run, cwd: INFRA_DIR });
   if (bump.code === 0) {
-    const m = bump.stdout.match(/PREV_PIN=(\S+)/);
-    const prev = m && m[1] && /infraweaver-console:.+/.test(m[1]) ? m[1] : readPinState().current;
-    writePinState({ current: image, previous: prev || null, updatedAt: new Date().toISOString() });
+    writePinState({ current: image, previous: prevPin || null, updatedAt: new Date().toISOString() });
   }
   return bump;
 }
@@ -697,14 +724,21 @@ async function doRollback() {
       const state = readPinState();
       if (!state.previous) throw new Error('no previous prod image recorded to roll back to');
       run.setPhase('rolling-back');
-      const bump = await sh(`
+      const prevTag = state.previous.split(':').pop();
+      const sync = await sh(`
         set -e
         cd ${INFRA_DIR}
         git fetch origin --prune || true
         git checkout -B main origin/main || git checkout main
-        sed -i -E 's#^([[:space:]]*newTag:[[:space:]]*).*#\\1${state.previous.split(':').pop()}#' ${INFRA_DEPLOYMENT}
+      `, { run, cwd: INFRA_DIR });
+      if (sync.code !== 0) throw new Error('rollback checkout failed');
+      const file = path.join(INFRA_DIR, INFRA_DEPLOYMENT);
+      fs.writeFileSync(file, bumpConsoleImageTag(fs.readFileSync(file, 'utf8'), prevTag).contents);
+      const bump = await sh(`
+        set -e
+        cd ${INFRA_DIR}
         git add ${INFRA_DEPLOYMENT}
-        git commit -m "rollback: console -> ${state.previous.split(':').pop()}" || echo "no pin change"
+        git commit -m "rollback: console -> ${prevTag}" || echo "no pin change"
         git push origin main
       `, { run, cwd: INFRA_DIR });
       if (bump.code !== 0) throw new Error('rollback pin bump failed');
@@ -850,4 +884,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { signHmac, verifyHmac, HMAC_WINDOW_MS };
+module.exports = { signHmac, verifyHmac, HMAC_WINDOW_MS, bumpConsoleImageTag };
