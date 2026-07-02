@@ -1,15 +1,13 @@
 import { redirect } from "next/navigation";
-import { findWpPodName } from "@/addons/wordpress-manager/lib/provision";
-import { WORDPRESS_NAMESPACE } from "@/addons/wordpress-manager/lib/wordpress-rbac";
-import { addonPodTabId } from "@/lib/addon-pod-tabs";
 
 export const dynamic = "force-dynamic";
 
 /**
- * "Open the site" → the pod interface. Resolves the site's running WordPress pod
- * and deep-links to its pod detail page with the WordPress addon tab pre-selected.
- * If no pod exists yet (still provisioning) it falls back to the standalone
- * management view so the link is never a dead end.
+ * Legacy deep link. The per-pod detail route (/pods/<ns>/<name>) was removed in
+ * the IA restructure — every /pods/* path now redirects to the generic Apps
+ * list, which is not the site you clicked. The site's own management view lives
+ * at /wordpress/<site> (SiteDetailView, the same content the WordPress pod tab
+ * rendered), so send any stale /pod link straight there.
  */
 export default async function WordpressSitePodRedirect({
   params,
@@ -17,13 +15,5 @@ export default async function WordpressSitePodRedirect({
   params: Promise<{ site: string }>;
 }) {
   const { site } = await params;
-  const pod = await findWpPodName(site);
-
-  if (!pod) {
-    redirect(`/wordpress/${encodeURIComponent(site)}`);
-  }
-
-  redirect(
-    `/pods/${WORDPRESS_NAMESPACE}/${encodeURIComponent(pod)}?tab=${addonPodTabId("wordpress-manager", "wordpress")}`,
-  );
+  redirect(`/wordpress/${encodeURIComponent(site)}`);
 }
