@@ -74,14 +74,24 @@ export interface ContainerResources {
 }
 
 /**
- * How Authentik fronts the site:
+ * How Authentik fronts the site (protection scope, least → most):
  *  - "none"  — fully public, no auth.
- *  - "admin" — public site, but /wp-admin + /wp-login.php go through Authentik
- *              forward-auth (with WP OIDC auto-login), and high-risk surface
- *              (xmlrpc, REST user enumeration, sensitive files) is blocked.
+ *  - "login" — public site; only /wp-admin + /wp-login.php go through Authentik
+ *              forward-auth (admin-ajax stays public for themes/plugins). The
+ *              high-risk surface is NOT blocked — use "admin" for that.
+ *  - "admin" — "login" gating PLUS a hard 403 on the high-risk surface (xmlrpc,
+ *              REST user enumeration, sensitive files). The recommended default.
  *  - "full"  — the entire site sits behind Authentik forward-auth.
  */
-export type AuthMode = "none" | "admin" | "full";
+export type AuthMode = "none" | "login" | "admin" | "full";
+
+/** Protection modes that place an Authentik gate in front of some/all of the site. */
+export const GATED_AUTH_MODES: ReadonlySet<AuthMode> = new Set<AuthMode>(["login", "admin", "full"]);
+
+/** True when the mode puts an Authentik forward-auth gate in front of the site. */
+export function isGatedAuthMode(mode: AuthMode): boolean {
+  return GATED_AUTH_MODES.has(mode);
+}
 
 export interface SiteManifestOptions {
   wpImage?: string;
@@ -426,6 +436,14 @@ export function buildIngressRoute(site: string, opts: SiteManifestOptions = {}) 
       outpostRoute,
       rule(AJAX_MATCH, [SECURE_HEADERS], 100),
       rule(BLOCK_MATCH, [SECURE_HEADERS, deny], 90),
+      rule(ADMIN_MATCH, [SECURE_HEADERS, fwdAuth], 80),
+      rule("", [SECURE_HEADERS], 10),
+    ];
+  } else if (authMode === "login") {
+    // Gate only login/admin (admin-ajax stays public); no high-risk surface block.
+    routes = [
+      outpostRoute,
+      rule(AJAX_MATCH, [SECURE_HEADERS], 100),
       rule(ADMIN_MATCH, [SECURE_HEADERS, fwdAuth], 80),
       rule("", [SECURE_HEADERS], 10),
     ];

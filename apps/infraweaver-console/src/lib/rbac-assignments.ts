@@ -46,6 +46,52 @@ function isKnownRole(roleId: string): boolean {
   return getBuiltInRoles().some((role) => role.id === roleId);
 }
 
+/** A per-site WordPress scope, e.g. `/wordpress/sites/blog` (matches wordpress-rbac). */
+const WORDPRESS_SITE_SCOPE_RE = /^\/wordpress\/sites\/([a-z0-9][a-z0-9-]*[a-z0-9])$/;
+
+/**
+ * When a grant/revoke changes who is authorized for a specific WordPress site,
+ * reconcile that site's Authentik access group so the SSO gate matches RBAC with no
+ * manual Authentik step. Fire-and-forget and best-effort: the WordPress addon's SSO
+ * reconcile and its manual "sync access" action also converge the group, so a
+ * transient failure here is self-healing. A lazy dynamic import keeps core decoupled
+ * from the addon. Broad grants (`/wordpress`, `/`) are intentionally NOT fanned out
+ * to every site here — those converge via the addon's own reconcile — so core never
+ * enumerates the cluster.
+ */
+const ACCESS_SYNC_RETRY_DELAYS_MS = [1_000, 5_000, 15_000] as const;
+
+function syncWordpressAccessForScope(scope: string): void {
+  const match = WORDPRESS_SITE_SCOPE_RE.exec(scope);
+  if (!match) return;
+  void reconcileWordpressAccessWithRetry(match[1]);
+}
+
+/**
+ * Reconcile a site's Authentik access group, retrying with backoff because a
+ * REVOKE that silently fails would leave a user with access — access revocation is a
+ * security control, not best-effort. Retries survive a transient Authentik outage;
+ * if every attempt fails it is logged loudly and the admin can force it via
+ * `POST /api/wordpress/sites/<site>/access`.
+ */
+async function reconcileWordpressAccessWithRetry(site: string): Promise<void> {
+  for (let attempt = 0; attempt <= ACCESS_SYNC_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const mod = await import("@/addons/wordpress-manager/lib/access");
+      await mod.syncSiteAccess(site);
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (attempt === ACCESS_SYNC_RETRY_DELAYS_MS.length) {
+        console.error(`[rbac] WordPress access sync for '${site}' failed after ${attempt + 1} attempts; run access sync manually:`, message);
+        return;
+      }
+      console.warn(`[rbac] WordPress access sync for '${site}' attempt ${attempt + 1} failed, retrying:`, message);
+      await new Promise((resolve) => setTimeout(resolve, ACCESS_SYNC_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
 function sameEffect(a?: "Allow" | "Deny", b?: "Allow" | "Deny"): boolean {
   return (a ?? "Allow") === (b ?? "Allow");
 }
@@ -93,6 +139,7 @@ export async function grantRoleAssignment(
     };
     await saveUsersConfig(file.users, file.sha, `rbac: grant ${input.roleId} to group ${groupName} at ${input.scope}`, nextGroups);
     await auditLog("rbac:assign", ctx.actor, `Granted role '${input.roleId}' to group '${groupName}' at scope '${input.scope}'`);
+    syncWordpressAccessForScope(input.scope);
     return { ok: true, assignment: newAssignment };
   }
 
@@ -106,6 +153,7 @@ export async function grantRoleAssignment(
   file.users[username] = { ...user, role_assignments: [...existing, newAssignment] };
   await saveUsersConfig(file.users, file.sha, `rbac: grant ${input.roleId} to ${username} at ${input.scope}`, file.groups);
   await auditLog("rbac:assign", ctx.actor, `Granted role '${input.roleId}' to '${username}' at scope '${input.scope}'`);
+  syncWordpressAccessForScope(input.scope);
   return { ok: true, assignment: newAssignment };
 }
 
@@ -122,21 +170,25 @@ export async function revokeRoleAssignment(input: RevokeAssignmentInput, actor: 
   if (input.principalType === "group") {
     const group = file.groups[input.principal];
     const before = group?.role_assignments ?? [];
+    const removed = before.find((a) => a.id === input.assignmentId);
     const after = before.filter((a) => a.id !== input.assignmentId);
     if (before.length === after.length) return { ok: false, status: 404, error: "Assignment not found" };
     const nextGroups = { ...file.groups, [input.principal]: { ...group, role_assignments: after } };
     await saveUsersConfig(file.users, file.sha, `rbac: revoke assignment ${input.assignmentId} from group ${input.principal}`, nextGroups);
     await auditLog("rbac:revoke", actor, `Revoked assignment '${input.assignmentId}' from group '${input.principal}'`);
+    if (removed) syncWordpressAccessForScope(removed.scope);
     return { ok: true };
   }
 
   const user = file.users[input.principal];
   if (!user) return { ok: false, status: 404, error: "User not found" };
   const before = normalizeRoleAssignments(input.principal, user.role_assignments);
+  const removed = before.find((a) => a.id === input.assignmentId);
   const after = before.filter((a) => a.id !== input.assignmentId);
   if (before.length === after.length) return { ok: false, status: 404, error: "Assignment not found" };
   file.users[input.principal] = { ...user, role_assignments: after };
   await saveUsersConfig(file.users, file.sha, `rbac: revoke assignment ${input.assignmentId} from ${input.principal}`, file.groups);
   await auditLog("rbac:revoke", actor, `Revoked assignment '${input.assignmentId}' from '${input.principal}'`);
+  if (removed) syncWordpressAccessForScope(removed.scope);
   return { ok: true };
 }

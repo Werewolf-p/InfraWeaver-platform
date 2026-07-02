@@ -54,12 +54,23 @@ function toRedirectUris(urls: string[]): RedirectUri[] {
   return urls.map((url) => ({ matching_mode: "strict", url, redirect_uri_type: "authorization" }));
 }
 
+/** Lifecycle hooks for callers that must run a step at a precise point mid-provision. */
+export interface SsoGateHooks {
+  /**
+   * Runs AFTER the application(s) exist but BEFORE the proxy provider is attached to
+   * the embedded outpost (i.e. before forward-auth goes live). The place to bind an
+   * access-restricting group so the host is never reachable by an unrestricted "any
+   * authenticated user" set. A throw here aborts activation (fail-closed).
+   */
+  beforeOutpostActivation?: () => Promise<void>;
+}
+
 /**
  * Ensure Authentik SSO for `input.host`. Idempotent: providers matched by name,
  * application by slug, outpost membership by pk-set union. Returns OIDC creds when
  * the mode includes `oidc`; the client secret is minted once and never rotated.
  */
-export async function ensureSsoGate(input: SsoGateInput, secretStore: SecretStore): Promise<SsoGateResult> {
+export async function ensureSsoGate(input: SsoGateInput, secretStore: SecretStore, hooks?: SsoGateHooks): Promise<SsoGateResult> {
   const { host, appSlug, appName, mode } = input;
   if (!host || !appSlug) throw new SsoConfigError("host and appSlug are required");
   const wantOidc = mode === "oidc" || mode === "both";
@@ -134,6 +145,10 @@ export async function ensureSsoGate(input: SsoGateInput, secretStore: SecretStor
       backchannel_providers: [],
       ...(input.launchUrl ? { meta_launch_url: input.launchUrl } : {}),
     });
+    // Bind any access restriction BEFORE the gate goes live on the outpost: once the
+    // proxy provider is attached, forward-auth admits every authenticated user until a
+    // group binding exists, so binding must happen first to stay fail-closed.
+    if (hooks?.beforeOutpostActivation) await hooks.beforeOutpostActivation();
     // Register on the embedded outpost LAST, so forward-auth never 404s.
     await client.addProviderToOutpost(proxyProviderPk!);
   }

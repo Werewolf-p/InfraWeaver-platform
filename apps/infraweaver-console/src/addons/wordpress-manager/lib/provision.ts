@@ -6,11 +6,12 @@ import { assertValidSiteName, assertValidSiteId, resourceNames, deriveSiteId, bu
 import { isAllowedDomain, publicCnameTarget, publicDnsProxied, authentikIssuerBase, adminUser, adminEmail } from "./config";
 import { isInstalledScript, coreInstallScript } from "./core-install";
 import { generateSiteSecrets, vaultData, vaultPaths } from "./secrets";
-import { buildSiteManifests, siteLabels, type SiteManifestOptions, type AuthMode } from "./manifest";
+import { buildSiteManifests, buildIngressRoute, buildDenyMiddleware, isGatedAuthMode, siteLabels, type SiteManifestOptions, type AuthMode } from "./manifest";
 import { writeSecret, readSecret, deleteSecret } from "./openbao";
 import { buildPluginSyncPlan, listPluginsCommand, installPluginCommand, removePluginCommand, AUTHENTIK_PLUGIN_SLUG } from "./plugins";
 import { redirectUri, buildOidcSettings, pluginInstallCommand, optionUpdateFromStdinCommand, OIDC_SETTINGS_OPTION } from "./authentik";
 import { ensureSsoGate, removeSsoGate } from "@/lib/sso/sso-gate";
+import { ensureSiteAccess, removeSiteAccess } from "./access";
 import { execInWpPod } from "./k8s-exec";
 import { isK8sNotFound } from "./k8s-errors";
 import { ServiceUnavailableError, SiteNotFoundError } from "./errors";
@@ -265,6 +266,10 @@ export async function deleteSite(site: string): Promise<void> {
   await removeSsoGate(`wordpress-${site}`, host).catch((err) =>
     console.warn(`[wordpress] failed to remove Authentik SSO for ${site}; it may linger:`, err instanceof Error ? err.message : err),
   );
+  // Drop the per-site access group so a deleted site doesn't leave a stale Authentik group.
+  await removeSiteAccess(site).catch((err) =>
+    console.warn(`[wordpress] failed to remove Authentik access group for ${site}; it may linger:`, err instanceof Error ? err.message : err),
+  );
   const paths = vaultPaths(site);
   for (const path of [paths.db, paths.wp, paths.authentik, paths.config]) {
     await deleteSecret(path).catch((err) =>
@@ -356,12 +361,76 @@ export async function enableSso(site: string, opts: { issuerBase: string }): Pro
       issuerBase: opts.issuerBase,
     },
     vaultStore,
+    // Lock the gate to only the users InfraWeaver has granted this site BEFORE the
+    // proxy provider goes live on the outpost: bind a per-site Authentik access group
+    // to the site's application(s) and reconcile its membership from RBAC. Running here
+    // (not after) closes the window where forward-auth would otherwise admit any
+    // authenticated user. Binding the group restricts the app, so this is fail-closed —
+    // a partial member sync over-restricts rather than admitting anyone. A throw aborts
+    // activation and the reconcile loop retries (SSO isn't "done" until the gate is scoped).
+    { beforeOutpostActivation: () => ensureSiteAccess(site).then(() => undefined) },
   );
   if (!result.oidc) throw new ServiceUnavailableError("Authentik did not return OIDC credentials");
 
   const pod = await runningWpPod(core, site);
   await execInWpPod(pod, pluginInstallCommand());
   await execInWpPod(pod, optionUpdateFromStdinCommand(OIDC_SETTINGS_OPTION), { stdin: JSON.stringify(buildOidcSettings(result.oidc)) });
+}
+
+/**
+ * Change the Authentik protection scope of an EXISTING site (none → login →
+ * admin → full, in any direction). Re-renders and applies the site's IngressRoute
+ * (the enforcing object) plus the deny middleware when needed, reflects the mode on
+ * the deployment label for listings, and persists it to the vault intent. When the
+ * new mode is gated, the reconcile is re-armed so SSO + the per-site access group
+ * are (idempotently) provisioned. Downgrading to a less-restrictive mode takes
+ * effect immediately via the new IngressRoute; the Authentik app is left in place.
+ */
+export async function setProtection(site: string, authMode: AuthMode): Promise<SiteSummary> {
+  assertValidSiteId(site);
+  if (!(await siteExists(site))) throw new SiteNotFoundError(site);
+  const { apps, objects } = clients();
+
+  let dep: k8s.V1Deployment;
+  try {
+    dep = await apps.readNamespacedDeployment({ name: site, namespace: WORDPRESS_NAMESPACE });
+  } catch (err) {
+    if (isK8sNotFound(err)) throw new SiteNotFoundError(site);
+    throw err;
+  }
+  const labels = dep.metadata?.labels ?? {};
+  const domain = labels["infraweaver.io/domain"];
+  const internal = labels["infraweaver.io/internal"] === "true";
+  const subdomain = labels["infraweaver.io/subdomain"] ?? "";
+  const host = domain ? buildHost({ name: subdomain, domain, internal }) : legacySiteHost(site);
+
+  const opts: SiteManifestOptions = { host, authMode, domain, internal, subdomain };
+  // The deny middleware is only referenced by "admin" mode; ensure it exists first
+  // so the IngressRoute never references a missing middleware.
+  if (authMode === "admin") await applyObject(objects, buildDenyMiddleware() as k8s.KubernetesObject);
+  await applyObject(objects, buildIngressRoute(site, opts) as k8s.KubernetesObject);
+
+  // Reflect the mode on the deployment label (display cache for listings). Read-modify-
+  // replace mirrors applySecrets — avoids version-specific strategic-merge-patch quirks.
+  await apps.replaceNamespacedDeployment({
+    name: site,
+    namespace: WORDPRESS_NAMESPACE,
+    body: { ...dep, metadata: { ...dep.metadata, labels: { ...labels, "infraweaver.io/auth-mode": authMode } } },
+  });
+
+  // Persist intent. Gating a previously-ungated site re-arms the reconcile so SSO and
+  // the access group get provisioned; downgrades keep the prior applied flag.
+  const intent = await readIntent(site);
+  const plugins = intent?.plugins ?? [];
+  const nowGated = isGatedAuthMode(authMode);
+  await writeIntent(site, authMode, plugins, nowGated ? false : intent?.applied ?? true);
+  if (nowGated) {
+    settled.delete(site); // clear the settled short-circuit so the reconcile actually re-runs
+    triggerReconcile(site);
+  }
+
+  const ready = (dep.status?.readyReplicas ?? 0) > 0;
+  return { site, host, ready, replicas: dep.spec?.replicas ?? 0, domain, internal, authMode, setupPending: nowGated };
 }
 
 /**
