@@ -1,5 +1,5 @@
 import type { GameEgg } from "./game-eggs";
-import { javaMajorFromImage } from "@/addons/gamehub/lib/game-eggs";
+import { inferSaveCommands, javaMajorFromImage } from "@/addons/gamehub/lib/game-eggs";
 import { patchPelicanInstallContainer, patchPelicanInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
 
 // Newest widely-available Java yolk tag. Egg image lists are often stale (they
@@ -393,36 +393,6 @@ function inferQuickCommands(pelican: PelicanEgg, label: string): GameEgg["quickC
   }
 
   return cmds;
-}
-
-/**
- * Best-effort derivation of world-save/quiesce commands from the egg label.
- * Returns only the fields we can infer; unknown games get none.
- */
-function inferSaveCommands(
-  label: string,
-  stopCommand: string,
-): Pick<GameEgg, "saveCommand" | "saveOffCommand" | "saveOnCommand" | "stopSavesWorld"> {
-  // Minecraft servers (exclude proxies like bungeecord/velocity/waterfall which
-  // have no world to save).
-  if (/minecraft|paper|purpur|spigot|bukkit|fabric|forge/i.test(label)
-    && !/bungeecord|velocity|waterfall/i.test(label)) {
-    return {
-      saveCommand: "save-all flush",
-      saveOffCommand: "save-off",
-      saveOnCommand: "save-on",
-      stopSavesWorld: stopCommand === "stop",
-    };
-  }
-  if (/terraria/i.test(label)) {
-    return { saveCommand: "save", stopSavesWorld: stopCommand === "exit" };
-  }
-  if (/valheim/i.test(label)) return { saveCommand: "save" };
-  if (/factorio/i.test(label)) return { saveCommand: "/server-save" };
-  if (/\bark\b/i.test(label)) return { saveCommand: "saveworld" };
-  if (/\brust\b/i.test(label)) return { saveCommand: "server.save" };
-  if (/palworld/i.test(label)) return { saveCommand: "Save" };
-  return {};
 }
 
 export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
