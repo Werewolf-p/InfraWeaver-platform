@@ -118,6 +118,39 @@ export function getSaveCommands(
   };
 }
 
+/**
+ * Best-effort derivation of world-save/quiesce commands from the egg label.
+ * Returns only the fields we can infer; unknown games get none. Shared by the
+ * Pelican importer (label = "<name> <id>") and by parseEggConfig, which
+ * re-infers missing fields for per-server egg ConfigMaps written before this
+ * metadata existed.
+ */
+export function inferSaveCommands(
+  label: string,
+  stopCommand: string,
+): Pick<GameEgg, "saveCommand" | "saveOffCommand" | "saveOnCommand" | "stopSavesWorld"> {
+  // Minecraft servers (exclude proxies like bungeecord/velocity/waterfall which
+  // have no world to save).
+  if (/minecraft|paper|purpur|spigot|bukkit|fabric|forge/i.test(label)
+    && !/bungeecord|velocity|waterfall/i.test(label)) {
+    return {
+      saveCommand: "save-all flush",
+      saveOffCommand: "save-off",
+      saveOnCommand: "save-on",
+      stopSavesWorld: stopCommand === "stop",
+    };
+  }
+  if (/terraria/i.test(label)) {
+    return { saveCommand: "save", stopSavesWorld: stopCommand === "exit" };
+  }
+  if (/valheim/i.test(label)) return { saveCommand: "save" };
+  if (/factorio/i.test(label)) return { saveCommand: "/server-save" };
+  if (/\bark\b/i.test(label)) return { saveCommand: "saveworld" };
+  if (/\brust\b/i.test(label)) return { saveCommand: "server.save" };
+  if (/palworld/i.test(label)) return { saveCommand: "Save" };
+  return {};
+}
+
 function defaultCommandAcl(egg: Pick<GameEgg, "quickCommands">): Record<string, string[]> {
   const quick = egg.quickCommands.map((entry) => getQuickCommandStr(entry)).filter(Boolean);
   const readOnlyQuick = quick.filter((command) => /^(list|players|playing|status|help|showplayers|info|\/players|\/help)$/i.test(command));
