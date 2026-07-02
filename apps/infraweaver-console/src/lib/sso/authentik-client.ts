@@ -161,4 +161,64 @@ export class AuthentikClient {
   async deleteProvider(kind: ProviderKind, pk: number): Promise<void> {
     await this.request("DELETE", `/api/v3/providers/${kind}/${pk}/`);
   }
+
+  // --- Access control: groups, users, and application policy bindings ---------
+  //
+  // An Authentik application with NO bindings is reachable by every authenticated
+  // user; the moment a group binding exists, access is restricted to that group's
+  // members (plus superusers). We therefore gate a site by (1) a per-site access
+  // Group, (2) a PolicyBinding of that group onto the site's application(s), and
+  // (3) exact-set membership driven by InfraWeaver RBAC. All operations are matched
+  // by stable name/pk and are idempotent.
+
+  /** Find a group by exact name (search is fuzzy; we match precisely). */
+  async findGroup(name: string): Promise<{ pk: string; name: string } | undefined> {
+    const list = await this.results<{ pk: string; name: string }>(`/api/v3/core/groups/?search=${encodeURIComponent(name)}`);
+    return list.find((g) => g.name === name);
+  }
+
+  /** Ensure a group with `name` exists, returning its pk. Never mutates an existing group. */
+  async ensureGroup(name: string): Promise<string> {
+    const existing = await this.findGroup(name);
+    if (existing) return existing.pk;
+    const created = await this.request<{ pk: string }>("POST", `/api/v3/core/groups/`, { name });
+    return created.pk;
+  }
+
+  async deleteGroup(name: string): Promise<void> {
+    const existing = await this.findGroup(name);
+    if (existing) await this.request("DELETE", `/api/v3/core/groups/${existing.pk}/`);
+  }
+
+  /**
+   * Resolve Authentik user pks for the given usernames. Unknown usernames (a
+   * user granted in InfraWeaver who has never signed into Authentik) are returned
+   * separately rather than failing the whole reconcile, so one stale name can't
+   * block provisioning the rest.
+   */
+  async resolveUserPks(usernames: readonly string[]): Promise<{ resolved: Map<string, number>; unknown: string[] }> {
+    const resolved = new Map<string, number>();
+    const unknown: string[] = [];
+    for (const username of usernames) {
+      const list = await this.results<{ pk: number; username: string }>(`/api/v3/core/users/?username=${encodeURIComponent(username)}`);
+      const user = list.find((u) => u.username === username);
+      if (user) resolved.set(username, user.pk);
+      else unknown.push(username);
+    }
+    return { resolved, unknown };
+  }
+
+  /** Set a group's membership to EXACTLY `userPks` (full replace — the reconcile primitive). */
+  async setGroupUsers(groupPk: string, userPks: number[]): Promise<void> {
+    await this.request("PATCH", `/api/v3/core/groups/${groupPk}/`, { users: userPks });
+  }
+
+  /** Bind `groupPk` to application `appPk` so only its members may access it. Idempotent. */
+  async bindGroupToApplication(appPk: string, groupPk: string): Promise<void> {
+    const bindings = await this.results<{ pk: string; group: string | null; target: string }>(
+      `/api/v3/policies/bindings/?target=${encodeURIComponent(appPk)}`,
+    );
+    if (bindings.some((b) => b.group === groupPk)) return;
+    await this.request("POST", `/api/v3/policies/bindings/`, { target: appPk, group: groupPk, enabled: true, order: 0 });
+  }
 }

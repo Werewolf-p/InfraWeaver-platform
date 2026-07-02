@@ -13,7 +13,8 @@ import {
 import { isValidSiteName, isValidSiteId } from "../lib/naming";
 import { PLUGIN_CATALOG } from "../lib/plugins";
 import { listDomains, internalSubdomain, isAllowedDomain } from "../lib/config";
-import { createSite, deleteSite, listSites, listInstalledPlugins, setPlugins, enableSso } from "../lib/provision";
+import { createSite, deleteSite, listSites, listInstalledPlugins, setPlugins, enableSso, setProtection } from "../lib/provision";
+import { ensureSiteAccess, listSiteAccessUsers, siteAccessGroupName } from "../lib/access";
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
@@ -82,7 +83,7 @@ const createSchema = z.object({
   name: z.string().refine((v) => v === "" || isValidSiteName(v), "invalid subdomain").optional(),
   domain: z.string().min(1, "domain is required"),
   internal: z.boolean().optional(),
-  authMode: z.enum(["none", "admin", "full"]).optional(),
+  authMode: z.enum(["none", "login", "admin", "full"]).optional(),
   plugins: z.array(z.string().regex(/^[a-z0-9-]+$/)).max(50).optional(),
   wpStorage: z.string().regex(STORAGE_RE, "storage must be a positive size like 5Gi").optional(),
   dbStorage: z.string().regex(STORAGE_RE, "storage must be a positive size like 5Gi").optional(),
@@ -97,6 +98,10 @@ const ssoSchema = z.object({
     (u) => { try { return new URL(u).protocol === "https:"; } catch { return false; } },
     "issuerBase must be an https URL",
   ),
+}).strict();
+
+const protectionSchema = z.object({
+  authMode: z.enum(["none", "login", "admin", "full"]),
 }).strict();
 
 export async function listSitesHandler(): Promise<NextResponse> {
@@ -211,4 +216,52 @@ export async function enableSsoHandler(req: NextRequest, site: string): Promise<
     await enableSso(site, { issuerBase: parsed.data.issuerBase });
     return json({ ok: true });
   });
+}
+
+/**
+ * Who InfraWeaver currently authorizes to sign into a site (the exact set the
+ * Authentik access group is reconciled to). Read-access to the site is enough to
+ * view its member list; changing membership is done through RBAC, not here.
+ */
+export async function getAccessHandler(site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:read", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("access-read", gate.ctx.username, 60);
+  if (limited) return limited;
+  return guard(async () =>
+    json({ group: siteAccessGroupName(site), allowed: await listSiteAccessUsers(site) }),
+  );
+}
+
+/**
+ * Force a reconcile of the site's Authentik access group to the current RBAC-derived
+ * member set (self-heals after a transient failure of the automatic grant/revoke
+ * sync). Requires admin on the site — it mutates who can authenticate to it.
+ */
+export async function syncAccessHandler(site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:admin", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("access-sync", gate.ctx.username, 10);
+  if (limited) return limited;
+  return guard(async () => {
+    const result = await ensureSiteAccess(site);
+    return json({ group: siteAccessGroupName(site), ...result });
+  });
+}
+
+/**
+ * Change a site's Authentik protection scope (none | login | admin | full).
+ * Admin on the site is required — it changes what the public can reach.
+ */
+export async function setProtectionHandler(req: NextRequest, site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:admin", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("protection", gate.ctx.username, 20);
+  if (limited) return limited;
+  const parsed = protectionSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return fail("authMode must be one of: none, login, admin, full", 400);
+  return guard(async () => json({ site: await setProtection(site, parsed.data.authMode) }));
 }

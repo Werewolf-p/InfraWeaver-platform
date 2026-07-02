@@ -155,6 +155,26 @@ describe("ensureSsoGate — create path (mode both)", () => {
   });
 });
 
+describe("ensureSsoGate — fail-closed activation ordering", () => {
+  test("runs beforeOutpostActivation BEFORE attaching the proxy provider to the outpost", async () => {
+    const state = emptyState();
+    const { fetchMock } = makeFetch(state);
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    let outpostAtHookTime: number[] | null = null;
+    await ensureSsoGate({ ...baseInput, mode: "both" }, memoryStore(), {
+      beforeOutpostActivation: async () => {
+        outpostAtHookTime = [...state.outpostProviders];
+      },
+    });
+
+    // The hook observed the outpost WITHOUT the new proxy pk (101): binding runs first,
+    // so forward-auth is never live on an unrestricted app.
+    expect(outpostAtHookTime).toEqual([1, 2, 3]);
+    expect(state.outpostProviders).toEqual([1, 2, 3, 101]);
+  });
+});
+
 describe("ensureSsoGate — idempotent update path", () => {
   test("PATCHes existing providers, reuses the stored secret, and skips a redundant outpost write", async () => {
     const state: ApiState = {
