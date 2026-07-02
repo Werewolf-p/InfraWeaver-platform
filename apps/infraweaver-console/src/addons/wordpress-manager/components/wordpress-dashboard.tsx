@@ -33,7 +33,7 @@ interface SiteSummary {
   authMode?: AuthMode;
 }
 
-type AuthMode = "none" | "admin" | "full";
+type AuthMode = "none" | "login" | "admin" | "full";
 
 type PluginCategory = "sso" | "security" | "performance" | "seo" | "backup";
 
@@ -58,6 +58,12 @@ const AUTH_MODES: ReadonlyArray<{ value: AuthMode; label: string; helper: string
     value: "none",
     label: "No Authentik — fully public",
     helper: "Anyone on the internet can reach the site.",
+  },
+  {
+    value: "login",
+    label: "Protect login only",
+    helper:
+      "Public site; only /wp-admin and /wp-login.php go through Authentik with auto-sign-in. Sensitive paths are NOT blocked.",
   },
   {
     value: "admin",

@@ -15,11 +15,13 @@ import {
   Globe,
   Lock,
   ShieldCheck,
+  Users,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 
-type AuthMode = "none" | "admin" | "full";
+type AuthMode = "none" | "login" | "admin" | "full";
 
 interface SiteStatus {
   site: string;
@@ -32,11 +34,31 @@ interface SiteStatus {
   dnsWarning?: string;
 }
 
+interface SiteAccess {
+  group: string;
+  allowed: string[];
+}
+
 const AUTH_MODE_LABEL: Record<AuthMode, string> = {
   none: "Public",
-  admin: "Admin paths protected",
+  login: "Login protected",
+  admin: "Admin + sensitive protected",
   full: "Behind Authentik",
 };
+
+/** Protection scopes, least → most restrictive, with what each one gates. */
+const PROTECTION_SCOPES: { mode: AuthMode; label: string; detail: string }[] = [
+  { mode: "none", label: "Public", detail: "No authentication — the whole site is open." },
+  { mode: "login", label: "Login only", detail: "Only /wp-admin and /wp-login.php require Authentik." },
+  { mode: "admin", label: "Sensitive", detail: "Login gated, plus xmlrpc / REST user enumeration / sensitive files are blocked." },
+  { mode: "full", label: "Everything", detail: "The entire site sits behind Authentik." },
+];
+
+async function fetchAccess(site: string): Promise<SiteAccess> {
+  const res = await fetch(`/api/wordpress/sites/${site}/access`);
+  if (!res.ok) throw new Error("Failed to load access list");
+  return res.json();
+}
 
 async function fetchSiteStatus(site: string): Promise<SiteStatus | null> {
   const res = await fetch("/api/wordpress/sites");
@@ -73,6 +95,7 @@ export function SiteDetailView({ site }: { site: string }) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const [issuer, setIssuer] = useState("");
+  const [pendingMode, setPendingMode] = useState<AuthMode | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["wordpress-plugins", site],
@@ -83,6 +106,11 @@ export function SiteDetailView({ site }: { site: string }) {
     queryKey: ["wordpress-site-status", site],
     queryFn: () => fetchSiteStatus(site),
     refetchInterval: 8000,
+  });
+
+  const { data: access } = useQuery({
+    queryKey: ["wordpress-access", site],
+    queryFn: () => fetchAccess(site),
   });
 
   const installed = new Set(data?.installed ?? []);
@@ -124,6 +152,36 @@ export function SiteDetailView({ site }: { site: string }) {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const protectionMutation = useMutation({
+    mutationFn: async (next: AuthMode) => {
+      const res = await fetch(`/api/wordpress/sites/${site}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ authMode: next }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to change protection");
+    },
+    onSuccess: () => {
+      toast.success("Protection scope updated");
+      setPendingMode(null);
+      void queryClient.invalidateQueries({ queryKey: ["wordpress-site-status", site] });
+      void queryClient.invalidateQueries({ queryKey: ["wordpress-access", site] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const syncAccessMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/wordpress/sites/${site}/access`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Sync failed");
+    },
+    onSuccess: () => {
+      toast.success("Access synced with Authentik");
+      void queryClient.invalidateQueries({ queryKey: ["wordpress-access", site] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const toggle = (slug: string) => {
     if (pluginsUnavailable) return;
     const next = new Set(checked);
@@ -135,6 +193,10 @@ export function SiteDetailView({ site }: { site: string }) {
   const dirty = selected !== null;
   // Mirror the backend, which requires https (see ssoSchema in api/handlers.ts).
   const issuerValid = /^https:\/\/.+/.test(issuer);
+
+  const currentMode: AuthMode = status?.authMode ?? "none";
+  const selectedMode = pendingMode ?? currentMode;
+  const protectionDirty = pendingMode !== null && pendingMode !== currentMode;
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
@@ -219,6 +281,86 @@ export function SiteDetailView({ site }: { site: string }) {
             Enable SSO
           </button>
         </div>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className="flex items-center gap-2 text-zinc-200">
+          <ShieldCheck className="h-5 w-5 text-emerald-400" aria-hidden />
+          <h2 className="text-lg font-medium">Protection scope</h2>
+        </div>
+        <p className="mt-1 max-w-prose text-sm text-zinc-400">
+          Choose how much of the site sits behind Authentik. Gated modes require SSO to be enabled (above).
+        </p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {PROTECTION_SCOPES.map(({ mode, label, detail }) => {
+            const on = selectedMode === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setPendingMode(mode)}
+                aria-pressed={on}
+                className={cn(
+                  "flex flex-col gap-1 rounded-lg border p-3 text-left transition-colors",
+                  on ? "border-emerald-500/50 bg-emerald-500/10" : "border-zinc-800 bg-zinc-950/40 hover:border-zinc-700",
+                )}
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-zinc-100">{label}</span>
+                  {currentMode === mode && <span className="text-[11px] uppercase tracking-wide text-emerald-300">current</span>}
+                </span>
+                <span className="text-xs text-zinc-400">{detail}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            disabled={!protectionDirty || protectionMutation.isPending}
+            onClick={() => pendingMode && protectionMutation.mutate(pendingMode)}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {protectionMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ShieldCheck className="h-4 w-4" aria-hidden />}
+            {protectionDirty ? "Apply protection" : "No changes"}
+          </button>
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-zinc-200">
+            <Users className="h-5 w-5 text-amber-400" aria-hidden />
+            <h2 className="text-lg font-medium">Who can sign in</h2>
+          </div>
+          <button
+            type="button"
+            disabled={syncAccessMutation.isPending}
+            onClick={() => syncAccessMutation.mutate()}
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {syncAccessMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}
+            Sync
+          </button>
+        </div>
+        <p className="mt-1 max-w-prose text-sm text-zinc-400">
+          Only these users can pass Authentik for this site. Membership is driven by RBAC — grant a user a WordPress role
+          scoped to this site in Access control and Authentik updates automatically.
+        </p>
+        {access && access.allowed.length > 0 ? (
+          <ul className="mt-4 flex flex-wrap gap-2">
+            {access.allowed.map((user) => (
+              <li
+                key={user}
+                className="inline-flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-950/50 px-2.5 py-0.5 text-xs text-zinc-200"
+              >
+                {user}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-4 text-sm text-zinc-500">No users are granted access to this site yet.</p>
+        )}
       </section>
 
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
