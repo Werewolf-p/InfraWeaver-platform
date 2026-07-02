@@ -15,6 +15,7 @@ import { ensureSiteAccess, removeSiteAccess } from "./access";
 import { execInWpPod } from "./k8s-exec";
 import { isK8sNotFound } from "./k8s-errors";
 import { ServiceUnavailableError, SiteNotFoundError } from "./errors";
+import { siteHealthCommand, parseSiteHealth, type SiteHealth } from "./health";
 
 export interface SiteSummary {
   site: string;
@@ -375,6 +376,20 @@ export async function enableSso(site: string, opts: { issuerBase: string }): Pro
   const pod = await runningWpPod(core, site);
   await execInWpPod(pod, pluginInstallCommand());
   await execInWpPod(pod, optionUpdateFromStdinCommand(OIDC_SETTINGS_OPTION), { stdin: JSON.stringify(buildOidcSettings(result.oidc)) });
+}
+
+/**
+ * Read-only Site Health snapshot — WP/PHP versions, DB size, active-plugin and
+ * available-update counts, and uploads footprint — gathered in one wp-cli/shell
+ * batch inside the running site pod. Reuses the same pod-exec path as SSO setup.
+ */
+export async function getSiteHealth(site: string): Promise<SiteHealth> {
+  assertValidSiteId(site);
+  if (!(await siteExists(site))) throw new SiteNotFoundError(site);
+  const { core } = clients();
+  const pod = await runningWpPod(core, site);
+  const { stdout } = await execInWpPod(pod, siteHealthCommand());
+  return parseSiteHealth(stdout);
 }
 
 /**
