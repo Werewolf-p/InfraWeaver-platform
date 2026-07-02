@@ -214,7 +214,7 @@ export default function HomePage() {
       title: "Running pods",
       value: runningPods,
       unit: `/ ${activePods.length || 0}`,
-      href: "/pods",
+      href: "/logs",
       variant: attentionPods > 0 ? "warning" : "success",
       trend: { direction: getMetricDirection(attentionPods === 0, attentionPods > 0), percent: podHealthPercent },
       sparklineData: pods.slice(0, 12).map((pod) => ({ value: pod.status === "Running" ? 100 : Math.max(20, 100 - pod.restartCount * 8) })),

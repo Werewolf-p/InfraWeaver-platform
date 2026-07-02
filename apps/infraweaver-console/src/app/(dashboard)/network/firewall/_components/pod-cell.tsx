@@ -106,9 +106,9 @@ export function PodCell({ pod, bidirectional, rules, onExpand, onAllow, onCommit
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--az-danger)]" />
           </span>
           <Link
-            href={`/pods/${encodeURIComponent(pod.namespace)}/${encodeURIComponent(pod.pod)}`}
+            href={`/logs?namespace=${encodeURIComponent(pod.namespace)}&pod=${encodeURIComponent(pod.pod)}`}
             className="group/link min-w-0 truncate"
-            title="Open pod detail"
+            title="View pod logs"
           >
             <span className="font-mono text-xs text-slate-400 dark:text-[#777]">{pod.namespace}/</span>
             <span className="font-medium text-slate-800 group-hover/link:underline dark:text-[#ededed]">{pod.pod}</span>

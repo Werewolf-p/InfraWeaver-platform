@@ -98,7 +98,7 @@ async function searchPods(query: string, clusterId: string): Promise<SearchResul
         id: `pod-${pod.metadata?.namespace ?? "default"}-${pod.metadata?.name ?? "unknown"}`,
         title: pod.metadata?.name ?? "Unknown pod",
         subtitle: [pod.metadata?.namespace, pod.status?.phase].filter(Boolean).join(" · "),
-        href: `/pods/${encodeURIComponent(pod.metadata?.namespace ?? "default")}/${encodeURIComponent(pod.metadata?.name ?? "")}`,
+        href: `/logs?namespace=${encodeURIComponent(pod.metadata?.namespace ?? "default")}&pod=${encodeURIComponent(pod.metadata?.name ?? "")}`,
         category: "pod",
         icon: "☸️",
         badge: pod.status?.phase ?? undefined,
