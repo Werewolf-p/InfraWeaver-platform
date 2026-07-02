@@ -5,7 +5,10 @@ import { withAuth } from "@/lib/with-auth";
 import { safeError } from "@/lib/utils";
 
 function claimNamesFromDeployment(deployment: { spec?: { replicas?: number | null; template?: { spec?: { volumes?: Array<{ persistentVolumeClaim?: { claimName?: string | null } }> } } } }) {
-  if ((deployment.spec?.replicas ?? 0) <= 0) return [] as string[];
+  // A PVC is "in use" if any deployment's pod template references it, REGARDLESS
+  // of replica count. A stopped server (replicas: 0) still owns its world volume
+  // via the template — gating on replicas > 0 would list live world data as
+  // orphaned and let an admin delete it during cleanup (data loss).
   return (deployment.spec?.template?.spec?.volumes ?? [])
     .map((volume) => volume.persistentVolumeClaim?.claimName ?? null)
     .filter((claimName): claimName is string => Boolean(claimName));

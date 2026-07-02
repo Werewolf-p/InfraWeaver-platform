@@ -1,4 +1,4 @@
-import type { Permission, RoleDefinition } from "@/lib/rbac";
+import type { PermissionPattern, RoleDefinition } from "@/lib/rbac";
 
 export type SubjectKind = "User" | "Group" | "ServiceAccount";
 
@@ -15,7 +15,7 @@ export interface SubjectBinding {
   roleName: string;
   scope: string;
   scopeLabel: string;
-  permissions: Permission[];
+  permissions: PermissionPattern[];
   color?: RoleColor;
   /** Human-readable origin, e.g. "Group: platform-admins" or "Direct assignment". */
   sourceLabel: string;
@@ -33,7 +33,7 @@ export interface PlatformSubject {
   related: string[];
   bindings: SubjectBinding[];
   /** Union of every permission the bindings confer. */
-  permissions: Permission[];
+  permissions: PermissionPattern[];
 }
 
 export interface PlatformSubjectsResponse {

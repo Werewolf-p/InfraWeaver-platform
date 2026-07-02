@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { parseCpuQuantity, parseMemoryBytes } from "@/lib/game-hub-server";
+import { parseCpuQuantity, parseMemoryBytes } from "@/lib/k8s-quantity";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import * as k8s from "@kubernetes/client-node";
 

@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { queryStaleTimes } from "@/lib/query-defaults";
 import { queryKeys } from "@/lib/query-keys";
 import {
+  ALL_PERMISSIONS,
   getRole,
   hasAssignedPermissionForScope,
   hasPermission,
@@ -21,40 +22,16 @@ interface MyPermissions {
   isAdmin: boolean;
 }
 
-const FALLBACK_PERMISSIONS: Permission[] = [
-  "apps:read",
-  "apps:write",
-  "apps:sync",
-  "apps:delete",
-  "config:read",
-  "config:write",
-  "catalog:write",
-  "catalog:delete",
-  "users:read",
-  "users:write",
-  "users:invite",
-  "cluster:read",
-  "cluster:drain",
-  "cluster:scale",
-  "cluster:admin",
-  "security:read",
-  "security:write",
-  "nas:read",
-  "nas:write",
-  "infra:read",
-  "rbac:admin",
-  "game-hub:read",
-  "game-hub:write",
-  "game-hub:admin",
-  "game-hub:players",
-  "game-hub:console",
-  "game-hub:files",
-  "game-hub:start",
-  "game-hub:stop",
-  "game-hub:scale",
-  "wiki:read",
-  "wiki:edit",
-];
+/**
+ * Client-only gating fallback used when the /api/rbac/my-permissions fetch fails.
+ * Deliberately narrowed to READ-ONLY permissions (and still further filtered by
+ * the user's groups below) so a failed fetch can never widen the UI to
+ * escalation-tier actions. The server remains the source of truth for every
+ * mutating request. Derived from ALL_PERMISSIONS so new read verbs stay covered.
+ */
+const FALLBACK_PERMISSIONS: Permission[] = ALL_PERMISSIONS.filter(
+  (permission) => permission !== "*" && permission.endsWith(":read"),
+);
 
 export function useRBAC() {
   const { data: session } = useSession();

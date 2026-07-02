@@ -41,9 +41,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
     // explicitly asks for live data (?live=1). Default polls return history only and
     // never touch the server, so the console no longer spams `list` every 30s.
     const live = new URL(req.url).searchParams.get("live") === "1";
-    const commandOutput = live
-      ? await runServerCommand(clients, name, listCommandForGame(gameType), 10_000).catch(() => ({ stdout: "", stderr: "", gameType }))
-      : { stdout: "", stderr: "", gameType };
+    // Track whether the live `list` command actually SUCCEEDED. A failed command
+    // (RCON down, server starting) must NOT be treated as "0 players" — that would
+    // falsely trip the auto-pause bookkeeping and stop a populated server.
+    let commandSucceeded = false;
+    let commandOutput: { stdout: string; stderr: string; gameType: string } = { stdout: "", stderr: "", gameType };
+    if (live) {
+      try {
+        const res = await runServerCommand(clients, name, listCommandForGame(gameType), 10_000);
+        commandOutput = { stdout: res.stdout, stderr: res.stderr, gameType };
+        commandSucceeded = true;
+      } catch {
+        commandSucceeded = false;
+      }
+    }
     const names = parsePlayerNames(gameType, commandOutput.stdout || commandOutput.stderr);
     const history = parsePlayerHistory(deployment.metadata?.annotations?.["infraweaver/player-history"]);
     const pod = await import("@/lib/game-hub-server").then(({ getServerPod }) => getServerPod(clients.coreApi, name, true));
@@ -65,10 +76,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
 
     // Auto-pause tracking: keep "players-empty-since" annotation in sync so the status poller
     // can scale to 0 when the server has been empty for the configured duration.
-    // Only touch the auto-pause markers when we have real (live) player data —
-    // otherwise a non-live poll would report 0 players and wrongly mark the server empty.
+    // Only touch the auto-pause markers when we have real (live) player data AND the
+    // list command succeeded — otherwise a non-live poll or a failed command would
+    // report 0 players and wrongly mark the server empty.
     const autoPauseEnabled = deployment.metadata?.annotations?.["infraweaver/autopause-enabled"] === "true";
-    if (live && autoPauseEnabled) {
+    if (live && commandSucceeded && autoPauseEnabled) {
       const emptySince = deployment.metadata?.annotations?.["infraweaver/players-empty-since"];
       if (players.length > 0 && emptySince) {
         // Players are back — clear the empty-since marker.

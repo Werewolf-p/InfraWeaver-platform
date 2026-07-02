@@ -6,7 +6,7 @@ import {
   type Permission,
   type RoleAssignment,
 } from "@/lib/rbac";
-import { getRoleAssignmentsForSession } from "@/lib/users-config";
+import { getGroupRoleAssignmentsForSession, getRoleAssignmentsForSession } from "@/lib/users-config";
 import { getAccessState } from "@/lib/access-store";
 import { computeExtraPermissions } from "@/lib/pim";
 
@@ -32,7 +32,10 @@ export async function getSessionRBACContext(
   revalidateSeconds = 60,
 ): Promise<SessionRBACContext> {
   const groups: string[] = (session?.user as { groups?: string[] } | undefined)?.groups ?? [];
-  const { username, roleAssignments } = await getRoleAssignmentsForSession(session, revalidateSeconds);
+  const { username, roleAssignments: userAssignments } = await getRoleAssignmentsForSession(session, revalidateSeconds);
+  // Fold in assignments granted to the session's groups (principalType "group").
+  const groupAssignments = await getGroupRoleAssignmentsForSession(session, revalidateSeconds);
+  const roleAssignments: RoleAssignment[] = [...userAssignments, ...groupAssignments];
 
   let extraPermissions: Permission[] = [];
   try {

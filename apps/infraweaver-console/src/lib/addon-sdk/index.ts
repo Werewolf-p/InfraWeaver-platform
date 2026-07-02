@@ -31,6 +31,8 @@ export { useAddons } from "@/hooks/use-addons";
 
 // ── Auth / RBAC ───────────────────────────────────────────────────────────────
 export { withRoute } from "@/lib/route-utils";
+export { useRBAC } from "@/hooks/use-rbac";
 
 // ── Utilities ────────────────────────────────────────────────────────────────
-export { safeError } from "@/lib/utils";
+export { safeError, cn, timeAgo } from "@/lib/utils";
+export { toast } from "@/lib/notify";

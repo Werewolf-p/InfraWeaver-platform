@@ -1,4 +1,4 @@
-import type { GameEgg } from "@/lib/game-eggs";
+import type { GameEgg } from "./game-eggs";
 import { javaMajorFromImage } from "@/addons/gamehub/lib/game-eggs";
 import { patchPelicanInstallContainer, patchPelicanInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
 
@@ -395,6 +395,36 @@ function inferQuickCommands(pelican: PelicanEgg, label: string): GameEgg["quickC
   return cmds;
 }
 
+/**
+ * Best-effort derivation of world-save/quiesce commands from the egg label.
+ * Returns only the fields we can infer; unknown games get none.
+ */
+function inferSaveCommands(
+  label: string,
+  stopCommand: string,
+): Pick<GameEgg, "saveCommand" | "saveOffCommand" | "saveOnCommand" | "stopSavesWorld"> {
+  // Minecraft servers (exclude proxies like bungeecord/velocity/waterfall which
+  // have no world to save).
+  if (/minecraft|paper|purpur|spigot|bukkit|fabric|forge/i.test(label)
+    && !/bungeecord|velocity|waterfall/i.test(label)) {
+    return {
+      saveCommand: "save-all flush",
+      saveOffCommand: "save-off",
+      saveOnCommand: "save-on",
+      stopSavesWorld: stopCommand === "stop",
+    };
+  }
+  if (/terraria/i.test(label)) {
+    return { saveCommand: "save", stopSavesWorld: stopCommand === "exit" };
+  }
+  if (/valheim/i.test(label)) return { saveCommand: "save" };
+  if (/factorio/i.test(label)) return { saveCommand: "/server-save" };
+  if (/\bark\b/i.test(label)) return { saveCommand: "saveworld" };
+  if (/\brust\b/i.test(label)) return { saveCommand: "server.save" };
+  if (/palworld/i.test(label)) return { saveCommand: "Save" };
+  return {};
+}
+
 export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
   // PTDL_v2 uses docker_images (map); PTDL_v1 uses docker_image (string).
   // Build a normalised map so we always have both dockerImage and dockerImages.
@@ -442,6 +472,7 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
     dockerImages: Object.keys(dockerImages).length > 1 ? dockerImages : undefined,
     startupCommand: pelican.startup ?? "",
     stopCommand: pelican.config?.stop ?? "^C",
+    ...inferSaveCommands(label, pelican.config?.stop ?? "^C"),
     startupReadySignal: startupReadySignal || undefined,
     gamePort,
     mountPath: "/home/container",

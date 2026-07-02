@@ -4,7 +4,7 @@ import { sanitizeConsoleCommand } from "@/lib/api-helpers";
 import { validateK8sName } from "@/lib/api-security";
 import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
+import { appendServerAudit, assertCommandAllowed, isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -54,26 +54,17 @@ export async function POST(
 
   try {
     const clients = makeGameHubClients();
-    const deployment = await clients.appsApi.readNamespacedDeployment({ name, namespace: "game-hub" });
-    const rawBlocklist = deployment.metadata?.annotations?.["game-hub/command-blocklist"];
-    const parsedBlocklist = (() => {
-      if (!rawBlocklist) return [] as string[];
-      try {
-        const parsed = JSON.parse(rawBlocklist) as unknown;
-        return Array.isArray(parsed)
-          ? parsed.filter((entry): entry is string => typeof entry === "string")
-          : [];
-      } catch {
-        return [] as string[];
-      }
-    })();
-    const normalizedCommand = input.trim().toLowerCase();
-    const blocked = parsedBlocklist.some((entry) => {
-      const normalizedEntry = entry.trim().toLowerCase();
-      return normalizedEntry.length > 0 && normalizedCommand.startsWith(normalizedEntry);
+    // Shared blocklist + per-role ACL enforcement (identical to /command and /exec).
+    const guard = await assertCommandAllowed(clients, name, input, {
+      groups: access.groups,
+      username: access.username,
+      roleAssignments: access.roleAssignments,
     });
-    if (blocked) {
-      return NextResponse.json({ error: "Command blocked by server policy" }, { status: 403 });
+    if (!guard.allowed) {
+      if (guard.reason === "acl") {
+        await auditUnauthorizedAccess("game-hub:rcon-acl-denied", req, session.user?.email ?? "unknown", `${name} denied command ${input}`);
+      }
+      return NextResponse.json({ error: guard.message, output: "" }, { status: 403 });
     }
 
     const commandResult = await runServerCommand(clients, name, input);

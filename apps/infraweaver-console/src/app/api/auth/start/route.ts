@@ -12,7 +12,12 @@ import { signIn } from "@/lib/auth";
 // no async user-gesture breakage.
 export async function GET(req: NextRequest) {
   const callbackUrl = req.nextUrl.searchParams.get("callbackUrl") ?? "/";
-  const safe = callbackUrl.startsWith("/") ? callbackUrl : "/";
+  // Only allow same-site relative paths. Reject protocol-relative "//evil.com"
+  // (open redirect) and paths back into the auth API to avoid redirect loops.
+  const safe =
+    callbackUrl.startsWith("/") && !callbackUrl.startsWith("//") && !callbackUrl.startsWith("/api/auth")
+      ? callbackUrl
+      : "/";
 
   let url: string;
   try {

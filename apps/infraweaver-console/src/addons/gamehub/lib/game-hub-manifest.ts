@@ -1,7 +1,7 @@
 import type * as k8s from "@kubernetes/client-node";
 import yaml from "js-yaml";
-import { GAME_HUB_NAMESPACE } from "@/lib/game-hub";
-import type { GameHubClients } from "@/lib/game-hub-server";
+import { GAME_HUB_NAMESPACE } from "./game-hub";
+import type { GameHubClients } from "./game-hub-server";
 import { getGitProviderName, gitDeleteFile, gitReadFile, gitWriteFile } from "@/lib/git-provider";
 
 const DEFAULT_GITHUB_API_URL = "https://api.github.com";

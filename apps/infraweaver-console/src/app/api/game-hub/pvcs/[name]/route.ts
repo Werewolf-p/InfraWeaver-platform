@@ -10,7 +10,10 @@ function pvcInUse(
   deployments: Array<{ spec?: { replicas?: number | null; template?: { spec?: { volumes?: Array<{ persistentVolumeClaim?: { claimName?: string | null } }> } } } }>,
   pvcName: string,
 ) {
-  return deployments.some((deployment) => (deployment.spec?.replicas ?? 0) > 0 && (deployment.spec?.template?.spec?.volumes ?? []).some((volume) => volume.persistentVolumeClaim?.claimName === pvcName));
+  // In-use = referenced by any deployment's pod template, REGARDLESS of replicas.
+  // A stopped server (replicas: 0) still owns its world PVC; gating on
+  // replicas > 0 would let this delete guard pass and destroy live world data.
+  return deployments.some((deployment) => (deployment.spec?.template?.spec?.volumes ?? []).some((volume) => volume.persistentVolumeClaim?.claimName === pvcName));
 }
 
 export const DELETE = withAuth<{ name: string }>(

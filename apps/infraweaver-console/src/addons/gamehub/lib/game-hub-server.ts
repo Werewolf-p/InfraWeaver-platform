@@ -3,8 +3,9 @@ import { createConfiguration, ServerConfiguration, type RequestContext, type Res
 import { randomBytes, randomUUID } from "crypto";
 import net from "net";
 import { Writable } from "stream";
-import { getEggForGameType, type GameEgg, type SavedCommand } from "@/lib/game-eggs";
-import { GAME_HUB_NAMESPACE, parseEggConfig } from "@/lib/game-hub";
+import { getEggForGameType, type GameEgg, type SavedCommand } from "./game-eggs";
+import { GAME_HUB_NAMESPACE, parseEggConfig } from "./game-hub";
+import { getEffectivePermissions, type Permission, type RoleAssignment } from "@/lib/rbac";
 import { loadKubeConfig } from "@/lib/k8s";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
 import { UserError } from "@/lib/utils";
@@ -608,17 +609,33 @@ export async function execInPod(
   let stdout = "";
   let stderr = "";
   let settled = false;
+  // Captured so we can close the underlying WebSocket on timeout — otherwise the
+  // socket (and its pod exec stream) leaks whenever the command outlives timeoutMs.
+  let socket: { close: () => void } | null = null;
 
   await new Promise<void>((resolve, reject) => {
     const done = (error?: Error) => {
-      if (settled) return;
+      if (settled) return; // guard against double-settle (timeout + close/error race)
       settled = true;
       clearTimeout(timeout);
+      try {
+        socket?.close();
+      } catch {
+        // best-effort: socket may already be closing
+      }
       if (error) reject(error);
       else resolve();
     };
 
-    const timeout = setTimeout(() => done(), timeoutMs);
+    // Timeout must REJECT, not resolve: a command that outlives its budget
+    // (e.g. a large `tar` backup or restore extraction) would otherwise return
+    // partial stdout as "success" — storing a truncated archive as a good backup,
+    // or reporting a half-finished restore as complete. Callers that are
+    // best-effort (console/stdin writes) already wrap this in try/catch.
+    const timeout = setTimeout(
+      () => done(new Error(`exec timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
     const stdoutStream = new Writable({ write(chunk, _enc, cb) { stdout += chunk.toString(); cb(); } });
     const stderrStream = new Writable({ write(chunk, _enc, cb) { stderr += chunk.toString(); cb(); } });
 
@@ -626,6 +643,12 @@ export async function execInPod(
       if (status?.status === "Failure") done(new Error(status.message ?? "Exec failed"));
       else done();
     }).then((ws) => {
+      socket = ws;
+      // If we already timed out before the socket resolved, close it immediately.
+      if (settled) {
+        try { ws.close(); } catch { /* already closing */ }
+        return;
+      }
       ws.on("close", () => done());
       ws.on("error", (error: Error) => done(error));
     }).catch((error: Error) => done(error));
@@ -814,6 +837,84 @@ export async function runServerCommand(
   throw new Error("Server is starting up, please try again in a moment");
 }
 
+// ── Centralized command authorization (blocklist + per-role ACL) ─────────────
+// Applied identically by /command, /rcon, and /exec so every command-execution
+// surface enforces the same policy (DRY). The two layers are:
+//   1. Deployment-level blocklist annotation (game-hub/command-blocklist).
+//   2. Per-role ACL from the egg (game-server-admin/operator/viewer).
+
+function parseCommandBlocklist(raw: string | undefined | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function commandAclRoleKey(perms: Set<Permission>): string {
+  if (perms.has("*") || perms.has("game-hub:admin")) return "game-server-admin";
+  if (
+    perms.has("game-hub:write")
+    || perms.has("game-hub:console")
+    || perms.has("game-hub:files")
+    || perms.has("game-hub:start")
+    || perms.has("game-hub:stop")
+  ) {
+    return "game-server-operator";
+  }
+  return "game-server-viewer";
+}
+
+export function isCommandAllowedByAcl(command: string, allowed: string[]): boolean {
+  if (allowed.includes("*")) return true;
+  return allowed.some((entry) => command === entry || command.startsWith(`${entry} `));
+}
+
+export interface CommandGuardContext {
+  groups: string[];
+  username: string;
+  roleAssignments: RoleAssignment[];
+}
+
+export type CommandGuardResult =
+  | { allowed: true }
+  | { allowed: false; reason: "blocklist" | "acl"; message: string };
+
+/**
+ * Decide whether `command` may run against server `name` for the given caller.
+ * Enforces the deployment blocklist first, then the egg's per-role ACL. Returns
+ * a structured result so callers can map the denial reason to an audit tag.
+ */
+export async function assertCommandAllowed(
+  clients: ReturnType<typeof makeGameHubClients>,
+  name: string,
+  command: string,
+  ctx: CommandGuardContext,
+): Promise<CommandGuardResult> {
+  const deployment = await getServerDeployment(clients.appsApi, name);
+  const egg = await readServerEgg(clients.coreApi, name, deployment);
+
+  const blocklist = parseCommandBlocklist(deployment.metadata?.annotations?.["game-hub/command-blocklist"]);
+  const normalized = command.trim().toLowerCase();
+  const blocked = blocklist.some((entry) => {
+    const normalizedEntry = entry.trim().toLowerCase();
+    return normalizedEntry.length > 0 && normalized.startsWith(normalizedEntry);
+  });
+  if (blocked) {
+    return { allowed: false, reason: "blocklist", message: "Command blocked by server policy" };
+  }
+
+  const perms = getEffectivePermissions(ctx.groups, ctx.username, ctx.roleAssignments, `/game-hub/servers/${name}`);
+  const allowed = egg.commandAcl?.[commandAclRoleKey(perms)] ?? [];
+  if (!isCommandAllowedByAcl(command, allowed)) {
+    return { allowed: false, reason: "acl", message: "Command not allowed for your role" };
+  }
+
+  return { allowed: true };
+}
+
 export async function getNodeIp(coreApi: k8s.CoreV1Api, pod: k8s.V1Pod | null | undefined) {
   let nodeIp: string | null = process.env.GAME_HUB_EXTERNAL_HOSTNAME ?? null;
   if (nodeIp) return nodeIp;
@@ -856,21 +957,28 @@ export async function checkPortReachable(host: string | null, port: number | nul
 export async function gracefulStopServer(
   clients: ReturnType<typeof makeGameHubClients>,
   name: string,
-  stopCommand: string | null | undefined,
+  _stopCommand: string | null | undefined,
   _timeoutMs = 30_000, // kept for API compat
 ) {
   void _timeoutMs;
-  const pod = await getServerPod(clients.coreApi, name, true).catch(() => null);
-  const containerName = getPrimaryContainerName(pod, name);
-  let stopCommandSent = false;
-
-  if (pod?.metadata?.name && stopCommand?.trim()) {
-    try {
-      await sendConsoleInputViaExec(clients.kc, pod.metadata.name, containerName, stopCommand.trim(), 8_000);
-      stopCommandSent = true;
-    } catch {
-      stopCommandSent = false;
+  // The pod's preStop lifecycle hook performs the ACTUAL stop (Tier-1 RCON stop
+  // → stdin → signal) when we scale to 0, so we no longer send the stop command
+  // over the unreliable /proc stdin path here. Instead we flush the world to
+  // disk over native RCON first, so no progress is lost even if the runtime's
+  // own shutdown-save is slow or absent. Best-effort: a game without a save
+  // command (or with RCON unavailable) simply skips this and relies on preStop.
+  void _stopCommand;
+  let savedGracefully = false;
+  try {
+    const deployment = await getServerDeployment(clients.appsApi, name);
+    const egg = await readServerEgg(clients.coreApi, name, deployment);
+    const saveCommand = egg.saveCommand?.trim();
+    if (saveCommand) {
+      await runServerCommand(clients, name, saveCommand);
+      savedGracefully = true;
     }
+  } catch {
+    savedGracefully = false;
   }
 
   await scaleServerWorkload(clients.appsApi, name, 0);
@@ -880,7 +988,10 @@ export async function gracefulStopServer(
   // browser/proxy to abort it ("TypeError: Failed to fetch"). Scaling to 0 has
   // already issued the shutdown; the UI polls server status every 15s and will
   // reflect the stopped state on the next refresh.
-  return { stopCommandSent, exitedGracefully: stopCommandSent };
+  //
+  // `exitedGracefully` now reflects whether we confirmed a world-save over RCON
+  // before shutdown — not merely that an exec call didn't throw.
+  return { savedGracefully, exitedGracefully: savedGracefully };
 }
 
 export async function forceStopServer(
@@ -1164,34 +1275,6 @@ export async function deleteCronJob(batchApi: k8s.BatchV1Api, name: string) {
   await batchApi.deleteNamespacedCronJob({ name, namespace: GAME_HUB_NS }).catch(() => undefined);
 }
 
-export function parseCpuQuantity(value: string | null | undefined) {
-  if (!value) return 0;
-  const trimmed = value.trim();
-  if (trimmed.endsWith("n")) return Number.parseFloat(trimmed.slice(0, -1)) / 1_000_000_000;
-  if (trimmed.endsWith("u")) return Number.parseFloat(trimmed.slice(0, -1)) / 1_000_000;
-  if (trimmed.endsWith("m")) return Number.parseFloat(trimmed.slice(0, -1)) / 1000;
-  return Number.parseFloat(trimmed);
-}
-
-export function parseMemoryBytes(value: string | null | undefined) {
-  if (!value) return 0;
-  const trimmed = value.trim();
-  const match = trimmed.match(/^([0-9.]+)\s*([KMGTE]i|[kMGTPE])?$/);
-  if (!match) return Number.parseFloat(trimmed) || 0;
-  const amount = Number.parseFloat(match[1] ?? "0");
-  const unit = match[2] ?? "";
-  const multipliers: Record<string, number> = {
-    Ki: 1024,
-    Mi: 1024 ** 2,
-    Gi: 1024 ** 3,
-    Ti: 1024 ** 4,
-    Pi: 1024 ** 5,
-    k: 1000,
-    M: 1000 ** 2,
-    G: 1000 ** 3,
-    T: 1000 ** 4,
-    P: 1000 ** 5,
-    E: 1000 ** 6,
-  };
-  return amount * (multipliers[unit] ?? 1);
-}
+// Generic k8s quantity parsers live in core (@/lib/k8s-quantity). Re-exported
+// here so existing addon importers keep working.
+export { parseCpuQuantity, parseMemoryBytes } from "@/lib/k8s-quantity";
