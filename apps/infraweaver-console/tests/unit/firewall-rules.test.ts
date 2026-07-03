@@ -4,6 +4,7 @@ import {
   describePeer,
   describePorts,
   policySelectsApp,
+  policySelectsPod,
   type CnpObject,
 } from "@/lib/firewall/rules";
 
@@ -66,6 +67,39 @@ describe("policySelectsApp", () => {
     expect(policySelectsApp(policy, "wordpress")).toBe(false);
     const k8sLabel: CnpObject = { spec: { endpointSelector: { matchLabels: { "k8s:app": "redis" } } } };
     expect(policySelectsApp(k8sLabel, "redis")).toBe(true);
+  });
+});
+
+describe("policySelectsPod", () => {
+  // Real-world shape: wordpress-zero-trust selects on infraweaver.io/component
+  // only (shared across every WP site) — policySelectsApp can never match this
+  // because it only checks app/k8s:app, which is exactly the bug this fixes.
+  const componentPolicy: CnpObject = {
+    metadata: { name: "wordpress-zero-trust", namespace: "wordpress" },
+    spec: { endpointSelector: { matchLabels: { "infraweaver.io/component": "wordpress" } } },
+  };
+
+  test("matches when every selector key/value is present on the pod's labels", () => {
+    const podLabels = { "infraweaver.io/site": "zonnevaarwater-nl", "infraweaver.io/component": "wordpress" };
+    expect(policySelectsPod(componentPolicy, podLabels)).toBe(true);
+  });
+
+  test("does not match when a selector value differs", () => {
+    const podLabels = { "infraweaver.io/site": "zonnevaarwater-nl", "infraweaver.io/component": "db" };
+    expect(policySelectsPod(componentPolicy, podLabels)).toBe(false);
+  });
+
+  test("does not match when a selector key is missing from the pod", () => {
+    expect(policySelectsPod(componentPolicy, { "infraweaver.io/site": "zonnevaarwater-nl" })).toBe(false);
+  });
+
+  test("empty selector matches every pod (Cilium semantics)", () => {
+    const catchAll: CnpObject = { metadata: { name: "catch-all" }, spec: { endpointSelector: { matchLabels: {} } } };
+    expect(policySelectsPod(catchAll, { anything: "goes" })).toBe(true);
+  });
+
+  test("returns false when pod labels are unavailable, even for an otherwise-matching selector", () => {
+    expect(policySelectsPod(componentPolicy, undefined)).toBe(false);
   });
 });
 

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { makeCustomApi } from "@/lib/kube-client";
+import { makeCoreApi, makeCustomApi } from "@/lib/kube-client";
 import { appLabelFromPod, type FlowDirection } from "@/lib/firewall/drops";
-import { flattenPolicyRules, policySelectsApp, removeRuleFromSpec, type CnpObject } from "@/lib/firewall/rules";
+import { flattenPolicyRules, policySelectsApp, policySelectsPod, removeRuleFromSpec, type CnpObject } from "@/lib/firewall/rules";
 
 const CNP_GROUP = "cilium.io";
 const CNP_VERSION = "v2";
@@ -32,12 +32,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "namespace and app (or pod) are required" }, { status: 400 });
   }
 
+  // Prefer the pod's real labels for selector matching (policySelectsPod) — the
+  // app-string guess (policySelectsApp) only catches CNPs keyed on `app`/`k8s:app`
+  // and misses component-based selectors like wordpress-zero-trust. Falls back to
+  // the string guess when there's no `pod` param or the pod lookup fails.
+  let podLabels: Record<string, string> | undefined;
+  if (pod) {
+    try {
+      const podObj = await makeCoreApi().readNamespacedPod({ name: pod, namespace });
+      podLabels = podObj.metadata?.labels ?? undefined;
+    } catch {
+      podLabels = undefined;
+    }
+  }
+
   const custom = makeCustomApi();
   try {
     const list = (await custom.listNamespacedCustomObject({
       group: CNP_GROUP, version: CNP_VERSION, namespace, plural: CNP_PLURAL,
     })) as { items?: CnpObject[] };
-    const matching = (list.items ?? []).filter((p) => policySelectsApp(p, app));
+    const matching = (list.items ?? []).filter((p) =>
+      podLabels ? policySelectsPod(p, podLabels) : policySelectsApp(p, app),
+    );
     const rules = flattenPolicyRules(matching);
     return NextResponse.json({
       available: true,
