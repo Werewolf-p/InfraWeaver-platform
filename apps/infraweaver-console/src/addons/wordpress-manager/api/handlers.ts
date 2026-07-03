@@ -13,7 +13,7 @@ import {
 import { isValidSiteName, isValidSiteId } from "../lib/naming";
 import { PLUGIN_CATALOG } from "../lib/plugins";
 import { listDomains, internalSubdomain, isAllowedDomain } from "../lib/config";
-import { createSite, deleteSite, listSites, listInstalledPlugins, setPlugins, updateAllPlugins, getMaintenanceMode, setMaintenanceMode, enableSso, setProtection } from "../lib/provision";
+import { createSite, deleteSite, listSites, listInstalledPlugins, setPlugins, updateAllPlugins, getMaintenanceMode, setMaintenanceMode, enableSso, setProtection, getSiteHealth } from "../lib/provision";
 import { ensureSiteAccess, listSiteAccessUsers, siteAccessGroupName } from "../lib/access";
 
 function json(data: unknown, status = 200) {
@@ -268,6 +268,16 @@ export async function getAccessHandler(site: string): Promise<NextResponse> {
   return guard(async () =>
     json({ group: siteAccessGroupName(site), allowed: await listSiteAccessUsers(site) }),
   );
+}
+
+/** GET — read-only Site Health snapshot (WP/PHP versions, DB size, plugins, uploads). */
+export async function getHealthHandler(site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:read", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("health-read", gate.ctx.username, 60);
+  if (limited) return limited;
+  return guard(async () => json({ site, health: await getSiteHealth(site) }));
 }
 
 /**
