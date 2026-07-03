@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+import { SiteRuntimeCard } from "./site-runtime-card";
 
 type AuthMode = "none" | "login" | "admin" | "full";
 
@@ -39,6 +40,10 @@ interface SiteStatus {
 interface SiteAccess {
   group: string;
   allowed: string[];
+  /** WordPress role each allowed user gets from their RBAC grant. */
+  roles?: Record<string, string>;
+  /** Allowed users with no email on record — they can't get a WordPress account. */
+  skippedNoEmail?: string[];
 }
 
 const AUTH_MODE_LABEL: Record<AuthMode, string> = {
@@ -311,6 +316,9 @@ export function SiteDetailView({ site }: { site: string }) {
         </div>
       </section>
 
+      {/* The site as an app: its pods (WordPress + MariaDB) and their firewall */}
+      <SiteRuntimeCard site={site} />
+
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-zinc-200">
@@ -452,22 +460,34 @@ export function SiteDetailView({ site }: { site: string }) {
           </button>
         </div>
         <p className="mt-1 max-w-prose text-sm text-zinc-400">
-          Only these users can pass Authentik for this site. Membership is driven by RBAC — grant a user a WordPress role
-          scoped to this site in Access control and Authentik updates automatically.
+          Only these users can pass Authentik for this site, and each gets a matching WordPress account — administrator,
+          editor, or subscriber based on their RBAC grant. Grant a user a WordPress role scoped to this site in Access
+          control and both update automatically.
         </p>
         {access && access.allowed.length > 0 ? (
           <ul className="mt-4 flex flex-wrap gap-2">
             {access.allowed.map((user) => (
               <li
                 key={user}
-                className="inline-flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-950/50 px-2.5 py-0.5 text-xs text-zinc-200"
+                className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-950/50 px-2.5 py-0.5 text-xs text-zinc-200"
               >
                 {user}
+                {access.roles?.[user] && (
+                  <span className="rounded-full border border-sky-500/30 bg-sky-500/15 px-1.5 py-px text-[10px] text-sky-300">
+                    {access.roles[user]}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
         ) : (
           <p className="mt-4 text-sm text-zinc-500">No users are granted access to this site yet.</p>
+        )}
+        {access?.skippedNoEmail && access.skippedNoEmail.length > 0 && (
+          <p className="mt-3 text-xs text-amber-400">
+            No WordPress account for {access.skippedNoEmail.join(", ")} — add an email address to their user record
+            first.
+          </p>
         )}
       </section>
 

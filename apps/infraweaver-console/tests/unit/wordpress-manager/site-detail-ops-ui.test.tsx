@@ -30,6 +30,12 @@ jest.mock("next/link", () => ({
   ),
 }));
 
+// The runtime card drags in the firewall surface (and next-auth ESM via
+// useRBAC); its logic is covered by its own unit tests — stub it out here.
+jest.mock("@/addons/wordpress-manager/components/site-runtime-card", () => ({
+  SiteRuntimeCard: () => null,
+}));
+
 const toastSuccess = jest.fn();
 const toastError = jest.fn();
 jest.mock("@/lib/notify", () => ({

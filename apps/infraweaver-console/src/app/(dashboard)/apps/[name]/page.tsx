@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, ArrowLeft, Box, GitBranch, RefreshCw, Shield, TerminalSquare, Trash2 } from "lucide-react";
+import { Activity, ArrowLeft, Box, Flame, GitBranch, RefreshCw, Shield, TerminalSquare, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { ResponsiveContainer, Treemap, Tooltip as RechartsTooltip } from "recharts";
 import { LogStreamViewer } from "@/components/logs/log-stream-viewer";
@@ -15,6 +15,7 @@ import { Skeleton, SkeletonCard, SkeletonTable } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
 import { resolveRoleDefinition, scopeLabel } from "@/lib/rbac";
+import { AppFirewallPanel } from "@/app/(dashboard)/network/firewall/_components/app-firewall-panel";
 
 interface Resource {
   kind?: string;
@@ -200,6 +201,7 @@ export default function AppDetailPage() {
   const tabs = [
     { label: "Overview", value: "overview", icon: Box },
     { label: "Logs", value: "logs", icon: TerminalSquare, badge: pods.length },
+    { label: "Firewall", value: "firewall", icon: Flame, badge: pods.length },
     { label: "Activity", value: "activity", icon: Activity, badge: data.history.length },
     { label: "Config", value: "config", icon: GitBranch },
     { label: "Permissions", value: "permissions", icon: Shield, badge: appPermissions.length },
@@ -385,6 +387,21 @@ export default function AppDetailPage() {
                 />
               </>
             )}
+          </div>
+        )}
+
+        {activeTab === "firewall" && (
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4">
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Pod firewall</h2>
+              <p className="text-xs text-slate-500">
+                Blocked ingress/egress and active exceptions for every pod that makes up this app.
+              </p>
+            </div>
+            <AppFirewallPanel
+              namespace={app.spec?.destination?.namespace ?? pods[0]?.namespace ?? "default"}
+              podNames={pods.map((pod) => pod.name)}
+            />
           </div>
         )}
 

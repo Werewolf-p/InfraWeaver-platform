@@ -3,29 +3,39 @@ import type { KubernetesPod } from "@/types/kubernetes";
 /**
  * Pod → App ownership resolution.
  *
- * The Apps page drills into the pods that make up each ArgoCD application. Every
- * app is delivered to a single destination namespace and the console's durable
- * stop action scales every controller in that namespace to zero, so the namespace
- * is the authoritative grouping unit — and matches exactly what "Stop app"
+ * The Apps page drills into the pods that make up each app. Every app is
+ * delivered to a single destination namespace and the console's durable stop
+ * action scales every controller in that namespace to zero, so the namespace is
+ * the authoritative grouping unit — and matches exactly what "Stop app"
  * terminates (see lib/app-power.ts `scaleNamespace`).
  *
- * When several apps share one namespace we disambiguate with the signals
- * Kubernetes/ArgoCD attach to pods: the standard recommended labels and the
- * controller owner reference. This keeps grouping correct without re-querying the
- * cluster, and degrades gracefully when the backend omits labels/ownerReferences.
+ * When several apps share one namespace (multiple ArgoCD apps, or every
+ * WordPress site living in the shared `wordpress` namespace) we disambiguate
+ * with progressively weaker signals, strongest first:
+ *
+ *   1. Identity labels (`infraweaver.io/site`, the ArgoCD instance label, …).
+ *   2. Controller owner references (workload named after the app).
+ *   3. The pod's own name (workload prefix) — the fallback for backends that
+ *      omit labels/ownerReferences from their pod listings.
+ *
+ * Prefix-based tiers (2 and 3) prefer the longest matching identifier so that
+ * co-located apps with nested names ("blog" vs "blog-shop") resolve to the more
+ * specific owner instead of being shared. This keeps grouping correct without
+ * re-querying the cluster and degrades gracefully when signals are missing.
  */
 
 export interface AppIdentity {
-  /** ArgoCD application name (e.g. "core-foo" or "catalog-bar-manifests"). */
+  /** ArgoCD application name (e.g. "catalog-bar-manifests") or WordPress site id. */
   name: string;
   /** Destination namespace the app deploys into. */
   namespace: string;
 }
 
-// Labels ArgoCD/Helm/Kustomize commonly stamp onto an app's workloads. The
-// instance label is ArgoCD's default app tracking label and is the strongest
-// signal; the rest are best-effort fallbacks.
+// Labels ArgoCD/Helm/Kustomize commonly stamp onto an app's workloads, plus the
+// WordPress manager's per-site label. The site label and ArgoCD's default app
+// tracking label are the strongest signals; the rest are best-effort fallbacks.
 const APP_IDENTITY_LABELS = [
+  "infraweaver.io/site",
   "app.kubernetes.io/instance",
   "app.kubernetes.io/part-of",
   "app.kubernetes.io/name",
@@ -52,19 +62,43 @@ export function podMatchesAppByLabel(pod: KubernetesPod, app: AppIdentity): bool
   });
 }
 
-/** True when a controller owning the pod is named after this app. */
-export function podMatchesAppByOwner(pod: KubernetesPod, app: AppIdentity): boolean {
-  const owners = pod.ownerReferences;
-  if (!owners || owners.length === 0) return false;
-  const ids = [...candidateIdentifiers(app)];
-  return owners.some((owner) =>
-    ids.some((id) => owner.name === id || owner.name.startsWith(`${id}-`)),
-  );
+/** Longest app identifier the value equals or is a `<id>-` workload child of. */
+function prefixMatchLength(value: string, app: AppIdentity): number {
+  let best = 0;
+  for (const id of candidateIdentifiers(app)) {
+    if (value === id || value.startsWith(`${id}-`)) best = Math.max(best, id.length);
+  }
+  return best;
 }
 
-/** A pod carries an explicit (label or owner) signal tying it to this app. */
-function podHasExplicitMatch(pod: KubernetesPod, app: AppIdentity): boolean {
-  return podMatchesAppByLabel(pod, app) || podMatchesAppByOwner(pod, app);
+function ownerMatchLength(pod: KubernetesPod, app: AppIdentity): number {
+  const owners = pod.ownerReferences;
+  if (!owners || owners.length === 0) return 0;
+  return owners.reduce((best, owner) => Math.max(best, prefixMatchLength(owner.name, app)), 0);
+}
+
+/** True when a controller owning the pod is named after this app. */
+export function podMatchesAppByOwner(pod: KubernetesPod, app: AppIdentity): boolean {
+  return ownerMatchLength(pod, app) > 0;
+}
+
+/** True when the pod's own name carries the app's workload prefix. */
+export function podMatchesAppByName(pod: KubernetesPod, app: AppIdentity): boolean {
+  return prefixMatchLength(pod.name, app) > 0;
+}
+
+/**
+ * Apps whose prefix-style match is the strongest (longest identifier). Returns
+ * empty when nothing matches at all.
+ */
+function bestPrefixTargets(
+  candidates: readonly AppIdentity[],
+  matchLength: (app: AppIdentity) => number,
+): AppIdentity[] {
+  const scored = candidates.map((app) => ({ app, score: matchLength(app) }));
+  const best = scored.reduce((max, entry) => Math.max(max, entry.score), 0);
+  if (best === 0) return [];
+  return scored.filter((entry) => entry.score === best).map((entry) => entry.app);
 }
 
 /**
@@ -74,9 +108,10 @@ function podHasExplicitMatch(pod: KubernetesPod, app: AppIdentity): boolean {
  *   1. Namespace must match — pods outside an app's destination namespace never
  *      belong to it.
  *   2. With a single app in the namespace, every pod there belongs to it.
- *   3. With multiple apps sharing a namespace, prefer apps the pod explicitly
- *      matches by label/owner; if none match explicitly the pod is shared across
- *      the ambiguous apps (so it is never silently dropped).
+ *   3. With multiple apps sharing a namespace, take the strongest signal tier
+ *      that produces a match: identity labels, then owner references, then the
+ *      pod's own name prefix. If no tier matches the pod is shared across the
+ *      ambiguous apps (so it is never silently dropped).
  *
  * Returns a record keyed by `app.name`, each with the owned pods (input order
  * preserved). Pods are never mutated.
@@ -97,8 +132,15 @@ export function groupPodsByApp(
       continue;
     }
 
-    const explicit = candidates.filter((app) => podHasExplicitMatch(pod, app));
-    const targets = explicit.length > 0 ? explicit : candidates;
+    const byLabel = candidates.filter((app) => podMatchesAppByLabel(pod, app));
+    const byOwner = byLabel.length > 0 ? [] : bestPrefixTargets(candidates, (app) => ownerMatchLength(pod, app));
+    const byName =
+      byLabel.length > 0 || byOwner.length > 0
+        ? []
+        : bestPrefixTargets(candidates, (app) => prefixMatchLength(pod.name, app));
+
+    const targets =
+      byLabel.length > 0 ? byLabel : byOwner.length > 0 ? byOwner : byName.length > 0 ? byName : candidates;
     for (const app of targets) result[app.name].push(pod);
   }
 

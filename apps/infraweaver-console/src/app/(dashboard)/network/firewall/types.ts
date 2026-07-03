@@ -95,3 +95,20 @@ export function notAllowableReason(direction: Direction, peer: BlockedDestinatio
 export function podFlowCount(p: PodDenies): number {
   return p.ingress.length + p.egress.length;
 }
+
+/**
+ * The app-scoped slice of the fleet-wide denial feed: one PodDenies per named
+ * pod, in input order. The fleet feed only lists pods that currently have
+ * denials, so pods without an entry get a synthesized sealed one — the UI can
+ * then still show the pod and let its active exceptions be reviewed/removed.
+ */
+export function podDeniesForPods(
+  fleetPods: readonly PodDenies[],
+  namespace: string,
+  podNames: readonly string[],
+): PodDenies[] {
+  return podNames.map((name) => {
+    const match = fleetPods.find((p) => p.namespace === namespace && p.pod === name);
+    return match ?? { namespace, pod: name, egress: [], ingress: [], totalDropRate: 0 };
+  });
+}
