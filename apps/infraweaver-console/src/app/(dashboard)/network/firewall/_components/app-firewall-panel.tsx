@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { podDeniesForPods, podKey } from "../types";
 import { useFirewall } from "../use-firewall";
 import { PodCell } from "./pod-cell";
+import { LearnModeCard } from "./learn-mode-card";
 import { EASE_OUT } from "./motion";
 
 interface AppFirewallPanelProps {
@@ -71,6 +72,8 @@ export function AppFirewallPanel({ namespace, podNames }: AppFirewallPanelProps)
           <ExternalLink className="h-3.5 w-3.5" aria-hidden />
         </Link>
       </div>
+
+      <LearnModeCard namespace={namespace} podNames={podNames} onChanged={fw.reload} />
 
       {!fw.dataplaneLive && !fw.loading && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
