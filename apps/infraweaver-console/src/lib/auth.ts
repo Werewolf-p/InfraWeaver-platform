@@ -99,9 +99,15 @@ export const authConfig: NextAuthConfig = {
         // is skipped silently and groups remain as-is until the next sign-in.
         const staleMs = Date.now() - token.groupsRefreshedAt;
         if (staleMs > 15 * 60 * 1000) {
+          // AUTHENTIK_ISSUER already includes the per-application path
+          // (…/application/o/<slug>/), but Authentik's userinfo endpoint lives
+          // at the auth-server ROOT (…/application/o/userinfo/). Concatenating
+          // the two produced …/<slug>/application/o/userinfo/ → 404. Resolve
+          // userinfo from the issuer's origin instead.
+          const issuer = process.env.AUTHENTIK_ISSUER;
           const userInfoUrl = process.env.AUTHENTIK_USERINFO_URL
-            ?? `${process.env.AUTHENTIK_ISSUER}/application/o/userinfo/`;
-          try {
+            ?? (issuer ? `${new URL(issuer).origin}/application/o/userinfo/` : undefined);
+          if (userInfoUrl) try {
             const res = await fetch(userInfoUrl, {
               headers: { Authorization: `Bearer ${token.accessToken as string}` },
               signal: AbortSignal.timeout(5000),
