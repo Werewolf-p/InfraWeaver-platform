@@ -150,13 +150,24 @@ describe("SiteDetailView maintenance card", () => {
     );
   });
 
-  test("shows a fallback note instead of the toggle when the state can't be read", () => {
+  test("shows a fallback note instead of the toggle when the state has never been read", () => {
     queryData["wordpress-maintenance"] = undefined;
     queryErrors["wordpress-maintenance"] = true;
     render(<SiteDetailView site={SITE} />);
 
     expect(screen.getByText(/can.t be read right now/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /enable maintenance/i })).not.toBeInTheDocument();
+  });
+
+  test("keeps the toggle when a background refetch fails but cached state exists", () => {
+    queryData["wordpress-maintenance"] = { site: SITE, enabled: true };
+    queryErrors["wordpress-maintenance"] = true;
+    render(<SiteDetailView site={SITE} />);
+
+    expect(screen.queryByText(/can.t be read right now/i)).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /take out of maintenance/i });
+    expect(toggle).toBeEnabled();
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 
   test("surfaces the server error message when the toggle fails", async () => {

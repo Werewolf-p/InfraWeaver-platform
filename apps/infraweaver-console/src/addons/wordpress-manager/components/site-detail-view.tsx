@@ -334,7 +334,9 @@ export function SiteDetailView({ site }: { site: string }) {
           Shows visitors a &ldquo;temporarily unavailable&rdquo; page (HTTP 503) while you work on the site. Logged-in
           administrators keep full access, and the page stays up until you turn it off.
         </p>
-        {maintenanceUnavailable ? (
+        {maintenanceUnavailable && !maintenance ? (
+          // Only replace the control when we have never read the state — a failed
+          // background refetch keeps the last-known-good data, so the toggle stays.
           <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
             Maintenance mode can&rsquo;t be read right now — the site may still be starting.
           </div>
@@ -342,6 +344,7 @@ export function SiteDetailView({ site }: { site: string }) {
           <div className="mt-4 flex justify-end">
             <button
               type="button"
+              aria-pressed={maintenance?.enabled ?? false}
               disabled={!maintenance || maintenanceMutation.isPending}
               onClick={() => maintenance && maintenanceMutation.mutate(!maintenance.enabled)}
               className={cn(
