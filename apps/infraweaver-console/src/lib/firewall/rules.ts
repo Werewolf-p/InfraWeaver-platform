@@ -105,6 +105,24 @@ export function policySelectsApp(policy: CnpObject, app: string): boolean {
   return labels.app === app || labels["k8s:app"] === app;
 }
 
+/**
+ * True when the policy's endpointSelector actually selects the pod, using real
+ * Kubernetes/Cilium selector semantics: every key in matchLabels must be present
+ * with an equal value on the pod (extra pod labels are ignored; an empty selector
+ * matches every pod in the namespace). Prefer this over policySelectsApp() — many
+ * real CNPs (e.g. wordpress-zero-trust) select on a shared component label like
+ * `infraweaver.io/component`, not an `app`/`k8s:app` key, so the app-string check
+ * silently misses them and the UI reports "fully sealed" for a pod that is in fact
+ * covered by an active policy.
+ */
+export function policySelectsPod(policy: CnpObject, podLabels: Record<string, string> | undefined): boolean {
+  const selector = policy.spec?.endpointSelector?.matchLabels ?? {};
+  const keys = Object.keys(selector);
+  if (keys.length === 0) return true;
+  if (!podLabels) return false;
+  return keys.every((key) => podLabels[key] === selector[key]);
+}
+
 export interface RemoveResult {
   spec: NonNullable<CnpObject["spec"]>;
   empty: boolean; // true when no ingress and no egress rules remain

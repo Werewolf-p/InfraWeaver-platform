@@ -18,15 +18,19 @@ describe("summarizeBlockedFlows", () => {
     expect(summarizeBlockedFlows({ status: "success", data: { resultType: "vector", result: [] } })).toEqual([]);
   });
 
+  // Live label shape (Cilium 1.17): labelsContext supplies source_/destination_
+  // namespace|pod|ip; the single `destination` context label carries the FQDN
+  // (destinationContext=dns|ip). There is no destination_dns / destination_port
+  // label on hubble_drop_total.
   test("groups dropped destinations by source pod and sorts by drop rate", () => {
     const result: PromQueryResult = {
       status: "success",
       data: {
         resultType: "vector",
         result: [
-          sample({ source_namespace: "wordpress", source_pod: "wp-0", destination_dns: "api.wordpress.org", destination_port: "443", protocol: "TCP", reason: "Policy denied" }, "5"),
-          sample({ source_namespace: "wordpress", source_pod: "wp-0", destination_ip: "1.2.3.4", destination_port: "443", protocol: "TCP" }, "2"),
-          sample({ source_namespace: "tradesphere", source_pod: "ts-1", destination_dns: "data.binance.com", destination_port: "443", protocol: "TCP" }, "9"),
+          sample({ source_namespace: "wordpress", source_pod: "wp-0", destination: "api.wordpress.org", protocol: "TCP", reason: "POLICY_DENIED" }, "5"),
+          sample({ source_namespace: "wordpress", source_pod: "wp-0", destination: "1.2.3.4", destination_ip: "1.2.3.4", protocol: "TCP" }, "2"),
+          sample({ source_namespace: "tradesphere", source_pod: "ts-1", destination: "data.binance.com", protocol: "TCP" }, "9"),
         ],
       },
     };
@@ -49,8 +53,8 @@ describe("summarizeBlockedFlows", () => {
       data: {
         resultType: "vector",
         result: [
-          sample({ source_namespace: "n8n-prod", source_pod: "n8n-0", destination_dns: "hooks.slack.com.", destination_port: "443", protocol: "TCP" }, "1"),
-          sample({ source_namespace: "n8n-prod", source_pod: "n8n-0", destination_dns: "hooks.slack.com.", destination_port: "443", protocol: "TCP" }, "3"),
+          sample({ source_namespace: "n8n-prod", source_pod: "n8n-0", destination: "hooks.slack.com.", protocol: "TCP" }, "1"),
+          sample({ source_namespace: "n8n-prod", source_pod: "n8n-0", destination: "hooks.slack.com.", protocol: "TCP" }, "3"),
         ],
       },
     };
@@ -61,10 +65,71 @@ describe("summarizeBlockedFlows", () => {
     expect(out[0].destinations[0].dropRate).toBeCloseTo(4);
   });
 
+  test("still honors legacy destination_dns/destination_port labels", () => {
+    const result: PromQueryResult = {
+      status: "success",
+      data: {
+        resultType: "vector",
+        result: [
+          sample({ source_namespace: "wordpress", source_pod: "wp-0", destination_dns: "api.wordpress.org", destination_port: "443", protocol: "TCP" }, "5"),
+        ],
+      },
+    };
+    const out = summarizeBlockedFlows(result);
+    expect(out[0].destinations[0]).toMatchObject({ kind: "fqdn", target: "api.wordpress.org", port: "443" });
+  });
+
+  test("an IP in the destination context label classifies as ip, never fqdn", () => {
+    const result: PromQueryResult = {
+      status: "success",
+      data: {
+        resultType: "vector",
+        result: [sample({ source_namespace: "wordpress", source_pod: "wp-0", destination: "34.117.65.55", protocol: "TCP" }, "2")],
+      },
+    };
+    const out = summarizeBlockedFlows(result);
+    expect(out[0].destinations[0].kind).toBe("ip");
+    expect(out[0].destinations[0].target).toBe("34.117.65.55/32");
+  });
+
+  test("in-cluster destination pod wins over the context label", () => {
+    const result: PromQueryResult = {
+      status: "success",
+      data: {
+        resultType: "vector",
+        result: [
+          sample(
+            { source_namespace: "wordpress", source_pod: "wp-0", destination: "10.244.1.187", destination_ip: "10.244.1.187", destination_namespace: "wordpress", destination_pod: "mariadb-0", protocol: "TCP" },
+            "3",
+          ),
+        ],
+      },
+    };
+    const out = summarizeBlockedFlows(result);
+    expect(out[0].destinations[0]).toMatchObject({ kind: "pod", target: "mariadb-0", namespace: "wordpress" });
+  });
+
+  test("scrape-job labels (cilium agent's namespace/pod) are never used as the subject", () => {
+    const result: PromQueryResult = {
+      status: "success",
+      data: {
+        resultType: "vector",
+        result: [
+          // What a real scraped series looks like: job labels namespace/pod point
+          // at the cilium agent, NOT the flow's subject.
+          sample({ namespace: "kube-system", pod: "cilium-h8sbd", source_namespace: "wordpress", source_pod: "wp-0", destination: "api.wordpress.org", protocol: "TCP" }, "1"),
+        ],
+      },
+    };
+    const out = summarizeBlockedFlows(result);
+    expect(out[0].namespace).toBe("wordpress");
+    expect(out[0].pod).toBe("wp-0");
+  });
+
   test("ignores zero/negative drop rates", () => {
     const result: PromQueryResult = {
       status: "success",
-      data: { resultType: "vector", result: [sample({ source_namespace: "x", source_pod: "p", destination_dns: "a.b" }, "0")] },
+      data: { resultType: "vector", result: [sample({ source_namespace: "x", source_pod: "p", destination: "a.b" }, "0")] },
     };
     expect(summarizeBlockedFlows(result)).toEqual([]);
   });
@@ -82,11 +147,14 @@ describe("summarizeBlockedFlows", () => {
 });
 
 describe("blockedFlowsQuery", () => {
-  test("builds an EGRESS topk PromQL with the given window", () => {
+  test("builds an egress topk PromQL with the given window", () => {
     const q = blockedFlowsQuery(15);
-    expect(q).toContain('hubble_drop_total{direction="EGRESS"}[15m]');
+    // Hubble's labelsContext emits `traffic_direction` (lowercase values) — there
+    // is no `direction` label on hubble_drop_total.
+    expect(q).toContain('hubble_drop_total{traffic_direction="egress"}[15m]');
     expect(q).toContain("topk(");
     expect(q).toContain("source_pod");
+    expect(q).toContain("destination,");
   });
   test("clamps invalid windows to >= 1m", () => {
     expect(blockedFlowsQuery(0)).toContain("[1m]");

@@ -2,11 +2,18 @@
 // Data source: Cilium Hubble `hubble_drop_total` series scraped by Prometheus.
 // Everything here is pure and unit-tested; no I/O, no k8s, no fetch.
 //
-// Expected Hubble drop-metric context (see kubernetes/core/cilium/values.yaml):
-//   drop:sourceContext=namespace|pod;destinationContext=namespace|pod|dns
-// which yields Prometheus labels: source_namespace, source_pod,
-// destination_namespace, destination_pod, destination_dns (FQDN, when known),
-// plus reason / protocol.
+// Expected Hubble drop-metric config (see kubernetes/core/cilium/values.yaml):
+//   drop:sourceContext=dns|ip;destinationContext=dns|ip;labelsContext=source_ip,source_namespace,source_pod,destination_ip,destination_namespace,destination_pod,traffic_direction
+// which yields Prometheus labels:
+//   - source / destination: single context label, FQDN when Cilium's DNS proxy
+//     knows it (the "blocked URL"), else the raw IP
+//   - source_namespace / source_pod / source_ip and destination_* equivalents
+//   - traffic_direction: "ingress" | "egress" | "unknown" (lowercase)
+//   - protocol / reason
+// The drop metric carries NO port label — Hubble labelsContext cannot emit one —
+// so BlockedDestination.port stays undefined on live data (legacy
+// destination_port is still read for configs that have it). Beware the scrape-job
+// `namespace`/`pod` labels: they identify the cilium agent, never the flow.
 
 export interface PromSample {
   metric: Record<string, string>;
@@ -46,25 +53,37 @@ function num(s: string | undefined): number {
 
 type PeerRole = "source" | "destination";
 
+const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+
 // Classify either end of a flow from Hubble metric labels. Egress denies care
-// about the destination; ingress denies care about the source. Behaviour for
-// role="destination" is identical to the original classifyDestination.
+// about the destination; ingress denies care about the source.
 function classifyPeer(m: Record<string, string>, role: PeerRole): { kind: DestinationKind; target: string; namespace?: string } {
-  const fqdn =
+  const pod = m[`${role}_pod`];
+  const ns = m[`${role}_namespace`];
+
+  // An in-cluster peer is the most precise identity — it wins over the context
+  // label, which for pods usually degrades to the raw pod IP.
+  if (pod && pod !== "" && pod !== "unknown") {
+    return { kind: "pod", target: pod, namespace: ns };
+  }
+
+  // FQDN: legacy explicit dns labels first, else the single context label
+  // (`source`/`destination`, filled dns-first by our Hubble config). A dotted
+  // value that isn't an IPv4 can only be a DNS name — namespaces and pod names
+  // are RFC 1123 labels and cannot contain dots.
+  const ctx = m[role];
+  const legacyDns =
     role === "destination"
       ? m.destination_dns || m.destination_fqdn || m.dns_name
       : m.source_dns || m.source_fqdn;
+  const fqdn = legacyDns || (ctx && ctx.includes(".") && !IPV4.test(ctx) ? ctx : undefined);
   if (fqdn && fqdn !== "" && fqdn !== "unknown") {
     // Hubble sometimes appends a trailing dot on FQDNs.
     return { kind: "fqdn", target: fqdn.replace(/\.$/, "") };
   }
-  const pod = m[`${role}_pod`];
-  const ns = m[`${role}_namespace`];
-  if (pod && pod !== "" && pod !== "unknown") {
-    return { kind: "pod", target: pod, namespace: ns };
-  }
+
   const ip = m[`${role}_ip`] || m[role];
-  if (ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+  if (ip && IPV4.test(ip)) {
     return { kind: "ip", target: `${ip}/32` };
   }
   return { kind: "unknown", target: ip || pod || ns || "unknown", namespace: ns };
@@ -88,8 +107,11 @@ function summarizeBy(
     const dropRate = num(s.value?.[1]);
     if (dropRate <= 0) continue;
 
+    // Only trust the structured labelsContext labels for the subject — the bare
+    // context label (m[subjectRole]) is dns|ip, and the scrape-job `namespace`/
+    // `pod` labels identify the cilium agent, not the flow's subject.
     const namespace = m[`${subjectRole}_namespace`] || "unknown";
-    const pod = m[`${subjectRole}_pod`] || m[subjectRole] || "unknown";
+    const pod = m[`${subjectRole}_pod`] || "unknown";
     const podKey = `${namespace}/${pod}`;
 
     const { kind, target, namespace: peerNs } = classifyPeer(m, peerRole);
@@ -145,21 +167,24 @@ export function summarizeBlockedIngress(result: PromQueryResult | null | undefin
 export type FlowDirection = "egress" | "ingress";
 
 // Both queries group on the full source+destination identity so a single result
-// carries everything classifyPeer needs for either end.
+// carries everything classifyPeer needs for either end. `source`/`destination`
+// are the Hubble context labels (FQDN or IP); the *_namespace/*_pod/*_ip labels
+// come from labelsContext. Legacy *_dns/*_port names are kept in the group-by
+// for older Hubble configs — grouping by an absent label is a no-op.
 const FLOW_GROUP_BY =
-  "source_namespace, source_pod, source_ip, source_dns, " +
-  "destination_namespace, destination_pod, destination_dns, destination_ip, destination_port, protocol, reason";
+  "source, source_namespace, source_pod, source_ip, source_dns, " +
+  "destination, destination_namespace, destination_pod, destination_dns, destination_ip, destination_port, protocol, reason";
 
 /** PromQL for recently-dropped EGRESS flows grouped by source pod + destination. */
 export function blockedFlowsQuery(windowMinutes = 10): string {
   const w = `${Math.max(1, Math.floor(windowMinutes))}m`;
-  return `topk(200, sum by (${FLOW_GROUP_BY}) (rate(hubble_drop_total{direction="EGRESS"}[${w}])) > 0)`;
+  return `topk(200, sum by (${FLOW_GROUP_BY}) (rate(hubble_drop_total{traffic_direction="egress"}[${w}])) > 0)`;
 }
 
 /** PromQL for recently-dropped INGRESS flows grouped by destination pod + source. */
 export function blockedIngressQuery(windowMinutes = 10): string {
   const w = `${Math.max(1, Math.floor(windowMinutes))}m`;
-  return `topk(200, sum by (${FLOW_GROUP_BY}) (rate(hubble_drop_total{direction="INGRESS"}[${w}])) > 0)`;
+  return `topk(200, sum by (${FLOW_GROUP_BY}) (rate(hubble_drop_total{traffic_direction="ingress"}[${w}])) > 0)`;
 }
 
 export interface AllowRule {
