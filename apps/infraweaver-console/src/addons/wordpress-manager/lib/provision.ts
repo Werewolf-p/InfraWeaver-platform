@@ -8,7 +8,8 @@ import { isInstalledScript, coreInstallScript } from "./core-install";
 import { generateSiteSecrets, vaultData, vaultPaths } from "./secrets";
 import { buildSiteManifests, buildIngressRoute, buildDenyMiddleware, isGatedAuthMode, siteLabels, type SiteManifestOptions, type AuthMode } from "./manifest";
 import { writeSecret, readSecret, deleteSecret } from "./openbao";
-import { buildPluginSyncPlan, listPluginsCommand, installPluginCommand, removePluginCommand, AUTHENTIK_PLUGIN_SLUG } from "./plugins";
+import { buildPluginSyncPlan, listPluginsCommand, installPluginCommand, removePluginCommand, updateAllPluginsCommand, parsePluginUpdateResult, AUTHENTIK_PLUGIN_SLUG, type PluginUpdateResult } from "./plugins";
+import { installMaintenancePluginCommand, maintenancePluginContents, setMaintenanceCommand, maintenanceStatusCommand, parseMaintenanceStatus, type MaintenanceStatus } from "./maintenance";
 import { redirectUri, buildOidcSettings, pluginInstallCommand, optionUpdateFromStdinCommand, OIDC_SETTINGS_OPTION } from "./authentik";
 import { ensureSsoGate, removeSsoGate } from "@/lib/sso/sso-gate";
 import { ensureSiteAccess, removeSiteAccess } from "./access";
@@ -331,6 +332,47 @@ export async function setPlugins(site: string, desired: string[]): Promise<{ ins
     await execInWpPod(pod, removePluginCommand(slug));
   }
   return { installed: plan.toInstall, removed: plan.toRemove };
+}
+
+/**
+ * Update every installed plugin to its latest version in one wp-cli pass, returning
+ * the per-plugin outcome (old → new version + status). Reuses the same pod-exec path
+ * as plugin install/sync; nothing to update yields an empty list, not an error.
+ */
+export async function updateAllPlugins(site: string): Promise<{ updated: PluginUpdateResult[] }> {
+  assertValidSiteId(site);
+  if (!(await siteExists(site))) throw new SiteNotFoundError(site);
+  const { core } = clients();
+  const pod = await runningWpPod(core, site);
+  const { stdout } = await execInWpPod(pod, updateAllPluginsCommand());
+  return { updated: parsePluginUpdateResult(stdout) };
+}
+
+/** Read whether the InfraWeaver maintenance page is currently active for a site. */
+export async function getMaintenanceMode(site: string): Promise<MaintenanceStatus> {
+  assertValidSiteId(site);
+  if (!(await siteExists(site))) throw new SiteNotFoundError(site);
+  const { core } = clients();
+  const pod = await runningWpPod(core, site);
+  const { stdout } = await execInWpPod(pod, maintenanceStatusCommand());
+  return parseMaintenanceStatus(stdout);
+}
+
+/**
+ * Turn maintenance mode on/off. Enabling first (idempotently) drops the must-use
+ * plugin — streamed over stdin so the PHP lands verbatim — then flips the option so
+ * the gate is always backed by the enforcing code before it's switched on.
+ */
+export async function setMaintenanceMode(site: string, enabled: boolean): Promise<MaintenanceStatus> {
+  assertValidSiteId(site);
+  if (!(await siteExists(site))) throw new SiteNotFoundError(site);
+  const { core } = clients();
+  const pod = await runningWpPod(core, site);
+  if (enabled) {
+    await execInWpPod(pod, installMaintenancePluginCommand(), { stdin: maintenancePluginContents() });
+  }
+  await execInWpPod(pod, setMaintenanceCommand(enabled));
+  return { enabled };
 }
 
 /** Adapter so the generic SSO module persists the client secret via the addon's vault. */

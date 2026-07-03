@@ -13,7 +13,7 @@ import {
 import { isValidSiteName, isValidSiteId } from "../lib/naming";
 import { PLUGIN_CATALOG } from "../lib/plugins";
 import { listDomains, internalSubdomain, isAllowedDomain } from "../lib/config";
-import { createSite, deleteSite, listSites, listInstalledPlugins, setPlugins, enableSso, setProtection, getSiteHealth } from "../lib/provision";
+import { createSite, deleteSite, listSites, listInstalledPlugins, setPlugins, updateAllPlugins, getMaintenanceMode, setMaintenanceMode, enableSso, setProtection, getSiteHealth } from "../lib/provision";
 import { ensureSiteAccess, listSiteAccessUsers, siteAccessGroupName } from "../lib/access";
 
 function json(data: unknown, status = 200) {
@@ -102,6 +102,10 @@ const ssoSchema = z.object({
 
 const protectionSchema = z.object({
   authMode: z.enum(["none", "login", "admin", "full"]),
+}).strict();
+
+const maintenanceSchema = z.object({
+  enabled: z.boolean(),
 }).strict();
 
 export async function listSitesHandler(): Promise<NextResponse> {
@@ -200,6 +204,38 @@ export async function setPluginsHandler(req: NextRequest, site: string): Promise
   const parsed = pluginsSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return fail("Invalid plugin list", 400);
   return guard(async () => json(await setPlugins(site, parsed.data.plugins)));
+}
+
+/** POST — update every installed plugin to its latest version (one wp-cli pass). */
+export async function updatePluginsHandler(site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:write", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("plugins-update", gate.ctx.username, 10);
+  if (limited) return limited;
+  return guard(async () => json(await updateAllPlugins(site)));
+}
+
+/** GET — whether the maintenance page is currently active for the site. */
+export async function getMaintenanceHandler(site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:read", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("maintenance-read", gate.ctx.username, 60);
+  if (limited) return limited;
+  return guard(async () => json({ site, ...(await getMaintenanceMode(site)) }));
+}
+
+/** PUT — turn the maintenance page on or off. */
+export async function setMaintenanceHandler(req: NextRequest, site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:write", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("maintenance", gate.ctx.username, 20);
+  if (limited) return limited;
+  const parsed = maintenanceSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return fail("Invalid maintenance request", 400);
+  return guard(async () => json({ site, ...(await setMaintenanceMode(site, parsed.data.enabled)) }));
 }
 
 export async function enableSsoHandler(req: NextRequest, site: string): Promise<NextResponse> {
