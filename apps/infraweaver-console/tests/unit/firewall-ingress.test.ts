@@ -33,9 +33,11 @@ describe("summarizeBlockedIngress", () => {
             },
             "4",
           ),
-          // an external IP hit the same pod on 3306
+          // an external IP hit the same pod on 3306 — live shape: the `source`
+          // context label (sourceContext=dns|ip) carries the IP alongside source_ip
           sample(
             {
+              source: "10.0.0.9",
               source_ip: "10.0.0.9",
               destination_namespace: "wordpress",
               destination_pod: "mariadb-0",
@@ -66,9 +68,11 @@ describe("summarizeBlockedIngress", () => {
 });
 
 describe("blockedIngressQuery", () => {
-  test("builds an INGRESS topk PromQL with the given window", () => {
+  test("builds an ingress topk PromQL with the given window", () => {
     const q = blockedIngressQuery(7);
-    expect(q).toContain('hubble_drop_total{direction="INGRESS"}[7m]');
+    // Hubble's labelsContext emits `traffic_direction` (lowercase values) — there
+    // is no `direction` label on hubble_drop_total.
+    expect(q).toContain('hubble_drop_total{traffic_direction="ingress"}[7m]');
     expect(q).toContain("topk(");
     expect(q).toContain("source_pod");
     expect(q).toContain("destination_pod");

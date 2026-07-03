@@ -60,9 +60,13 @@ export async function GET(req: NextRequest) {
   const raw = Number(req.nextUrl.searchParams.get("window") ?? "10");
   const windowMinutes = Number.isFinite(raw) ? raw : 10;
 
-  const [eg, ing] = await Promise.all([
+  const [eg, ing, presence] = await Promise.all([
     promQuery(blockedFlowsQuery(windowMinutes)),
     promQuery(blockedIngressQuery(windowMinutes)),
+    // Presence probe: the dataplane is live as soon as the metric exists, even
+    // when nothing was dropped inside the window — zero denies must render as
+    // "sealed", not "dataplane not reporting".
+    promQuery("count(hubble_drop_total)"),
   ]);
 
   if (!eg.ok && !ing.ok) {
@@ -93,7 +97,8 @@ export async function GET(req: NextRequest) {
     p.totalDropRate += s.totalDropRate;
   }
   const pods = [...byPod.values()].sort((a, b) => b.totalDropRate - a.totalDropRate);
-  const dataplaneLive = egress.length > 0 || ingress.length > 0;
+  const metricPresent = (presence.json?.data?.result?.length ?? 0) > 0;
+  const dataplaneLive = metricPresent || egress.length > 0 || ingress.length > 0;
 
   return NextResponse.json({
     available: true,
