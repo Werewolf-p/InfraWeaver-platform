@@ -191,9 +191,12 @@ async function applyAllow(
         body: replaced,
       });
     } else {
+      // The client sends application/json-patch+json for custom objects, so the
+      // body must be a JSON Patch op array — an object body 400s at the API
+      // server ("cannot unmarshal object into []jsonPatchOp").
       await custom.patchNamespacedCustomObject({
         group: CNP_GROUP, version: CNP_VERSION, namespace, plural: CNP_PLURAL, name: policyName,
-        body: { spec: { [direction]: [...current, rule] } },
+        body: [{ op: "add", path: `/spec/${direction}`, value: [...current, rule] }],
       });
     }
   } else {

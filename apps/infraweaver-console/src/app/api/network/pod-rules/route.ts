@@ -119,9 +119,11 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ ok: true, policy: policyName, deletedPolicy: true });
     }
 
+    // JSON Patch op array — the client sends application/json-patch+json for
+    // custom objects; an object body 400s at the API server.
     await custom.patchNamespacedCustomObject({
       group: CNP_GROUP, version: CNP_VERSION, namespace, plural: CNP_PLURAL, name: policyName,
-      body: { spec: { [direction]: result.spec[direction] } },
+      body: [{ op: "add", path: `/spec/${direction}`, value: result.spec[direction] }],
     });
     return NextResponse.json({ ok: true, policy: policyName, deletedPolicy: false });
   } catch (err) {
