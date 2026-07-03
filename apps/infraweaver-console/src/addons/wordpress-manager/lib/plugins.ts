@@ -77,3 +77,44 @@ export function buildPluginSyncCommands(plan: PluginSyncPlan): string[] {
     ...plan.toRemove.map(removePluginCommand),
   ];
 }
+
+export interface PluginUpdateResult {
+  slug: string;
+  oldVersion: string | null;
+  newVersion: string | null;
+  /** wp-cli's per-plugin outcome, e.g. "Updated" or "Error". */
+  status: string;
+}
+
+/** Update every installed plugin to its latest version, as machine-readable JSON. */
+export function updateAllPluginsCommand(): string {
+  return "wp --allow-root plugin update --all --format=json";
+}
+
+/**
+ * Parse `wp plugin update --all --format=json`. When nothing needs updating wp-cli
+ * prints a plain "Success:" line (no JSON), so an unparseable/empty payload maps to
+ * an empty list rather than an error. Field names follow wp-cli's snake_case output.
+ */
+export function parsePluginUpdateResult(stdout: string): PluginUpdateResult[] {
+  const start = stdout.indexOf("[");
+  const end = stdout.lastIndexOf("]");
+  if (start === -1 || end <= start) return [];
+  let rows: unknown;
+  try {
+    rows = JSON.parse(stdout.slice(start, end + 1));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => {
+    const r = (row ?? {}) as Record<string, unknown>;
+    const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+    return {
+      slug: str(r.name) ?? "",
+      oldVersion: str(r.old_version),
+      newVersion: str(r.new_version),
+      status: str(r.status) ?? "unknown",
+    };
+  });
+}
