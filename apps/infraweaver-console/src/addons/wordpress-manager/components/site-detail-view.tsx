@@ -10,7 +10,9 @@ import {
   KeyRound,
   Puzzle,
   CheckCircle2,
+  CircleArrowUp,
   CircleDashed,
+  Construction,
   ExternalLink,
   Globe,
   Lock,
@@ -89,6 +91,25 @@ async function fetchPlugins(site: string): Promise<PluginsResponse> {
   const res = await fetch(`/api/wordpress/sites/${site}/plugins`);
   if (!res.ok) throw new Error("Failed to load plugins");
   return res.json();
+}
+
+interface MaintenanceState {
+  site: string;
+  enabled: boolean;
+}
+
+async function fetchMaintenance(site: string): Promise<MaintenanceState> {
+  const res = await fetch(`/api/wordpress/sites/${site}/maintenance`);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to load maintenance state");
+  return res.json();
+}
+
+/** Mirrors PluginUpdateResult in lib/plugins.ts (what wp-cli reports per plugin). */
+interface PluginUpdateRow {
+  slug: string;
+  oldVersion: string | null;
+  newVersion: string | null;
+  status: string;
 }
 
 export function SiteDetailView({ site }: { site: string }) {
@@ -182,6 +203,41 @@ export function SiteDetailView({ site }: { site: string }) {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const { data: maintenance, isError: maintenanceUnavailable } = useQuery({
+    queryKey: ["wordpress-maintenance", site],
+    queryFn: () => fetchMaintenance(site),
+    retry: 1,
+  });
+
+  const maintenanceMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await fetch(`/api/wordpress/sites/${site}/maintenance`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to change maintenance mode");
+    },
+    onSuccess: (_data, enabled) => {
+      toast.success(enabled ? "Maintenance page is up — visitors now see it" : "Maintenance mode off — the site is live again");
+      void queryClient.invalidateQueries({ queryKey: ["wordpress-maintenance", site] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const updateAllMutation = useMutation({
+    mutationFn: async (): Promise<{ updated: PluginUpdateRow[] }> => {
+      const res = await fetch(`/api/wordpress/sites/${site}/plugins/update`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Plugin update failed");
+      return res.json();
+    },
+    onSuccess: ({ updated }) => {
+      toast.success(updated.length === 0 ? "All plugins are already up to date" : `Plugin update finished (${updated.length} processed)`);
+      void queryClient.invalidateQueries({ queryKey: ["wordpress-plugins", site] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const toggle = (slug: string) => {
     if (pluginsUnavailable) return;
     const next = new Set(checked);
@@ -253,6 +309,58 @@ export function SiteDetailView({ site }: { site: string }) {
           </p>
           <p className="mt-2 text-sm text-zinc-200">{AUTH_MODE_LABEL[status?.authMode ?? "none"]}</p>
         </div>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-zinc-200">
+            <Construction className="h-5 w-5 text-orange-400" aria-hidden />
+            <h2 className="text-lg font-medium">Maintenance mode</h2>
+          </div>
+          {maintenance && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs",
+                maintenance.enabled
+                  ? "border-orange-500/30 bg-orange-500/15 text-orange-300"
+                  : "border-zinc-700 bg-zinc-950/50 text-zinc-400",
+              )}
+            >
+              {maintenance.enabled ? "Maintenance page up" : "Off"}
+            </span>
+          )}
+        </div>
+        <p className="mt-1 max-w-prose text-sm text-zinc-400">
+          Shows visitors a &ldquo;temporarily unavailable&rdquo; page (HTTP 503) while you work on the site. Logged-in
+          administrators keep full access, and the page stays up until you turn it off.
+        </p>
+        {maintenanceUnavailable && !maintenance ? (
+          // Only replace the control when we have never read the state — a failed
+          // background refetch keeps the last-known-good data, so the toggle stays.
+          <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
+            Maintenance mode can&rsquo;t be read right now — the site may still be starting.
+          </div>
+        ) : (
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              aria-pressed={maintenance?.enabled ?? false}
+              disabled={!maintenance || maintenanceMutation.isPending}
+              onClick={() => maintenance && maintenanceMutation.mutate(!maintenance.enabled)}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                maintenance?.enabled ? "bg-emerald-500 hover:bg-emerald-400" : "bg-orange-500 hover:bg-orange-400",
+              )}
+            >
+              {maintenanceMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Construction className="h-4 w-4" aria-hidden />
+              )}
+              {maintenance?.enabled ? "Take out of maintenance" : "Enable maintenance"}
+            </button>
+          </div>
+        )}
       </section>
 
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
@@ -361,6 +469,67 @@ export function SiteDetailView({ site }: { site: string }) {
         ) : (
           <p className="mt-4 text-sm text-zinc-500">No users are granted access to this site yet.</p>
         )}
+      </section>
+
+      <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-zinc-200">
+            <CircleArrowUp className="h-5 w-5 text-teal-400" aria-hidden />
+            <h2 className="text-lg font-medium">Plugin updates</h2>
+          </div>
+          <button
+            type="button"
+            disabled={updateAllMutation.isPending || pluginsUnavailable}
+            onClick={() => updateAllMutation.mutate()}
+            className="inline-flex items-center gap-2 rounded-lg bg-teal-500 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {updateAllMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <CircleArrowUp className="h-4 w-4" aria-hidden />
+            )}
+            {updateAllMutation.isPending ? "Updating…" : "Update all plugins"}
+          </button>
+        </div>
+        <p className="mt-1 max-w-prose text-sm text-zinc-400">
+          Updates every installed plugin to its latest release. For larger updates, consider putting the site into
+          maintenance mode first.
+        </p>
+        {updateAllMutation.data &&
+          (updateAllMutation.data.updated.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-500">Everything is already up to date.</p>
+          ) : (
+            <ul className="mt-4 space-y-1.5">
+              {updateAllMutation.data.updated.map((row) => {
+                const ok = row.status.toLowerCase() === "updated";
+                return (
+                  <li
+                    key={row.slug}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-1.5 text-sm"
+                  >
+                    <span className="truncate text-zinc-200">{row.slug}</span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {row.oldVersion && row.newVersion && (
+                        <span className="text-xs text-zinc-500">
+                          {row.oldVersion} → {row.newVersion}
+                        </span>
+                      )}
+                      <span
+                        className={cn(
+                          "rounded-full border px-2 py-0.5 text-[11px]",
+                          ok
+                            ? "border-green-500/30 bg-green-500/15 text-green-300"
+                            : "border-red-500/30 bg-red-500/15 text-red-300",
+                        )}
+                      >
+                        {row.status}
+                      </span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ))}
       </section>
 
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
