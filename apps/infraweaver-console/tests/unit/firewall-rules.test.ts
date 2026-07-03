@@ -5,6 +5,7 @@ import {
   describePorts,
   policySelectsApp,
   policySelectsPod,
+  workloadSelectorFromPodLabels,
   type CnpObject,
 } from "@/lib/firewall/rules";
 
@@ -100,6 +101,26 @@ describe("policySelectsPod", () => {
 
   test("returns false when pod labels are unavailable, even for an otherwise-matching selector", () => {
     expect(policySelectsPod(componentPolicy, undefined)).toBe(false);
+  });
+});
+
+describe("workloadSelectorFromPodLabels", () => {
+  test("keeps stable identity labels and drops controller-stamped ones", () => {
+    const sel = workloadSelectorFromPodLabels({
+      "infraweaver.io/site": "zonnevaarwater-nl",
+      "infraweaver.io/component": "wordpress",
+      "pod-template-hash": "6945647f45",
+      "controller-revision-hash": "abc",
+    });
+    expect(sel).toEqual({
+      "infraweaver.io/site": "zonnevaarwater-nl",
+      "infraweaver.io/component": "wordpress",
+    });
+  });
+
+  test("returns undefined when nothing stable remains or labels missing", () => {
+    expect(workloadSelectorFromPodLabels({ "pod-template-hash": "x" })).toBeUndefined();
+    expect(workloadSelectorFromPodLabels(undefined)).toBeUndefined();
   });
 });
 

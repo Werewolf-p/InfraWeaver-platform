@@ -123,6 +123,37 @@ export function policySelectsPod(policy: CnpObject, podLabels: Record<string, st
   return keys.every((key) => podLabels[key] === selector[key]);
 }
 
+// Labels stamped per-revision/per-instance by controllers — never part of a
+// workload's stable identity, so never valid in a policy endpointSelector.
+const VOLATILE_POD_LABELS = [
+  "pod-template-hash",
+  "controller-revision-hash",
+  "statefulset.kubernetes.io/pod-name",
+  "apps.kubernetes.io/pod-index",
+  "batch.kubernetes.io/controller-uid",
+  "batch.kubernetes.io/job-name",
+  "controller-uid",
+  "job-name",
+];
+
+/**
+ * Stable workload selector derived from a pod's real labels. The allow-rule
+ * writer used to guess `{app: <pod name minus hash>}` — WordPress pods carry no
+ * `app` label at all (identity lives in `infraweaver.io/site` + `.../component`),
+ * so the created allowlist policy selected nothing and the "allowed" flow stayed
+ * blocked. Returns undefined when nothing stable remains (caller falls back to
+ * the app-label guess).
+ */
+export function workloadSelectorFromPodLabels(
+  podLabels: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!podLabels) return undefined;
+  const stable = Object.fromEntries(
+    Object.entries(podLabels).filter(([key]) => !VOLATILE_POD_LABELS.includes(key)),
+  );
+  return Object.keys(stable).length > 0 ? stable : undefined;
+}
+
 export interface RemoveResult {
   spec: NonNullable<CnpObject["spec"]>;
   empty: boolean; // true when no ingress and no egress rules remain

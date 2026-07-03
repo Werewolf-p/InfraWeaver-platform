@@ -17,7 +17,8 @@ import {
   type BlockedDestination,
   type FlowDirection,
 } from "@/lib/firewall/drops";
-import { MANAGED_BY } from "@/lib/firewall/rules";
+import { MANAGED_BY, policySelectsPod, workloadSelectorFromPodLabels, type CnpObject } from "@/lib/firewall/rules";
+import { makeCoreApi } from "@/lib/kube-client";
 
 const PROMETHEUS_URL =
   process.env.PROMETHEUS_URL ?? "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090";
@@ -136,38 +137,65 @@ interface ApplyResult {
 
 // Read-modify-write a `<app>-<direction>-allowlist` CiliumNetworkPolicy, appending
 // the rule. Idempotent: an identical rule already present is left untouched.
+// `subjectPodLabels` (when available) drives the endpointSelector — the old
+// `{app: <name>}` guess selects nothing on pods without an `app` label (all
+// WordPress sites), leaving the policy inert while the UI reports "allowed".
 async function applyAllow(
   custom: ReturnType<typeof makeCustomApi>,
   namespace: string,
   appLabel: string,
   direction: FlowDirection,
   peer: BlockedDestination,
+  subjectPodLabels?: Record<string, string>,
 ): Promise<ApplyResult> {
   const rule = direction === "egress" ? buildAllowRule(peer) : buildIngressAllowRule(peer);
   if (Object.keys(rule).length === 0) {
     throw new Error(`Peer cannot be expressed as an ${direction} allow rule`);
   }
   const policyName = `${appLabel}-${direction}-allowlist`;
+  const selector = workloadSelectorFromPodLabels(subjectPodLabels) ?? { app: appLabel };
 
-  let existing: { spec?: Record<string, unknown[]> } | undefined;
+  let existing: (CnpObject & { spec?: Record<string, unknown> }) | undefined;
   try {
     existing = (await custom.getNamespacedCustomObject({
       group: CNP_GROUP, version: CNP_VERSION, namespace, plural: CNP_PLURAL, name: policyName,
-    })) as { spec?: Record<string, unknown[]> };
+    })) as CnpObject & { spec?: Record<string, unknown> };
   } catch {
     existing = undefined;
   }
 
   if (existing) {
-    const current = existing.spec?.[direction] ?? [];
+    const current = (existing.spec?.[direction] as unknown[] | undefined) ?? [];
     const ruleKey = stableStringify(rule);
-    if (current.some((r) => stableStringify(r) === ruleKey)) {
+    // Heal a policy whose selector no longer (or never) selected the subject pod
+    // — e.g. one created with the old app-label guess.
+    const needsSelectorFix = !!subjectPodLabels && !policySelectsPod(existing, subjectPodLabels);
+    const hasRule = current.some((r) => stableStringify(r) === ruleKey);
+    if (!needsSelectorFix && hasRule) {
       return { policy: policyName, namespace, direction, skipped: true };
     }
-    await custom.patchNamespacedCustomObject({
-      group: CNP_GROUP, version: CNP_VERSION, namespace, plural: CNP_PLURAL, name: policyName,
-      body: { spec: { [direction]: [...current, rule] } },
-    });
+    if (needsSelectorFix) {
+      // Full replace (PUT), not a merge patch: merge-patching matchLabels keeps
+      // the stale keys (e.g. the old `app:` guess) and the selector still
+      // matches nothing.
+      const replaced = {
+        ...existing,
+        spec: {
+          ...(existing.spec ?? {}),
+          endpointSelector: { matchLabels: selector },
+          [direction]: hasRule ? current : [...current, rule],
+        },
+      };
+      await custom.replaceNamespacedCustomObject({
+        group: CNP_GROUP, version: CNP_VERSION, namespace, plural: CNP_PLURAL, name: policyName,
+        body: replaced,
+      });
+    } else {
+      await custom.patchNamespacedCustomObject({
+        group: CNP_GROUP, version: CNP_VERSION, namespace, plural: CNP_PLURAL, name: policyName,
+        body: { spec: { [direction]: [...current, rule] } },
+      });
+    }
   } else {
     await custom.createNamespacedCustomObject({
       group: CNP_GROUP, version: CNP_VERSION, namespace, plural: CNP_PLURAL,
@@ -175,7 +203,7 @@ async function applyAllow(
         apiVersion: "cilium.io/v2",
         kind: "CiliumNetworkPolicy",
         metadata: { name: policyName, namespace, labels: { "app.kubernetes.io/managed-by": MANAGED_BY } },
-        spec: { endpointSelector: { matchLabels: { app: appLabel } }, [direction]: [rule] },
+        spec: { endpointSelector: { matchLabels: selector }, [direction]: [rule] },
       },
     });
   }
@@ -219,11 +247,22 @@ export async function POST(req: NextRequest) {
   const peer: BlockedDestination =
     peerInput.kind === "pod" ? { ...peerInput, target: appLabelFromPod(peerInput.target) } : peerInput;
   const subjectApp = body.appLabel || appLabelFromPod(body.pod);
+
+  // The subject pod's real labels drive the policy's endpointSelector; the
+  // app-label guess is only a fallback when the pod can't be read.
+  let subjectPodLabels: Record<string, string> | undefined;
+  try {
+    const podObj = await makeCoreApi().readNamespacedPod({ name: body.pod, namespace: body.namespace });
+    subjectPodLabels = podObj.metadata?.labels ?? undefined;
+  } catch {
+    subjectPodLabels = undefined;
+  }
+
   const custom = makeCustomApi();
   const applied: ApplyResult[] = [];
 
   try {
-    applied.push(await applyAllow(custom, body.namespace, subjectApp, direction, peer));
+    applied.push(await applyAllow(custom, body.namespace, subjectApp, direction, peer, subjectPodLabels));
 
     if (body.bidirectional && isBidirectionalCandidate(peer)) {
       const mirrorDir: FlowDirection = direction === "egress" ? "ingress" : "egress";
