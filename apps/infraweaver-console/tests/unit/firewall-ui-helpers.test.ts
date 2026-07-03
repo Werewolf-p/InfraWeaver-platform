@@ -4,6 +4,7 @@ import {
   flowId,
   isFlowAllowable,
   notAllowableReason,
+  podDeniesForPods,
   podFlowCount,
   podKey,
 } from "@/app/(dashboard)/network/firewall/types";
@@ -61,5 +62,20 @@ describe("firewall UI helpers", () => {
     };
     expect(podKey(pod)).toBe("wordpress/wp-abc");
     expect(podFlowCount(pod)).toBe(3);
+  });
+
+  it("podDeniesForPods returns the app slice, synthesizing sealed pods", () => {
+    const fleet: PodDenies[] = [
+      { namespace: "wordpress", pod: "blog-1", ingress: [], egress: [dest({ target: "evil.example" })], totalDropRate: 1 },
+      { namespace: "other", pod: "blog-1", ingress: [dest({ target: "10.0.0.1" })], egress: [], totalDropRate: 2 },
+    ];
+
+    const slice = podDeniesForPods(fleet, "wordpress", ["blog-1", "blog-db-1"]);
+
+    // The namespace must match — the identically-named pod in "other" is ignored.
+    expect(slice[0]).toBe(fleet[0]);
+    // Pods with no reported denials still appear, sealed, in input order.
+    expect(slice[1]).toEqual({ namespace: "wordpress", pod: "blog-db-1", ingress: [], egress: [], totalDropRate: 0 });
+    expect(slice.map((p) => p.pod)).toEqual(["blog-1", "blog-db-1"]);
   });
 });

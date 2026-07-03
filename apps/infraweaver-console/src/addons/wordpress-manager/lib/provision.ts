@@ -13,10 +13,14 @@ import { installMaintenancePluginCommand, maintenancePluginContents, setMaintena
 import { redirectUri, buildOidcSettings, pluginInstallCommand, optionUpdateFromStdinCommand, OIDC_SETTINGS_OPTION } from "./authentik";
 import { ensureSsoGate, removeSsoGate } from "@/lib/sso/sso-gate";
 import { ensureSiteAccess, removeSiteAccess } from "./access";
+import { loadUsersConfig } from "@/lib/users-config";
+import { computeSiteWordpressUsers } from "./access-policy";
+import { buildWpUserSyncPlan, listWpUsersCommand, parseWpUserList, type WpUserSyncAction } from "./wp-users";
 import { execInWpPod } from "./k8s-exec";
 import { isK8sNotFound } from "./k8s-errors";
 import { ServiceUnavailableError, SiteNotFoundError } from "./errors";
 import { siteHealthCommand, parseSiteHealth, type SiteHealth } from "./health";
+import { shapeSitePods, type SitePod, type SitePodSource } from "./site-pods";
 
 export interface SiteSummary {
   site: string;
@@ -278,6 +282,49 @@ export async function deleteSite(site: string): Promise<void> {
       console.warn(`[wordpress] failed to delete vault secret ${path}; credentials may remain:`, err instanceof Error ? err.message : err),
     );
   }
+}
+
+export interface WordpressUserSyncSummary {
+  /** What the reconcile did per RBAC-granted user (created/updated/unchanged). */
+  actions: WpUserSyncAction[];
+  /** Granted users that cannot get an account because users.yaml has no email. */
+  skippedNoEmail: string[];
+}
+
+/**
+ * Materialize the site's RBAC grants as real WordPress accounts: everyone with
+ * site access gets a user whose WordPress role mirrors their InfraWeaver role
+ * (admin → administrator, write → editor, read → subscriber), so the site's
+ * user list reflects who actually has access — not just the install admin.
+ * Accounts of revoked users are left in place (the Authentik gate enforces
+ * revocation); the install admin account is never touched. Idempotent.
+ */
+export async function syncSiteWpUsers(site: string): Promise<WordpressUserSyncSummary> {
+  assertValidSiteId(site);
+  const cfg = await loadUsersConfig();
+  const desired = computeSiteWordpressUsers(site, cfg.users, cfg.groups);
+  const { core } = clients();
+  const pod = await runningWpPod(core, site);
+  const existing = parseWpUserList((await execInWpPod(pod, listWpUsersCommand())).stdout);
+  const plan = buildWpUserSyncPlan(desired.users, existing, adminUser());
+  for (const command of plan.commands) {
+    await execInWpPod(pod, command);
+  }
+  return { actions: plan.actions, skippedNoEmail: desired.skippedNoEmail };
+}
+
+/**
+ * The live pods behind one site (WordPress + MariaDB), via the per-site label
+ * every pod carries. Powers the site detail's pod list + firewall panel.
+ */
+export async function listSitePods(site: string): Promise<SitePod[]> {
+  assertValidSiteId(site);
+  const { core } = clients();
+  const pods = await core.listNamespacedPod({
+    namespace: WORDPRESS_NAMESPACE,
+    labelSelector: `infraweaver.io/site=${site}`,
+  });
+  return shapeSitePods((pods.items ?? []) as SitePodSource[]);
 }
 
 /**
@@ -546,6 +593,13 @@ export async function reconcileSite(site: string): Promise<void> {
       console.warn(`[wordpress] SSO requested for ${site} but no Authentik issuer configured (WORDPRESS_AUTHENTIK_ISSUER); skipping`);
     }
   }
+
+  // Best-effort: materialize RBAC grants as WordPress accounts. Non-fatal — the
+  // grant/revoke hook and the manual access sync re-run it any time.
+  await syncSiteWpUsers(site).catch((err) =>
+    console.warn(`[wordpress] user sync for ${site} failed (will retry on next access sync):`, err instanceof Error ? err.message : err),
+  );
+
   await writeIntent(site, intent.authMode, intent.plugins, true);
 }
 

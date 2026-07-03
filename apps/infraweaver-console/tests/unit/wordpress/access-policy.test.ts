@@ -1,4 +1,9 @@
-import { computeSiteAccessUsers, type AccessUser, type AccessGroup } from "@/addons/wordpress-manager/lib/access-policy";
+import {
+  computeSiteAccessUsers,
+  computeSiteWordpressUsers,
+  type AccessUser,
+  type AccessGroup,
+} from "@/addons/wordpress-manager/lib/access-policy";
 import type { RoleAssignment } from "@/lib/rbac";
 
 /** Minimal RoleAssignment builder — only the fields the resolver reads matter. */
@@ -62,5 +67,64 @@ describe("computeSiteAccessUsers", () => {
       noone: { role_assignments: [grant({ roleId: "game-server-viewer", scope: "/game-hub/servers/x", principalId: "noone" })] },
     };
     expect(computeSiteAccessUsers("blog", users, {})).toEqual(["amy", "zoe"]);
+  });
+});
+
+describe("computeSiteWordpressUsers", () => {
+  test("maps the strongest site-scoped verb to the WordPress role", () => {
+    const users: Record<string, AccessUser> = {
+      admin1: { email: "a@x.dev", role_assignments: [grant({ roleId: "wordpress-admin", scope: "/wordpress/sites/blog", principalId: "admin1" })] },
+      editor1: { email: "e@x.dev", role_assignments: [grant({ roleId: "wordpress-editor", scope: "/wordpress/sites/blog", principalId: "editor1" })] },
+      viewer1: { email: "v@x.dev", role_assignments: [grant({ roleId: "wordpress-viewer", scope: "/wordpress/sites/blog", principalId: "viewer1" })] },
+    };
+
+    expect(computeSiteWordpressUsers("blog", users, {}).users).toEqual([
+      { username: "admin1", email: "a@x.dev", role: "administrator" },
+      { username: "editor1", email: "e@x.dev", role: "editor" },
+      { username: "viewer1", email: "v@x.dev", role: "subscriber" },
+    ]);
+  });
+
+  test("a platform owner (holds *) becomes an administrator on every site", () => {
+    const users: Record<string, AccessUser> = {
+      remon: { email: "remon@x.dev", authentik_groups: ["platform-admins"] },
+    };
+
+    expect(computeSiteWordpressUsers("blog", users, {}).users).toEqual([
+      { username: "remon", email: "remon@x.dev", role: "administrator" },
+    ]);
+  });
+
+  test("reports (not drops) authorized users without an email", () => {
+    const users: Record<string, AccessUser> = {
+      noemail: { role_assignments: [grant({ roleId: "wordpress-viewer", scope: "/wordpress/sites/blog", principalId: "noemail" })] },
+    };
+
+    const result = computeSiteWordpressUsers("blog", users, {});
+    expect(result.users).toEqual([]);
+    expect(result.skippedNoEmail).toEqual(["noemail"]);
+  });
+
+  test("excludes users without a grant on this site", () => {
+    const users: Record<string, AccessUser> = {
+      other: { email: "o@x.dev", role_assignments: [grant({ roleId: "wordpress-admin", scope: "/wordpress/sites/shop", principalId: "other" })] },
+    };
+
+    const result = computeSiteWordpressUsers("blog", users, {});
+    expect(result.users).toEqual([]);
+    expect(result.skippedNoEmail).toEqual([]);
+  });
+
+  test("resolves group-principal grants for members of the group", () => {
+    const users: Record<string, AccessUser> = {
+      carol: { email: "c@x.dev", authentik_groups: ["editors"] },
+    };
+    const groups: Record<string, AccessGroup> = {
+      editors: { role_assignments: [grant({ roleId: "wordpress-editor", scope: "/wordpress/sites/blog", principalType: "group", principalId: "editors" })] },
+    };
+
+    expect(computeSiteWordpressUsers("blog", users, groups).users).toEqual([
+      { username: "carol", email: "c@x.dev", role: "editor" },
+    ]);
   });
 });

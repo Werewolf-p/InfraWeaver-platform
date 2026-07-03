@@ -35,6 +35,12 @@ import { resolveAppRouteAccess, type AppRouteAccessSummary } from "@/lib/app-rou
 import type { AccessTier } from "@/lib/access-tier";
 import { AppPodsDrilldown } from "@/components/apps/app-pods-drilldown";
 import type { AppIdentity } from "@/lib/pod-app-grouping";
+import {
+  WORDPRESS_APPS_NAMESPACE,
+  wordpressSiteHealth,
+  wordpressSiteHref,
+  type WordpressSiteSummary,
+} from "@/lib/wordpress-apps";
 
 
 
@@ -161,10 +167,10 @@ interface AppRow {
   syncStatus: AppHealthStatus;
   /** "off" when the app was manually stopped from the console; "on" otherwise. */
   powerState: "on" | "off";
-  source: "Catalog" | "Community";
+  source: "Catalog" | "Community" | "WordPress";
   lastSync: string;
   createdAt?: string;
-  sourceType: "Helm" | "Git" | "Community";
+  sourceType: "Helm" | "Git" | "Community" | "WordPress";
   ingressHost?: string;
   urls?: string[];
   access?: AppRouteAccessSummary;
@@ -172,7 +178,7 @@ interface AppRow {
 
 type AppHealthFilter = "all" | "healthy" | "degraded" | "syncing" | "unknown";
 type AppSyncFilter = "all" | "synced" | "outOfSync" | "syncing";
-type AppSourceFilter = "all" | "Catalog" | "Community";
+type AppSourceFilter = "all" | "Catalog" | "Community" | "WordPress";
 type AppSortOption = "name-asc" | "name-desc" | "last-synced" | "health";
 
 const APP_HEALTH_FILTERS: Array<{ value: AppHealthFilter; label: string }> = [
@@ -194,7 +200,20 @@ const APP_SOURCE_FILTERS: Array<{ value: AppSourceFilter; label: string }> = [
   { value: "all", label: "All sources" },
   { value: "Catalog", label: "Catalog" },
   { value: "Community", label: "Community" },
+  { value: "WordPress", label: "WordPress" },
 ];
+
+/** Source pill styling per origin (Catalog blue, Community purple, WordPress teal). */
+const SOURCE_PILL_CLASS: Record<AppRow["source"], string> = {
+  Catalog: "bg-blue-500/10 text-blue-400 border border-blue-500/20",
+  Community: "bg-purple-500/10 text-purple-400 border border-purple-500/20",
+  WordPress: "bg-teal-500/10 text-teal-400 border border-teal-500/20",
+};
+
+/** Where a row's detail view lives — WordPress sites manage from their site panel. */
+function appHref(row: Pick<AppRow, "name" | "source">): string {
+  return row.source === "WordPress" ? wordpressSiteHref(row.name) : `/apps/${encodeURIComponent(row.name)}`;
+}
 
 function healthBucket(status: AppHealthStatus): AppHealthFilter {
   if (status === "healthy" || status === "synced") return "healthy";
@@ -305,7 +324,7 @@ function SwipeableAppCard({
       >
         <div className="flex items-start justify-between mb-2">
           <div className="flex-1 min-w-0 mr-3">
-            <Link href={`/apps/${encodeURIComponent(row.name)}`} className="block truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2] transition hover:text-[#7cb9ff]">{row.name}</Link>
+            <Link href={appHref(row)} className="block truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2] transition hover:text-[#7cb9ff]">{row.name}</Link>
             <p className="text-xs text-gray-500 dark:text-[#9e9e9e] font-mono truncate mt-0.5">{row.namespace}</p>
             {(row.ingressHost || row.access?.tiers.length) && (
               <div className="flex items-center gap-1.5 mt-1">
@@ -339,16 +358,18 @@ function SwipeableAppCard({
                 <Globe className="h-3.5 w-3.5" />
               </a>
             )}
-            <a
-              href={argocdUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Open in ArgoCD"
-              onClick={(event) => event.stopPropagation()}
-              className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 transition hover:text-gray-900 dark:hover:text-white"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
+            {row.source !== "WordPress" && (
+              <a
+                href={argocdUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open in ArgoCD"
+                onClick={(event) => event.stopPropagation()}
+                className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 transition hover:text-gray-900 dark:hover:text-white"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
             <ActionsMenu actions={actions} className="shrink-0" />
             {row.powerState === "off"
               ? <StatusBadge status="suspended" label="Stopped" description="Manually stopped from the console" />
@@ -356,19 +377,16 @@ function SwipeableAppCard({
           </div>
         </div>
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          {row.powerState === "off"
-            ? <span className="text-[11px] text-slate-500 dark:text-slate-400">Sync paused while stopped</span>
-            : <StatusBadge status={row.syncStatus} />}
-          <span className={cn(
-            "px-2 py-0.5 rounded text-xs font-medium",
-            row.source === "Catalog"
-              ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-              : "bg-purple-500/10 text-purple-400 border border-purple-500/20"
-          )}>
+          {row.source === "WordPress"
+            ? null
+            : row.powerState === "off"
+              ? <span className="text-[11px] text-slate-500 dark:text-slate-400">Sync paused while stopped</span>
+              : <StatusBadge status={row.syncStatus} />}
+          <span className={cn("px-2 py-0.5 rounded text-xs font-medium", SOURCE_PILL_CLASS[row.source])}>
             {row.source}
           </span>
           <span className="text-[11px] text-slate-500">
-            {row.lastSync ? <RelativeTime date={row.lastSync} className="text-[11px] text-slate-500" /> : "Never synced"}
+            {row.lastSync ? <RelativeTime date={row.lastSync} className="text-[11px] text-slate-500" /> : row.source === "WordPress" ? "Live site" : "Never synced"}
           </span>
         </div>
       </motion.div>
@@ -377,10 +395,12 @@ function SwipeableAppCard({
 }
 
 function AllInstalledTab() {
+  const router = useRouter();
   const { can } = useRBAC();
   const canSyncApps = can("apps:sync");
   const canManageApps = can("apps:write");
   const canPowerApps = can("cluster:admin");
+  const canManageWordpress = can("wordpress:admin");
   const { data: argoApps, isLoading: argoLoading, isFetching: argoFetching, refetch, dataUpdatedAt, error: argoError, dataSource } = useArgoApps();
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
@@ -441,6 +461,17 @@ function AllInstalledTab() {
     },
     staleTime: 30_000,
   });
+  // WordPress sites are provisioned imperatively (not as ArgoCD Applications),
+  // so they get their own feed. A user without wordpress:read simply sees none.
+  const wordpressSitesQuery = useQuery<{ sites: WordpressSiteSummary[] }>({
+    queryKey: ["wordpress-apps"],
+    queryFn: async () => {
+      const response = await fetch("/api/wordpress/sites");
+      return response.ok ? response.json() : { sites: [] };
+    },
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
   const ingressQuery = useQuery<IngressResponse>({
     queryKey: ["ingress-routes", "apps"],
     queryFn: async () => {
@@ -454,6 +485,8 @@ function AllInstalledTab() {
 
   const communityApps = useMemo(() => communityAppsQuery.data?.apps ?? [], [communityAppsQuery.data?.apps]);
   const communityLoading = communityAppsQuery.isLoading;
+  const wordpressSites = useMemo(() => wordpressSitesQuery.data?.sites ?? [], [wordpressSitesQuery.data?.sites]);
+  const wordpressLoading = wordpressSitesQuery.isLoading;
   const ingressRoutes = useMemo(() => ingressQuery.data?.ingressRoutes ?? [], [ingressQuery.data?.ingressRoutes]);
 
   const allRows = useMemo(() => {
@@ -521,8 +554,33 @@ function AllInstalledTab() {
       };
     });
 
-    return [...argo, ...community];
-  }, [argoApps, communityApps, ingressRoutes, recentlyUninstalled]);
+    const wordpress = wordpressSites.map((site): AppRow => {
+      const urls = site.host ? [`https://${site.host}`] : [];
+      const access = resolveAppRouteAccess(routeLookup, {
+        name: site.site,
+        argoName: site.site,
+        ingressHost: site.host,
+        urls,
+      });
+      return {
+        id: `wordpress-${site.site}`,
+        name: site.site,
+        namespace: WORDPRESS_APPS_NAMESPACE,
+        health: wordpressSiteHealth(site),
+        // Sites aren't GitOps-synced; the sync column renders "—" for this source.
+        syncStatus: "unknown",
+        powerState: "on",
+        source: "WordPress",
+        lastSync: "",
+        sourceType: "WordPress",
+        ingressHost: access.primaryHost ?? site.host,
+        urls,
+        access,
+      };
+    });
+
+    return [...argo, ...community, ...wordpress];
+  }, [argoApps, communityApps, wordpressSites, ingressRoutes, recentlyUninstalled]);
 
   const namespaceOptions = useMemo(
     () => Array.from(new Set(allRows.map(row => row.namespace).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
@@ -603,9 +661,10 @@ function AllInstalledTab() {
     stopped: allRows.filter(row => row.powerState === "off").length,
     catalog: allRows.filter(row => row.source === "Catalog").length,
     community: allRows.filter(row => row.source === "Community").length,
+    wordpress: allRows.filter(row => row.source === "WordPress").length,
   }), [allRows]);
 
-  const loading = argoLoading || communityLoading;
+  const loading = argoLoading || communityLoading || wordpressLoading;
   const hasActiveFilters = Boolean(search.trim()) || healthFilter !== "all" || syncFilter !== "all" || sourceFilter !== "all" || namespaceFilter !== "all";
 
   const syncOne = async (name: string) => {
@@ -882,6 +941,22 @@ function AllInstalledTab() {
       });
     }
 
+    if (row.source === "WordPress") {
+      actions.push({
+        label: "Manage site",
+        icon: <Settings2 className="h-4 w-4" />,
+        onClick: () => router.push(appHref(row)),
+      });
+      actions.push({
+        label: deletingApp === row.name ? "Deleting…" : "Delete site",
+        icon: <X className="h-4 w-4" />,
+        onClick: () => handleDeleteWordpressSite(row.name),
+        variant: "destructive",
+        disabled: deletingApp === row.name || !canManageWordpress,
+      });
+      return actions;
+    }
+
     actions.push({
       label: "Open in ArgoCD",
       icon: <ExternalLink className="h-4 w-4" />,
@@ -982,6 +1057,34 @@ function AllInstalledTab() {
     });
   };
 
+  const handleDeleteWordpressSite = (site: string) => {
+    if (!canManageWordpress) {
+      toast.error("You do not have permission to delete WordPress sites");
+      return;
+    }
+    setConfirmDialog({
+      open: true,
+      title: `Delete WordPress site "${site}"?`,
+      description: "Removes the site's deployments, services, volumes, DNS record, SSO gate, and vault secrets. The site's content and database are permanently deleted. This cannot be undone.",
+      confirmText: "Delete site",
+      danger: true,
+      requireTyping: site,
+      onConfirm: () => {
+        setConfirmDialog(d => ({ ...d, open: false }));
+        setDeletingApp(site);
+        fetch(`/api/wordpress/sites/${encodeURIComponent(site)}`, { method: "DELETE" })
+          .then(res => res.json().then(data => ({ ok: res.ok, data })))
+          .then(({ ok, data }: { ok: boolean; data: { error?: string } }) => {
+            if (!ok) throw new Error(data.error ?? "Delete failed");
+            toast.success(`Deleted site ${site}`);
+            void wordpressSitesQuery.refetch();
+          })
+          .catch((e: unknown) => toast.error(e instanceof Error ? e.message : `Failed to delete ${site}`))
+          .finally(() => setDeletingApp(null));
+      },
+    });
+  };
+
   const handleUninstallCommunity = async (slug: string) => {
     if (!canManageApps) {
       toast.error("You do not have permission to uninstall community apps");
@@ -1061,7 +1164,7 @@ function AllInstalledTab() {
       >
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
-            <DashboardStatCard label="Installed apps" value={summary.total} icon={Layers} tone="info" description="Catalog and community apps currently visible to the operator." footer={<span>{summary.catalog} catalog · {summary.community} community</span>} />
+            <DashboardStatCard label="Installed apps" value={summary.total} icon={Layers} tone="info" description="Catalog, community, and WordPress apps currently visible to the operator." footer={<span>{summary.catalog} catalog · {summary.community} community · {summary.wordpress} wordpress</span>} />
             <DashboardStatCard label="Healthy" value={summary.healthy} icon={CheckCircle} tone={summary.degraded > 0 ? "warning" : "success"} description="Apps reporting healthy/synced state." footer={<span>{summary.degraded} degraded · {summary.stopped} stopped</span>} />
             <DashboardStatCard label="Syncing" value={summary.syncing} icon={RefreshCw} tone={summary.syncing > 0 ? "warning" : "neutral"} description="Applications actively progressing or syncing." footer={<span>{summary.outOfSync} out of sync</span>} />
             <DashboardStatCard label="Selected" value={activeSelectedIds.size} icon={Package} tone={activeSelectedIds.size > 0 ? "info" : "neutral"} description="Desktop bulk actions work on the current filtered result set." footer={<span>{selectedCatalogRows.length} catalog · {selectedCommunityRows.length} community selected</span>} />
@@ -1349,16 +1452,18 @@ function AllInstalledTab() {
                       >
                         <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-180")} />
                       </button>
-                      <Link href={`/apps/${encodeURIComponent(row.name)}`} className="transition hover:text-[#7cb9ff]">{row.name}</Link>
+                      <Link href={appHref(row)} className="transition hover:text-[#7cb9ff]">{row.name}</Link>
                       <CopyButton text={row.name} className="h-7 px-2 text-[11px]" />
                       {primaryAppUrl(row) && (
                         <a href={primaryAppUrl(row) ?? undefined} target="_blank" rel="noopener noreferrer" title="Open app URL" className="text-[#4a9eff] hover:text-[#7cb9ff] transition-colors" onClick={e => e.stopPropagation()}>
                           <Globe className="w-3 h-3" />
                         </a>
                       )}
-                      <a href={argocdAppUrl(row)} target="_blank" rel="noopener noreferrer" title="Open in ArgoCD" className="text-slate-500 hover:text-gray-900 dark:hover:text-white transition-colors" onClick={e => e.stopPropagation()}>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
+                      {row.source !== "WordPress" && (
+                        <a href={argocdAppUrl(row)} target="_blank" rel="noopener noreferrer" title="Open in ArgoCD" className="text-slate-500 hover:text-gray-900 dark:hover:text-white transition-colors" onClick={e => e.stopPropagation()}>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       {row.ingressHost && <p className="text-xs text-[#4a9eff] font-mono truncate max-w-[240px]">{row.ingressHost}</p>}
@@ -1368,11 +1473,11 @@ function AllInstalledTab() {
                   </td>
                   {!simpleMode && <td className="py-2.5 px-3 align-top"><div className="flex items-center gap-2"><span className="font-mono text-xs text-gray-500 dark:text-[#9e9e9e]">{row.namespace}</span><CopyButton text={row.namespace} className="h-7 px-2 text-[11px]" /></div></td>}
                   <td className="py-2.5 px-3 align-top">{row.powerState === "off" ? <StatusBadge status="suspended" label="Stopped" description="Manually stopped from the console" /> : <StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} />}</td>
-                  <td className="py-2.5 px-3 align-top">{row.powerState === "off" ? <span className="text-xs text-slate-500 dark:text-slate-400">Sync paused</span> : <StatusBadge status={row.syncStatus} />}</td>
-                  <td className="py-2.5 px-3 align-top"><span className={cn("px-2 py-0.5 rounded text-xs font-medium", row.source === "Catalog" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-purple-500/10 text-purple-400 border border-purple-500/20")}>{row.source}</span></td>
+                  <td className="py-2.5 px-3 align-top">{row.source === "WordPress" ? <span className="text-xs text-slate-500 dark:text-slate-400" title="WordPress sites are provisioned directly, not GitOps-synced">—</span> : row.powerState === "off" ? <span className="text-xs text-slate-500 dark:text-slate-400">Sync paused</span> : <StatusBadge status={row.syncStatus} />}</td>
+                  <td className="py-2.5 px-3 align-top"><span className={cn("px-2 py-0.5 rounded text-xs font-medium", SOURCE_PILL_CLASS[row.source])}>{row.source}</span></td>
                   {!simpleMode && (
                     <td className="py-2.5 px-3 align-top text-xs text-gray-400 dark:text-[#666]">
-                      <div>{row.lastSync ? <RelativeTime date={row.lastSync} live={false} className="text-xs text-gray-400 dark:text-[#666]" /> : "Never synced"}</div>
+                      <div>{row.lastSync ? <RelativeTime date={row.lastSync} live={false} className="text-xs text-gray-400 dark:text-[#666]" /> : row.source === "WordPress" ? "—" : "Never synced"}</div>
                       <div className="mt-1">{row.lastSync ? new Date(row.lastSync).toLocaleString() : "—"}</div>
                     </td>
                   )}

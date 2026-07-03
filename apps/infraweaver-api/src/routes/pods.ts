@@ -30,7 +30,13 @@ podsRoute.get('/', async (c) => {
 
     const pods = ((podList as { items?: unknown[] }).items ?? []).map((item: unknown) => {
       const pod = item as {
-        metadata?: { name?: string; namespace?: string; creationTimestamp?: Date };
+        metadata?: {
+          name?: string;
+          namespace?: string;
+          creationTimestamp?: Date;
+          labels?: Record<string, string>;
+          ownerReferences?: Array<{ kind?: string; name?: string }>;
+        };
         spec?: { containers?: Array<{ name: string }>; nodeName?: string };
         status?: { phase?: string; containerStatuses?: Array<{ restartCount?: number; state?: { waiting?: { reason?: string } } }> };
       };
@@ -43,6 +49,9 @@ podsRoute.get('/', async (c) => {
         nodeName: pod.spec?.nodeName ?? '',
         createdAt: pod.metadata?.creationTimestamp?.toISOString?.() ?? '',
         restartCount: cs.reduce((sum, s) => sum + (s.restartCount ?? 0), 0),
+        // The console resolves pod→app ownership from these (lib/pod-app-grouping).
+        labels: pod.metadata?.labels ?? {},
+        ownerReferences: (pod.metadata?.ownerReferences ?? []).map((o) => ({ kind: o.kind ?? '', name: o.name ?? '' })),
       };
     });
 

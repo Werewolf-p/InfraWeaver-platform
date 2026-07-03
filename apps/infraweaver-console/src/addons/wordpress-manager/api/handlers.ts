@@ -8,13 +8,16 @@ import {
   hasWordpressPermission,
   getScopedWordpressSites,
   hasAllWordpressAccess,
+  WORDPRESS_NAMESPACE,
   type WordpressPermission,
 } from "../lib/wordpress-rbac";
 import { isValidSiteName, isValidSiteId } from "../lib/naming";
 import { PLUGIN_CATALOG } from "../lib/plugins";
 import { listDomains, internalSubdomain, isAllowedDomain } from "../lib/config";
-import { createSite, deleteSite, listSites, listInstalledPlugins, setPlugins, updateAllPlugins, getMaintenanceMode, setMaintenanceMode, enableSso, setProtection, getSiteHealth } from "../lib/provision";
+import { createSite, deleteSite, listSites, listSitePods, listInstalledPlugins, setPlugins, updateAllPlugins, getMaintenanceMode, setMaintenanceMode, enableSso, setProtection, getSiteHealth, syncSiteWpUsers } from "../lib/provision";
 import { ensureSiteAccess, listSiteAccessUsers, siteAccessGroupName } from "../lib/access";
+import { computeSiteWordpressUsers } from "../lib/access-policy";
+import { loadUsersConfig } from "@/lib/users-config";
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
@@ -265,9 +268,32 @@ export async function getAccessHandler(site: string): Promise<NextResponse> {
   if (!gate.ok) return gate.error;
   const limited = rateLimited("access-read", gate.ctx.username, 60);
   if (limited) return limited;
-  return guard(async () =>
-    json({ group: siteAccessGroupName(site), allowed: await listSiteAccessUsers(site) }),
-  );
+  return guard(async () => {
+    const cfg = await loadUsersConfig();
+    const desired = computeSiteWordpressUsers(site, cfg.users, cfg.groups);
+    // roles: the WordPress role each allowed user gets from their RBAC grant.
+    const roles = Object.fromEntries(desired.users.map((user) => [user.username, user.role]));
+    return json({
+      group: siteAccessGroupName(site),
+      allowed: await listSiteAccessUsers(site),
+      roles,
+      skippedNoEmail: desired.skippedNoEmail,
+    });
+  });
+}
+
+/**
+ * GET — the live pods behind a site (WordPress + MariaDB). Read access to the
+ * site is enough: this only exposes the site's own runtime, discovered via the
+ * per-site label, never other namespaces' pods.
+ */
+export async function getSitePodsHandler(site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:read", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("pods-read", gate.ctx.username, 60);
+  if (limited) return limited;
+  return guard(async () => json({ site, namespace: WORDPRESS_NAMESPACE, pods: await listSitePods(site) }));
 }
 
 /** GET — read-only Site Health snapshot (WP/PHP versions, DB size, plugins, uploads). */
@@ -293,7 +319,17 @@ export async function syncAccessHandler(site: string): Promise<NextResponse> {
   if (limited) return limited;
   return guard(async () => {
     const result = await ensureSiteAccess(site);
-    return json({ group: siteAccessGroupName(site), ...result });
+    // Also materialize the grants as WordPress accounts. Reported separately and
+    // non-fatal: the Authentik reconcile above is the security control, while the
+    // pod may simply not be running yet.
+    let wordpressUsers: { actions: unknown[]; skippedNoEmail: string[] } | { error: string };
+    try {
+      wordpressUsers = await syncSiteWpUsers(site);
+    } catch (err) {
+      console.warn(`[wordpress] user sync for ${site} failed:`, err instanceof Error ? err.message : err);
+      wordpressUsers = { error: err instanceof AddonHttpError ? err.message : "WordPress user sync failed — check the server logs" };
+    }
+    return json({ group: siteAccessGroupName(site), ...result, wordpressUsers });
   });
 }
 

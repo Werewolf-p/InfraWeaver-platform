@@ -79,6 +79,15 @@ async function reconcileWordpressAccessWithRetry(site: string): Promise<void> {
     try {
       const mod = await import("@/addons/wordpress-manager/lib/access");
       await mod.syncSiteAccess(site);
+      // Best-effort follow-up: materialize the new grant set as WordPress
+      // accounts with mapped roles. Deliberately outside the retry loop — the
+      // Authentik reconcile above is the security control; this one re-runs on
+      // the next access sync if the site's pod isn't running right now.
+      void import("@/addons/wordpress-manager/lib/provision")
+        .then((provision) => provision.syncSiteWpUsers(site))
+        .catch((err) =>
+          console.warn(`[rbac] WordPress user sync for '${site}' skipped:`, err instanceof Error ? err.message : err),
+        );
       return;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
