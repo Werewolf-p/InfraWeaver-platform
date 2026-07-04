@@ -4,6 +4,11 @@
 export * from "./types";
 export { canonicalize } from "./jcs";
 export {
+  fingerprintKeyMaterial,
+  iwKeysFingerprint,
+  wpKeyFingerprint,
+} from "./fingerprint";
+export {
   constantTimeEqual,
   domainMessage,
   dualSign,
