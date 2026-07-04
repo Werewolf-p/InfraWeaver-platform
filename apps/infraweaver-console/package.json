@@ -11,7 +11,7 @@
     "test": "jest",
     "test:e2e": "playwright test",
     "test:coverage": "jest --coverage",
-    "prebuild": "node ./scripts/build-addon-registry.mjs",
+    "prebuild": "node ./scripts/build-addon-registry.mjs && sh ./scripts/sync-wp-connector.sh",
     "predev": "node ./scripts/build-addon-registry.mjs",
     "iwsl:fixtures": "tsx ../infraweaver-wp-connector/tests/gen-fixtures.ts"
   },
@@ -30,6 +30,7 @@
     "@xterm/xterm": "^6.0.0",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
+    "fflate": "^0.8.3",
     "framer-motion": "^12.38.0",
     "fuse.js": "^7.3.0",
     "isomorphic-git": "^1.38.1",

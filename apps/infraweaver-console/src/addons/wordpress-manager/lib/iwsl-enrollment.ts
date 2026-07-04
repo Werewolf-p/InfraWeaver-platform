@@ -102,6 +102,48 @@ export async function createExternalSite(
   return toView(record, iwFp, now);
 }
 
+/**
+ * §5.1 — register a link record for an IW-provisioned cluster site. Same
+ * record shape and state machine as an external site, but the URL comes from
+ * the site's own cluster placement labels (not operator input), so the
+ * public-origin gate doesn't apply — bundle transport is k8s exec, and the
+ * console never dials the URL for a managed link.
+ */
+export async function createManagedSiteRecord(
+  input: { siteName: string; url: string },
+  actor: string,
+  now = Date.now(),
+): Promise<ExternalSiteView> {
+  const { keys } = await loadOrCreateIwKeys();
+  const iwFp = iwKeysFingerprint(iwPublicKeys(keys));
+  const record = await mutateExternalSites((sites) => {
+    if (sites.some((s) => s.managed && s.siteName === input.siteName)) {
+      throw new AddonHttpError("This site already has a connector link — unlink it first", 409);
+    }
+    if (sites.some((s) => s.url === input.url)) {
+      throw new AddonHttpError("A site with this URL is already registered", 409);
+    }
+    const created: ExternalSiteRecord = {
+      siteId: randomUUID(),
+      name: input.siteName,
+      url: input.url,
+      state: "pending",
+      fingerprintConfirmed: false,
+      createdAt: new Date(now).toISOString(),
+      createdBy: actor,
+      kid: 0,
+      epochFloor: 0,
+      iwKid: 0,
+      rejections: 0,
+      managed: true,
+      siteName: input.siteName,
+    };
+    sites.push(created);
+    return created;
+  });
+  return toView(record, iwFp, now);
+}
+
 export interface IssuedBundle {
   filename: string;
   content: string;

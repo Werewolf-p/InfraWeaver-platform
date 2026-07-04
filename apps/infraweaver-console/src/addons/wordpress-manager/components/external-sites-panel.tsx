@@ -49,6 +49,9 @@ interface ExternalSite {
   wpFingerprint: string | null;
   iwFingerprint: string;
   bundleValid: boolean;
+  /** §5.1 managed links belong to a provisioned site's own settings card. */
+  managed?: boolean;
+  siteName?: string;
 }
 
 interface VerifyOutcome {
@@ -119,11 +122,14 @@ export function ExternalSitesPanel() {
   const [pasteFor, setPasteFor] = useState<string | null>(null);
   const [pastedProof, setPastedProof] = useState("");
 
-  const { data: sites = [], isLoading } = useQuery({
+  const { data: allSites = [], isLoading } = useQuery({
     queryKey: ["wordpress-external-sites"],
     queryFn: fetchExternalSites,
     refetchInterval: 15000,
   });
+  // Managed (§5.1) links live on their own site's settings card — this panel
+  // is strictly the "hosted elsewhere" fleet.
+  const sites = allSites.filter((site) => !site.managed);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["wordpress-external-sites"] });
 
@@ -239,13 +245,23 @@ export function ExternalSitesPanel() {
             connects to InfraWeaver — enrollment is a one-time bundle upload plus a verification pull.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setAdding((open) => !open)}
-          className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
-        >
-          <Plus className="h-4 w-4" aria-hidden /> Add external site
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/api/wordpress/external-sites/plugin"
+            download
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+            title="The InfraWeaver Connector plugin zip — upload it to the external site (or unzip into wp-content/plugins) before enrolling"
+          >
+            <Download className="h-4 w-4" aria-hidden /> Download plugin
+          </a>
+          <button
+            type="button"
+            onClick={() => setAdding((open) => !open)}
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+          >
+            <Plus className="h-4 w-4" aria-hidden /> Add external site
+          </button>
+        </div>
       </header>
 
       <AnimatePresence initial={false}>

@@ -49,6 +49,13 @@ export interface ExternalSiteRecord {
   lastVerify?: { at: string; ok: boolean; reason?: string };
   /** §12.5 — verify/enrollment rejections seen for this site. */
   rejections: number;
+  /**
+   * §5.1 — true for links to IW-provisioned cluster sites, enrolled over
+   * k8s exec instead of the public bundle/verify flow. `siteName` is the
+   * WordPress-manager site the record belongs to.
+   */
+  managed?: boolean;
+  siteName?: string;
 }
 
 interface SitesConfigMap {

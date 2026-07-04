@@ -29,5 +29,8 @@ ENV NODE_ENV=production
 COPY --from=builder --chown=1001:1001 /app/.next/standalone ./
 COPY --from=builder --chown=1001:1001 /app/.next/static ./.next/static
 COPY --from=builder --chown=1001:1001 /app/public ./public
+# Vendored InfraWeaver Connector plugin (see scripts/sync-wp-connector.sh) —
+# read at runtime by the connector-package zip route + managed enrollment.
+COPY --from=builder --chown=1001:1001 /app/vendor ./vendor
 EXPOSE 3000
 CMD ["node", "server.js"]

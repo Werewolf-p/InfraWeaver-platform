@@ -16,6 +16,9 @@ import {
   listExternalSiteViews,
   verifyExternalSite,
 } from "../lib/iwsl-enrollment";
+import { buildConnectorPackage } from "../lib/connector-package";
+import { enrollManagedSite, getManagedLink, unlinkManagedSite } from "../lib/iwsl-managed";
+import { isValidSiteId } from "../lib/naming";
 
 /**
  * API handlers for IWSL external sites (§5 enrollment + §12.5 link state).
@@ -40,15 +43,17 @@ type AuthzResult =
 /**
  * External-site links are namespace-level objects (they gate a signing path to
  * a remote site), so only the namespace-wide grant applies — per-site scopes
- * name provisioned cluster sites and don't map onto link records.
+ * name provisioned cluster sites and don't map onto link records. Managed
+ * links (§5.1) DO name a provisioned site, so those handlers pass `site` and
+ * the check honours the per-site scope too (mirrors handlers.ts).
  */
-async function authorize(permission: WordpressPermission): Promise<AuthzResult> {
+async function authorize(permission: WordpressPermission, site?: string): Promise<AuthzResult> {
   const session = await auth();
   if (!session) return { ok: false, error: fail("Unauthorized", 401), ctx: null };
   const ctx = await getWordpressAccessContext(session);
-  if (!hasWordpressPermission(ctx.groups, ctx.username, ctx.roleAssignments, permission, "")) {
-    return { ok: false, error: fail("Forbidden", 403), ctx };
-  }
+  const namespaceWide = hasWordpressPermission(ctx.groups, ctx.username, ctx.roleAssignments, permission, "");
+  const scoped = site ? hasWordpressPermission(ctx.groups, ctx.username, ctx.roleAssignments, permission, site) : false;
+  if (!namespaceWide && !scoped) return { ok: false, error: fail("Forbidden", 403), ctx };
   return { ok: true, ctx };
 }
 
@@ -163,6 +168,71 @@ export async function deleteExternalSiteHandler(siteId: string): Promise<NextRes
   if (limited) return limited;
   return guard(async () => {
     await deleteExternalSite(siteId);
+    return json({ ok: true });
+  });
+}
+
+/**
+ * GET — the Connector plugin as a standard WordPress plugin zip, for manual
+ * install on external sites. Read access suffices: the plugin contains no
+ * secrets or per-site material — enrollment security lives in the bundle.
+ */
+export async function downloadConnectorPluginHandler(): Promise<NextResponse | Response> {
+  const gate = await authorize("wordpress:read");
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("plugin-download", gate.ctx.username, 20);
+  if (limited) return limited;
+  try {
+    const pkg = await buildConnectorPackage();
+    return new Response(new Uint8Array(pkg.zip), {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="${pkg.filename}"`,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  } catch (err) {
+    console.error("[wordpress:iwsl] plugin download error:", err instanceof Error ? err.message : err);
+    return fail("Plugin package unavailable — check the server logs for details", 500);
+  }
+}
+
+// ── Managed links (§5.1 — IW-provisioned cluster sites) ─────────────────────
+
+/** GET — the site's managed link state (null when never enrolled). */
+export async function getManagedLinkHandler(site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:read", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("managed-read", gate.ctx.username, 60);
+  if (limited) return limited;
+  return guard(async () => json({ link: await getManagedLink(site) }));
+}
+
+/**
+ * POST — install the Connector into the site's pod and run the full §5.1
+ * enrollment (bundle → enroll → proof → verify → auto-confirm). Admin on the
+ * site: this creates a signing target for remote management commands.
+ */
+export async function enrollManagedSiteHandler(site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:admin", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("managed-enroll", gate.ctx.username, 5);
+  if (limited) return limited;
+  return guard(async () => json({ link: await enrollManagedSite(site, gate.ctx.username) }, 201));
+}
+
+/** DELETE — remove the link and best-effort uninstall the plugin. */
+export async function unlinkManagedSiteHandler(site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:admin", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("managed-unlink", gate.ctx.username, 10);
+  if (limited) return limited;
+  return guard(async () => {
+    await unlinkManagedSite(site);
     return json({ ok: true });
   });
 }
