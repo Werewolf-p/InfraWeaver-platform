@@ -421,6 +421,10 @@ async function createServer(body: {
           metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true", "infraweaver/game-type": eggLabel, "infraweaver.io/game-type": eggLabel, "infraweaver/egg": eggLabel, "infraweaver.io/egg": eggLabel }, annotations },
           spec: {
             priorityClassName: "game-server",
+            // Game servers never talk to the Kubernetes API — don't mount an SA
+            // token, so a file-manager escape can't read cluster credentials
+            // out of the running pod (SECURITY-AUDIT H1).
+            automountServiceAccountToken: false,
             terminationGracePeriodSeconds: stopSpec.terminationGracePeriodSeconds,
             shareProcessNamespace: stopSpec.shareProcessNamespace,
             topologySpreadConstraints: [{
@@ -565,6 +569,8 @@ async function cloneServer(source: string, newName: string) {
           },
           spec: {
             priorityClassName: "game-server",
+            // Same rationale as createServer: no SA token in game pods (H1).
+            automountServiceAccountToken: false,
             terminationGracePeriodSeconds: cloneStopSpec.terminationGracePeriodSeconds,
             shareProcessNamespace: cloneStopSpec.shareProcessNamespace,
             securityContext: sourceDeployment.spec?.template?.spec?.securityContext,

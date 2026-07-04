@@ -5,7 +5,7 @@ import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { appendServerAudit, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { validateContainerPath, validateContainerPathWithinRoot } from "@/lib/validate";
+import { buildContainerRealpathGuard, PATH_ESCAPE_MARKER, validateContainerPath, validateContainerPathWithinRoot } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
 import { withServerFileExec } from "../server-file-exec";
 
@@ -42,10 +42,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
         return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
       }
 
+      // "existing-file" also rejects reading *through* a symlink final
+      // component — `/data/link -> /etc/shadow` must not serve the target.
+      const guard = buildContainerRealpathGuard(rootPath, [{ path: filePath, kind: "existing-file" }], shellQuote);
       // base64-streaming a file up to 50MB over k8s exec can exceed the 15s
       // default; the exec now rejects on timeout (a truncated read must not
       // surface as HTTP 200), so give it explicit headroom.
-      const result = await exec(`SIZE=$(stat -c %s ${shellQuote(filePath)} 2>/dev/null || echo 0); if [ \"$SIZE\" -gt 52428800 ]; then echo TOO_LARGE:$SIZE; else base64 ${shellQuote(filePath)} 2>&1; fi`, 60_000);
+      const result = await exec(`${guard}\nSIZE=$(stat -c %s ${shellQuote(filePath)} 2>/dev/null || echo 0); if [ \"$SIZE\" -gt 52428800 ]; then echo TOO_LARGE:$SIZE; else base64 ${shellQuote(filePath)} 2>&1; fi`, 60_000);
+      if (result.stdout.startsWith(PATH_ESCAPE_MARKER)) {
+        return NextResponse.json({ error: "Path resolves outside the server data directory" }, { status: 400 });
+      }
       if (result.stdout.startsWith("TOO_LARGE:")) {
         return NextResponse.json({ error: "File too large (max 50MB)", size: Number.parseInt(result.stdout.split(":")[1] ?? "0", 10) }, { status: 413 });
       }
@@ -102,7 +108,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ name
 
       const b64 = Buffer.from(body.content, "utf8").toString("base64");
       const dir = body.path.substring(0, body.path.lastIndexOf("/")) || "/";
-      const result = await exec(`mkdir -p ${shellQuote(dir)} && printf %s ${shellQuote(b64)} | base64 -d > ${shellQuote(body.path)}`);
+      // "destination" resolves the deepest existing ancestor BEFORE mkdir -p
+      // runs, so a symlinked prefix can't redirect the directory creation or
+      // the write outside the root.
+      const guard = buildContainerRealpathGuard(rootPath, [{ path: body.path, kind: "destination" }], shellQuote);
+      const result = await exec(`${guard}\nmkdir -p ${shellQuote(dir)} && printf %s ${shellQuote(b64)} | base64 -d > ${shellQuote(body.path)}`);
+      if (result.stdout.includes(PATH_ESCAPE_MARKER)) {
+        return NextResponse.json({ error: "Path resolves outside the server data directory" }, { status: 400 });
+      }
       if (result.stderr) return NextResponse.json({ error: safeError(result.stderr.trim()) }, { status: 500 });
       await auditLog("game-hub:file-save", session.user?.email ?? "unknown", `${name} ${body.path}`);
       await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "file:save", details: body.path });

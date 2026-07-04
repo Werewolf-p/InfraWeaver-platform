@@ -202,6 +202,10 @@ async function ensureOfflineFilePod(clients: Clients, spec: OfflineFilePodSpec) 
       spec: {
         restartPolicy: "Never",
         activeDeadlineSeconds: OFFLINE_POD_TTL_SECONDS,
+        // This pod never talks to the Kubernetes API — don't mount an SA token,
+        // so a file-browser path-traversal bug can't exfiltrate cluster
+        // credentials from it. Defense-in-depth for SECURITY-AUDIT H1.
+        automountServiceAccountToken: false,
         securityContext: deployment?.spec?.template?.spec?.securityContext,
         containers: [
           {
