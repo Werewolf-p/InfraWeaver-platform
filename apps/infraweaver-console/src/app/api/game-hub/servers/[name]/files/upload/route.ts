@@ -6,7 +6,7 @@ import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { appendServerAudit, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
 import { validateK8sName } from "@/lib/api-security";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { validateContainerPath, validateContainerPathWithinRoot } from "@/lib/validate";
+import { buildContainerRealpathGuard, PATH_ESCAPE_MARKER, validateContainerPath, validateContainerPathWithinRoot } from "@/lib/validate";
 import { safeError } from "@/lib/utils";
 import { withServerFileExec } from "../server-file-exec";
 
@@ -80,10 +80,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
       if (!validateContainerPathWithinRoot(targetPath, rootPath)) {
         return NextResponse.json({ error: "Upload path must stay within the server data directory" }, { status: 400 });
       }
-      await exec(
-        `mkdir -p ${shellQuote(directory)} && printf %s ${shellQuote(base64)} | base64 -d > ${shellQuote(targetPath)}`,
+      const guard = buildContainerRealpathGuard(rootPath, [{ path: targetPath, kind: "destination" }], shellQuote);
+      const result = await exec(
+        `${guard}\nmkdir -p ${shellQuote(directory)} && printf %s ${shellQuote(base64)} | base64 -d > ${shellQuote(targetPath)}`,
         30_000,
       );
+      if (result.stdout.includes(PATH_ESCAPE_MARKER)) {
+        return NextResponse.json({ error: "Upload path resolves outside the server data directory" }, { status: 400 });
+      }
       await auditLog("game-hub:file-upload", session.user?.email ?? "unknown", `uploaded ${targetPath}`);
       await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "file:upload", details: targetPath });
       return NextResponse.json({ ok: true, path: targetPath });
