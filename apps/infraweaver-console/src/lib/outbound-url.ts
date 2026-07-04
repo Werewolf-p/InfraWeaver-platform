@@ -68,6 +68,16 @@ function isPrivateIpv6(address: string) {
   const mappedIpv4 = normalized.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   if (mappedIpv4) return isPrivateIpv4(mappedIpv4[1]);
 
+  // The WHATWG URL parser serializes IPv4-mapped literals in compressed hex
+  // (e.g. [::ffff:127.0.0.1] → ::ffff:7f00:1), which the dotted form above
+  // never matches — decode the two hextets back to dotted quad.
+  const mappedHex = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (mappedHex) {
+    const high = Number.parseInt(mappedHex[1], 16);
+    const low = Number.parseInt(mappedHex[2], 16);
+    return isPrivateIpv4(`${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`);
+  }
+
   return false;
 }
 
@@ -80,7 +90,10 @@ function normalizeUrl(rawUrl: string | URL) {
 }
 
 export function isBlockedOutboundHost(hostname: string) {
-  const normalized = hostname.trim().toLowerCase();
+  // URL.hostname keeps the brackets on IPv6 literals ("[::1]"), which
+  // net.isIP does not recognise — strip them or the literal skips the
+  // private-range checks entirely.
+  const normalized = hostname.trim().toLowerCase().replace(/^\[(.*)\]$/, "$1");
   if (!normalized) return true;
   if (BLOCKED_HOSTS.has(normalized)) return true;
   if (BLOCKED_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) return true;
@@ -98,13 +111,18 @@ export async function parseSafeExternalUrl(rawUrl: string | URL) {
   if (url.username || url.password) return null;
   if (isBlockedOutboundHost(url.hostname)) return null;
 
+  // Raw IP literals were already vetted above and need no DNS step.
+  if (net.isIP(url.hostname.replace(/^\[(.*)\]$/, "$1")) !== 0) return url;
+
   try {
     const resolved = await dns.lookup(url.hostname, { all: true, verbatim: true });
-    if (resolved.some((record) => isBlockedOutboundHost(record.address))) {
+    if (resolved.length === 0 || resolved.some((record) => isBlockedOutboundHost(record.address))) {
       return null;
     }
   } catch {
-    // Fall back to hostname checks when DNS lookup is unavailable.
+    // Fail closed: a hostname we cannot resolve cannot be vetted against the
+    // private-range blocklist, and no later fetch would succeed anyway.
+    return null;
   }
 
   return url;

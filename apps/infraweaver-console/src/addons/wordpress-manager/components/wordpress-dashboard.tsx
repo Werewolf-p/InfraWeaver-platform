@@ -21,6 +21,7 @@ import { toast } from "@/lib/notify";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select } from "@/components/ui/select";
 import { isValidSiteName } from "../lib/naming";
+import { ExternalSitesPanel } from "./external-sites-panel";
 
 interface SiteSummary {
   site: string;
@@ -495,6 +496,8 @@ export function WordpressDashboard() {
           </ul>
         )}
       </section>
+
+      <ExternalSitesPanel />
 
       <ConfirmDialog
         open={toDelete !== null}
