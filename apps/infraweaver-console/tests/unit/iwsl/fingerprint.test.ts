@@ -28,11 +28,19 @@ describe("IWSL fingerprints (PHP parity)", () => {
     expect(fingerprintKeyMaterial("")).toBe("e3b0:c442:98fc:1c14");
   });
 
-  test("iwKeysFingerprint concatenates the two pinned b64u strings", () => {
-    // Plugin: fingerprint($iw_keys[ed25519] . $iw_keys[slh-dsa-192s]) where the
-    // stored values are the bundle's b64u strings.
-    const fp = iwKeysFingerprint({ ed25519: "EDKEYB64U", "slh-dsa-192s": "PQKEYB64U" });
-    expect(fp).toBe("b80f:c26c:b50e:56b7");
+  test("iwKeysFingerprint concatenates the two RAW decoded keys", () => {
+    // Plugin: fingerprint($iw_keys[ed25519] . $iw_keys[slh-dsa-192s]) — the
+    // stored values are RAW bytes (decode_iw_pks b64u-decodes before pinning).
+    // Vector generated with PHP over raw ed(0..31) . pq(255..208):
+    const ed = new Uint8Array(32);
+    for (let i = 0; i < 32; i += 1) ed[i] = i;
+    const pq = new Uint8Array(48);
+    for (let i = 0; i < 48; i += 1) pq[i] = 255 - i;
+    const fp = iwKeysFingerprint({
+      ed25519: Buffer.from(ed).toString("base64url"),
+      "slh-dsa-192s": Buffer.from(pq).toString("base64url"),
+    });
+    expect(fp).toBe("6574:b8c8:28fd:ef05");
   });
 
   test("wpKeyFingerprint hashes the decoded raw public key", () => {
