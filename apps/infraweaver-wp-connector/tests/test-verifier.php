@@ -115,3 +115,15 @@ list( $store, $verifier ) = $fresh();
 $store->set( 'site_id', 'some-other-site' );
 $verdict = $verifier->verify_command( $f->commands->valid );
 iwsl_assert_same( 'site-mismatch', $verdict['reason'], 'command for another site rejected' );
+
+// --- input bounds (§6.3 pre-crypto hardening) -------------------------------------
+list( , $verifier ) = $fresh();
+$oversized = iwsl_clone( $f->commands->valid );
+$oversized->envelope->nonce = str_repeat( 'x', IWSL_Verifier::MAX_STRING_LEN + 1 );
+$verdict = $verifier->verify_command( $oversized );
+iwsl_assert_same( 'schema-fail', $verdict['reason'], 'oversized envelope string field rejected before crypto' );
+
+$long_ttl = iwsl_clone( $f->commands->valid );
+$long_ttl->envelope->exp = $long_ttl->envelope->ts + IWSL_Verifier::MAX_CMD_TTL_MS + 1;
+$verdict = $verifier->verify_command( $long_ttl );
+iwsl_assert_same( 'schema-fail', $verdict['reason'], 'command TTL beyond ceiling rejected' );

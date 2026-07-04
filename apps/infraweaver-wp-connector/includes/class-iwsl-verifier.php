@@ -14,6 +14,17 @@ final class IWSL_Verifier {
 
 	const MAX_CLOCK_SKEW_MS = 300000; // ±300s (§6.3)
 
+	/**
+	 * Pre-crypto input bounds (§6.3 hardening). Envelope string fields are tiny
+	 * by construction — site_id is a UUID, nonce a short b64u token, method a
+	 * dotted verb — so a generous 256B cap rejects abusive payloads before any
+	 * JCS/signature work. MAX_CMD_TTL_MS bounds command lifetime: the console
+	 * signs exp = ts + DEFAULT_COMMAND_TTL_MS (120s), so 300s leaves headroom
+	 * while refusing a command minted valid for an unbounded window.
+	 */
+	const MAX_STRING_LEN = 256;
+	const MAX_CMD_TTL_MS = 300000;
+
 	/** @var IWSL_Store */
 	private $store;
 
@@ -121,7 +132,10 @@ final class IWSL_Verifier {
 			return 'schema-fail';
 		}
 		foreach ( $strings as $field ) {
-			if ( ! isset( $envelope->$field ) || ! is_string( $envelope->$field ) || '' === $envelope->$field ) {
+			if (
+				! isset( $envelope->$field ) || ! is_string( $envelope->$field ) || '' === $envelope->$field
+				|| strlen( $envelope->$field ) > self::MAX_STRING_LEN
+			) {
 				return 'schema-fail';
 			}
 		}
@@ -129,6 +143,11 @@ final class IWSL_Verifier {
 			if ( ! isset( $envelope->$field ) || ! is_int( $envelope->$field ) || $envelope->$field < 0 ) {
 				return 'schema-fail';
 			}
+		}
+		// Bound command lifetime (§6.3). A negative TTL (exp < ts) is left to the
+		// freshness check so it still surfaces as `expired`, not `schema-fail`.
+		if ( $envelope->exp - $envelope->ts > self::MAX_CMD_TTL_MS ) {
+			return 'schema-fail';
 		}
 		if ( ! isset( $envelope->params ) || ! $envelope->params instanceof stdClass ) {
 			return 'schema-fail';
