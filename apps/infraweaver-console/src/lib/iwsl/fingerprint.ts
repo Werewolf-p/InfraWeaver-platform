@@ -2,9 +2,9 @@
 // plugin (class-iwsl-cli.php::fingerprint): first 16 hex chars of SHA-256,
 // ':'-joined groups of 4. The §5 step-3 MITM defence is an operator comparing
 // these strings across both planes by eye, so the two implementations may
-// never diverge. Note the plugin's asymmetry, preserved here: the IW
-// fingerprint hashes the two pinned *b64u strings* concatenated, while the WP
-// fingerprint hashes the *raw* public-key bytes.
+// never diverge. Both fingerprints hash RAW key bytes: the plugin's
+// decode_iw_pks() b64u-decodes the bundle keys before pinning, so its stored
+// iw_keys (like wp_keys) hold raw bytes, and CLI status fingerprints those.
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
@@ -24,9 +24,14 @@ export function fingerprintKeyMaterial(material: Uint8Array | string): string {
   return [hex.slice(0, 4), hex.slice(4, 8), hex.slice(8, 12), hex.slice(12, 16)].join(":");
 }
 
-/** IW-PK fingerprint as the plugin shows it: over `ed25519_b64u || slhdsa_b64u`. */
+/** IW-PK fingerprint as the plugin shows it: over `raw_ed25519 || raw_slhdsa`. */
 export function iwKeysFingerprint(pks: IwPublicKeys): string {
-  return fingerprintKeyMaterial(`${pks[ALG_ED25519]}${pks[ALG_SLHDSA]}`);
+  const ed = fromB64u(pks[ALG_ED25519]);
+  const pq = fromB64u(pks[ALG_SLHDSA]);
+  const material = new Uint8Array(ed.length + pq.length);
+  material.set(ed, 0);
+  material.set(pq, ed.length);
+  return fingerprintKeyMaterial(material);
 }
 
 /** WP-PK fingerprint as the plugin shows it: over the raw decoded key bytes. */
