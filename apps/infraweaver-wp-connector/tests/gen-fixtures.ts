@@ -115,6 +115,13 @@ const commands = {
     ts: T0,
     nonce: "fixture-nonce-confirm",
   }),
+  debugStatus: command("debugStatus", {
+    method: "debug.status",
+    params: {},
+    seq: 18,
+    ts: T0,
+    nonce: "fixture-nonce-debug",
+  }),
   deactivate: command("deactivate", {
     method: "site.deactivate",
     params: {},

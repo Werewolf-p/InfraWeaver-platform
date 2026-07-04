@@ -71,6 +71,22 @@ iwsl_assert(
 iwsl_assert_same( 2, $store->get( 'wp_current_kid' ), 'epoch ratcheted through full stack' );
 iwsl_assert_same( null, $store->get( 'wp_keys.1' ), 'old WP key destroyed at confirm' );
 
+// debug.status — structured §12.5 diagnostics over the signed channel.
+$debugged = $plugin->handle_command( iwsl_clone( $f->commands->debugStatus ) );
+iwsl_assert_same( 200, $debugged['status'], 'debug.status executes' );
+$debug = $debugged['body']['envelope']['result'];
+iwsl_assert_same( 'active', $debug['state'], 'debug.status reports link state' );
+iwsl_assert_same( 2, $debug['wp_kid'], 'debug.status reports the rotated WP epoch' );
+iwsl_assert_same( 18, $debug['last_seq'], 'debug.status reports last_seq' );
+iwsl_assert( is_string( $debug['plugin'] ) && '' !== $debug['plugin'], 'debug.status reports plugin version' );
+$wp_pair2 = $store->get( 'wp_keys.2' );
+iwsl_assert_same(
+	IWSL_Crypto::fingerprint( $wp_pair2['pk'] ),
+	$debug['wp_fingerprint'],
+	'debug.status fingerprint matches the active WP-PK'
+);
+iwsl_assert( ! isset( $debug['wp_sk'] ) && ! isset( $debug['sk'] ), 'debug.status leaks no key material' );
+
 // Kill switch: respond, then forget everything (§8).
 $deactivated = $plugin->handle_command( iwsl_clone( $f->commands->deactivate ) );
 iwsl_assert_same( 200, $deactivated['status'], 'site.deactivate executes' );

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.1.0
+ * Version: 0.2.0
  * Requires PHP: 7.4
  * License: AGPL-3.0-only
  *
@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.1.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.2.0' );
 
 require_once __DIR__ . '/includes/class-iwsl-jcs.php';
 require_once __DIR__ . '/includes/class-iwsl-slhdsa.php';

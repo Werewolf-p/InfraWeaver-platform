@@ -110,6 +110,6 @@ final class IWSL_CLI {
 	}
 
 	private static function fingerprint( string $key_material ): string {
-		return implode( ':', str_split( substr( hash( 'sha256', $key_material ), 0, 16 ), 4 ) );
+		return IWSL_Crypto::fingerprint( $key_material );
 	}
 }

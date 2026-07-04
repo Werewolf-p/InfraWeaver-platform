@@ -18,6 +18,14 @@ import {
 } from "../lib/iwsl-enrollment";
 import { buildConnectorPackage } from "../lib/connector-package";
 import { enrollManagedSite, getManagedLink, unlinkManagedSite } from "../lib/iwsl-managed";
+import {
+  connectorDebug,
+  connectorHealthCheck,
+  deactivateConnector,
+  rotateConnectorKey,
+  setConnectorQuarantine,
+  updateConnectorPlugin,
+} from "../lib/iwsl-managed-ops";
 import { isValidSiteId } from "../lib/naming";
 
 /**
@@ -222,6 +230,59 @@ export async function enrollManagedSiteHandler(site: string): Promise<NextRespon
   const limited = rateLimited("managed-enroll", gate.ctx.username, 5);
   if (limited) return limited;
   return guard(async () => json({ link: await enrollManagedSite(site, gate.ctx.username) }, 201));
+}
+
+const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin"] as const;
+type OpsAction = (typeof OPS_ACTIONS)[number];
+
+const opsSchema = z.object({ action: z.enum(OPS_ACTIONS) }).strict();
+
+/** Diagnostics mutate only link bookkeeping; the rest change the trust state. */
+const OPS_POLICY: Record<OpsAction, { permission: WordpressPermission; ratePerMin: number }> = {
+  health: { permission: "wordpress:write", ratePerMin: 30 },
+  debug: { permission: "wordpress:write", ratePerMin: 30 },
+  rotate: { permission: "wordpress:admin", ratePerMin: 5 },
+  quarantine: { permission: "wordpress:admin", ratePerMin: 10 },
+  release: { permission: "wordpress:admin", ratePerMin: 10 },
+  deactivate: { permission: "wordpress:admin", ratePerMin: 5 },
+  "update-plugin": { permission: "wordpress:admin", ratePerMin: 5 },
+};
+
+/**
+ * POST — connector operations on a §5.1 managed link: signed health check,
+ * deep diagnostics, WP-key rotation (§8), quarantine/release, the §8 kill
+ * switch, and in-place plugin update.
+ */
+export async function managedOpsHandler(req: NextRequest, site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const parsed = opsSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return fail("Invalid connector operation", 400);
+  const action = parsed.data.action;
+  const policy = OPS_POLICY[action];
+  const gate = await authorize(policy.permission, site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited(`ops-${action}`, gate.ctx.username, policy.ratePerMin);
+  if (limited) return limited;
+  return guard(async () => {
+    switch (action) {
+      case "health":
+        return json({ health: await connectorHealthCheck(site) });
+      case "debug":
+        return json({ debug: await connectorDebug(site) });
+      case "rotate":
+        return json({ rotation: await rotateConnectorKey(site) });
+      case "quarantine":
+        await setConnectorQuarantine(site, true);
+        return json({ ok: true });
+      case "release":
+        await setConnectorQuarantine(site, false);
+        return json({ ok: true });
+      case "deactivate":
+        return json(await deactivateConnector(site));
+      case "update-plugin":
+        return json(await updateConnectorPlugin(site));
+    }
+  });
 }
 
 /** DELETE — remove the link and best-effort uninstall the plugin. */
