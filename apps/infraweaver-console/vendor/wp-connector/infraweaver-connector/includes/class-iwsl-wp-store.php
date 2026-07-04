@@ -29,4 +29,11 @@ final class IWSL_WP_Store implements IWSL_Store {
 	public function delete( string $key ): void {
 		delete_option( self::PREFIX . $key );
 	}
+
+	public function add( string $key, $value ): bool {
+		// add_option INSERTs and relies on the options table's UNIQUE key on
+		// option_name, so a concurrent loser fails the insert and returns false —
+		// the atomic claim the enrollment guard needs.
+		return add_option( self::PREFIX . $key, base64_encode( serialize( $value ) ), '', false );
+	}
 }

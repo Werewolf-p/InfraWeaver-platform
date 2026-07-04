@@ -147,6 +147,15 @@ describe("IWSL response verification (§6.2)", () => {
     ).toEqual({ ok: false, reason: "result-too-large" });
   });
 
+  test("envelope padded with an unknown key is rejected before signature check", () => {
+    const padded = clone(fixtures.response);
+    (padded.envelope as Record<string, unknown>).pad = "A".repeat(4096);
+    expect(verifySignedResponse(padded, fixtures.keys.wp_pub, expectation)).toEqual({
+      ok: false,
+      reason: "schema-fail",
+    });
+  });
+
   test("tampered result payload breaks the signature", () => {
     const tampered = clone(fixtures.response);
     tampered.envelope.result = { status: "pwned" };

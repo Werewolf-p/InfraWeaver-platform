@@ -122,6 +122,14 @@ export function verifySignedResponse(
   if (!Array.isArray(envelope.alg) || !sameAlgs(envelope.alg, RESPONSE_ALGS)) {
     return { ok: false, reason: "schema-fail" };
   }
+  // Reject any key outside the response schema: a site holding a valid wpPk
+  // could otherwise sign an envelope padded with an unrelated megabyte field
+  // that every check below ignores (the size guard only measured `result`).
+  for (const key of Object.keys(envelope)) {
+    if (!RESPONSE_ENVELOPE_KEYS.has(key)) {
+      return { ok: false, reason: "schema-fail" };
+    }
+  }
   if (envelope.site_id !== expected.siteId) {
     return { ok: false, reason: "site-mismatch" };
   }
@@ -134,8 +142,10 @@ export function verifySignedResponse(
   } catch {
     return { ok: false, reason: "schema-fail" };
   }
+  // Bound the whole canonical envelope, not just `result` — `message` already
+  // holds the domain-tagged canonical bytes, so this reuses that work.
   const maxBytes = expected.maxResultBytes ?? DEFAULT_MAX_RESULT_BYTES;
-  if (canonicalize(envelope.result).length > maxBytes) {
+  if (message.length > maxBytes) {
     return { ok: false, reason: "result-too-large" };
   }
   const sig = sigs[ALG_ED25519];
@@ -144,6 +154,19 @@ export function verifySignedResponse(
   }
   return { ok: true };
 }
+
+/** Exact key set of a §6.2 response envelope — anything else is rejected. */
+const RESPONSE_ENVELOPE_KEYS = new Set<string>([
+  "v",
+  "typ",
+  "site_id",
+  "in_reply_to",
+  "kid",
+  "ts",
+  "ok",
+  "result",
+  "alg",
+]);
 
 function sameAlgs(actual: readonly unknown[], expected: readonly string[]): boolean {
   return (
