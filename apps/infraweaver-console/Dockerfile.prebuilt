@@ -24,5 +24,9 @@ USER 1001
 COPY --chown=1001:1001 .next/standalone ./
 COPY --chown=1001:1001 .next/static ./.next/static
 COPY --chown=1001:1001 public ./public
+# Vendored InfraWeaver Connector plugin — served as a zip by the console
+# (external-sites "Download plugin") and installed into managed sites. Copied
+# explicitly because standalone output tracing doesn't follow runtime fs reads.
+COPY --chown=1001:1001 vendor ./vendor
 EXPOSE 3000
 CMD ["node", "server.js"]

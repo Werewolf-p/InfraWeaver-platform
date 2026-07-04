@@ -8,15 +8,18 @@ import {
   ArrowLeft,
   Loader2,
   KeyRound,
+  Link2,
   Puzzle,
   CheckCircle2,
   CircleArrowUp,
   CircleDashed,
   Construction,
   ExternalLink,
+  Fingerprint,
   Globe,
   Lock,
   ShieldCheck,
+  Unlink,
   Users,
   RefreshCw,
 } from "lucide-react";
@@ -117,6 +120,23 @@ interface PluginUpdateRow {
   status: string;
 }
 
+/** Slice of ExternalSiteView the connector card renders (§5.1 managed link). */
+interface ManagedLink {
+  siteId: string;
+  state: "pending" | "active" | "quarantined";
+  fingerprintConfirmed: boolean;
+  activatedAt?: string;
+  wpFingerprint: string | null;
+  iwFingerprint: string;
+  lastVerify?: { at: string; ok: boolean; reason?: string };
+}
+
+async function fetchManagedLink(site: string): Promise<ManagedLink | null> {
+  const res = await fetch(`/api/wordpress/sites/${site}/iwsl`);
+  if (!res.ok) throw new Error("Failed to load connector link state");
+  return ((await res.json()) as { link: ManagedLink | null }).link;
+}
+
 export function SiteDetailView({ site }: { site: string }) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<string> | null>(null);
@@ -212,6 +232,37 @@ export function SiteDetailView({ site }: { site: string }) {
     queryKey: ["wordpress-maintenance", site],
     queryFn: () => fetchMaintenance(site),
     retry: 1,
+  });
+
+  const { data: managedLink, isLoading: linkLoading } = useQuery({
+    queryKey: ["wordpress-iwsl-link", site],
+    queryFn: () => fetchManagedLink(site),
+  });
+
+  const enrollMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/wordpress/sites/${site}/iwsl`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Enrollment failed");
+    },
+    onSuccess: () => {
+      toast.success("Connector installed and enrolled — the site is linked");
+      void queryClient.invalidateQueries({ queryKey: ["wordpress-iwsl-link", site] });
+      void queryClient.invalidateQueries({ queryKey: ["wordpress-plugins", site] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/wordpress/sites/${site}/iwsl`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Unlink failed");
+    },
+    onSuccess: () => {
+      toast.success("Connector link removed");
+      void queryClient.invalidateQueries({ queryKey: ["wordpress-iwsl-link", site] });
+      void queryClient.invalidateQueries({ queryKey: ["wordpress-plugins", site] });
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const maintenanceMutation = useMutation({
@@ -441,6 +492,92 @@ export function SiteDetailView({ site }: { site: string }) {
             {protectionDirty ? "Apply protection" : "No changes"}
           </button>
         </div>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-zinc-200">
+            <Link2 className="h-5 w-5 text-sky-400" aria-hidden />
+            <h2 className="text-lg font-medium">InfraWeaver Connector</h2>
+          </div>
+          {managedLink && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs",
+                managedLink.state === "active" && managedLink.fingerprintConfirmed
+                  ? "border-green-500/30 bg-green-500/15 text-green-300"
+                  : managedLink.state === "quarantined"
+                    ? "border-red-500/30 bg-red-500/15 text-red-300"
+                    : "border-sky-500/30 bg-sky-500/15 text-sky-300",
+              )}
+            >
+              {managedLink.state === "active" && managedLink.fingerprintConfirmed ? (
+                <><CheckCircle2 className="h-3 w-3" aria-hidden /> Linked</>
+              ) : managedLink.state === "quarantined" ? (
+                "Quarantined"
+              ) : (
+                <><CircleDashed className="h-3 w-3 animate-pulse" aria-hidden /> Pending</>
+              )}
+            </span>
+          )}
+        </div>
+        <p className="mt-1 max-w-prose text-sm text-zinc-400">
+          Installs the InfraWeaver Connector plugin and links this site over the signed IWSL protocol — the same
+          management channel used for external sites. Enrollment runs entirely inside the cluster and the key
+          fingerprints are confirmed automatically.
+        </p>
+        {managedLink ? (
+          <>
+            <div className="mt-4 grid gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+              <div className="flex items-baseline justify-between gap-3 text-xs">
+                <span className="shrink-0 text-zinc-500">IW key fingerprint</span>
+                <span className="truncate text-right font-mono text-zinc-300">{managedLink.iwFingerprint}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-3 text-xs">
+                <span className="shrink-0 text-zinc-500">Site key fingerprint</span>
+                <span className="truncate text-right font-mono text-zinc-300">{managedLink.wpFingerprint ?? "—"}</span>
+              </div>
+              {managedLink.activatedAt && (
+                <div className="flex items-baseline justify-between gap-3 text-xs">
+                  <span className="shrink-0 text-zinc-500">Linked since</span>
+                  <span className="truncate text-right text-zinc-300">{new Date(managedLink.activatedAt).toLocaleString()}</span>
+                </div>
+              )}
+              {managedLink.lastVerify && !managedLink.lastVerify.ok && (
+                <div className="flex items-baseline justify-between gap-3 text-xs">
+                  <span className="shrink-0 text-zinc-500">Last verify</span>
+                  <span className="truncate text-right text-red-300">{managedLink.lastVerify.reason ?? "failed"}</span>
+                </div>
+              )}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                disabled={unlinkMutation.isPending}
+                onClick={() => unlinkMutation.mutate()}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3.5 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-red-500/50 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {unlinkMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Unlink className="h-4 w-4" aria-hidden />}
+                Unlink
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <p className="flex items-center gap-1.5 text-sm text-zinc-500">
+              <Fingerprint className="h-4 w-4" aria-hidden /> Not linked yet.
+            </p>
+            <button
+              type="button"
+              disabled={linkLoading || enrollMutation.isPending || !status?.ready}
+              onClick={() => enrollMutation.mutate()}
+              className="inline-flex items-center gap-2 rounded-lg bg-sky-500 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {enrollMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Link2 className="h-4 w-4" aria-hidden />}
+              {enrollMutation.isPending ? "Enrolling…" : "Enable connector"}
+            </button>
+          </div>
+        )}
       </section>
 
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">

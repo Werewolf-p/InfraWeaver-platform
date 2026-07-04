@@ -43,6 +43,8 @@ export interface CreateSiteInput {
   internal: boolean;
   authMode: AuthMode;
   plugins?: string[];
+  /** §5.1 — install + enroll the InfraWeaver Connector once running (default true). */
+  connector?: boolean;
   wpStorage?: string;
   dbStorage?: string;
 }
@@ -101,16 +103,24 @@ async function applySecrets(core: k8s.CoreV1Api, site: string, data: SecretData)
 }
 
 /** Persist the desired post-provision setup (plugins + auth mode) to the vault. */
-async function writeIntent(site: string, authMode: AuthMode, plugins: string[], applied: boolean): Promise<void> {
-  await writeSecret(vaultPaths(site).config, { authMode, plugins: plugins.join(","), applied: applied ? "true" : "false" });
+async function writeIntent(site: string, authMode: AuthMode, plugins: string[], connector: boolean, applied: boolean): Promise<void> {
+  await writeSecret(vaultPaths(site).config, {
+    authMode,
+    plugins: plugins.join(","),
+    connector: connector ? "true" : "false",
+    applied: applied ? "true" : "false",
+  });
 }
 
-async function readIntent(site: string): Promise<{ authMode: AuthMode; plugins: string[]; applied: boolean } | null> {
+async function readIntent(site: string): Promise<{ authMode: AuthMode; plugins: string[]; connector: boolean; applied: boolean } | null> {
   const cfg = await readSecret(vaultPaths(site).config);
   if (!cfg) return null;
   return {
     authMode: (cfg.authMode as AuthMode) || "none",
     plugins: (cfg.plugins || "").split(",").map((s) => s.trim()).filter(Boolean),
+    // Absent on pre-connector sites → false: existing sites never get a
+    // surprise enrollment; the site-settings card is the opt-in for those.
+    connector: cfg.connector === "true",
     applied: cfg.applied === "true",
   };
 }
@@ -181,8 +191,9 @@ export async function createSite(input: CreateSiteInput): Promise<SiteSummary> {
   }
 
   const desiredPlugins = [...new Set(input.plugins ?? [])];
-  const setupPending = authMode !== "none" || desiredPlugins.length > 0;
-  await writeIntent(site, authMode, desiredPlugins, !setupPending);
+  const connector = input.connector ?? true; // §5.1 — default ON for IW-provisioned sites
+  const setupPending = authMode !== "none" || desiredPlugins.length > 0 || connector;
+  await writeIntent(site, authMode, desiredPlugins, connector, !setupPending);
   if (setupPending) triggerReconcile(site);
 
   return { site, host, ready: false, replicas: 1, domain, internal, authMode, setupPending, dnsWarning };
@@ -527,7 +538,7 @@ export async function setProtection(site: string, authMode: AuthMode): Promise<S
   const intent = await readIntent(site);
   const plugins = intent?.plugins ?? [];
   const nowGated = isGatedAuthMode(authMode);
-  await writeIntent(site, authMode, plugins, nowGated ? false : intent?.applied ?? true);
+  await writeIntent(site, authMode, plugins, intent?.connector ?? false, nowGated ? false : intent?.applied ?? true);
   if (nowGated) {
     settled.delete(site); // clear the settled short-circuit so the reconcile actually re-runs
     triggerReconcile(site);
@@ -594,13 +605,26 @@ export async function reconcileSite(site: string): Promise<void> {
     }
   }
 
+  // §5.1 — install + enroll the InfraWeaver Connector. Best-effort like the
+  // user sync: a failure logs and leaves the site-settings card as the retry
+  // path rather than wedging the whole reconcile loop. Dynamic import because
+  // iwsl-managed imports this module (listSites/findWpPodName).
+  if (intent.connector) {
+    const { enrollManagedSite, getManagedLink } = await import("./iwsl-managed");
+    try {
+      if (!(await getManagedLink(site))) await enrollManagedSite(site, "provisioner");
+    } catch (err) {
+      console.warn(`[wordpress] connector enrollment for ${site} failed (enable it from site settings to retry):`, err instanceof Error ? err.message : err);
+    }
+  }
+
   // Best-effort: materialize RBAC grants as WordPress accounts. Non-fatal — the
   // grant/revoke hook and the manual access sync re-run it any time.
   await syncSiteWpUsers(site).catch((err) =>
     console.warn(`[wordpress] user sync for ${site} failed (will retry on next access sync):`, err instanceof Error ? err.message : err),
   );
 
-  await writeIntent(site, intent.authMode, intent.plugins, true);
+  await writeIntent(site, intent.authMode, intent.plugins, intent.connector, true);
 }
 
 const reconcileInFlight = new Set<string>();
