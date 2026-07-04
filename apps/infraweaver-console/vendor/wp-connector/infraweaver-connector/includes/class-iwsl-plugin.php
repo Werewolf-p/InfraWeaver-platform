@@ -194,7 +194,7 @@ final class IWSL_Plugin {
 				'state', 'site_id', 'enroll_secret', 'last_seq', 'nonces',
 				'wp_current_kid', 'wp_epoch_floor', 'iw_current_kid',
 				'iw_epoch_floor', 'pending_rotation', 'last_confirmed_rotation',
-				'last_rejection',
+				'last_rejection', 'enroll_claim',
 			) as $key
 		) {
 			$this->store->delete( $key );

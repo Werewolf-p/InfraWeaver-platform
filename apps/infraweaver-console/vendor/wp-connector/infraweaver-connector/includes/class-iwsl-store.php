@@ -30,6 +30,15 @@ interface IWSL_Store {
 	public function set( string $key, $value ): void;
 
 	public function delete( string $key ): void;
+
+	/**
+	 * Atomic insert-if-absent. Returns true only if THIS call created the key,
+	 * false if it already existed. Backs the enrollment claim so two concurrent
+	 * bundle uploads can't both transition unenrolled → pending.
+	 *
+	 * @param mixed $value
+	 */
+	public function add( string $key, $value ): bool;
 }
 
 /** In-memory store — tests and selftest. */
@@ -48,5 +57,13 @@ final class IWSL_Memory_Store implements IWSL_Store {
 
 	public function delete( string $key ): void {
 		unset( $this->data[ $key ] );
+	}
+
+	public function add( string $key, $value ): bool {
+		if ( array_key_exists( $key, $this->data ) ) {
+			return false;
+		}
+		$this->data[ $key ] = $value;
+		return true;
 	}
 }

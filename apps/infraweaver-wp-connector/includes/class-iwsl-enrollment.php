@@ -32,6 +32,23 @@ final class IWSL_Enrollment {
 		if ( 'unenrolled' !== $this->store->get( 'state', 'unenrolled' ) ) {
 			return array( 'ok' => false, 'reason' => 'already-enrolled' );
 		}
+		// Atomic claim (§5): only one concurrent bundle upload may drive the
+		// unenrolled → pending transition. Check-then-act on `state` alone races;
+		// the loser is told to retry. Released below on any failure so a
+		// corrected retry can proceed; a successful claim is left in place because
+		// `state` is now 'pending', which the guard above already blocks on.
+		if ( ! $this->store->add( 'enroll_claim', ( $this->now_ms )() ) ) {
+			return array( 'ok' => false, 'reason' => 'enroll-in-progress' );
+		}
+		$result = $this->process_bundle( $signed );
+		if ( ! $result['ok'] ) {
+			$this->store->delete( 'enroll_claim' );
+		}
+		return $result;
+	}
+
+	/** @return array ['ok' => bool, 'reason' => string|null] */
+	private function process_bundle( $signed ): array {
 		if ( ! $signed instanceof stdClass || ! isset( $signed->bundle, $signed->sigs ) ) {
 			return array( 'ok' => false, 'reason' => 'schema-fail' );
 		}
@@ -174,8 +191,13 @@ final class IWSL_Enrollment {
 		if ( ! isset( $vars[ IWSL_Crypto::ALG_ED25519 ], $vars[ IWSL_Crypto::ALG_SLHDSA ] ) ) {
 			return null;
 		}
-		$ed = IWSL_Crypto::b64u_decode( (string) $vars[ IWSL_Crypto::ALG_ED25519 ] );
-		$pq = IWSL_Crypto::b64u_decode( (string) $vars[ IWSL_Crypto::ALG_SLHDSA ] );
+		// Sub-properties are attacker-controlled; a non-string (e.g. a nested
+		// object) would fatal on the (string) cast below rather than fail closed.
+		if ( ! is_string( $vars[ IWSL_Crypto::ALG_ED25519 ] ) || ! is_string( $vars[ IWSL_Crypto::ALG_SLHDSA ] ) ) {
+			return null;
+		}
+		$ed = IWSL_Crypto::b64u_decode( $vars[ IWSL_Crypto::ALG_ED25519 ] );
+		$pq = IWSL_Crypto::b64u_decode( $vars[ IWSL_Crypto::ALG_SLHDSA ] );
 		if ( null === $ed || SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES !== strlen( $ed ) ) {
 			return null;
 		}

@@ -74,3 +74,28 @@ $result = $enrollment->enroll_from_file( $path );
 iwsl_assert( $result['ok'], 'enroll_from_file succeeds' );
 iwsl_assert( ! file_exists( $path ), 'bundle file shredded after use' );
 iwsl_assert_same( 'pending', $store->get( 'state' ), 'file path lands in pending like manual path' );
+
+// --- malformed bundle: non-string IW-PK member fails closed (no fatal) -----------------
+$store      = new IWSL_Memory_Store();
+$enrollment = new IWSL_Enrollment( $store, iwsl_now_t0( 1000 ) );
+$malformed  = iwsl_clone( $f->enrollment->signed );
+$malformed->bundle->iw_pk->ed25519 = new stdClass(); // was a b64u string
+$result = $enrollment->handle_bundle( $malformed );
+iwsl_assert_same( 'schema-fail', $result['reason'], 'non-string IW-PK member rejected, not fatal' );
+
+// --- concurrent enrollment: the atomic claim blocks a racing second upload -------------
+$store = new IWSL_Memory_Store();
+$store->add( 'enroll_claim', 1 ); // simulate an in-flight peer that claimed first
+$enrollment = new IWSL_Enrollment( $store, iwsl_now_t0( 1000 ) );
+$result     = $enrollment->handle_bundle( iwsl_clone( $f->enrollment->signed ) );
+iwsl_assert_same( 'enroll-in-progress', $result['reason'], 'racing second bundle rejected by claim' );
+
+// --- a FAILED enrollment releases the claim so a corrected retry can proceed ------------
+$store      = new IWSL_Memory_Store();
+$enrollment = new IWSL_Enrollment( $store, iwsl_now_t0( 1000 ) );
+$bad        = iwsl_clone( $f->enrollment->signed );
+$bad->bundle->site_id = 'evil-site';
+iwsl_assert_same( 'bad-sig-ed25519', $enrollment->handle_bundle( $bad )['reason'], 'first (bad) attempt fails' );
+iwsl_assert_same( null, $store->get( 'enroll_claim' ), 'claim released after failure' );
+$result = $enrollment->handle_bundle( iwsl_clone( $f->enrollment->signed ) );
+iwsl_assert( $result['ok'], 'valid retry succeeds after prior failure released the claim' );

@@ -237,6 +237,11 @@ export async function verifyExternalSite(
     proofText = response.body.toString("utf8");
   }
 
+  // The network branch caps via maxResponseBytes, but a pasted proof (also the
+  // managed/exec path, whose stdout doesn't go through the API's zod cap) would
+  // otherwise reach parseEnrollProof/JSON.parse unbounded. Enforce the same cap.
+  if (Buffer.byteLength(proofText, "utf8") > MAX_PROOF_BYTES) return failed("proof-too-large");
+
   let result: ReturnType<typeof verifyEnrollProof>;
   try {
     result = verifyEnrollProof(
