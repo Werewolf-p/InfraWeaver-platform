@@ -1,0 +1,403 @@
+import "server-only";
+import { randomUUID } from "node:crypto";
+import {
+  createSignedCommand,
+  runScheduledRotation,
+  verifySignedResponse,
+  wpKeyFingerprint,
+  type RotationOutcome,
+  type RotationReply,
+  type SignedCommand,
+  type SignedResponse,
+  type SiteLinkState,
+} from "@/lib/iwsl";
+import { AddonHttpError } from "./errors";
+import { execInWpPod } from "./k8s-exec";
+import { findWpPodName } from "./provision";
+import { buildConnectorPackage } from "./connector-package";
+import { loadOrCreateIwKeys } from "./iwsl-keys";
+import { listExternalSites, mutateExternalSites, type ExternalSiteRecord } from "./iwsl-link-store";
+import { unlinkManagedSite } from "./iwsl-managed";
+import {
+  connectorSelftestCliScript,
+  connectorStatusCliScript,
+  extractCommandJson,
+  installConnectorScript,
+  signedCommandScript,
+} from "./iwsl-managed-commands";
+
+/**
+ * Signed command dispatch for §5.1 managed links — the console side of §6 over
+ * the k8s-exec transport. Same wire objects the REST /command endpoint would
+ * carry; the plugin's verifier stays the enforcement point. Every response is
+ * verified against the pinned WP-PK before its result is trusted, and a
+ * response that fails verification quarantines the link (§12.5): inside the
+ * cluster that means the site's own key material no longer matches what we
+ * pinned, which is exactly the tamper signal quarantine exists for.
+ */
+
+const COMMAND_TIMEOUT_MS = 60_000;
+const INSTALL_TIMEOUT_MS = 120_000;
+
+/** Raw record (incl. pinned wpPk) for a managed link — internal only. */
+async function getManagedRecord(site: string): Promise<ExternalSiteRecord | null> {
+  const sites = await listExternalSites();
+  return sites.find((s) => s.managed && s.siteName === site) ?? null;
+}
+
+async function requireManagedRecord(site: string): Promise<ExternalSiteRecord> {
+  const record = await getManagedRecord(site);
+  if (!record) throw new AddonHttpError("This site has no connector link — enable the connector first", 404);
+  return record;
+}
+
+function requireCommandable(record: ExternalSiteRecord): void {
+  if (record.state === "quarantined") {
+    throw new AddonHttpError("Link is quarantined — release it before sending commands", 409);
+  }
+  if (record.state !== "active" || !record.fingerprintConfirmed || !record.wpPk) {
+    throw new AddonHttpError("Link is not active yet — enrollment has not completed", 409);
+  }
+}
+
+async function requireRunningPod(site: string): Promise<string> {
+  const pod = await findWpPodName(site);
+  if (!pod) throw new AddonHttpError("The site's WordPress pod is not running yet", 503);
+  return pod;
+}
+
+/** Allocate the next monotonic command seq for this link (§6.3). */
+async function allocateSeq(siteId: string): Promise<number> {
+  return mutateExternalSites((sites) => {
+    const target = sites.find((s) => s.siteId === siteId);
+    if (!target) throw new AddonHttpError("Connector link vanished mid-command", 409);
+    target.lastSeq = (target.lastSeq ?? 0) + 1;
+    return target.lastSeq;
+  });
+}
+
+async function recordResponseTamper(siteId: string, reason: string, now: number): Promise<void> {
+  await mutateExternalSites((sites) => {
+    const target = sites.find((s) => s.siteId === siteId);
+    if (!target) return;
+    target.rejections += 1;
+    target.state = "quarantined";
+    target.lastVerify = { at: new Date(now).toISOString(), ok: false, reason };
+  });
+}
+
+export interface CommandReply {
+  /** The plugin's verified `ok` verdict for the command. */
+  ok: boolean;
+  /** WP key epoch that signed the (verified) response. */
+  kid: number;
+  result: Record<string, unknown>;
+  roundtripMs: number;
+  /** Set when the plugin rejected the command unsigned (§12.5 reason). */
+  rejectedReason?: string;
+}
+
+interface DispatchOptions {
+  /** Additional legitimate WP-PK (§8 — a prepared-but-unconfirmed new key). */
+  altWpPk?: string | null;
+}
+
+/**
+ * Sign, deliver over exec, and verify one command. Throws AddonHttpError for
+ * operator-actionable failures; a plugin-side unsigned rejection comes back as
+ * `{ ok:false, rejectedReason }` so callers can surface the §12.5 reason.
+ */
+async function dispatchSignedCommand(
+  record: ExternalSiteRecord,
+  pod: string,
+  method: string,
+  params: Record<string, unknown>,
+  opts: DispatchOptions = {},
+): Promise<CommandReply> {
+  const { keys, kid: currentIwKid } = await loadOrCreateIwKeys();
+  const seq = await allocateSeq(record.siteId);
+  const started = Date.now();
+  const signed: SignedCommand = createSignedCommand(
+    {
+      siteId: record.siteId,
+      method,
+      params,
+      seq,
+      kid: record.iwKid > 0 ? record.iwKid : currentIwKid,
+      ts: started,
+    },
+    keys,
+  );
+
+  const { stdout } = await execInWpPod(pod, signedCommandScript(), {
+    stdin: JSON.stringify(signed),
+    timeoutMs: COMMAND_TIMEOUT_MS,
+  });
+  const roundtripMs = Date.now() - started;
+
+  let parsed: { status?: unknown; body?: unknown };
+  try {
+    parsed = JSON.parse(extractCommandJson(stdout)) as { status?: unknown; body?: unknown };
+  } catch {
+    throw new AddonHttpError("Connector returned an unreadable response — is the plugin installed?", 502);
+  }
+  const body = parsed.body;
+  if (!body || typeof body !== "object") {
+    throw new AddonHttpError("Connector returned an unreadable response — is the plugin installed?", 502);
+  }
+
+  // Unsigned rejection from the plugin's verifier ({ok:false, reason}).
+  if (!("envelope" in body)) {
+    const reason = String((body as { reason?: unknown }).reason ?? "unknown");
+    return { ok: false, kid: 0, result: {}, roundtripMs, rejectedReason: reason };
+  }
+
+  const signedResponse = body as unknown as SignedResponse;
+  const expectation = { siteId: record.siteId, commandNonce: signed.envelope.nonce };
+  const candidates = [record.wpPk, opts.altWpPk].filter((pk): pk is string => typeof pk === "string" && pk.length > 0);
+  let lastReason = "no-pinned-key";
+  let verifiedOk = false;
+  for (const pk of candidates) {
+    const verdict = verifySignedResponse(signedResponse, pk, expectation);
+    if (verdict.ok) {
+      verifiedOk = true;
+      break;
+    }
+    lastReason = verdict.reason;
+  }
+  const envelopeKid = Number(signedResponse.envelope.kid);
+  if (verifiedOk && !Number.isInteger(envelopeKid)) {
+    verifiedOk = false;
+    lastReason = "schema-fail";
+  }
+  if (verifiedOk && envelopeKid < record.epochFloor) {
+    verifiedOk = false;
+    lastReason = "kid-retired";
+  }
+  if (!verifiedOk) {
+    // Authentic-looking transport, bad signature: treat as tamper and cut the
+    // signing path until an operator investigates (§12.5).
+    await recordResponseTamper(record.siteId, lastReason, Date.now());
+    throw new AddonHttpError(
+      `Response signature check failed (${lastReason}) — the link has been quarantined`,
+      502,
+    );
+  }
+
+  return {
+    ok: signedResponse.envelope.ok === true,
+    kid: envelopeKid,
+    result: (signedResponse.envelope.result ?? {}) as Record<string, unknown>,
+    roundtripMs,
+  };
+}
+
+// ── Debugging ────────────────────────────────────────────────────────────────
+
+export interface ConnectorHealth {
+  ok: boolean;
+  roundtripMs: number;
+  result: Record<string, unknown>;
+  rejectedReason?: string;
+}
+
+/** Signed health.check round-trip; outcome persisted on the link (§12.5). */
+export async function connectorHealthCheck(site: string): Promise<ConnectorHealth> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  const pod = await requireRunningPod(site);
+  const reply = await dispatchSignedCommand(record, pod, "health.check", {});
+  await mutateExternalSites((sites) => {
+    const target = sites.find((s) => s.siteId === record.siteId);
+    if (!target) return;
+    target.lastHealth = {
+      at: new Date().toISOString(),
+      ok: reply.ok,
+      roundtripMs: reply.roundtripMs,
+      ...(reply.rejectedReason ? { reason: reply.rejectedReason } : {}),
+    };
+  });
+  return { ok: reply.ok, roundtripMs: reply.roundtripMs, result: reply.result, rejectedReason: reply.rejectedReason };
+}
+
+export interface ConnectorDebug {
+  /** Raw `wp infraweaver status` output. */
+  statusText: string;
+  /** Raw `wp infraweaver selftest` output. */
+  selftestText: string;
+  /** Structured debug.status over the signed channel (null when unavailable). */
+  debug: Record<string, unknown> | null;
+  /** Why `debug` is null (e.g. plugin predates debug.status, link quarantined). */
+  debugUnavailable?: string;
+}
+
+/**
+ * Deep diagnostics. The CLI probes run for ANY link state — they are exactly
+ * what an operator needs when the signed channel is broken — while the signed
+ * debug.status runs only on an active confirmed link.
+ */
+export async function connectorDebug(site: string): Promise<ConnectorDebug> {
+  const record = await requireManagedRecord(site);
+  const pod = await requireRunningPod(site);
+  const [statusOut, selftestOut] = await Promise.all([
+    execInWpPod(pod, connectorStatusCliScript()),
+    execInWpPod(pod, connectorSelftestCliScript()),
+  ]);
+
+  let debug: Record<string, unknown> | null = null;
+  let debugUnavailable: string | undefined;
+  if (record.state === "active" && record.fingerprintConfirmed && record.wpPk) {
+    const reply = await dispatchSignedCommand(record, pod, "debug.status", {});
+    if (reply.rejectedReason === "unknown-method") {
+      debugUnavailable = "The installed Connector predates debug.status — update the plugin below.";
+    } else if (reply.rejectedReason) {
+      debugUnavailable = `Command rejected: ${reply.rejectedReason}`;
+    } else if (!reply.ok) {
+      debugUnavailable = "The plugin reported a failure for debug.status";
+    } else {
+      debug = reply.result;
+    }
+  } else {
+    debugUnavailable = "Signed diagnostics need an active, fingerprint-confirmed link.";
+  }
+
+  return {
+    statusText: statusOut.stdout.trim(),
+    selftestText: selftestOut.stdout.trim(),
+    debug,
+    debugUnavailable,
+  };
+}
+
+// ── Security operations ──────────────────────────────────────────────────────
+
+export interface RotationResult {
+  outcome: RotationOutcome;
+  kid: number;
+  wpFingerprint: string | null;
+}
+
+/**
+ * "Reroll" the site's signing key — one §8 PREPARE → VERIFY → CONFIRM cycle
+ * over the exec transport. In-cluster the whole cycle completes in a single
+ * call; a lost ack leaves `pendingRotation` persisted and the next run
+ * resumes it (idempotent, keyed on rotation_id).
+ */
+export async function rotateConnectorKey(site: string): Promise<RotationResult> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  const pod = await requireRunningPod(site);
+
+  // A prepared-but-unconfirmed key from a resumed rotation is a legitimate
+  // response signer (§8 chain of custody) — track it as it becomes known.
+  let altWpPk: string | null = record.pendingRotation?.newWpPk ?? null;
+  const transport = async (method: string, params: Record<string, unknown>): Promise<RotationReply | null> => {
+    try {
+      const reply = await dispatchSignedCommand(record, pod, method, params, { altWpPk });
+      if (reply.rejectedReason) return { ok: false, kid: reply.kid, result: { reason: reply.rejectedReason } };
+      if (method === "key.rotate.self" && reply.ok && typeof reply.result.new_wp_pk === "string") {
+        altWpPk = reply.result.new_wp_pk;
+      }
+      return { ok: reply.ok, kid: reply.kid, result: reply.result };
+    } catch (err) {
+      if (err instanceof AddonHttpError && err.status === 502) throw err; // tamper — already quarantined
+      return null; // transport loss — the driver retries / resumes
+    }
+  };
+
+  const state: SiteLinkState = {
+    siteId: record.siteId,
+    kid: record.kid,
+    epochFloor: record.epochFloor,
+    wpPk: record.wpPk as string,
+    pendingRotation: record.pendingRotation ?? null,
+  };
+  const run = await runScheduledRotation(state, transport, { rotationId: randomUUID(), now: Date.now() });
+
+  await mutateExternalSites((sites) => {
+    const target = sites.find((s) => s.siteId === record.siteId);
+    if (!target) return;
+    target.kid = run.state.kid;
+    target.epochFloor = run.state.epochFloor;
+    target.wpPk = run.state.wpPk;
+    target.pendingRotation = run.state.pendingRotation;
+  });
+
+  return {
+    outcome: run.outcome,
+    kid: run.state.kid,
+    wpFingerprint: run.state.wpPk ? wpKeyFingerprint(run.state.wpPk) : null,
+  };
+}
+
+/**
+ * Quarantine cuts the signing path immediately without touching the site;
+ * release restores it (only for a link that finished enrollment). Releasing
+ * also clears the rejection counter — the operator has judged the incident.
+ */
+export async function setConnectorQuarantine(site: string, quarantined: boolean): Promise<void> {
+  const record = await requireManagedRecord(site);
+  await mutateExternalSites((sites) => {
+    const target = sites.find((s) => s.siteId === record.siteId);
+    if (!target) throw new AddonHttpError("Connector link vanished", 409);
+    if (quarantined) {
+      if (target.state !== "active") throw new AddonHttpError("Only an active link can be quarantined", 409);
+      target.state = "quarantined";
+      return;
+    }
+    if (target.state !== "quarantined") throw new AddonHttpError("Link is not quarantined", 409);
+    if (!target.wpPk || !target.fingerprintConfirmed) {
+      throw new AddonHttpError("Link never finished enrollment — re-enroll instead of releasing", 409);
+    }
+    target.state = "active";
+    target.rejections = 0;
+  });
+}
+
+/**
+ * §8 kill switch: tell the plugin to wipe its keys and state (signed
+ * site.deactivate), then remove the link record and uninstall the plugin.
+ * On a quarantined link the signed send is skipped — we no longer trust the
+ * channel — and only the IW side is destroyed.
+ */
+export async function deactivateConnector(site: string): Promise<{ wiped: boolean }> {
+  const record = await requireManagedRecord(site);
+  let wiped = false;
+  if (record.state === "active" && record.fingerprintConfirmed && record.wpPk) {
+    try {
+      const pod = await requireRunningPod(site);
+      const reply = await dispatchSignedCommand(record, pod, "site.deactivate", {});
+      wiped = reply.ok;
+    } catch (err) {
+      console.warn(
+        `[wordpress:iwsl] kill-switch send for ${site} failed (continuing with unlink):`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  await unlinkManagedSite(site);
+  return { wiped };
+}
+
+// ── Maintenance ──────────────────────────────────────────────────────────────
+
+/**
+ * Upgrade the Connector in place (`plugin install --force`) without touching
+ * link state — `iwsl_` options survive, so keys and epochs stay pinned. Ends
+ * with a health.check so the caller sees the running version.
+ */
+export async function updateConnectorPlugin(site: string): Promise<{ version: string | null }> {
+  const record = await requireManagedRecord(site);
+  const pod = await requireRunningPod(site);
+  const pkg = await buildConnectorPackage();
+  await execInWpPod(pod, installConnectorScript(), {
+    stdin: pkg.zip.toString("base64"),
+    timeoutMs: INSTALL_TIMEOUT_MS,
+  });
+  if (record.state !== "active" || !record.fingerprintConfirmed || !record.wpPk) {
+    return { version: null };
+  }
+  const reply = await dispatchSignedCommand(record, pod, "health.check", {});
+  const version = typeof reply.result.plugin === "string" ? reply.result.plugin : null;
+  return { version };
+}

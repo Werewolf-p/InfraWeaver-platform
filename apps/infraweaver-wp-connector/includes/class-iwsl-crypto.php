@@ -106,4 +106,12 @@ final class IWSL_Crypto {
 		$data = self::ENROLL_BINDING_LABEL . "\x00" . $site_id . "\x00" . $wp_pk_b64u;
 		return hash_hmac( 'sha384', $data, $enroll_secret, true );
 	}
+
+	/**
+	 * Display fingerprint (§5 step 3) — first 64 bits of SHA-256 in 4-hex
+	 * groups, matching the console's `wpKeyFingerprint`/`iwKeysFingerprint`.
+	 */
+	public static function fingerprint( string $key_material ): string {
+		return implode( ':', str_split( substr( hash( 'sha256', $key_material ), 0, 16 ), 4 ) );
+	}
 }

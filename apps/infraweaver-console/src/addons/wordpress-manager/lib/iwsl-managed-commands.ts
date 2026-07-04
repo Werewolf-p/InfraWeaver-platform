@@ -58,6 +58,25 @@ export function uninstallConnectorScript(): string {
 }
 
 /**
+ * stdin: a signed command wire object (§6). The plugin's own verifier is the
+ * enforcement point — this script only ferries bytes, so the exec transport
+ * carries exactly what the REST /command endpoint would receive.
+ */
+export function signedCommandScript(): string {
+  return `wp --allow-root eval 'echo wp_json_encode( iwsl_plugin()->handle_command( json_decode( file_get_contents( "php://stdin" ) ) ) );'`;
+}
+
+/** Human-readable link status (§12.5) — raw `wp infraweaver status` output. */
+export function connectorStatusCliScript(): string {
+  return "wp --allow-root infraweaver status 2>&1 || true";
+}
+
+/** Crypto/runtime selftest — raw `wp infraweaver selftest` output. */
+export function connectorSelftestCliScript(): string {
+  return "wp --allow-root infraweaver selftest 2>&1 || true";
+}
+
+/**
  * Pull the proof JSON out of wp-cli stdout, which may carry PHP notices ahead
  * of it. `null` means the plugin has no pending enrollment (state mismatch).
  */
@@ -66,6 +85,16 @@ export function extractProofJson(stdout: string): string {
   const end = stdout.lastIndexOf("}");
   if (start === -1 || end <= start) {
     throw new Error("IWSL: plugin returned no pending enrollment proof");
+  }
+  return stdout.slice(start, end + 1);
+}
+
+/** Same brace-slice for command replies — tolerant of PHP notice noise. */
+export function extractCommandJson(stdout: string): string {
+  const start = stdout.indexOf("{");
+  const end = stdout.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    throw new Error("IWSL: plugin returned no command response");
   }
   return stdout.slice(start, end + 1);
 }

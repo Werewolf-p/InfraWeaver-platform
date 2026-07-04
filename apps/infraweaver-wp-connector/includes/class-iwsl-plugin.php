@@ -53,6 +53,7 @@ final class IWSL_Plugin {
 		};
 		return array(
 			'health.check'       => null,
+			'debug.status'       => null,
 			'key.rotate.self'    => $rotation_params,
 			'key.rotate.confirm' => $rotation_params,
 			'key.rotate.abort'   => $rotation_params,
@@ -111,6 +112,8 @@ final class IWSL_Plugin {
 						'seq'    => (int) $this->store->get( 'last_seq', 0 ),
 					),
 				);
+			case 'debug.status':
+				return array( true, $this->debug_status() );
 			case 'key.rotate.self':
 				$result = $this->rotation->prepare(
 					(string) $params['rotation_id'],
@@ -133,6 +136,45 @@ final class IWSL_Plugin {
 			default: // Unreachable — verifier enforces the allow-list.
 				return array( false, array( 'reason' => 'unknown-method' ) );
 		}
+	}
+
+	/**
+	 * Structured link diagnostics over the signed channel (§12.5) — everything
+	 * `wp infraweaver status` prints, plus runtime facts, as data the console
+	 * can render. Read-only; exposes no key material (fingerprints only).
+	 */
+	private function debug_status(): array {
+		$wp_kid  = (int) $this->store->get( 'wp_current_kid', 0 );
+		$iw_kid  = (int) $this->store->get( 'iw_current_kid', 0 );
+		$wp_pair = $this->store->get( 'wp_keys.' . $wp_kid );
+		$iw_keys = $this->store->get( 'iw_keys.' . $iw_kid );
+		$pending = $this->store->get( 'pending_rotation' );
+		$reject  = $this->store->get( 'last_rejection' );
+		$nonces  = $this->store->get( 'nonces', array() );
+		return array(
+			'state'          => (string) $this->store->get( 'state', 'unenrolled' ),
+			'plugin'         => defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : 'dev',
+			'php'            => PHP_VERSION,
+			'wp'             => function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'version' ) : null,
+			'time_ms'        => (int) round( microtime( true ) * 1000 ),
+			'sodium'         => function_exists( 'sodium_crypto_sign_verify_detached' ),
+			'wp_kid'         => $wp_kid,
+			'iw_kid'         => $iw_kid,
+			'wp_epoch_floor' => (int) $this->store->get( 'wp_epoch_floor', 0 ),
+			'iw_epoch_floor' => (int) $this->store->get( 'iw_epoch_floor', 0 ),
+			'wp_fingerprint' => is_array( $wp_pair ) ? IWSL_Crypto::fingerprint( $wp_pair['pk'] ) : null,
+			'iw_fingerprint' => is_array( $iw_keys )
+				? IWSL_Crypto::fingerprint( $iw_keys[ IWSL_Crypto::ALG_ED25519 ] . $iw_keys[ IWSL_Crypto::ALG_SLHDSA ] )
+				: null,
+			'last_seq'       => (int) $this->store->get( 'last_seq', 0 ),
+			'nonce_cache'    => is_array( $nonces ) ? count( $nonces ) : 0,
+			'rotation'       => is_array( $pending )
+				? array( 'phase' => 'pending', 'new_kid' => (int) $pending['new_kid'] )
+				: null,
+			'last_rejection' => is_array( $reject )
+				? array( 'reason' => (string) $reject['reason'], 'ts' => (int) $reject['ts'] )
+				: null,
+		);
 	}
 
 	/** §8 kill switch: wipe WP-SK, pinned IW-PK, and all local IWSL state. */

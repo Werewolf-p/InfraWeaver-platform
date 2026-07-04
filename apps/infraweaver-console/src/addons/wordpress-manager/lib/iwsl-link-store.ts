@@ -49,6 +49,19 @@ export interface ExternalSiteRecord {
   lastVerify?: { at: string; ok: boolean; reason?: string };
   /** §12.5 — verify/enrollment rejections seen for this site. */
   rejections: number;
+  /** §6.3 — last command seq issued by IW; the plugin rejects seq <= last_seq. */
+  lastSeq?: number;
+  /** §8 — in-flight WP-key rotation, persisted so a lost ack can resume. */
+  pendingRotation?: {
+    rotationId: string;
+    newKid: number;
+    newWpPk: string | null;
+    phase: "prepare" | "verify";
+    startedTs: number;
+    deadlineTs: number;
+  } | null;
+  /** Last signed health.check outcome (§12.5 diagnostics). */
+  lastHealth?: { at: string; ok: boolean; roundtripMs?: number; reason?: string };
   /**
    * §5.1 — true for links to IW-provisioned cluster sites, enrolled over
    * k8s exec instead of the public bundle/verify flow. `siteName` is the
