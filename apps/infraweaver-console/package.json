@@ -12,10 +12,14 @@
     "test:e2e": "playwright test",
     "test:coverage": "jest --coverage",
     "prebuild": "node ./scripts/build-addon-registry.mjs",
-    "predev": "node ./scripts/build-addon-registry.mjs"
+    "predev": "node ./scripts/build-addon-registry.mjs",
+    "iwsl:fixtures": "tsx ../infraweaver-wp-connector/tests/gen-fixtures.ts"
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.4.0",
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
+    "@noble/post-quantum": "^0.6.1",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-select": "^2.2.6",
