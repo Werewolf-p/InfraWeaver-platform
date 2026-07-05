@@ -2,6 +2,36 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <script>
+  // C7: the init server requires a bearer token on every /api/* call. Capture
+  // it from the tokenized startup URL, keep it out of the address bar, and
+  // attach it to all API fetches made by this legacy fallback UI.
+  (function () {
+    var KEY = 'iw-init-token'
+    try {
+      var url = new URL(window.location.href)
+      var fromUrl = url.searchParams.get('token')
+      if (fromUrl) {
+        window.sessionStorage.setItem(KEY, fromUrl)
+        url.searchParams.delete('token')
+        window.history.replaceState(null, '', url.toString())
+      }
+    } catch (e) { /* sessionStorage unavailable — fall through unauthenticated */ }
+    var origFetch = window.fetch.bind(window)
+    window.fetch = function (input, init) {
+      init = init || {}
+      var target = typeof input === 'string' ? input : (input && input.url) || ''
+      var token = null
+      try { token = window.sessionStorage.getItem(KEY) } catch (e) {}
+      if (token && target.indexOf('/api/') === 0) {
+        var headers = new Headers(init.headers || (typeof input !== 'string' && input.headers) || {})
+        headers.set('Authorization', 'Bearer ' + token)
+        init.headers = headers
+      }
+      return origFetch(input, init)
+    }
+  })()
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>InfraWeaver — Platform Setup</title>
   <style>

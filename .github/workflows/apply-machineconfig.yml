@@ -69,8 +69,17 @@ jobs:
 
       - name: Setup talosconfig and credentials
         id: prereqs
+        env:
+          # Passed via env (never interpolated into the script body) to prevent
+          # shell injection from workflow_dispatch input — see SECURITY-AUDIT C9.
+          ENV_INPUT: ${{ github.event.inputs.environment }}
         run: |
-          ENV="${{ github.event.inputs.environment || 'productie' }}"
+          ENV="${ENV_INPUT:-productie}"
+          # Whitelist to known environment names — reject anything unexpected.
+          case "$ENV" in
+            productie|ontwikkel) ;;
+            *) echo "Invalid environment: $ENV" >&2; exit 1 ;;
+          esac
           echo "env=$ENV" >> "$GITHUB_OUTPUT"
 
           # The management-host runner has the repo checked out locally at

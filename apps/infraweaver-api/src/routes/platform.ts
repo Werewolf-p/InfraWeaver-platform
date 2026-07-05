@@ -263,6 +263,15 @@ route.post("/update", async (c) => {
 
   const body = await c.req.json().catch(() => ({})) as { version?: string };
 
+  // Validate the caller-supplied version before it is ever substituted into a
+  // Kubernetes manifest and committed to the GitOps repo. Without this, a string
+  // containing a quote or newline breaks out of the `image: "...:<tag>"` scalar
+  // and injects arbitrary manifest content (e.g. privileged securityContext) →
+  // persistent RCE once ArgoCD self-heals. Same allow-list as updates.ts.
+  if (body.version !== undefined && !/^[A-Za-z0-9.*:+_-]{1,100}$/.test(body.version)) {
+    return c.json({ ok: false, error: "Invalid version format" }, 400);
+  }
+
   // Determine target version
   let targetVersion = body.version as string | undefined;
   if (!targetVersion) {

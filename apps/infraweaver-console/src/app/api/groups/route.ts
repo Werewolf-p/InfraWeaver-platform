@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { isGroupAllowedPermission, type Permission } from "@/lib/rbac";
 import { apiError, apiSuccess, requireRoutePermissions, routeErrorResponse } from "@/lib/route-utils";
+import { getSessionRBACContext, permissionsBeyondCeiling } from "@/lib/session-rbac";
 import { createGroup, loadAccessState } from "@/lib/access-store";
 
 /**
@@ -41,6 +42,14 @@ export async function POST(request: NextRequest) {
     const permissions = Array.isArray(body.permissions) ? body.permissions : [];
     const disallowed = firstDisallowedPermission(permissions);
     if (disallowed) return apiError(`Permission ${disallowed} cannot be granted via custom groups`, { status: 400 });
+    // Privilege ceiling: the granter may only confer permissions they themselves
+    // hold. Stops a time-boxed PIM cluster-admin from minting a permanent group
+    // carrying resource-tier permissions they never had (SECURITY-AUDIT C1).
+    const context = await getSessionRBACContext(session);
+    const beyond = permissionsBeyondCeiling(context, permissions);
+    if (beyond.length > 0) {
+      return apiError(`Cannot grant permissions you do not hold: ${beyond.join(", ")}`, { status: 403 });
+    }
     const actor = session.user?.email ?? "unknown";
     const group = await createGroup(
       {

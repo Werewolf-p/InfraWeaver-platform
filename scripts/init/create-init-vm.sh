@@ -717,7 +717,15 @@ runcmd:
   # Clone the InfraWeaver repository
   - GIT_TERMINAL_PROMPT=0 git clone --branch ${REPO_BRANCH} --depth=1 ${REPO_URL} /opt/infraweaver 2>&1 | tee /var/log/iw-clone.log
   - chown -R iw:iw /opt/infraweaver
+  # Generate the init-server bearer token (C7). Stored in an EnvironmentFile so
+  # the token survives service restarts and the operator can read it from the VM.
+  - |
+    umask 077
+    python3 -c 'import secrets; print("IW_INIT_TOKEN=" + secrets.token_urlsafe(32))' > /etc/iw-init.env
+    chown iw:iw /etc/iw-init.env
   # Create systemd service for the init web server
+  # IW_HOST=0.0.0.0 on purpose: the wizard is used from the operator's browser
+  # over LAN; the bearer token (not the bind address) gates the API here.
   - |
     cat > /etc/systemd/system/iw-init.service << 'SVC'
     [Unit]
@@ -734,6 +742,8 @@ runcmd:
     Restart=on-failure
     RestartSec=5
     Environment=IW_REPO_DIR=/opt/infraweaver
+    Environment=IW_HOST=0.0.0.0
+    EnvironmentFile=/etc/iw-init.env
 
     [Install]
     WantedBy=multi-user.target
@@ -745,17 +755,19 @@ runcmd:
   - sleep 3
   - |
     IP=\$(hostname -I | awk '{print \$1}')
+    TOKEN=\$(cut -d= -f2 /etc/iw-init.env)
     echo ""
     echo "+==============================================================+"
     echo "| InfraWeaver Init VM is ready!                              |"
     echo "|                                                             |"
-    echo "| Web UI -> http://\${IP}:8080                                |"
+    echo "| Web UI -> http://\${IP}:8080/?token=\${TOKEN}"
     echo "| Login  -> iw / infraweaver                                 |"
+    echo "| (token also in /etc/iw-init.env on the VM)                 |"
     echo "+==============================================================+"
     echo ""
   - echo "iw-init ready" > /var/lib/cloud/instance/init-done
 
-final_message: "InfraWeaver init VM ready. Access web UI at http://${VM_IP}:8080"
+final_message: "InfraWeaver init VM ready. Web UI at http://${VM_IP}:8080 — API token required: see the tokenized URL on the VM console, or /etc/iw-init.env on the VM."
 CLOUDINIT
 
 log "Cloud-init user-data written to $USERDATA_FILE"

@@ -10,14 +10,31 @@ import { signIn } from "@/lib/auth";
 //
 // The signin page links here directly — no form submission, no server action,
 // no async user-gesture breakage.
+// Resolve the caller-supplied callbackUrl to a safe same-site relative path.
+// Enumerating dangerous characters (\\, //) missed control-character variants
+// like "/\t/evil.com" and "/%0a/evil.com" which the WHATWG URL parser strips
+// to a host-changing "//evil.com". Instead, resolve against a sentinel origin
+// and accept only results that stay on that origin — anything that escapes to
+// another host (absolute, protocol-relative, or control-char smuggled) fails.
+// See SECURITY-AUDIT L1.
+const SAFE_REDIRECT_BASE = "https://redirect.invalid";
+
+function safeCallbackPath(raw: string): string {
+  try {
+    const resolved = new URL(raw, SAFE_REDIRECT_BASE);
+    if (resolved.origin !== SAFE_REDIRECT_BASE) return "/";
+    const path = `${resolved.pathname}${resolved.search}${resolved.hash}`;
+    if (!path.startsWith("/") || path.startsWith("//")) return "/";
+    if (path.startsWith("/api/auth")) return "/"; // avoid redirect loops
+    return path;
+  } catch {
+    return "/";
+  }
+}
+
 export async function GET(req: NextRequest) {
   const callbackUrl = req.nextUrl.searchParams.get("callbackUrl") ?? "/";
-  // Only allow same-site relative paths. Reject protocol-relative "//evil.com"
-  // (open redirect) and paths back into the auth API to avoid redirect loops.
-  const safe =
-    callbackUrl.startsWith("/") && !callbackUrl.startsWith("//") && !callbackUrl.startsWith("/api/auth")
-      ? callbackUrl
-      : "/";
+  const safe = safeCallbackPath(callbackUrl);
 
   let url: string;
   try {

@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { isGroupAllowedPermission, type Permission } from "@/lib/rbac";
 import { apiError, apiSuccess, requireRoutePermissions, routeErrorResponse } from "@/lib/route-utils";
-import { deleteGroup, updateGroup } from "@/lib/access-store";
+import { getSessionRBACContext, permissionsBeyondCeiling } from "@/lib/session-rbac";
+import { deleteGroup, getAccessState, updateGroup } from "@/lib/access-store";
 
 /**
  * Reject any permission a custom group is not allowed to confer (see
@@ -26,9 +27,35 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
   try {
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as PatchGroupBody;
-    if (Array.isArray(body.permissions)) {
-      const disallowed = firstDisallowedPermission(body.permissions);
+
+    const replacingPermissions = Array.isArray(body.permissions);
+    const changingMembers = Array.isArray(body.members);
+
+    if (replacingPermissions) {
+      const disallowed = firstDisallowedPermission(body.permissions!);
       if (disallowed) return apiError(`Permission ${disallowed} cannot be granted via custom groups`, { status: 400 });
+    }
+
+    // Privilege ceiling (SECURITY-AUDIT C1). Enforce it whenever the group's
+    // conferred permissions could reach a principal the caller controls — i.e.
+    // when permissions are being replaced OR when membership changes. Adding
+    // yourself/anyone to a group whose existing permissions exceed your own
+    // ceiling is an escalation just as much as raising the permissions directly,
+    // so the check must run against the group's *effective* permission set, not
+    // only the request body.
+    if (replacingPermissions || changingMembers) {
+      const existing = replacingPermissions
+        ? undefined
+        : (await getAccessState()).groups.find((g) => g.id === id);
+      // If members change but the group no longer exists, let updateGroup 404 below.
+      if (!(changingMembers && !replacingPermissions && !existing)) {
+        const effectivePermissions = replacingPermissions ? body.permissions! : existing!.permissions;
+        const context = await getSessionRBACContext(session);
+        const beyond = permissionsBeyondCeiling(context, effectivePermissions);
+        if (beyond.length > 0) {
+          return apiError(`Cannot grant permissions you do not hold: ${beyond.join(", ")}`, { status: 403 });
+        }
+      }
     }
     const group = await updateGroup(id, {
       name: body.name,

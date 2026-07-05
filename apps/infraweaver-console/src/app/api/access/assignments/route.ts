@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
-import type { Permission } from "@/lib/rbac";
+import { isGroupAllowedPermission, type Permission } from "@/lib/rbac";
 import { apiError, apiSuccess, requireRoutePermissions, routeErrorResponse } from "@/lib/route-utils";
+import { getSessionRBACContext, permissionsBeyondCeiling } from "@/lib/session-rbac";
 import { createAssignment, loadAccessState } from "@/lib/access-store";
 import type { PrincipalType, ResourceType } from "@/lib/pim";
 
@@ -47,6 +48,18 @@ export async function POST(request: NextRequest) {
       return apiError("Invalid hostname", { status: 400 });
     }
 
+    const permissions = Array.isArray(body.permissions) ? body.permissions : [];
+    // Same escalation-tier deny-list as custom groups, plus a privilege ceiling:
+    // a resource assignment must never confer platform-escalation permissions or
+    // anything the granter does not hold (SECURITY-AUDIT C1/C5).
+    const disallowed = permissions.find((permission) => !isGroupAllowedPermission(permission));
+    if (disallowed) return apiError(`Permission ${disallowed} cannot be granted via resource assignments`, { status: 400 });
+    const context = await getSessionRBACContext(session);
+    const beyond = permissionsBeyondCeiling(context, permissions);
+    if (beyond.length > 0) {
+      return apiError(`Cannot grant permissions you do not hold: ${beyond.join(", ")}`, { status: 403 });
+    }
+
     const actor = session.user?.email ?? "unknown";
     const assignment = await createAssignment(
       {
@@ -54,7 +67,7 @@ export async function POST(request: NextRequest) {
         principalId,
         resourceType,
         resourceId,
-        permissions: Array.isArray(body.permissions) ? body.permissions : [],
+        permissions,
       },
       actor,
     );

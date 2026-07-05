@@ -94,6 +94,29 @@ export function hasAnySessionPermission(
   return permissions.some((permission) => hasSessionPermission(context, permission, scope));
 }
 
+/**
+ * Privilege-ceiling check for the permission-list grant paths (custom groups,
+ * PIM eligibility, resource assignments) that — unlike role assignments — do not
+ * go through {@link assignmentExceedsGranter}. Returns the requested permissions
+ * the granter does NOT themselves hold at `scope` (empty ⇒ within ceiling). A
+ * granter holding "*" clears everything.
+ *
+ * Without this, a holder of rbac:admin/cluster:admin (including a time-boxed PIM
+ * elevation) can confer permissions they never held — e.g. author a custom group
+ * carrying every resource-tier permission, or self-grant PIM eligibility for
+ * rbac-admin — and keep them permanently. See SECURITY-AUDIT C1.
+ */
+export function permissionsBeyondCeiling(
+  context: SessionRBACContext,
+  requested: readonly Permission[],
+  scope = "/",
+): Permission[] {
+  const held = getSessionEffectivePermissions(context, scope);
+  if (held.has("*")) return [];
+  // held has no "*" here, so a requested "*" is correctly reported as beyond.
+  return requested.filter((permission) => !held.has(permission));
+}
+
 export function hasAssignedSessionPermission(
   context: SessionRBACContext,
   permission: Permission,

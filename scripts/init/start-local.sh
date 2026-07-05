@@ -14,7 +14,7 @@
 #   IW_REPO_URL   — git URL to clone          (default: GitHub repo)
 #   IW_REPO_BRANCH— branch to check out       (default: main)
 #   IW_PORT       — web UI port               (default: 8080)
-#   IW_HOST       — bind address              (default: 0.0.0.0)
+#   IW_HOST       — bind address              (default: 127.0.0.1; set 0.0.0.0 to expose on LAN)
 # =============================================================================
 set -euo pipefail
 
@@ -22,7 +22,7 @@ REPO_URL="${IW_REPO_URL:-https://github.com/Werewolf-p/InfraWeaver-platform}"
 REPO_BRANCH="${IW_REPO_BRANCH:-main}"
 WORK_DIR="${IW_WORK_DIR:-$HOME/.infraweaver}"
 PORT="${IW_PORT:-8080}"
-HOST="${IW_HOST:-0.0.0.0}"
+HOST="${IW_HOST:-127.0.0.1}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 if [[ -t 1 && "${TERM:-dumb}" != "dumb" ]]; then

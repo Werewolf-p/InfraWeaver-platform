@@ -7,6 +7,7 @@ const REGISTRY_CONFIGMAP = 'infraweaver-cluster-registry';
 const REGISTRY_DATA_KEY = 'clusters';
 const CREDS_SECRET_PREFIX = 'infraweaver-cluster-creds-';
 const ARGOCD_SECRET_PREFIX = 'infraweaver-cluster-argocd-';
+const AGENT_KEY_SECRET_PREFIX = 'infraweaver-agent-pubkey-';
 
 let _coreApi: k8s.CoreV1Api | null = null;
 
@@ -314,7 +315,23 @@ export async function removeCluster(id: string): Promise<void> {
   await writeStoredClusters(clusters.filter((cluster) => cluster.id !== id));
   await deleteSecret(`${CREDS_SECRET_PREFIX}${id}`);
   await deleteSecret(`${ARGOCD_SECRET_PREFIX}${id}`);
+  await deleteSecret(`${AGENT_KEY_SECRET_PREFIX}${id}`);
   clearKcCache(id);
+}
+
+/**
+ * Persist the agent's frame-signing public key so hub restarts keep verifying
+ * inbound frames (C5) instead of orphaning every registered agent.
+ */
+export async function saveAgentPublicKey(clusterId: string, publicKeyBase64: string): Promise<void> {
+  await upsertSecret(`${AGENT_KEY_SECRET_PREFIX}${clusterId}`, {
+    publicKey: encodeSecretValue(publicKeyBase64),
+  });
+}
+
+export async function getAgentPublicKey(clusterId: string): Promise<string | undefined> {
+  const secret = await readSecret(`${AGENT_KEY_SECRET_PREFIX}${clusterId}`);
+  return decodeSecretValue(secret?.publicKey);
 }
 
 export async function updateClusterStatus(id: string, status: ClusterMeta['status']): Promise<void> {

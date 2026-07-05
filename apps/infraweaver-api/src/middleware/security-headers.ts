@@ -1,17 +1,15 @@
 import { createMiddleware } from 'hono/factory';
 import type { AppBindings } from '../types/index.js';
 
-const SENSITIVE_PATH_PREFIXES = [
-  '/v1/clusters',
-  '/api/clusters',
-  '/v1/rbac',
-  '/api/rbac',
-  '/v1/agents',
-  '/api/agents',
-];
+// Management surfaces that must never be cached by a browser client. Routes are
+// mounted under /api/v1/<resource> (see index.ts `app.route('/api/v1', api)`),
+// so match the resource segment anywhere in the path rather than a fixed prefix
+// — the previous '/v1/clusters' / '/api/clusters' prefixes matched none of the
+// real '/api/v1/clusters' paths and left RBAC/cluster/agent data cacheable.
+const SENSITIVE_RESOURCE_SEGMENTS = /(?:^|\/)(?:clusters|rbac|agents)(?:\/|$)/;
 
 function isSensitivePath(path: string): boolean {
-  return SENSITIVE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+  return SENSITIVE_RESOURCE_SEGMENTS.test(path);
 }
 
 /**

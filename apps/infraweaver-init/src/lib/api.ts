@@ -160,16 +160,53 @@ export type DeployEvent =
   | { type: 'done'; summary?: string; seq?: number; deploymentId?: number }
   | { type: 'error'; text: string; seq?: number; deploymentId?: number }
 
+const TOKEN_STORAGE_KEY = 'iw-init-token'
+
+function consumeTokenFromUrl(): string | null {
+  if (typeof window === 'undefined') return null
+  const url = new URL(window.location.href)
+  const token = url.searchParams.get('token')
+  if (!token) return null
+  // Keep the token out of the address bar / browser history once captured.
+  url.searchParams.delete('token')
+  window.history.replaceState(null, '', url.toString())
+  window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token)
+  return token
+}
+
+export function getInitToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return consumeTokenFromUrl() ?? window.sessionStorage.getItem(TOKEN_STORAGE_KEY)
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getInitToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+function unauthorizedError(): Error {
+  if (typeof window !== 'undefined') {
+    window.sessionStorage.removeItem(TOKEN_STORAGE_KEY)
+  }
+  return new Error(
+    'Unauthorized: open the wizard via the tokenized URL printed by the init server (http://…/?token=…)',
+  )
+}
+
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers ?? {}),
+      ...authHeaders(),
     },
     cache: 'no-store',
   })
 
+  if (response.status === 401) {
+    throw unauthorizedError()
+  }
   const data = (await response.json()) as T & { error?: string }
   if (!response.ok) {
     throw new Error(data.error ?? `Request failed with status ${response.status}`)
@@ -180,9 +217,16 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 async function streamEvents(input: string, init: RequestInit, onEvent: (event: DeployEvent) => void) {
   const response = await fetch(input, {
     ...init,
+    headers: {
+      ...(init.headers ?? {}),
+      ...authHeaders(),
+    },
     cache: 'no-store',
   })
 
+  if (response.status === 401) {
+    throw unauthorizedError()
+  }
   if (!response.ok || !response.body) {
     let errorText = 'Deploy API failed'
     try {
