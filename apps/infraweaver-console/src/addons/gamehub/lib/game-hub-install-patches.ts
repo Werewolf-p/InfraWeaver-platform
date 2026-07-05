@@ -139,6 +139,18 @@ if [ -f "\${SERVER_JARFILE}" ]; then
 fi
 curl -fsSL -o "\${SERVER_JARFILE}" "\${DOWNLOAD_URL}"
 
+# Make a failed/partial jar download FATAL. Without this the script would fall
+# through to the server.properties + RCON steps below, whose final command is a
+# successful \`echo\`, masking the download failure with exit 0. The install-init
+# wrapper gates the .installed marker on this script's exit status, so a masked
+# failure would still mark the server "installed" and leave a 0-byte server.jar
+# that crashloops the runtime forever (Invalid or corrupt jarfile), un-self-
+# healing. Exit non-zero here so the wrapper skips the marker and k8s retries.
+if [ ! -s "\${SERVER_JARFILE}" ]; then
+    echo -e "ERROR: \${SERVER_JARFILE} is missing or empty after download — aborting install"
+    exit 1
+fi
+
 if [ ! -f server.properties ]; then
     echo -e "Downloading MC server.properties"
     curl -o server.properties https://raw.githubusercontent.com/parkervcp/eggs/master/minecraft/java/server.properties

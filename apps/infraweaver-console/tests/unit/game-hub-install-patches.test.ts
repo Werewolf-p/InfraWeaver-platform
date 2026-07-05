@@ -49,6 +49,25 @@ describe("patchPelicanInstallScript", () => {
     expect(patched).toContain(".version.java.version.minimum");
   });
 
+  it("makes a failed/empty jar download FATAL before the masking trailing steps", () => {
+    // The install-init wrapper gates the .installed marker on the script's exit
+    // status. The script's real final command is a successful `echo` (RCON/props
+    // steps), which would mask a failed jar `curl` with exit 0 and re-set the
+    // marker on a 0-byte jar. The patch must exit non-zero right after the jar
+    // download, ahead of those trailing steps.
+    const patched = patchPelicanInstallScript(v2Paper);
+    expect(patched).toContain('if [ ! -s "${SERVER_JARFILE}" ]; then');
+    const jarCurlIdx = patched.indexOf("curl -fsSL -o");
+    const jarCheckIdx = patched.indexOf('[ ! -s "${SERVER_JARFILE}" ]');
+    const rconEchoIdx = patched.indexOf("RCON enabled"); // the true final masking echo
+    // guard sits after the jar download but before the trailing RCON echo
+    expect(jarCurlIdx).toBeGreaterThan(-1);
+    expect(jarCheckIdx).toBeGreaterThan(jarCurlIdx);
+    expect(jarCheckIdx).toBeLessThan(rconEchoIdx);
+    // and it aborts non-zero before reaching that echo
+    expect(patched.slice(jarCheckIdx, rconEchoIdx)).toContain("exit 1");
+  });
+
   it("accepts the Mojang EULA so the minecraft server does not exit on first boot", () => {
     const patched = patchPelicanInstallScript(v2Paper);
     expect(patched).toContain("eula=true");
