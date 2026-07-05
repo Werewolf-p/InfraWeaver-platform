@@ -2,24 +2,24 @@ import "server-only";
 import { makeCoreApi } from "@/lib/kube-client";
 import {
   fromB64u,
-  generateIwKeyPair,
   iwPublicKeys,
-  toB64u,
   type IwKeyPair,
   type IwPublicKeys,
 } from "@/lib/iwsl";
 import { isK8sNotFound } from "./k8s-errors";
 
 /**
- * INTERIM IW signing-key custody (design §9 / §13 phase 3).
+ * IW signing-key custody (design §9 / §13 phase 3).
  *
- * The final architecture keeps IW-SK inside an isolated signer service backed
- * by OpenBao; until that service exists (build phase 3), enrollment still
- * needs IW-SK to sign `.iwenroll` bundles. This module holds the cluster
- * keypair in a single k8s Secret in the console namespace — the same custody
- * tier as every other console-managed credential — and is the ONE place the
- * secret key is touched, so swapping in the signer later replaces this module
- * without touching the enrollment flow.
+ * The IW keypair is now OWNED BY OpenBao and projected into the k8s Secret
+ * `infraweaver-iwsl-iw-keys` by External Secrets Operator (infra manifest
+ * kubernetes/catalog/infraweaver-console/base/externalsecret-iwsl-iw-keys.yaml,
+ * OpenBao path `secret/iwsl/iw-keys`). This module is READ-ONLY: it loads the
+ * projected key and never mints one. Self-minting was removed on the phase-3
+ * cut-over — a console-side create would race the ESO-owned Secret and
+ * split-brain the cluster identity, breaking every enrolled site's signature
+ * verification. If the Secret is absent the key has not been seeded/synced yet;
+ * we fail loud rather than silently minting a new (wrong-fingerprint) identity.
  */
 
 const CONSOLE_NAMESPACE = process.env.CONSOLE_NAMESPACE ?? process.env.POD_NAMESPACE ?? "infraweaver-console";
@@ -71,44 +71,20 @@ async function readKeysSecret(): Promise<LoadedIwKeys | null> {
   }
 }
 
-async function createKeysSecret(): Promise<LoadedIwKeys> {
-  const keys = generateIwKeyPair();
-  const core = makeCoreApi();
-  const body = {
-    apiVersion: "v1",
-    kind: "Secret",
-    metadata: {
-      name: SECRET_NAME,
-      namespace: CONSOLE_NAMESPACE,
-      labels: {
-        "app.kubernetes.io/managed-by": "infraweaver-console",
-        "infraweaver.io/component": "iwsl",
-      },
-    },
-    type: "Opaque",
-    stringData: {
-      kid: `${INITIAL_IW_KID}`,
-      ed25519Sk: toB64u(keys.ed25519SecretKey),
-      ed25519Pk: toB64u(keys.ed25519PublicKey),
-      slhdsaSk: toB64u(keys.slhdsaSecretKey),
-      slhdsaPk: toB64u(keys.slhdsaPublicKey),
-    },
-  };
-  try {
-    await core.createNamespacedSecret({ namespace: CONSOLE_NAMESPACE, body });
-    return { keys, kid: INITIAL_IW_KID };
-  } catch (err) {
-    // Two first-enrollments raced: the loser re-reads the winner's keypair so
-    // both requests sign with the same cluster identity.
-    const existing = await readKeysSecret();
-    if (existing) return existing;
-    throw err;
-  }
-}
-
-/** The cluster IW keypair, minting it on first use. */
+/**
+ * The cluster IW keypair, loaded from the ESO-projected Secret. The name is
+ * kept for call-site compatibility (enrollment, public-key loading) but this no
+ * longer creates a key: OpenBao owns it now (see module docstring). A missing
+ * Secret means it has not been seeded/synced — fail loud, never self-mint.
+ */
 export async function loadOrCreateIwKeys(): Promise<LoadedIwKeys> {
-  return (await readKeysSecret()) ?? createKeysSecret();
+  const loaded = await readKeysSecret();
+  if (loaded) return loaded;
+  throw new Error(
+    `IWSL signing key not available: Secret '${SECRET_NAME}' not found in namespace ` +
+      `'${CONSOLE_NAMESPACE}'. The key is now provisioned by OpenBao via External Secrets ` +
+      `(path secret/iwsl/iw-keys). Seed OpenBao and let ESO sync the Secret before enrollment.`,
+  );
 }
 
 /** Public halves only — safe for fingerprint display and bundle contents. */
