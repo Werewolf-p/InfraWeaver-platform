@@ -215,6 +215,16 @@ function loadConfig() {
 }
 function saveConfig(cfg) { fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2)); }
 
+// Environment for the spawned coding agent, with this service's own secrets
+// removed. The agent still gets git/registry credentials it needs to do its job,
+// but not DISPATCH_SECRET (the /approve · /publish · /rollback gate) — see the
+// spawn() call below for why.
+function scrubbedAgentEnv() {
+  const env = { ...process.env, HOME: '/home/runner', ECC_GATEGUARD: 'off' };
+  delete env.DISPATCH_SECRET;
+  return env;
+}
+
 // Run a coding agent, teeing live output to the run log/SSE. `opts` carries the
 // per-step controls from the Agent Studio pipeline: an appended system prompt
 // (specialism), a tool allowlist, a temp MCP config path, and a model override.
@@ -241,7 +251,13 @@ function runAgent(agent, task, run, workDir = WORKSPACE, opts = {}) {
     }
     const child = spawn(cmd, args, {
       cwd: workDir,
-      env: { ...process.env, HOME: '/home/runner', ECC_GATEGUARD: 'off' },
+      // Never expose this service's own control secret to the coding agent.
+      // The agent runs on attacker-influenced feedback text with the Bash tool
+      // (C6); DISPATCH_SECRET is the sole gate on /approve, /publish, /rollback,
+      // so a prompt-injected `env`/`curl` must not be able to read and exfil it
+      // to self-approve a malicious change. (Fuller hardening — scrubbed sandbox
+      // + human ship gate — tracked separately; this removes the crown jewel.)
+      env: scrubbedAgentEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout,
     });
@@ -877,7 +893,17 @@ const server = http.createServer(async (req, res) => {
 // to exercise signHmac/verifyHmac without binding a port).
 if (require.main === module) {
   if (DISPATCH_SECRET === '') {
-    console.warn('[SECURITY] DISPATCH_SECRET not set — HMAC auth DISABLED, IP allowlist only');
+    // Fail CLOSED: without the shared secret, HMAC auth is disabled and the only
+    // control is an IP allowlist that a cluster-internal pod already satisfies —
+    // i.e. every mutating endpoint would be open. Refuse to start unless the
+    // operator has explicitly opted into the insecure local-dev mode.
+    // See SECURITY-AUDIT C6/F4.
+    if (process.env.ALLOW_INSECURE_DISPATCH === '1') {
+      console.warn('[SECURITY] DISPATCH_SECRET not set and ALLOW_INSECURE_DISPATCH=1 — HMAC auth DISABLED (dev only)');
+    } else {
+      console.error('[SECURITY] DISPATCH_SECRET is not set. Refusing to start. Set DISPATCH_SECRET, or set ALLOW_INSECURE_DISPATCH=1 for local development only.');
+      process.exit(1);
+    }
   }
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`InfraWeaver Dispatch (single-branch) on :${PORT} — branch=${FEEDBACK_BRANCH} registry=${REGISTRY}`);
