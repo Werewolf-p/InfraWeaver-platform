@@ -164,6 +164,14 @@ longhornRoute.post('/restore', async (c) => {
     return c.json({ error: 'volumeName and backupURL are required' }, 400);
   }
 
+  // Constrain the backup source scheme so a caller can't point Longhorn's
+  // manager/engine pods (broader network reach than this API) at an arbitrary
+  // internal host — an SSRF/lateral-movement primitive. Longhorn backup targets
+  // are only ever s3/nfs/cifs/azblob.
+  if (!/^(?:s3|nfs|cifs|azblob):\/\//i.test(backupURL)) {
+    return c.json({ error: 'backupURL must be an s3://, nfs://, cifs://, or azblob:// target' }, 400);
+  }
+
   const restoreVolumeName = targetVolumeName || volumeName;
 
   try {
