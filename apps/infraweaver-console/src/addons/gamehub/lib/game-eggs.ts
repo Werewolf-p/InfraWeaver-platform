@@ -38,6 +38,21 @@ export interface EggInstallScript {
   entrypoint: string;
 }
 
+/**
+ * Boot-time config-file templating spec, mirroring Pterodactyl/Pelican
+ * `config.files`. Keyed by file path (relative to the egg mount, e.g.
+ * "server.properties"); each entry names a parser and a `find` map of
+ * config-key → value template. Values may contain `{{server.build.env.NAME}}`
+ * tokens resolved from the server's environment at boot.
+ */
+export type EggConfigFiles = Record<
+  string,
+  {
+    parser: "properties" | "file" | "yaml" | "json" | "ini" | "xml";
+    find: Record<string, string>;
+  }
+>;
+
 export interface GameEgg {
   id: string;
   name: string;
@@ -97,6 +112,12 @@ export interface GameEgg {
    * e.g. ["server.properties"] for eggs that auto-manage that file.
    */
   fileDenylist?: string[];
+  /**
+   * Config-file templating spec from Pelican `config.files`. Drives the
+   * boot-time config-sync init container so config files (e.g. server.properties)
+   * are re-templated from env on every start, the way wings did under Pterodactyl.
+   */
+  configFiles?: EggConfigFiles;
   /** Egg author (email or username, from Pelican metadata) */
   author?: string;
   /** ISO timestamp when the egg was exported from Pterodactyl/Pelican */
