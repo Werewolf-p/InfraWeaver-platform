@@ -3,13 +3,14 @@ import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import type { Permission } from "@/lib/rbac";
 import { apiError, apiSuccess, requireRoutePermissions, routeErrorResponse } from "@/lib/route-utils";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { getSessionRBACContext, hasAnySessionPermission, permissionsBeyondCeiling } from "@/lib/session-rbac";
 import { createEligibility, loadAccessState } from "@/lib/access-store";
 import {
   PIM_ROLES,
   effectiveMaxDuration,
   eligibleRolesFor,
   isPimRoleId,
+  pimRolePermissions,
   type PrincipalType,
 } from "@/lib/pim";
 
@@ -65,6 +66,16 @@ export async function POST(request: NextRequest) {
     }
     if (!principalId) return apiError("principalId is required", { status: 400 });
     if (!isPimRoleId(body.role)) return apiError("Invalid PIM role", { status: 400 });
+
+    // Privilege ceiling: the granter may only make a principal eligible for a PIM
+    // role whose permissions the granter themselves holds. Stops a narrow
+    // cluster-admin (incl. PIM) from self-granting eligibility for rbac-admin /
+    // security-admin / platform-updater and self-activating it (SECURITY-AUDIT C1).
+    const access = await getSessionRBACContext(session, 30);
+    const beyond = permissionsBeyondCeiling(access, pimRolePermissions(body.role));
+    if (beyond.length > 0) {
+      return apiError(`Cannot grant eligibility for a role exceeding your permissions: ${beyond.join(", ")}`, { status: 403 });
+    }
 
     const actor = session.user?.email ?? "unknown";
     const eligibility = await createEligibility(
