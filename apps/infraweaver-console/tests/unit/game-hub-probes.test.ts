@@ -80,17 +80,56 @@ describe("buildProbeExecCommand", () => {
     expect(cmd).toContain("/proc/net/tcp");
     expect(cmd).not.toContain("/proc/net/udp");
   });
+
+  it("omits the child-process fallback when childProcessFallback is false", () => {
+    // This is the readiness shape: a bound socket is the only thing that marks
+    // the server Ready. A live child of PID 1 (hung/corrupt steamcmd under a
+    // wrapper) must NOT count.
+    const cmd = script(
+      buildProbeExecCommand([{ port: 7777, protocol: "TCP" }], { childProcessFallback: false }),
+    );
+    expect(cmd).toContain(":1E61");
+    expect(cmd).not.toContain("pgrep -P 1");
+  });
+
+  it("force-keeps the child check even with childProcessFallback:false when no ports are known", () => {
+    // Dropping the fallback with no port to check would leave an empty (always
+    // failing) command and wedge the server NotReady forever. Guard against it.
+    const cmd = script(buildProbeExecCommand([], { childProcessFallback: false }));
+    expect(cmd).toBe("pgrep -P 1 > /dev/null 2>&1");
+  });
 });
 
 describe("buildUniversalGameServerProbes", () => {
-  it("shares one entrypoint-agnostic command across startup/liveness/readiness", () => {
+  it("keeps the child-process bridge on startup + liveness but drops it from readiness", () => {
     const probes = buildUniversalGameServerProbes(10, [{ port: 7777, protocol: "TCP" }]);
     const startup = probes.startupProbe?.exec?.command;
     const liveness = probes.livenessProbe?.exec?.command;
     const readiness = probes.readinessProbe?.exec?.command;
+
+    // startup + liveness share the bridged command so a slow-booting wrapper egg
+    // is not failed/killed before it binds its socket.
     expect(startup).toEqual(liveness);
-    expect(liveness).toEqual(readiness);
     expect(startup?.[2]).toContain(":1E61");
+    expect(startup?.[2]).toContain("pgrep -P 1");
+
+    // readiness requires an actually-bound port and drops the child fallback:
+    // this is what closes the SteamCMD silent-install gap.
+    expect(readiness?.[2]).toContain(":1E61");
+    expect(readiness?.[2]).not.toContain("pgrep -P 1");
+    expect(readiness).not.toEqual(startup);
+  });
+
+  it("marks a wrapper egg NotReady until the port binds while startup still passes (SteamCMD gap)", () => {
+    // 25565 -> 0x63DD. A wrapper egg (steamcmd under /start.sh) keeps a live
+    // child of PID 1 the whole time it downloads. startup bridges on that child
+    // so the slow window doesn't fail; readiness ignores it and keys only off the
+    // bound socket, so a hung/corrupt download reports NotReady instead of green.
+    const probes = buildUniversalGameServerProbes(20, [{ port: 25565, protocol: "TCP" }]);
+    expect(probes.startupProbe?.exec?.command?.[2]).toContain("pgrep -P 1");
+    const readiness = probes.readinessProbe?.exec?.command?.[2] ?? "";
+    expect(readiness).toContain(":63DD");
+    expect(readiness).not.toContain("pgrep -P 1");
   });
 
   it("sizes the startup window from startupMinutes (20s period)", () => {
@@ -101,7 +140,7 @@ describe("buildUniversalGameServerProbes", () => {
     expect(heavy.startupProbe?.failureThreshold).toBe(60);
   });
 
-  it("still produces a valid command when called with no ports (back-compat)", () => {
+  it("falls back to the child check on readiness when no ports are known (back-compat, avoids wedging)", () => {
     const probes = buildUniversalGameServerProbes();
     expect(probes.readinessProbe?.exec?.command).toEqual([
       "sh",
