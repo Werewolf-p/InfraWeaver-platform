@@ -139,6 +139,18 @@ if [ -f "\${SERVER_JARFILE}" ]; then
 fi
 curl -fsSL -o "\${SERVER_JARFILE}" "\${DOWNLOAD_URL}"
 
+# Make a failed/partial jar download FATAL. Without this the script would fall
+# through to the server.properties + RCON steps below, whose final command is a
+# successful \`echo\`, masking the download failure with exit 0. The install-init
+# wrapper gates the .installed marker on this script's exit status, so a masked
+# failure would still mark the server "installed" and leave a 0-byte server.jar
+# that crashloops the runtime forever (Invalid or corrupt jarfile), un-self-
+# healing. Exit non-zero here so the wrapper skips the marker and k8s retries.
+if [ ! -s "\${SERVER_JARFILE}" ]; then
+    echo -e "ERROR: \${SERVER_JARFILE} is missing or empty after download — aborting install"
+    exit 1
+fi
+
 if [ ! -f server.properties ]; then
     echo -e "Downloading MC server.properties"
     curl -o server.properties https://raw.githubusercontent.com/parkervcp/eggs/master/minecraft/java/server.properties
@@ -303,4 +315,67 @@ export function patchPelicanInstallContainer(container: string, script: string):
     return MODERN_JDK_INSTALL_IMAGE;
   }
   return container;
+}
+
+/**
+ * Append a primary-artifact success guard to an egg install script so a broken
+ * download can't leave a 0-byte artifact behind while the script still exits 0.
+ *
+ * The install-init wrapper (wrapInstallScript) gates the `.installed` marker on
+ * this script's exit status — but most parkervcp egg scripts end on a successful
+ * `echo "...complete"` (or a chmod / trailing config step) that MASKS an earlier
+ * failed `curl`/`wget` with exit 0. Left as-is, a failed download still marks the
+ * server installed, and the runtime crashloops forever on the empty/corrupt
+ * artifact. This appends a final `[ -s <artifact> ] || exit 1` so the marker is
+ * refused whenever the primary artifact is missing/empty.
+ *
+ * Generic across eggs — the artifact is resolved from the egg's own data, never
+ * guessed:
+ *   - jar eggs (all Minecraft families) → `${SERVER_JARFILE}` (hasJarFile);
+ *   - otherwise the last `chmod +x <file>` target (the executable the egg just
+ *     built, e.g. TShock's `TShock.Server`).
+ *
+ * No-op (script returned unchanged) when the script is already artifact-guarded
+ * (e.g. paper's inline guard — detected by the shared "is missing or empty"
+ * sentinel) or when no primary artifact can be resolved (e.g. SteamCMD eggs that
+ * install into an opaque tree). We never guess an artifact, so a genuinely
+ * successful install is never failed.
+ */
+export function hardenInstallScript(script: string, opts: { hasJarFile?: boolean } = {}): string {
+  if (!script) return script;
+  // Already artifact-guarded (paper's inline guard, or a previous harden pass).
+  if (script.includes("is missing or empty")) return script;
+
+  const artifact = resolvePrimaryArtifact(script, opts.hasJarFile);
+  if (!artifact) return script;
+
+  const guard = [
+    "",
+    "# InfraWeaver: fail the install when the primary artifact is missing or empty",
+    "# so the .installed marker (gated on this script's exit) is not set on a broken",
+    "# download that ended on a successful echo. See wrapInstallScript.",
+    `if [ ! -s "${artifact}" ]; then`,
+    `    echo "[install] ERROR: ${artifact} is missing or empty — aborting install"`,
+    "    exit 1",
+    "fi",
+  ].join("\n");
+  return script.replace(/\s*$/, "") + "\n" + guard + "\n";
+}
+
+/**
+ * Resolve the file an install is expected to produce, for hardenInstallScript.
+ * Returns null when it cannot be determined from the egg's data (never guesses).
+ */
+function resolvePrimaryArtifact(script: string, hasJarFile?: boolean): string | null {
+  // Jar-based eggs (Minecraft families) declare SERVER_JARFILE; use the runtime
+  // env so the guard follows whatever jar name the user chose.
+  if (hasJarFile) return "${SERVER_JARFILE}";
+  // Otherwise the executable the egg chmod'd is the primary artifact (TShock etc.).
+  const chmods = [...script.matchAll(/chmod\s+\+x\s+"?([^\s"';|&]+)"?/g)];
+  if (chmods.length) {
+    const target = chmods[chmods.length - 1][1];
+    // Skip globs/vars we can't reliably stat.
+    if (!/[*?${}]/.test(target)) return target;
+  }
+  return null;
 }
