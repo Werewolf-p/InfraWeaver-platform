@@ -1,4 +1,9 @@
-import { patchPelicanInstallScript, patchPelicanInstallContainer } from "@/addons/gamehub/lib/game-hub-install-patches";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { hardenInstallScript, patchPelicanInstallScript, patchPelicanInstallContainer } from "@/addons/gamehub/lib/game-hub-install-patches";
 
 // The patch layer must be GENERAL: any egg whose upstream install script calls
 // the sunset PaperMC v2 API gets rewritten to the working v3 API, driven by the
@@ -165,5 +170,85 @@ describe("version-cap snippet self-sufficiency", () => {
     const patched = patchPelicanInstallScript(fabric);
     expect(patched).toContain("command -v jq");
     expect(patched).toContain("apk add --no-cache curl jq");
+  });
+});
+
+// hardenInstallScript closes the trailing-echo masking generically: an egg whose
+// install script ends on a successful `echo`/`chmod` would mark itself installed
+// even after a failed download. The guard aborts non-zero when the primary
+// artifact (SERVER_JARFILE for jar eggs, else the chmod'd binary) is missing/empty.
+describe("hardenInstallScript", () => {
+  const tshock = [
+    "#!/bin/bash",
+    "cd /mnt/server",
+    "wget $DL -O TShock.zip",
+    "unzip -o TShock.zip",
+    "chmod +x TShock.Server",
+    'echo "TShock install complete"',
+  ].join("\n");
+
+  it("guards SERVER_JARFILE for jar eggs (before the final exit path)", () => {
+    const jarEgg = "#!/bin/bash\ncd /mnt/server\ncurl -o ${SERVER_JARFILE} $URL\necho done";
+    const hardened = hardenInstallScript(jarEgg, { hasJarFile: true });
+    expect(hardened).toContain('if [ ! -s "${SERVER_JARFILE}" ]; then');
+    expect(hardened).toContain("exit 1");
+    expect(hardened.indexOf("echo done")).toBeLessThan(hardened.indexOf("[ ! -s"));
+  });
+
+  it("guards the chmod'd binary for non-jar eggs like TShock", () => {
+    const hardened = hardenInstallScript(tshock, { hasJarFile: false });
+    expect(hardened).toContain('if [ ! -s "TShock.Server" ]; then');
+    // guard appended after the masking trailing echo
+    expect(hardened.indexOf("TShock install complete")).toBeLessThan(hardened.indexOf("[ ! -s"));
+  });
+
+  it("is a no-op when no primary artifact can be resolved (e.g. SteamCMD eggs)", () => {
+    const steam = "#!/bin/bash\nsteamcmd +login anonymous +app_update 896660 validate +quit\necho done";
+    expect(hardenInstallScript(steam, { hasJarFile: false })).toBe(steam);
+  });
+
+  it("does not double-guard a script that already has an artifact guard (paper)", () => {
+    const already = '#!/bin/bash\ncurl -o x\nif [ ! -s "${SERVER_JARFILE}" ]; then echo "is missing or empty"; exit 1; fi';
+    expect(hardenInstallScript(already, { hasJarFile: true })).toBe(already);
+  });
+
+  it("behaviorally fails closed under a real shell: empty artifact → exit 1, no marker written", () => {
+    const mount = mkdtempSync(join(tmpdir(), "iw-harden-"));
+    try {
+      // simulate a failed download (0-byte jar) then a masking success echo
+      const egg = [
+        "#!/bin/sh",
+        `cd ${mount}`,
+        ": > server.jar", // 0-byte artifact — the reproduced bug
+        'echo "install complete"',
+      ].join("\n");
+      const hardened = hardenInstallScript(egg, { hasJarFile: true });
+      // stand in for the wrapper's then-branch marker write
+      const wrapped = `if\n${hardened}\nthen touch ${join(mount, ".installed")}; else exit 1; fi`;
+      let code = 0;
+      try {
+        execFileSync("sh", ["-c", wrapped], { stdio: "pipe", env: { ...process.env, SERVER_JARFILE: "server.jar" } });
+      } catch (err) {
+        code = (err as { status?: number }).status ?? 1;
+      }
+      expect(code).toBe(1);
+      expect(existsSync(join(mount, ".installed"))).toBe(false);
+    } finally {
+      rmSync(mount, { recursive: true, force: true });
+    }
+  });
+
+  it("behaviorally passes a good install: non-empty artifact → marker written", () => {
+    const mount = mkdtempSync(join(tmpdir(), "iw-harden-ok-"));
+    try {
+      writeFileSync(join(mount, "server.jar"), "JAR");
+      const egg = [`#!/bin/sh`, `cd ${mount}`, 'echo "install complete"'].join("\n");
+      const hardened = hardenInstallScript(egg, { hasJarFile: true });
+      const wrapped = `if\n${hardened}\nthen touch ${join(mount, ".installed")}; else exit 1; fi`;
+      execFileSync("sh", ["-c", wrapped], { stdio: "pipe", env: { ...process.env, SERVER_JARFILE: "server.jar" } });
+      expect(existsSync(join(mount, ".installed"))).toBe(true);
+    } finally {
+      rmSync(mount, { recursive: true, force: true });
+    }
   });
 });

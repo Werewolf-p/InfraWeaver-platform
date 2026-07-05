@@ -1,6 +1,6 @@
 import type { EggConfigFiles, GameEgg } from "./game-eggs";
 import { inferSaveCommands, javaMajorFromImage } from "@/addons/gamehub/lib/game-eggs";
-import { patchPelicanInstallContainer, patchPelicanInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
+import { hardenInstallScript, patchPelicanInstallContainer, patchPelicanInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
 
 // Newest widely-available Java yolk tag. Egg image lists are often stale (they
 // stop at java_18) even though the registry ships java_21, so we upgrade to this
@@ -518,7 +518,12 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
     exportedAt: pelican.exported_at || undefined,
     installScript: pelican.scripts?.installation
       ? {
-          script: patchPelicanInstallScript(pelican.scripts.installation.script),
+          // Patch rotted upstream scripts, then append a primary-artifact success
+          // guard so a broken download can't set the .installed marker (jar eggs
+          // declare SERVER_JARFILE; other eggs fall back to their chmod target).
+          script: hardenInstallScript(patchPelicanInstallScript(pelican.scripts.installation.script), {
+            hasJarFile: (pelican.variables ?? []).some((v) => v.env_variable === "SERVER_JARFILE"),
+          }),
           container: patchPelicanInstallContainer(
             pelican.scripts.installation.container,
             pelican.scripts.installation.script,
