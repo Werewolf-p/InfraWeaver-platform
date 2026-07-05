@@ -5,6 +5,7 @@ import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts, javaMajorFromImage, memoryQuantityToMB, pelicanRuntimeEnv, sanitizeLabelValue } from "@/lib/game-eggs";
 import { checkJavaCompatibility, minecraftVersionFromEnv } from "@/addons/gamehub/lib/minecraft-java-compat";
 import { EGG_CONFIG_PARSER_CONFIGMAP, buildConfigSyncInitContainer, buildEggConfigParserConfigMap, computeEffectiveConfigFiles } from "@/addons/gamehub/lib/egg-config-sync";
+import { INSTALL_MOUNT, wrapInstallScript } from "@/addons/gamehub/lib/install-wrapper";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
@@ -198,34 +199,17 @@ function buildInstallInitContainer(
   env: Record<string, string>,
   isRoot: boolean,
 ) {
-  // Pelican install scripts always write to /mnt/server — mount the PVC there.
-  const INSTALL_MOUNT = "/mnt/server";
-  // Non-root runtime containers run as this uid/gid (see the pod securityContext
-  // in the create path). The installer runs as root, so without a hand-off the
-  // runtime can't open the files it wrote (e.g. TShock's GeoIP db → "Permission
-  // denied"). chown the install output to the runtime user, mirroring how
-  // Pterodactyl/Pelican wings hands a fresh install over to the container user.
-  const RUNTIME_UID = 1000;
-
   // Pelican/parkervcp egg scripts are authored on Windows and ship with CRLF
   // line endings. Injected raw, the literal carriage returns corrupt shell
   // keywords ("then\r", "fi\r") and break the script with exit code 2. Normalize
   // CRLF (and lone CR) to LF before wrapping so bash parses the script correctly.
   const normalizedScript = installScript.script.replace(/\r\n?/g, "\n");
 
-  const wrappedScript = [
-    "#!/bin/sh",
-    `if [ -f "${INSTALL_MOUNT}/.installed" ]; then`,
-    '  echo "[install] Already installed — skipping"',
-    "  exit 0",
-    "fi",
-    normalizedScript,
-    // Hand root-installed files to the runtime user for non-root eggs (a root
-    // runtime already owns them, so the chown is skipped there).
-    ...(isRoot ? [] : [`chown -R ${RUNTIME_UID}:${RUNTIME_UID} "${INSTALL_MOUNT}"`]),
-    `touch "${INSTALL_MOUNT}/.installed"`,
-    'echo "[install] Installation complete"',
-  ].join("\n");
+  // Wrap with the idempotency guard + success gate. The gate writes the
+  // .installed marker (and the non-root chown hand-off) only when the egg script
+  // exits 0, so a failed download can't poison the PVC and crashloop the runtime.
+  // See wrapInstallScript for the full rationale.
+  const wrappedScript = wrapInstallScript(normalizedScript, isRoot);
 
   return {
     name: "installer",
