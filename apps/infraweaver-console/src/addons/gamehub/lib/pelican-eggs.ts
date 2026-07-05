@@ -1,4 +1,4 @@
-import type { GameEgg } from "./game-eggs";
+import type { EggConfigFiles, GameEgg } from "./game-eggs";
 import { inferSaveCommands, javaMajorFromImage } from "@/addons/gamehub/lib/game-eggs";
 import { patchPelicanInstallContainer, patchPelicanInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
 
@@ -395,6 +395,53 @@ function inferQuickCommands(pelican: PelicanEgg, label: string): GameEgg["quickC
   return cmds;
 }
 
+const CONFIG_FILE_PARSERS = ["properties", "file", "yaml", "json", "ini", "xml"] as const;
+type ConfigFileParser = (typeof CONFIG_FILE_PARSERS)[number];
+
+function normalizeConfigParser(value: unknown): ConfigFileParser {
+  return (CONFIG_FILE_PARSERS as readonly string[]).includes(value as string)
+    ? (value as ConfigFileParser)
+    : "file";
+}
+
+/**
+ * Parse a Pelican egg's `config.files` (the Pterodactyl "configuration files"
+ * spec) into the platform's EggConfigFiles shape. The raw value is either a
+ * JSON-encoded string or an already-decoded object. Any parse failure or
+ * malformed entry is tolerated (bad entries skipped; nothing usable → undefined)
+ * so a rotten egg can never throw during import. Unknown parsers fall back to
+ * "file" (matching the boot-time templater), and find values are coerced to
+ * strings.
+ */
+function parseConfigFiles(raw: string | Record<string, unknown> | undefined): EggConfigFiles | undefined {
+  if (!raw) return undefined;
+  let decoded: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      decoded = JSON.parse(raw);
+    } catch {
+      return undefined;
+    }
+  }
+  if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) {
+    return undefined;
+  }
+
+  const result: EggConfigFiles = {};
+  for (const [path, spec] of Object.entries(decoded as Record<string, unknown>)) {
+    if (typeof spec !== "object" || spec === null) continue;
+    const { parser, find } = spec as { parser?: unknown; find?: unknown };
+    if (typeof find !== "object" || find === null || Array.isArray(find)) continue;
+    const findEntries: Record<string, string> = {};
+    for (const [key, value] of Object.entries(find as Record<string, unknown>)) {
+      findEntries[key] = typeof value === "string" ? value : String(value);
+    }
+    result[path] = { parser: normalizeConfigParser(parser), find: findEntries };
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
   // PTDL_v2 uses docker_images (map); PTDL_v1 uses docker_image (string).
   // Build a normalised map so we always have both dockerImage and dockerImages.
@@ -464,6 +511,9 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
     defaultStorage: resources.storage,
     features: features.length > 0 ? features : undefined,
     fileDenylist: pelican.file_denylist?.length ? pelican.file_denylist : undefined,
+    // Carry the egg's config.files so the boot-time config-sync init can template
+    // config files (e.g. server.properties RCON) from env on every start.
+    configFiles: parseConfigFiles(pelican.config?.files),
     author: pelican.author || undefined,
     exportedAt: pelican.exported_at || undefined,
     installScript: pelican.scripts?.installation

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auditLog } from "@/lib/audit-log";
 import { buildEggConfigMap, getEggEnvironmentDefaults, getEggForGameType, getEggPorts, javaMajorFromImage, memoryQuantityToMB, pelicanRuntimeEnv, sanitizeLabelValue } from "@/lib/game-eggs";
 import { checkJavaCompatibility, minecraftVersionFromEnv } from "@/addons/gamehub/lib/minecraft-java-compat";
+import { EGG_CONFIG_PARSER_CONFIGMAP, buildConfigSyncInitContainer, buildEggConfigParserConfigMap, computeEffectiveConfigFiles } from "@/addons/gamehub/lib/egg-config-sync";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
@@ -392,6 +393,24 @@ async function createServer(body: {
     ? buildInstallInitContainer(egg.mountPath, egg.installScript, allEnv, isRoot)
     : null;
 
+  // Boot-time config-file templating: wings templated each egg's config.files
+  // from env on every start (this port dropped it, so e.g. Minecraft RCON creds
+  // never reached server.properties). computeEffectiveConfigFiles returns the
+  // egg's own config.files plus a synthesized server.properties RCON block for
+  // RCON-capable eggs, or {} when there is nothing to template. The init carries
+  // the SAME allEnv (plain values, incl. the generated RCON_PASSWORD) as the game
+  // container, so it resolves the identical secret at runtime.
+  const effectiveConfigFiles = computeEffectiveConfigFiles(egg);
+  const configSyncInitContainer = Object.keys(effectiveConfigFiles).length > 0
+    ? buildConfigSyncInitContainer({ egg, env: allEnv, effective: effectiveConfigFiles })
+    : null;
+  // initContainers run in order: installer (populates the PVC) THEN config-sync
+  // (templates config files onto it) before the game container starts.
+  const initContainers = [
+    ...(installInitContainer ? [installInitContainer] : []),
+    ...(configSyncInitContainer ? [configSyncInitContainer] : []),
+  ];
+
   // Heavy games (installs take >10 min) get extra startup time. Compare
   // NUMERICALLY — a lexicographic string compare gets this wrong ("16Gi" < "4Gi",
   // "100Gi" < "20Gi"), so large servers would get the SMALL startup budget and be
@@ -408,6 +427,19 @@ async function createServer(body: {
       spec: { accessModes: ["ReadWriteOnce"], storageClassName: storageClass, resources: { requests: { storage } } },
     },
   });
+
+  // Ensure the shared boot-time parser ConfigMap exists before the pod mounts it.
+  // One copy per namespace, shared by every game server; create-or-replace so a
+  // parse.py update rolls out to all servers (mirrors appendServerAudit's pattern).
+  if (configSyncInitContainer) {
+    const parserBody = buildEggConfigParserConfigMap(GAME_HUB_NAMESPACE);
+    try {
+      await coreApi.readNamespacedConfigMap({ name: EGG_CONFIG_PARSER_CONFIGMAP, namespace: GAME_HUB_NAMESPACE });
+      await coreApi.replaceNamespacedConfigMap({ name: EGG_CONFIG_PARSER_CONFIGMAP, namespace: GAME_HUB_NAMESPACE, body: parserBody });
+    } catch {
+      await coreApi.createNamespacedConfigMap({ namespace: GAME_HUB_NAMESPACE, body: parserBody });
+    }
+  }
 
   await appsApi.createNamespacedDeployment({
     namespace: GAME_HUB_NAMESPACE,
@@ -434,7 +466,7 @@ async function createServer(body: {
               labelSelector: { matchLabels: { "infraweaver/game": "true" } },
             }],
             securityContext: isRoot ? { runAsUser: 0, runAsGroup: 0 } : { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
-            ...(installInitContainer ? { initContainers: [installInitContainer] } : {}),
+            ...(initContainers.length > 0 ? { initContainers } : {}),
             containers: [{
               name: slug,
               image: egg.dockerImage,
@@ -448,7 +480,13 @@ async function createServer(body: {
               lifecycle: stopSpec.lifecycle,
               ...buildUniversalGameServerProbes(startupMinutes, getEggPorts(egg)),
             }],
-            volumes: [{ name: "data", persistentVolumeClaim: { claimName: pvcName } }],
+            volumes: [
+              { name: "data", persistentVolumeClaim: { claimName: pvcName } },
+              // Project the shared parser (mode 0755) so the config-sync init can exec it.
+              ...(configSyncInitContainer
+                ? [{ name: "egg-config-parser", configMap: { name: EGG_CONFIG_PARSER_CONFIGMAP, defaultMode: 0o755 } }]
+                : []),
+            ],
           },
         },
       },
