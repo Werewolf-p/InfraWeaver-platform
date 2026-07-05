@@ -1,3 +1,5 @@
+import { hardenInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
+
 export interface QuickCommand {
   label: string;
   /** Preferred field for the command string (new eggs should use this) */
@@ -604,6 +606,18 @@ export function getEggForGameType(gameType: string): GameEgg {
   return {
     ...egg,
     commandAcl: egg.commandAcl ?? defaultCommandAcl(egg),
+    // Append a primary-artifact success guard so a built-in egg whose install
+    // script ends on a trailing echo (e.g. TShock) can't set the .installed
+    // marker on a broken download. Same hardening the pelican path applies in
+    // pelicanToGameEgg; done here so every built-in egg is covered too.
+    installScript: egg.installScript
+      ? {
+          ...egg.installScript,
+          script: hardenInstallScript(egg.installScript.script, {
+            hasJarFile: egg.environment.some((e) => e.name === "SERVER_JARFILE"),
+          }),
+        }
+      : egg.installScript,
   };
 }
 
