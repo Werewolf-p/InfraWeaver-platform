@@ -56,22 +56,54 @@ function buildPortCheck(port: GameServerProbePort): string {
     .join(" || ");
 }
 
+export interface ProbeExecCommandOptions {
+  /**
+   * Whether to append the PID-1-has-a-child fallback (CHILD_PROCESS_CHECK).
+   *
+   * Keep it ON (the default) for startup and liveness: it bridges the window
+   * before a slow, wrapper-style game (SteamCMD pre-download, world gen, JVM
+   * warm-up) has bound its socket, so the container isn't failed/killed while it
+   * is legitimately still coming up.
+   *
+   * Turn it OFF for readiness. The fallback is the root of the SteamCMD
+   * silent-install gap: a steamcmd that hangs mid-download — or a broken/corrupt
+   * install whose wrapper never launches the game — keeps PID 1's child alive
+   * indefinitely while the game port is never bound. A child-based readiness then
+   * reports the pod Ready and routes players to a dead server forever. Requiring a
+   * genuinely bound socket makes those pods report NotReady instead.
+   *
+   * When no ports are known there is nothing else to check, so the fallback is
+   * force-enabled regardless of this flag — otherwise the command would be empty
+   * (and thus always fail), wedging every such server NotReady. This preserves the
+   * previous no-ports behaviour for eggs that don't declare a port.
+   */
+  childProcessFallback?: boolean;
+}
+
 /**
- * Build the exec probe command shared by startup / liveness / readiness.
+ * Build the exec probe command used by startup / liveness / readiness.
  *
  * The command is entrypoint-agnostic. It succeeds when EITHER:
  *   1. any declared game port is bound (TCP LISTEN or UDP bound), which is true
  *      whether the game runs as PID 1 (exec-style dotnet/Terraria yolks) or as a
  *      child of a wrapper (Minecraft eggs), and works for UDP-only servers; OR
- *   2. PID 1 has a child process, which bridges the startup window before a slow
- *      game has bound its socket for wrapper-style entrypoints.
+ *   2. (only when `childProcessFallback` is enabled) PID 1 has a child process,
+ *      which bridges the startup window before a slow game has bound its socket
+ *      for wrapper-style entrypoints.
  *
- * When no ports are known it degrades to the child-process check alone, matching
- * the previous behaviour.
+ * Readiness passes `{ childProcessFallback: false }` so "ready" means the socket
+ * is actually bound. See ProbeExecCommandOptions and buildUniversalGameServerProbes.
  */
-export function buildProbeExecCommand(ports: GameServerProbePort[] = []): string[] {
+export function buildProbeExecCommand(
+  ports: GameServerProbePort[] = [],
+  { childProcessFallback = true }: ProbeExecCommandOptions = {},
+): string[] {
   const checks = ports.map(buildPortCheck);
-  checks.push(CHILD_PROCESS_CHECK);
+  // Force the child check when there is no port signal at all, otherwise the
+  // command would be empty and the probe would fail permanently.
+  if (childProcessFallback || checks.length === 0) {
+    checks.push(CHILD_PROCESS_CHECK);
+  }
   return ["sh", "-c", checks.join(" || ")];
 }
 
@@ -98,23 +130,32 @@ export function buildUniversalGameServerProbes(
   ports: GameServerProbePort[] = [],
 ): Pick<k8s.V1Container, "startupProbe" | "livenessProbe" | "readinessProbe"> {
   const startupFailureThreshold = Math.ceil((startupMinutes * 60) / 20);
-  const command = buildProbeExecCommand(ports);
+  // startup + liveness keep the child-process bridge so a slow-booting wrapper egg
+  // (SteamCMD pre-download, world gen, JVM warm-up) is neither failed during
+  // startup nor killed by liveness before it has bound its socket.
+  const bridgedCommand = buildProbeExecCommand(ports);
+  // readiness drops the bridge: a pod is only Ready once a declared game port is
+  // actually bound. This closes the SteamCMD silent-install gap — a hung or corrupt
+  // steamcmd keeps a child of PID 1 alive but never binds the port, so the pod now
+  // reports NotReady (readyReplicas stays 0) instead of green. With no known ports
+  // it falls back to the child check to avoid wedging (see buildProbeExecCommand).
+  const readinessCommand = buildProbeExecCommand(ports, { childProcessFallback: false });
   return {
     // startupProbe gates liveness/readiness until the server is up.
     // failureThreshold * periodSeconds = total allowed startup window.
     startupProbe: {
-      exec: { command },
+      exec: { command: bridgedCommand },
       initialDelaySeconds: 15,
       periodSeconds: 20,
       failureThreshold: startupFailureThreshold,
     },
     livenessProbe: {
-      exec: { command },
+      exec: { command: bridgedCommand },
       periodSeconds: 30,
       failureThreshold: 3,
     },
     readinessProbe: {
-      exec: { command },
+      exec: { command: readinessCommand },
       periodSeconds: 15,
       failureThreshold: 3,
     },
