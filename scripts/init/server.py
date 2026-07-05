@@ -4,18 +4,29 @@ InfraWeaver Init Server
 Serves the configuration web UI and handles deploy/redeploy API calls.
 
 Usage:
-    python3 scripts/init/server.py [--port 8080] [--host 0.0.0.0]
+    python3 scripts/init/server.py [--port 8080] [--host 127.0.0.1]
 
 Environment:
     IW_REPO_DIR   — path to the InfraWeaver repo (default: cwd or /opt/infraweaver)
     IW_PORT       — port to listen on (default: 8080)
+    IW_HOST       — bind address (default: 127.0.0.1; set 0.0.0.0 to expose on LAN)
+    IW_INIT_TOKEN — bearer token required on /api/* (default: generated at startup)
+
+Every /api/* request (except /api/health) must carry the bearer token:
+the server prints a tokenized URL at startup — open that URL, or send
+"Authorization: Bearer <token>" yourself. These endpoints serve the
+cluster-admin kubeconfig and every provisioning secret, so they must not
+be callable by anything that merely has network reach (C7).
 """
 from datetime import datetime
+import hmac
 import http.server
+import ipaddress
 import json
 import mimetypes
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -43,7 +54,17 @@ EXT_TYPES = {
 
 # ── Config ──────────────────────────────────────────────────────────────────
 PORT = int(os.environ.get("IW_PORT", "8080"))
-HOST = os.environ.get("IW_HOST", "0.0.0.0")
+HOST = os.environ.get("IW_HOST", "127.0.0.1")
+
+# Bearer token gating all /api/* endpoints except PUBLIC_API_PATHS. Written
+# back into the environment so the /api/self-update re-exec (os.execv) comes
+# back up with the same token and open wizard sessions keep working.
+INIT_TOKEN = os.environ.get("IW_INIT_TOKEN", "").strip() or secrets.token_urlsafe(32)
+os.environ["IW_INIT_TOKEN"] = INIT_TOKEN
+
+# /api/health carries no secrets and the UI polls it while the server
+# restarts after self-update, before it can re-attach the token.
+PUBLIC_API_PATHS = {"/api/health"}
 
 # Find repo dir: env override → parent of this script → /opt/infraweaver
 _script_dir = Path(__file__).parent
@@ -388,7 +409,52 @@ def _ping_check_single(ip: str) -> Dict:
         return {"ok": False, "error": str(e)}
 
 
+def _configured_proxmox_hosts() -> set:
+    """Proxmox hosts the operator already committed to .env — the only
+    non-private destinations we'll send credentials to."""
+    hosts = set()
+    try:
+        env = _parse_env_file(ENV_FILE)
+    except Exception:
+        env = {}
+    for key in ("PROXMOX_HOST",):
+        value = str(env.get(key, "")).strip()
+        if value:
+            hosts.add(value.lower())
+    return hosts
+
+
+def _validate_outbound_host(host: str) -> Optional[str]:
+    """Reject arbitrary caller-supplied destinations for credential-bearing
+    Proxmox calls (SSRF / credential relay). Allow only a private/loopback IP
+    literal or the exact host already saved in .env. Returns an error string
+    when the host is not allowed, or None when it is safe.
+
+    Note: this is a value check on the literal supplied host. It does not
+    defeat DNS rebinding for hostnames, which is why non-configured hostnames
+    are rejected outright rather than resolved.
+    """
+    host = (host or "").strip()
+    if not host:
+        return "host is required"
+    if host.lower() in _configured_proxmox_hosts():
+        return None
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return (
+            "host must be a private IP address, or match the Proxmox host saved "
+            "in your .env — arbitrary hosts are refused to prevent credential leakage"
+        )
+    if ip.is_private or ip.is_loopback or ip.is_link_local:
+        return None
+    return "refusing to contact a non-private Proxmox host"
+
+
 def _ping_proxmox(host: str) -> Dict:
+    host_error = _validate_outbound_host(host)
+    if host_error:
+        return {"ok": False, "error": host_error}
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -483,10 +549,19 @@ def _install_deployer_ssh_key(node_ips: list, root_password: str) -> list:
         if not pubkey:
             return [{"node": "all", "ip": "", "ok": False,
                      "error": "Could not extract public key from DEPLOYER_SSH_KEY"}]
-        # Ensure comment is set
+        # Normalize to exactly "<type> <base64> infraweaver-deployer". An
+        # attacker-supplied private key whose derived pubkey carries a comment
+        # would otherwise let that comment (single-quoted, unescaped) break out
+        # of the remote `echo '<pubkey>'` command below and run as root on every
+        # node. type/base64 are a safe charset; the comment is fixed by us.
         parts = pubkey.split()
-        if len(parts) == 2:
-            pubkey = f"{parts[0]} {parts[1]} infraweaver-deployer"
+        if len(parts) < 2:
+            return [{"node": "all", "ip": "", "ok": False,
+                     "error": "DEPLOYER_SSH_KEY did not yield a valid public key"}]
+        if not re.match(r"^[A-Za-z0-9+/=@.-]+$", parts[0]) or not re.match(r"^[A-Za-z0-9+/=]+$", parts[1]):
+            return [{"node": "all", "ip": "", "ok": False,
+                     "error": "Derived public key has an unexpected format"}]
+        pubkey = f"{parts[0]} {parts[1]} infraweaver-deployer"
 
         # Create a temporary SSH_ASKPASS helper script
         with tempfile.NamedTemporaryFile(mode="w", suffix="_askpass.sh", delete=False) as f:
@@ -555,6 +630,10 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
     Credentials are NEVER stored — only the resulting token is returned."""
     import urllib.request, urllib.parse, urllib.error
     import ssl, secrets
+
+    host_error = _validate_outbound_host(host)
+    if host_error:
+        return {"ok": False, "error": host_error}
 
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -694,6 +773,9 @@ def _setup_proxmox_user(host: str, username: str, password: str) -> Dict:
 
 
 def _discover_proxmox(host: str, token: str) -> Dict:
+    host_error = _validate_outbound_host(host)
+    if host_error:
+        return {"ok": False, "error": host_error}
     """Query Proxmox API to discover node name, datastores, and next free VMIDs."""
     import urllib.request
     import ssl
@@ -858,6 +940,9 @@ def _discover_proxmox(host: str, token: str) -> Dict:
 
 
 def _discover_proxmox_node(host: str, token: str, node_name: str) -> Dict:
+    host_error = _validate_outbound_host(host)
+    if host_error:
+        return {"ok": False, "error": host_error}
     """Fetch datastores and resources for a single Proxmox node on demand.
 
     Used by the UI when the user switches to a PVE node whose data wasn't
@@ -1102,6 +1187,16 @@ def _check_dns_provider(provider: str, credentials: Dict[str, str]) -> Dict:
     return {"ok": False, "error": f"Unsupported DNS provider: {provider}", "provider": provider}
 
 
+def _safe_env_name(name: Optional[str]) -> str:
+    """ENV_NAME is a free-form field written via /api/save-env and later
+    interpolated into filesystem paths (envs/<name>/…, ~/.kube/config-platform-<name>).
+    Restrict it to a safe slug so it can't escape the intended directory
+    (e.g. ENV_NAME=../../../etc). Falls back to the default on any invalid value.
+    """
+    candidate = (name or "").strip()
+    return candidate if re.match(r"^[A-Za-z0-9_-]+$", candidate) else "productie"
+
+
 def _parse_env_file(path: Path) -> Dict[str, str]:
     data = {}
     if not path.exists():
@@ -1156,7 +1251,7 @@ def _get_status() -> Dict:
 
 def _validate_proxmox(env_data: Dict) -> Dict:
     token = str(env_data.get("PROXMOX_API_TOKEN", "")).strip()
-    env_name = env_data.get("ENV_NAME", "productie")
+    env_name = _safe_env_name(env_data.get("ENV_NAME", "productie"))
     cluster_yaml = REPO_DIR / "envs" / env_name / "cluster.yaml"
     host = str(env_data.get("PROXMOX_HOST", "")).strip() or "192.168.1.100"
     if cluster_yaml.exists():
@@ -1578,6 +1673,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
 
+    def _is_authorized(self) -> bool:
+        auth = self.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return False
+        return hmac.compare_digest(auth[len("Bearer "):].strip(), INIT_TOKEN)
+
+    def _require_auth(self, path: str) -> bool:
+        """Gate /api/* behind the startup bearer token (C7).
+
+        Static UI files stay public so the wizard can load and show its
+        token prompt; every API endpoint serves or mutates provisioning
+        state and requires the token.
+        """
+        if not path.startswith("/api/") or path in PUBLIC_API_PATHS:
+            return True
+        if self._is_authorized():
+            return True
+        self._send_json({"ok": False, "error": "unauthorized"}, 401)
+        return False
+
     def _send_json(self, data: dict, status: int = 200):
         body = json.dumps(data).encode()
         self.send_response(status)
@@ -1612,11 +1727,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(204)
         self._set_cors()
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
 
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
+        if not self._require_auth(path):
+            return
 
         if path in ("/", "/index.html"):
             static_index = OUT_DIR / "index.html"
@@ -1733,7 +1850,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/api/get-kubeconfig":
-            env_name = _parse_env_file(ENV_FILE).get("ENV_NAME", "productie")
+            env_name = _safe_env_name(_parse_env_file(ENV_FILE).get("ENV_NAME", "productie"))
             candidates = [
                 REPO_DIR / "generated" / "kubeconfig",
                 REPO_DIR / "envs" / env_name / "generated" / "kubeconfig",
@@ -1747,7 +1864,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/api/get-talosconfig":
-            env_name = _parse_env_file(ENV_FILE).get("ENV_NAME", "productie")
+            env_name = _safe_env_name(_parse_env_file(ENV_FILE).get("ENV_NAME", "productie"))
             candidates = [
                 REPO_DIR / "generated" / "talosconfig",
                 REPO_DIR / "envs" / env_name / "generated" / "talosconfig",
@@ -1798,6 +1915,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
+        if not self._require_auth(path):
+            return
         content_len = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_len) if content_len else b"{}"
         try:
@@ -1973,12 +2092,19 @@ def main():
     p.add_argument("--host", default=HOST)
     args = p.parse_args()
 
+    ui_host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
     print(f"""
 ╔══════════════════════════════════════════════════════╗
 ║    InfraWeaver Init Server                           ║
 ╚══════════════════════════════════════════════════════╝
   Repo   : {REPO_DIR}
-  UI     : http://{args.host}:{args.port}
+  UI     : http://{ui_host}:{args.port}/?token={INIT_TOKEN}
+  Bind   : {args.host} (set IW_HOST=0.0.0.0 or --host to expose beyond loopback)
+
+  API calls require this bearer token — open the URL above (the wizard
+  picks the token up automatically) or send:
+    Authorization: Bearer {INIT_TOKEN}
+
   Press Ctrl+C to stop
 """, flush=True)
 
