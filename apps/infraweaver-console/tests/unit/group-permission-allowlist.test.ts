@@ -46,6 +46,21 @@ jest.mock("@/lib/route-utils", () => ({
   routeErrorResponse: (error: unknown) => ({ kind: "error", error: String(error), status: 500 }),
 }));
 
+// The routes run a privilege-ceiling check (SECURITY-AUDIT C1) that loads the
+// granter's RBAC context via a git-backed users config. That loader throws
+// "Git provider token is not configured" under Jest, so the success path 500s
+// unless we stub it. Stub the context loader and let the ceiling pass (empty
+// -> nothing "beyond ceiling"); the deny-path tests never reach this code.
+jest.mock("@/lib/session-rbac", () => ({
+  getSessionRBACContext: jest.fn(async () => ({
+    username: "admin",
+    groups: [],
+    roleAssignments: [],
+    extraPermissions: [],
+  })),
+  permissionsBeyondCeiling: jest.fn(() => []),
+}));
+
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/groups/route";
 import { PATCH } from "@/app/api/groups/[id]/route";
