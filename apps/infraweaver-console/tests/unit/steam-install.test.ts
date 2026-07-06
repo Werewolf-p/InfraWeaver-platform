@@ -85,6 +85,20 @@ describe("buildSteamInstallScript — structure", () => {
     expect(buildSteamInstallScript({ appId: 5 })).toContain(`+force_install_dir "${INSTALL_MOUNT}"`);
   });
 
+  it("hands the verified tree to the runtime user (chown 1000:1000) so it can write saves", () => {
+    // hermsi/ark-server (and the other steam images) gosu-drop to uid/gid 1000 and
+    // must create Saved/ + Mods/ under the install tree, which steamcmd installs as
+    // root. Without this chown the runtime crashes with EACCES on those mkdirs.
+    expect(script).toMatch(/chown\s+-R\s+1000:1000\s+"\$INSTALL_DIR"/);
+    // must be non-fatal so a non-root installer still falls through 0 -> marker write
+    expect(script).toMatch(/chown[\s\S]*?\|\|\s*echo/);
+  });
+
+  it("honors an explicit runtime owner uid/gid for the chown", () => {
+    const custom = buildSteamInstallScript({ appId: 1, ownerUid: 999, ownerGid: 998 });
+    expect(custom).toMatch(/chown\s+-R\s+999:998\s+"\$INSTALL_DIR"/);
+  });
+
   it("emits a POSIX-sh-parseable script (sh -n clean)", () => {
     // Guards against an unbalanced if/while/fi that would corrupt the init.
     expect(() => execFileSync("sh", ["-n", "-c", script], { stdio: "pipe" })).not.toThrow();
