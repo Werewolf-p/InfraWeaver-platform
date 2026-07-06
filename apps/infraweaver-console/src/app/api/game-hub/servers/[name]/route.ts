@@ -33,6 +33,7 @@ import {
   isKubernetesNotFoundError,
 } from "@/lib/game-hub-server";
 import { validateK8sName } from "@/lib/api-security";
+import { logMutatingAccess } from "@/lib/access-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
@@ -750,6 +751,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       // Never delete a pod mid-install: the Recreate-strategy Deployment would
       // recreate it and re-run the whole install, so a restart repeated during a
       // console rolling update churns the pod for the install's whole duration.
+      //
+      // Emit a raw `type:access` line for the same reason the generic /api/pods
+      // routes do: a game-hub-originated restart deletes pods, so when it churns
+      // an installing pod during a console rolling update the trail must pin the
+      // caller + referer (this route's restart was previously the one mutating
+      // path with no access line).
+      logMutatingAccess(req, session.user?.email ?? "unknown");
       const { deleted, skippedInstalling } = await restartServerPods(clients, name);
       actionResult = { restarted: deleted, skippedInstalling };
       await sendDiscordWebhook(webhookConfig, "restart", `🔄 ${name} restarted`);
