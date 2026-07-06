@@ -43,13 +43,23 @@ describe("getEggForGameType — steam boot-install synthesis", () => {
     expect(egg.installScript?.script).not.toContain("app_update");
   });
 
-  it("does NOT synthesize a steam script for excluded eggs (valheim/ark/cs2)", () => {
-    // These images keep binaries in the image, install to a volume subpath the
-    // pre-install can't reach, or ignore the marker — validated on-cluster (PR #139).
-    for (const eggId of ["valheim", "ark", "cs2"]) {
+  it("does NOT synthesize a steam script for excluded eggs (valheim/cs2)", () => {
+    // These images keep binaries in the image or ignore the marker — validated
+    // on-cluster (PR #139). ark is no longer excluded: it was rewired to read the
+    // pre-installed tree from /app/server (see steam-install STEAM_INSTALL_EGGS).
+    for (const eggId of ["valheim", "cs2"]) {
       expect(getEggForGameType(eggId).installScript).toBeUndefined();
     }
     // …including via the csgo -> cs2 alias.
     expect(getEggForGameType("csgo").installScript).toBeUndefined();
+  });
+
+  it("synthesizes a verifying steam script for the rewired ark egg", () => {
+    const egg = getEggForGameType("ark");
+    expect(egg.dockerImage).toBe("hermsi/ark-server:latest");
+    expect(egg.mountPath).toBe("/app/server");
+    expect(egg.installScript?.script).toContain("+app_update 376030");
+    // startupCommand launches the binary from the PVC mount, not the image's path.
+    expect(egg.startupCommand).toContain("/app/server/ShooterGame/Binaries/Linux/ShooterGameServer");
   });
 });

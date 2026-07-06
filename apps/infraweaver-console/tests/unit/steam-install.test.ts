@@ -93,10 +93,12 @@ describe("buildSteamInstallScript — structure", () => {
 
 describe("steamInstallScriptForEgg / STEAM_INSTALL_EGGS", () => {
   it("covers exactly the steam eggs whose image reads binaries from the PVC", () => {
-    // valheim/ark/cs2 are deliberately excluded — their images keep binaries in the
+    // valheim/cs2 are deliberately excluded — their images keep binaries in the
     // image or ignore the marker (see STEAM_INSTALL_EGGS doc + PR #139 checklist).
+    // ark is included: hermsi/ark-server reads /app/server, which the egg mounts at
+    // the PVC root, so the pre-install to /mnt/server is authoritative.
     expect(Object.keys(STEAM_INSTALL_EGGS).sort()).toEqual(
-      ["palworld", "rust", "satisfactory"].sort(),
+      ["ark", "palworld", "rust", "satisfactory"].sort(),
     );
   });
 
@@ -107,12 +109,22 @@ describe("steamInstallScriptForEgg / STEAM_INSTALL_EGGS", () => {
     expect(spec?.script).toContain("appmanifest_1690800.acf");
   });
 
-  it.each(["valheim", "ark", "cs2", "csgo"])(
+  it.each(["valheim", "cs2", "csgo"])(
     "does NOT pre-install the excluded steam egg %s",
     (eggId) => {
       expect(steamInstallScriptForEgg(eggId)).toBeNull();
     },
   );
+
+  it("pre-installs ark to the volume ROOT so the /app/server mount reads it", () => {
+    const spec = steamInstallScriptForEgg("ark");
+    expect(spec).not.toBeNull();
+    expect(spec?.container).toBe(STEAM_INSTALL_IMAGE);
+    // ARK appId 376030, default installDir = the shared mount root (/mnt/server).
+    expect(spec?.script).toContain("+app_update 376030");
+    expect(spec?.script).toContain('+force_install_dir "/mnt/server"');
+    expect(spec?.script).toContain("appmanifest_376030.acf");
+  });
 
   it("returns a runnable install-script spec for a steam egg", () => {
     const spec = steamInstallScriptForEgg("palworld");
