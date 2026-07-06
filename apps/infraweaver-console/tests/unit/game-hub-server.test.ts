@@ -28,7 +28,7 @@ jest.mock("@kubernetes/client-node", () => {
   };
 });
 
-import { buildConsoleInputScript, derivePowerStatus, forceStopServer, isKubernetesNotFoundError, scaleServerWorkload } from "@/lib/game-hub-server";
+import { buildConsoleInputScript, derivePowerStatus, forceStopServer, isKubernetesNotFoundError, isPodInstalling, restartServerPods, scaleServerWorkload } from "@/lib/game-hub-server";
 
 describe("derivePowerStatus", () => {
   it("reports maintenance regardless of replica counts", () => {
@@ -144,5 +144,61 @@ describe("game hub server helpers", () => {
       gracePeriodSeconds: 0,
       body: { gracePeriodSeconds: 0 },
     });
+  });
+});
+
+describe("isPodInstalling", () => {
+  it("is true while an init container is still running (installing)", () => {
+    // SteamCMD installer init container mid-download: running and not ready.
+    expect(
+      isPodInstalling({ status: { initContainerStatuses: [{ name: "installer", ready: false, state: { running: { startedAt: new Date() } } }] } } as never),
+    ).toBe(true);
+  });
+
+  it("is false once every init container has terminated (install finished)", () => {
+    expect(
+      isPodInstalling({ status: { initContainerStatuses: [{ name: "installer", ready: true, state: { terminated: { exitCode: 0 } } }] } } as never),
+    ).toBe(false);
+  });
+
+  it("is false for a pod with no init containers", () => {
+    expect(isPodInstalling({ status: { containerStatuses: [{ name: "game", ready: true, state: { running: {} } }] } } as never)).toBe(false);
+    expect(isPodInstalling(null)).toBe(false);
+    expect(isPodInstalling(undefined)).toBe(false);
+  });
+});
+
+describe("restartServerPods", () => {
+  it("deletes ready pods but skips pods still installing", async () => {
+    const coreApi = {
+      listNamespacedPod: jest.fn().mockResolvedValue({
+        items: [
+          // Mid-install pod: installer init container still running — must NOT be deleted.
+          { metadata: { name: "ark-installing" }, status: { initContainerStatuses: [{ name: "installer", ready: false, state: { running: { startedAt: new Date() } } }] } },
+          // Booted pod: init containers done — safe to restart.
+          { metadata: { name: "ark-ready" }, status: { initContainerStatuses: [{ name: "installer", ready: true, state: { terminated: { exitCode: 0 } } }], containerStatuses: [{ name: "game", ready: true, state: { running: {} } }] } },
+        ],
+      }),
+      deleteNamespacedPod: jest.fn().mockResolvedValue({}),
+    };
+
+    const result = await restartServerPods({ coreApi } as never, "ark");
+
+    expect(result).toEqual({ deleted: ["ark-ready"], skippedInstalling: ["ark-installing"] });
+    expect(coreApi.deleteNamespacedPod).toHaveBeenCalledTimes(1);
+    expect(coreApi.deleteNamespacedPod).toHaveBeenCalledWith({ name: "ark-ready", namespace: "game-hub" });
+    expect(coreApi.deleteNamespacedPod).not.toHaveBeenCalledWith(expect.objectContaining({ name: "ark-installing" }));
+  });
+
+  it("deletes normally when nothing is installing", async () => {
+    const coreApi = {
+      listNamespacedPod: jest.fn().mockResolvedValue({ items: [{ metadata: { name: "demo-0" }, status: {} }] }),
+      deleteNamespacedPod: jest.fn().mockResolvedValue({}),
+    };
+
+    const result = await restartServerPods({ coreApi } as never, "demo");
+
+    expect(result).toEqual({ deleted: ["demo-0"], skippedInstalling: [] });
+    expect(coreApi.deleteNamespacedPod).toHaveBeenCalledTimes(1);
   });
 });

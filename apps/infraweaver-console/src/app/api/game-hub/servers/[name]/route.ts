@@ -26,6 +26,7 @@ import {
   parsePowerSchedule,
   readSavedCommands,
   readServerEgg,
+  restartServerPods,
   sendDiscordWebhook,
   validateServerToken,
   writeSavedCommands,
@@ -746,10 +747,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
       await forceStopServer(clients, name);
       await sendDiscordWebhook(webhookConfig, "stop", `🛑 ${name} force-stopped`);
     } else if (body.action === "restart") {
-      const pods = await clients.coreApi.listNamespacedPod({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
-      for (const pod of pods.items ?? []) {
-        await clients.coreApi.deleteNamespacedPod({ name: pod.metadata?.name ?? "", namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
-      }
+      // Never delete a pod mid-install: the Recreate-strategy Deployment would
+      // recreate it and re-run the whole install, so a restart repeated during a
+      // console rolling update churns the pod for the install's whole duration.
+      const { deleted, skippedInstalling } = await restartServerPods(clients, name);
+      actionResult = { restarted: deleted, skippedInstalling };
       await sendDiscordWebhook(webhookConfig, "restart", `🔄 ${name} restarted`);
     } else if (body.action === "scale") {
       await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);

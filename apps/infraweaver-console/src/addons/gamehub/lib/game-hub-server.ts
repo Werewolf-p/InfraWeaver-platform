@@ -1013,6 +1013,49 @@ export async function forceStopServer(
   return { deletedPods: (pods.items ?? []).map((pod) => pod.metadata?.name).filter((podName): podName is string => Boolean(podName)) };
 }
 
+/**
+ * True while a pod is still executing an init container — i.e. the install /
+ * first-boot phase (SteamCMD download, egg install, config-sync) has not handed
+ * off to the game container yet. Mirrors the `activeInitContainer` check the
+ * status route uses to report the "installing" power state.
+ */
+export function isPodInstalling(pod: k8s.V1Pod | null | undefined): boolean {
+  return (pod?.status?.initContainerStatuses ?? []).some(
+    (cs) => cs.state?.running != null && !cs.ready,
+  );
+}
+
+/**
+ * Restart a server by deleting its pods so the (Recreate-strategy) Deployment
+ * recreates them — but NEVER delete a pod that is still installing.
+ *
+ * Killing a mid-install pod throws away the in-progress install and the
+ * replacement pod re-runs the whole thing from scratch. If a restart is issued
+ * repeatedly while the install is running (e.g. the old console pod servicing a
+ * reconcile/restart on every poll during a rolling update) the install can never
+ * finish — the pod just churns for the install's whole duration. Installing pods
+ * are skipped and returned so callers can surface why the restart was a no-op.
+ */
+export async function restartServerPods(
+  clients: ReturnType<typeof makeGameHubClients>,
+  name: string,
+): Promise<{ deleted: string[]; skippedInstalling: string[] }> {
+  const pods = await clients.coreApi.listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` });
+  const deleted: string[] = [];
+  const skippedInstalling: string[] = [];
+  await Promise.all((pods.items ?? []).map(async (pod) => {
+    const podName = pod.metadata?.name;
+    if (!podName) return;
+    if (isPodInstalling(pod)) {
+      skippedInstalling.push(podName);
+      return;
+    }
+    await clients.coreApi.deleteNamespacedPod({ name: podName, namespace: GAME_HUB_NS }).catch(() => undefined);
+    deleted.push(podName);
+  }));
+  return { deleted, skippedInstalling };
+}
+
 function parseJsonValue<T>(raw: string | undefined | null, fallback: T): T {
   if (!raw) return fallback;
   try {

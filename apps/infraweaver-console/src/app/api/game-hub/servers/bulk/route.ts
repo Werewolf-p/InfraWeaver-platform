@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { GAME_HUB_NS, gracefulStopServer, makeGameHubClients, readServerEgg } from "@/lib/game-hub-server";
+import { GAME_HUB_NS, gracefulStopServer, makeGameHubClients, readServerEgg, restartServerPods } from "@/lib/game-hub-server";
 import { writeServerManifest } from "@/lib/game-hub-manifest";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { isValidK8sName } from "@/lib/validate";
@@ -86,8 +86,9 @@ export async function POST(req: NextRequest) {
 
       try {
         if (action === "restart") {
-          const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` });
-          await Promise.all((pods.items ?? []).map((pod) => coreApi.deleteNamespacedPod({ name: pod.metadata?.name ?? "", namespace: GAME_HUB_NS }).catch(() => undefined)));
+          // Skip pods still installing so a bulk restart never re-runs an
+          // in-progress install from scratch (see restartServerPods).
+          await restartServerPods(clients, name);
         } else if (action === "stop") {
           const deployment = await appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
           const egg = await readServerEgg(coreApi, name, deployment);
