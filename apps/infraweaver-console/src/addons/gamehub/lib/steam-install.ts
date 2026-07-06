@@ -41,6 +41,19 @@ export const STEAM_INSTALL_IMAGE = "steamcmd/steamcmd:latest";
 export const STEAM_DEFAULT_MAX_ATTEMPTS = 3;
 
 /**
+ * Uid/gid the install tree is handed to after a verified install. steamcmd runs
+ * the install as root, but the third-party runtime images (hermsi/ark-server,
+ * jammsen/palworld, wolveix/satisfactory, …) drop to an unprivileged user via
+ * gosu — the de-facto convention across these images is uid/gid 1000 — which then
+ * has to create Saved/, Mods/ and other state dirs under the tree. A root-owned
+ * tree makes those mkdirs fail with EACCES, so the runtime crashes on boot. See
+ * the ark on-cluster smoke: `mkdir: cannot create directory
+ * '/app/server/ShooterGame/Saved': Permission denied`.
+ */
+export const STEAM_DEFAULT_RUNTIME_UID = 1000;
+export const STEAM_DEFAULT_RUNTIME_GID = 1000;
+
+/**
  * Default on-disk floor (50 MiB). A real dedicated-server install is multiple GB,
  * so this comfortably clears a healthy install while still catching a wiped or
  * aborted download (which leaves only KB–MB behind). The StateFlags check is the
@@ -59,6 +72,10 @@ export interface SteamInstallSpec {
   maxAttempts?: number;
   /** Optional Steam beta branch (emits `-beta <branch>`). */
   betaBranch?: string;
+  /** Uid the verified install tree is chowned to (runtime user). Default 1000. */
+  ownerUid?: number;
+  /** Gid the verified install tree is chowned to (runtime group). Default 1000. */
+  ownerGid?: number;
 }
 
 /** Structural shape of an egg install script (matches GameEgg.installScript). */
@@ -79,6 +96,8 @@ export function buildSteamInstallScript(spec: SteamInstallSpec): string {
   const minBytes = spec.minBytes ?? STEAM_DEFAULT_MIN_BYTES;
   const maxAttempts = spec.maxAttempts ?? STEAM_DEFAULT_MAX_ATTEMPTS;
   const beta = spec.betaBranch ? ` -beta ${spec.betaBranch}` : "";
+  const ownerUid = spec.ownerUid ?? STEAM_DEFAULT_RUNTIME_UID;
+  const ownerGid = spec.ownerGid ?? STEAM_DEFAULT_RUNTIME_GID;
 
   return [
     "#!/bin/sh",
@@ -120,6 +139,14 @@ export function buildSteamInstallScript(spec: SteamInstallSpec): string {
     // Fall through with a zero status on success so the wrapping install script
     // writes the .installed marker; exit non-zero on failure so it never does.
     'if [ "$ok" = 1 ]; then',
+    // steamcmd installs as root; the runtime image drops to an unprivileged user
+    // (uid/gid 1000 via gosu) that must create Saved/, Mods/ and other state dirs
+    // under the tree. Hand the verified tree to that user so those writes don't
+    // EACCES on boot. `2>/dev/null || echo` keeps this non-fatal: on the (unit-
+    // test / non-root) path where chown can't set 1000, the success status is
+    // preserved so wrapInstallScript still writes the .installed marker.
+    `  chown -R ${ownerUid}:${ownerGid} "$INSTALL_DIR" 2>/dev/null \\`,
+    `    || echo "[steam-install] warning: could not chown $INSTALL_DIR to ${ownerUid}:${ownerGid}; runtime may be unable to write saves" >&2`,
     '  echo "[steam-install] install complete"',
     "else",
     `  echo "[steam-install] FAILED after $MAX_ATTEMPTS attempts — corrupt or partial install; not marking installed" >&2`,
