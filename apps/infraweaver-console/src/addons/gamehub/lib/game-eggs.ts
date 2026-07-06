@@ -383,6 +383,10 @@ echo "TShock install complete"`,
       { name: "MAXPLAYERS", description: "Max players", defaultValue: "4", required: false },
     ],
     quickCommands: [],
+    // wolveix/satisfactory-server's init.sh runs as root (chowns /config) then
+    // gosu-drops to the steam user. Same root-then-drop pattern as the other steam
+    // images; inferred from the image's root-chown init.
+    features: ["run_as_root"],
   },
   "v-rising": {
     id: "v-rising",
@@ -440,6 +444,10 @@ echo "TShock install complete"`,
       { label: "List Players", cmd: "ShowPlayers", description: "List connected players" },
       { label: "Save World", cmd: "Save", description: "Save the current world" },
     ],
+    // jammsen/palworld-dedicated-server must start as root — its entrypoint chowns
+    // the data dir then gosu-drops to the steam user. Without this it exits with
+    // "This Docker-Container must be run as root!" (verified on-cluster).
+    features: ["run_as_root"],
   },
   rust: {
     id: "rust",
@@ -474,6 +482,10 @@ echo "TShock install complete"`,
       { label: "Players", command: "global.status", description: "Show server status" },
       { label: "Save", command: "server.save", description: "Save game" },
     ],
+    // didstopia/rust-server starts as root (its entrypoint chowns /app + /steamcmd)
+    // then drops to uid 1000 to run the server. Same root-then-drop pattern as the
+    // other steam images; inferred from the image's root-chown entrypoint.
+    features: ["run_as_root"],
   },
   ark: {
     id: "ark",
