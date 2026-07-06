@@ -131,16 +131,51 @@ export function buildSteamInstallScript(spec: SteamInstallSpec): string {
 /**
  * SteamCMD dedicated-server app ids for the built-in eggs whose runtime image
  * installs at boot (so they have no install script of their own). Keyed by the
- * canonical egg id (post-alias). These are the eggs the boot-install verify gap
- * applied to.
+ * canonical egg id (post-alias).
+ *
+ * The verifying pre-install is only correct when the runtime image actually reads
+ * the game binaries from a path on the PVC that our installDir writes to. Validated
+ * against each image on the live cluster (PR #139 checklist); only the three eggs
+ * below qualify. `installDir` defaults to the shared mount root (/mnt/server); an
+ * image that installs to a volume SUBPATH gets that subpath here.
+ *
+ *   - palworld (jammsen)   installs to the VOLUME ROOT /palworld and SKIPS its own
+ *                          install when PalServer.sh already exists → our verified
+ *                          pre-install to the mount root is authoritative. FITS.
+ *   - rust (didstopia)     installs RustDedicated to the VOLUME ROOT /steamcmd/rust;
+ *                          our pre-install lands there. It re-validates on boot
+ *                          (RUST_START_MODE=0 default) — idempotent and safe. FITS.
+ *   - satisfactory (wolveix) installs to the SUBPATH /config/gamefiles, not the
+ *                          volume root, and self-heals only if gamefiles are missing.
+ *                          Target the same subpath so the runtime reads our verified
+ *                          tree. FITS via installDir subpath.
+ *
+ * EXCLUDED (validated on-cluster — a pre-install to the PVC would be ignored or junk):
+ *   - valheim (lloesche)   keeps server binaries INSIDE the image at /opt/valheim and
+ *                          uses the /config mount for saves/config ONLY (no VOLUME
+ *                          declared). Pre-installing to /config is never read and just
+ *                          pollutes the saves dir. The updater re-downloads every boot.
+ *   - ark (hermsi1337)     installs to the SUBPATH /app/server (marker
+ *                          /app/server/steamapps/appmanifest_376030.acf), while the egg
+ *                          mounts at /ark and its startupCommand points at yet another
+ *                          path (/home/steam/ark-server) — the egg is independently
+ *                          mis-wired, and the image ref itself does not pull anonymously.
+ *                          Excluded here; the egg needs a separate fix.
+ *   - cs2 (cm2network/csgo) re-runs +app_update every boot and launches srcds with
+ *                          -autoupdate, so it ignores the .installed marker (no durable
+ *                          fail-closed guarantee). Worse, appId 740 is the LEGACY CS:GO
+ *                          dedicated server; the CS2 server is a different image
+ *                          (cm2network/cs2, appId 730). The egg needs an image/appId fix
+ *                          before a pre-install is meaningful.
+ *
+ * Optional follow-up (not applied — keeps this change surgical): setting
+ * RUST_START_MODE=2 (rust) / SKIPUPDATE=true (satisfactory) as egg env defaults makes
+ * each image trust the pre-installed tree instead of re-downloading on every boot.
  */
 export const STEAM_INSTALL_EGGS: Record<string, SteamInstallSpec> = {
   palworld: { appId: 2394010 },
-  valheim: { appId: 896660 },
-  ark: { appId: 376030 },
   rust: { appId: 258550 },
-  cs2: { appId: 740 },
-  satisfactory: { appId: 1690800 },
+  satisfactory: { appId: 1690800, installDir: `${INSTALL_MOUNT}/gamefiles` },
 };
 
 /**

@@ -92,11 +92,27 @@ describe("buildSteamInstallScript — structure", () => {
 });
 
 describe("steamInstallScriptForEgg / STEAM_INSTALL_EGGS", () => {
-  it("covers exactly the six entrypoint-install steam eggs", () => {
+  it("covers exactly the steam eggs whose image reads binaries from the PVC", () => {
+    // valheim/ark/cs2 are deliberately excluded — their images keep binaries in the
+    // image or ignore the marker (see STEAM_INSTALL_EGGS doc + PR #139 checklist).
     expect(Object.keys(STEAM_INSTALL_EGGS).sort()).toEqual(
-      ["ark", "cs2", "palworld", "rust", "satisfactory", "valheim"].sort(),
+      ["palworld", "rust", "satisfactory"].sort(),
     );
   });
+
+  it("targets the wolveix subpath for satisfactory, not the volume root", () => {
+    const spec = steamInstallScriptForEgg("satisfactory");
+    expect(spec?.script).toContain('+force_install_dir "/mnt/server/gamefiles"');
+    expect(spec?.script).toContain('INSTALL_DIR="/mnt/server/gamefiles"');
+    expect(spec?.script).toContain("appmanifest_1690800.acf");
+  });
+
+  it.each(["valheim", "ark", "cs2", "csgo"])(
+    "does NOT pre-install the excluded steam egg %s",
+    (eggId) => {
+      expect(steamInstallScriptForEgg(eggId)).toBeNull();
+    },
+  );
 
   it("returns a runnable install-script spec for a steam egg", () => {
     const spec = steamInstallScriptForEgg("palworld");

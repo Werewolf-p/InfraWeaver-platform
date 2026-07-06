@@ -43,8 +43,13 @@ describe("getEggForGameType — steam boot-install synthesis", () => {
     expect(egg.installScript?.script).not.toContain("app_update");
   });
 
-  it("resolves aliases (csgo -> cs2) to the steam script", () => {
-    const egg = getEggForGameType("csgo");
-    expect(egg.installScript?.script).toContain(`+app_update ${STEAM_INSTALL_EGGS.cs2.appId}`);
+  it("does NOT synthesize a steam script for excluded eggs (valheim/ark/cs2)", () => {
+    // These images keep binaries in the image, install to a volume subpath the
+    // pre-install can't reach, or ignore the marker — validated on-cluster (PR #139).
+    for (const eggId of ["valheim", "ark", "cs2"]) {
+      expect(getEggForGameType(eggId).installScript).toBeUndefined();
+    }
+    // …including via the csgo -> cs2 alias.
+    expect(getEggForGameType("csgo").installScript).toBeUndefined();
   });
 });
