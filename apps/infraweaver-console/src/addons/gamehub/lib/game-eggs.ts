@@ -1,4 +1,5 @@
 import { hardenInstallScript } from "@/addons/gamehub/lib/game-hub-install-patches";
+import { steamInstallScriptForEgg } from "@/addons/gamehub/lib/steam-install";
 
 export interface QuickCommand {
   label: string;
@@ -606,18 +607,24 @@ export function getEggForGameType(gameType: string): GameEgg {
   return {
     ...egg,
     commandAcl: egg.commandAcl ?? defaultCommandAcl(egg),
-    // Append a primary-artifact success guard so a built-in egg whose install
-    // script ends on a trailing echo (e.g. TShock) can't set the .installed
-    // marker on a broken download. Same hardening the pelican path applies in
-    // pelicanToGameEgg; done here so every built-in egg is covered too.
     installScript: egg.installScript
       ? {
+          // Append a primary-artifact success guard so a built-in egg whose install
+          // script ends on a trailing echo (e.g. TShock) can't set the .installed
+          // marker on a broken download. Same hardening the pelican path applies in
+          // pelicanToGameEgg; done here so every built-in egg is covered too.
           ...egg.installScript,
           script: hardenInstallScript(egg.installScript.script, {
             hasJarFile: egg.environment.some((e) => e.name === "SERVER_JARFILE"),
           }),
         }
-      : egg.installScript,
+      : // SteamCMD eggs (palworld/valheim/ark/rust/cs2/satisfactory) ship no install
+        // script — their image installs at boot, so nothing verified the download.
+        // Synthesize a verifying steam boot-install script so route.ts builds an
+        // installer init container and wrapInstallScript gates the marker fail-closed
+        // (manifest StateFlags + size verify, re-download on mismatch). Returns null
+        // for non-steam eggs, so those keep no install script.
+        steamInstallScriptForEgg(egg.id) ?? undefined,
   };
 }
 
