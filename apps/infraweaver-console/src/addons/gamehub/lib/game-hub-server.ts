@@ -8,7 +8,11 @@ import { GAME_HUB_NAMESPACE, parseEggConfig } from "./game-hub";
 import { getEffectivePermissions, type Permission, type RoleAssignment } from "@/lib/rbac";
 import { loadKubeConfig } from "@/lib/k8s";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
+import { isPodInstalling } from "@/lib/pod-install-state";
 import { UserError } from "@/lib/utils";
+
+// Re-exported so callers importing via the `@/lib/game-hub-server` shim keep working.
+export { isPodInstalling };
 
 export const GAME_HUB_NS = GAME_HUB_NAMESPACE;
 const AUDIT_CONFIG_MAP_KEY = "entries.json";
@@ -1011,18 +1015,6 @@ export async function forceStopServer(
     }).catch(() => undefined);
   }));
   return { deletedPods: (pods.items ?? []).map((pod) => pod.metadata?.name).filter((podName): podName is string => Boolean(podName)) };
-}
-
-/**
- * True while a pod is still executing an init container — i.e. the install /
- * first-boot phase (SteamCMD download, egg install, config-sync) has not handed
- * off to the game container yet. Mirrors the `activeInitContainer` check the
- * status route uses to report the "installing" power state.
- */
-export function isPodInstalling(pod: k8s.V1Pod | null | undefined): boolean {
-  return (pod?.status?.initContainerStatuses ?? []).some(
-    (cs) => cs.state?.running != null && !cs.ready,
-  );
 }
 
 /**

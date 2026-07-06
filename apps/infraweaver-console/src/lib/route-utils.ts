@@ -6,6 +6,8 @@ import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } 
 import type { SessionRBACContext } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import { isRetryableInfraError } from "@/lib/retryable-error";
+import { logMutatingAccess } from "@/lib/access-log";
+import { getRequestClusterId } from "@/lib/cluster-context";
 
 export interface ApiResponseOptions {
   status?: number;
@@ -17,6 +19,14 @@ export interface RoutePermissionOptions {
   any?: readonly Permission[];
   all?: readonly Permission[];
   ttlSeconds?: number;
+}
+
+function safeClusterId(req: NextRequest): string | undefined {
+  try {
+    return getRequestClusterId(req);
+  } catch {
+    return undefined;
+  }
 }
 
 function withTimestamp(meta?: Record<string, unknown>) {
@@ -107,22 +117,32 @@ export function withRoute(
   handler: RouteHandler,
 ): (req: NextRequest, ctx: RouteContext) => Promise<NextResponse | Response> {
   return async (req: NextRequest, ctx: RouteContext = {} as RouteContext) => {
+    const startedAt = Date.now();
     const session = await auth();
-    if (!session) return apiError("Unauthorized", { status: 401 });
+    if (!session) {
+      logMutatingAccess(req, "unauthenticated", { status: 401, durationMs: Date.now() - startedAt });
+      return apiError("Unauthorized", { status: 401 });
+    }
 
+    const actor = session.user?.email ?? "unknown";
+    const clusterId = safeClusterId(req);
     const access = await getSessionRBACContext(session, 60);
 
     if (permission !== null) {
       const perms = Array.isArray(permission) ? permission : [permission];
       if (!hasAnySessionPermission(access, perms)) {
+        logMutatingAccess(req, actor, { clusterId, status: 403, durationMs: Date.now() - startedAt });
         return apiError("Forbidden", { status: 403 });
       }
     }
 
+    let response: NextResponse | Response;
     try {
-      return await handler(req, session, access, ctx);
+      response = await handler(req, session, access, ctx);
     } catch (error) {
-      return routeErrorResponse(error);
+      response = routeErrorResponse(error);
     }
+    logMutatingAccess(req, actor, { clusterId, status: response.status, durationMs: Date.now() - startedAt });
+    return response;
   };
 }

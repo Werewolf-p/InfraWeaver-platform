@@ -5,6 +5,7 @@ import { auditLog } from "@/lib/audit-log";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { loadKubeConfig } from "@/lib/k8s";
 import { invalidatePodCaches } from "@/lib/performance-cache";
+import { isPodInstalling } from "@/lib/pod-install-state";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { withRoute } from "@/lib/route-utils";
 
@@ -13,6 +14,8 @@ const payloadSchema = z.object({
     namespace: z.string().min(1).max(253),
     name: z.string().min(1).max(253),
   })).min(1).max(20),
+  // Bypass the installing-pod guard for a deliberate operator restart.
+  force: z.boolean().optional(),
 });
 
 export const POST = withRoute("cluster:admin", async (req: NextRequest, session) => {
@@ -37,9 +40,21 @@ export const POST = withRoute("cluster:admin", async (req: NextRequest, session)
   try {
     const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
     const failures: Array<{ namespace: string; name: string; error: string }> = [];
+    const skippedInstalling: Array<{ namespace: string; name: string }> = [];
 
     for (const pod of uniquePods) {
       try {
+        // Skip pods mid-install (init container still running) unless forced —
+        // deleting one throws away the install and the Recreate replacement
+        // re-runs it, so a repeated bulk restart churns it for the rollout's
+        // whole duration. Read failure fails open (can't confirm state).
+        if (!parsed.data.force) {
+          const current = await coreApi.readNamespacedPod({ namespace: pod.namespace, name: pod.name }).catch(() => null);
+          if (current && isPodInstalling(current)) {
+            skippedInstalling.push({ namespace: pod.namespace, name: pod.name });
+            continue;
+          }
+        }
         await coreApi.deleteNamespacedPod({ namespace: pod.namespace, name: pod.name });
       } catch (error) {
         failures.push({
@@ -50,11 +65,12 @@ export const POST = withRoute("cluster:admin", async (req: NextRequest, session)
       }
     }
 
-    const restartedCount = uniquePods.length - failures.length;
+    const restartedCount = uniquePods.length - failures.length - skippedInstalling.length;
     await auditLog(
       "pod:restart:bulk",
       session.user?.email ?? "unknown",
-      `restarted ${restartedCount}/${uniquePods.length} pods`,
+      `restarted ${restartedCount}/${uniquePods.length} pods` +
+        (skippedInstalling.length ? ` (${skippedInstalling.length} skipped: installing)` : ""),
     );
     if (restartedCount > 0) invalidatePodCaches();
 
@@ -62,6 +78,7 @@ export const POST = withRoute("cluster:admin", async (req: NextRequest, session)
       ok: failures.length === 0,
       restartedCount,
       total: uniquePods.length,
+      skippedInstalling,
       failures,
     });
   } catch (err) {
