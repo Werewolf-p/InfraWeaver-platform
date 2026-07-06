@@ -491,13 +491,20 @@ echo "TShock install complete"`,
     id: "ark",
     name: "ARK: Survival Evolved",
     description: "ARK: Survival Evolved dedicated server",
-    dockerImage: "hermsi1337/docker-ark-server:latest",
-    startupCommand: "/home/steam/ark-server/ShooterGame/Binaries/Linux/ShooterGameServer TheIsland",
+    // hermsi/ark-server (namespace `hermsi`, NOT the non-existent
+    // `hermsi1337/docker-ark-server`) installs the ARK dedicated server (appId
+    // 376030) under /app/server. The egg is wired to the SteamCMD verifying
+    // pre-install (STEAM_INSTALL_EGGS.ark): the installer init container lands the
+    // game at the PVC root and this container mounts that PVC at /app/server, so
+    // the runtime reads the pre-installed, fail-closed-verified tree and we launch
+    // ShooterGameServer directly (bypassing the image's own arkmanager updater).
+    dockerImage: "hermsi/ark-server:latest",
+    startupCommand: "/app/server/ShooterGame/Binaries/Linux/ShooterGameServer TheIsland",
     stopCommand: "exit",
     saveCommand: "saveworld",
     gamePort: 7777,
     queryPort: 27015,
-    mountPath: "/ark",
+    mountPath: "/app/server",
     protocol: "UDP",
     ports: [
       { name: "game", port: 7777, protocol: "UDP" },
@@ -516,6 +523,10 @@ echo "TShock install complete"`,
     quickCommands: [
       { label: "Save", command: "saveworld", description: "Save the world" },
     ],
+    // Installer writes the game as root into the PVC; run the runtime as root too
+    // so it reads the root-owned tree — same installer->runtime ownership hand-off
+    // as the other SteamCMD eggs (palworld/rust/satisfactory).
+    features: ["run_as_root"],
   },
   cs2: {
     id: "cs2",

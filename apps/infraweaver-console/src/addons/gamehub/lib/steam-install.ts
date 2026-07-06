@@ -135,9 +135,9 @@ export function buildSteamInstallScript(spec: SteamInstallSpec): string {
  *
  * The verifying pre-install is only correct when the runtime image actually reads
  * the game binaries from a path on the PVC that our installDir writes to. Validated
- * against each image on the live cluster (PR #139 checklist); only the three eggs
- * below qualify. `installDir` defaults to the shared mount root (/mnt/server); an
- * image that installs to a volume SUBPATH gets that subpath here.
+ * against each image on the live cluster (PR #139 checklist). `installDir` defaults
+ * to the shared mount root (/mnt/server); an image that installs to a volume SUBPATH
+ * gets that subpath here.
  *
  *   - palworld (jammsen)   installs to the VOLUME ROOT /palworld and SKIPS its own
  *                          install when PalServer.sh already exists → our verified
@@ -149,18 +149,23 @@ export function buildSteamInstallScript(spec: SteamInstallSpec): string {
  *                          volume root, and self-heals only if gamefiles are missing.
  *                          Target the same subpath so the runtime reads our verified
  *                          tree. FITS via installDir subpath.
+ *   - ark (hermsi/ark-server) reads the ARK dedicated server (appId 376030) from
+ *                          /app/server. The egg now mounts the PVC there and launches
+ *                          ShooterGameServer DIRECTLY (bypassing the image's arkmanager
+ *                          updater), so our pre-install to the mount ROOT (default
+ *                          installDir /mnt/server, which the runtime sees at /app/server)
+ *                          is authoritative — same shape as palworld. FITS once the egg
+ *                          is rewired (image ref + mountPath + startupCommand, done in
+ *                          the same change). NOTE: image-pull + path mapping are verified;
+ *                          the direct ShooterGameServer launch off the PVC still wants an
+ *                          on-cluster smoke (steam runtime libs) before it is called
+ *                          "validated" like the three above.
  *
  * EXCLUDED (validated on-cluster — a pre-install to the PVC would be ignored or junk):
  *   - valheim (lloesche)   keeps server binaries INSIDE the image at /opt/valheim and
  *                          uses the /config mount for saves/config ONLY (no VOLUME
  *                          declared). Pre-installing to /config is never read and just
  *                          pollutes the saves dir. The updater re-downloads every boot.
- *   - ark (hermsi1337)     installs to the SUBPATH /app/server (marker
- *                          /app/server/steamapps/appmanifest_376030.acf), while the egg
- *                          mounts at /ark and its startupCommand points at yet another
- *                          path (/home/steam/ark-server) — the egg is independently
- *                          mis-wired, and the image ref itself does not pull anonymously.
- *                          Excluded here; the egg needs a separate fix.
  *   - cs2 (cm2network/csgo) re-runs +app_update every boot and launches srcds with
  *                          -autoupdate, so it ignores the .installed marker (no durable
  *                          fail-closed guarantee). Worse, appId 740 is the LEGACY CS:GO
@@ -176,6 +181,9 @@ export const STEAM_INSTALL_EGGS: Record<string, SteamInstallSpec> = {
   palworld: { appId: 2394010 },
   rust: { appId: 258550 },
   satisfactory: { appId: 1690800, installDir: `${INSTALL_MOUNT}/gamefiles` },
+  // ARK reads /app/server (the egg's mountPath); that mount IS the PVC root, so the
+  // default installDir (/mnt/server) lands the game exactly where the runtime reads.
+  ark: { appId: 376030 },
 };
 
 /**
