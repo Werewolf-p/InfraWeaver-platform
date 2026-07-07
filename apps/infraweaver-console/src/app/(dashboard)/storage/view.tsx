@@ -2,13 +2,14 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { HardDrive, AlertCircle, CheckCircle2, Search, ArrowUpDown, Activity } from "lucide-react";
+import { HardDrive, AlertCircle, CheckCircle2, Search, ArrowUpDown, Activity, Server, Lock, Unlock } from "lucide-react";
 import { formatBytes, cn } from "@/lib/utils";
 import { StoragePieChart } from "@/components/charts/PieChart";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { PageHeader } from "@/components/ui/page-header";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useNasProviders, useNasMounts, type NasMount } from "@/hooks/use-nas";
 
 interface BreakdownEntry {
   name: string;
@@ -111,6 +112,9 @@ export function StorageVolumesView() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortBy>("usage");
   const [healthFilter, setHealthFilter] = useState<HealthFilter>("all");
+  // Tabs: default to Longhorn (existing behaviour). "nas" swaps the lower
+  // section for the NAS providers + mounts table (plan §4).
+  const [tab, setTab] = useState<"longhorn" | "nas">("longhorn");
   const { data: volumes, isLoading, dataUpdatedAt } = useQuery<Volume[]>({
     queryKey: ["longhorn", "volumes"],
     queryFn: async () => {
@@ -204,313 +208,444 @@ export function StorageVolumesView() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {/* Storage-source tabs — Longhorn (in-cluster) vs NAS & external (SMB/CSI). Plan §4. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-2">
         {[
-          {
-            label: "Tracked volumes",
-            value: summary.total.toString(),
-            description: summary.total > 0 ? `${summary.healthy} healthy · ${summary.attention} need review` : "Waiting for Longhorn data",
-            icon: HardDrive,
-            tone: "text-[#0078D4] bg-[#0078D4]/10",
-          },
-          {
-            label: "Healthy replicas",
-            value: summary.healthy.toString(),
-            description: summary.critical > 0 ? `${summary.critical} critical volume${summary.critical === 1 ? "" : "s"}` : "All replica sets look stable",
-            icon: CheckCircle2,
-            tone: "text-emerald-400 bg-emerald-500/10",
-          },
-          {
-            label: "Provisioned / used",
-            value: `${formatBytes(summary.usedBytes)} / ${formatBytes(summary.provisionedBytes)}`,
-            description: summary.hottest ? `${summary.hottest.name} is hottest at ${usagePct(summary.hottest)}%` : "No provisioned capacity reported",
-            icon: AlertCircle,
-            tone: "text-amber-400 bg-amber-500/10",
-          },
-          {
-            label: "Average usage",
-            value: `${summary.avgUsage}%`,
-            description: summary.avgUsage >= 70 ? "Capacity trend is above the safe operating band" : "Average utilization is within the safe band",
-            icon: Activity,
-            tone: "text-violet-400 bg-violet-500/10",
-          },
-        ].map((card) => (
-          <div key={card.label} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{card.label}</p>
-                <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{card.value}</p>
-              </div>
-              <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl", card.tone)}>
-                <card.icon className="h-5 w-5" />
-              </div>
-            </div>
-            <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{card.description}</p>
-          </div>
-        ))}
+          { id: "longhorn" as const, label: "Longhorn", icon: HardDrive },
+          { id: "nas" as const, label: "NAS & external", icon: Server },
+        ].map((option) => {
+          const active = tab === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setTab(option.id)}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                active
+                  ? "bg-[#0078D4]/10 text-[#7cb9ff]"
+                  : "text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
+              )}
+            >
+              <option.icon className="h-4 w-4" />
+              {option.label}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 sm:p-5">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
-            <div className="relative min-w-[260px] flex-1 xl:max-w-md">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-              <input
-                ref={searchRef}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search volumes, namespaces, or hot paths..."
-                className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] py-2.5 pl-9 pr-3 text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-[#0078D4]/50"
-              />
-            </div>
-            <label className="flex min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 text-xs text-slate-500 dark:text-slate-400">
-              <ArrowUpDown className="h-3.5 w-3.5" />
-              <select value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)} className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none">
-                {SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value} className="bg-slate-100 dark:bg-slate-900">{option.label}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {HEALTH_FILTERS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setHealthFilter(option.value)}
-                className={cn(
-                  "min-h-[40px] rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                  healthFilter === option.value
-                    ? "border-[#0078D4]/40 bg-[#0078D4]/10 text-[#7cb9ff]"
-                    : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
-            {hasActiveFilters ? (
-              <button
-                type="button"
-                onClick={() => { setSearch(""); setHealthFilter("all"); }}
-                className="min-h-[40px] rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 transition-colors hover:text-gray-900 dark:hover:text-white"
-              >
-                Reset
-              </button>
-            ) : null}
-            <span className="text-xs text-slate-500">{filteredVolumes.length} of {summary.total} volumes</span>
-          </div>
-        </div>
-      </div>
-
-      {breakdownData && breakdownData.breakdown.length > 0 && (
-        <CollapsibleSection title="Storage by Class" storageKey="storage-breakdown">
-          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-            <StoragePieChart
-              data={breakdownData.breakdown.map((entry) => ({ name: entry.name, value: entry.totalGi, color: entry.color }))}
-              unit="Gi"
-            />
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-              {breakdownData.breakdown.map((entry) => (
-                <div key={entry.name} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">{entry.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">{entry.pvcCount} PVC{entry.pvcCount === 1 ? "" : "s"}</p>
-                    </div>
-                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{entry.totalGi} Gi</span>
-                  </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
-                    <div
-                      className="h-full rounded-full"
-                      style={{ width: `${totalBreakdownGi > 0 ? Math.max(10, Math.round((entry.totalGi / totalBreakdownGi) * 100)) : 0}%`, backgroundColor: entry.color }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </CollapsibleSection>
-      )}
-
-      {backupVolumes.length > 0 && (
-        <CollapsibleSection title="Backup status" count={backupSummary.total} storageKey="storage-backup-status">
-          <div className="mb-4 grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Protected volumes</p>
-              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.total}</p>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Longhorn backup volumes detected on the TrueNAS target.</p>
-            </div>
-            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current backups</p>
-              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.healthy}</p>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Recovered within the {backupData?.maxAgeHours ?? 36}h freshness window.</p>
-            </div>
-            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Stale backups</p>
-              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.stale}</p>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Backups that are too old or ended in an error state.</p>
-            </div>
-            <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Missing backups</p>
-              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.missing}</p>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Volumes that have never produced a remote backup yet.</p>
-            </div>
-          </div>
-          <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead className="bg-white dark:bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium">Volume</th>
-                  <th className="px-4 py-3 text-left font-medium">Status</th>
-                  <th className="px-4 py-3 text-left font-medium">Last backup</th>
-                  <th className="px-4 py-3 text-left font-medium">Age</th>
-                  <th className="px-4 py-3 text-left font-medium">Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {backupVolumes.map((volume) => (
-                  <tr key={volume.name} className="border-t border-[#1c1c1c] text-slate-700 dark:text-slate-300">
-                    <td className="px-4 py-4">
-                      <p className="font-medium text-gray-900 dark:text-white">{volume.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">{volume.lastBackupState ?? "No backup yet"}</p>
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className={cn("rounded-full px-2 py-1 text-xs font-medium", volume.status === "healthy" ? "bg-emerald-500/10 text-emerald-300" : volume.status === "stale" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300")}>{volume.status}</span>
-                    </td>
-                    <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{volume.lastBackupAt ? new Date(volume.lastBackupAt).toLocaleString() : "Never"}</td>
-                    <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{formatBackupAge(volume.ageHours)}</td>
-                    <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{volume.backupCount}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CollapsibleSection>
-      )}
-
-      {isLoading ? (
-        <div className="space-y-3">
-          <div className="hidden overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] lg:block">
-            <div className="h-12 border-b border-gray-200 dark:border-[#2a2a2a] bg-gray-100 dark:bg-white/5 animate-pulse" />
-            {[...Array(6)].map((_, index) => <div key={index} className="h-16 border-b border-gray-200 dark:border-[#1a1a1a] bg-white/5/0 animate-pulse" />)}
-          </div>
-          <div className="grid gap-3 lg:hidden">
-            {[...Array(4)].map((_, index) => <div key={index} className="h-28 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-100 dark:bg-white/5 animate-pulse" />)}
-          </div>
-        </div>
-      ) : filteredVolumes.length === 0 ? (
-        <EmptyState
-          icon={HardDrive}
-          title={hasActiveFilters ? "No volumes match the current filters" : "No storage volumes found"}
-          description={hasActiveFilters ? "Try clearing your search or broadening the health filter to bring volumes back into view." : "Longhorn did not return any volumes. Refresh this page after confirming the storage API is reachable."}
-          action={hasActiveFilters ? { label: "Clear filters", onClick: () => { setSearch(""); setHealthFilter("all"); } } : undefined}
-        />
+      {tab === "nas" ? (
+        <NasSection />
       ) : (
-        <>
-          <div className="hidden overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] lg:block">
-            <table className="w-full text-sm">
-              <thead className="bg-white dark:bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
-                <tr>
-                  {[
-                    ["name", "Volume"],
-                    ["health", "Health"],
-                    ["replicas", "Replicas"],
-                    ["size", "Provisioned"],
-                    ["usage", "Usage"],
-                  ].map(([value, label]) => (
-                    <th key={value} className="px-4 py-3 text-left font-medium">
-                      <button
-                        type="button"
-                        onClick={() => setSortBy(value as SortBy)}
-                        className={cn("inline-flex items-center gap-1 transition-colors hover:text-gray-900 dark:hover:text-white", sortBy === value && "text-[#7cb9ff]")}
-                      >
-                        {label}
-                        <ArrowUpDown className="h-3 w-3" />
-                      </button>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredVolumes.map((volume) => {
-                  const pct = usagePct(volume);
-                  const bucket = healthBucket(volume);
-                  const healthy = bucket === "healthy";
-                  return (
-                    <tr key={volume.name} className="border-t border-[#1c1c1c] transition-colors hover:bg-white/[0.03]">
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white dark:bg-[#0d0d0d] text-slate-500 dark:text-slate-400">
-                            <HardDrive className="h-4 w-4" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-gray-900 dark:text-white">{volume.name}</p>
-                            <p className="mt-1 text-xs text-slate-500">{pct}% utilized</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-2">
-                          {healthy ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <AlertCircle className="h-4 w-4 text-amber-400" />}
-                          <span className={cn("rounded-full border px-2 py-1 text-xs font-medium", healthy ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : bucket === "critical" ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-amber-500/30 bg-amber-500/10 text-amber-300")}>{volume.robustness}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{volume.numberOfReplicas}x</td>
-                      <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{formatBytes(volume.size ?? 0)}</td>
-                      <td className="px-4 py-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
-                            <span>{formatBytes(volume.actualSize ?? 0)} used</span>
-                            <span className={cn("font-medium", bucket === "critical" ? "text-red-300" : bucket === "attention" ? "text-amber-300" : "text-emerald-300")}>{pct}%</span>
-                          </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
-                            <div className={cn("h-full rounded-full transition-all", bucket === "critical" ? "bg-red-500" : bucket === "attention" ? "bg-amber-500" : "bg-[#0078D4]")} style={{ width: `${pct}%` }} />
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <LonghornPanel
+          isLoading={isLoading}
+          filteredVolumes={filteredVolumes}
+          volumes={volumes ?? []}
+          summary={summary}
+          breakdownData={breakdownData}
+          totalBreakdownGi={totalBreakdownGi}
+          backupData={backupData}
+          backupVolumes={backupVolumes}
+          backupSummary={backupSummary}
+          search={search}
+          setSearch={setSearch}
+          searchRef={searchRef}
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+          healthFilter={healthFilter}
+          setHealthFilter={setHealthFilter}
+          hasActiveFilters={hasActiveFilters}
+        />
+      )}
+    </div>
+  );
+}
 
-          <div className="space-y-3 lg:hidden">
+interface LonghornPanelProps {
+  isLoading: boolean;
+  filteredVolumes: Volume[];
+  volumes: Volume[];
+  summary: {
+    total: number;
+    healthy: number;
+    attention: number;
+    critical: number;
+    usedBytes: number;
+    provisionedBytes: number;
+    avgUsage: number;
+    hottest?: Volume;
+  };
+  breakdownData: { breakdown: BreakdownEntry[] } | undefined;
+  totalBreakdownGi: number;
+  backupData: BackupStatusResponse | undefined;
+  backupVolumes: BackupVolume[];
+  backupSummary: { total: number; healthy: number; stale: number; missing: number };
+  search: string;
+  setSearch: (v: string) => void;
+  searchRef: React.RefObject<HTMLInputElement | null>;
+  sortBy: SortBy;
+  setSortBy: (v: SortBy) => void;
+  healthFilter: HealthFilter;
+  setHealthFilter: (v: HealthFilter) => void;
+  hasActiveFilters: boolean;
+}
+
+function LonghornPanel({
+  isLoading, filteredVolumes, summary, breakdownData, totalBreakdownGi,
+  backupData, backupVolumes, backupSummary, search, setSearch, searchRef,
+  sortBy, setSortBy, healthFilter, setHealthFilter, hasActiveFilters,
+}: LonghornPanelProps) {
+  return (
+    <>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{longhornSummaryCards(summary)}</div>
+      {longhornFilterBar({ search, setSearch, searchRef, sortBy, setSortBy, healthFilter, setHealthFilter, hasActiveFilters, filteredCount: filteredVolumes.length, total: summary.total })}
+      {longhornBreakdown(breakdownData, totalBreakdownGi)}
+      {longhornBackups(backupVolumes, backupSummary, backupData)}
+      {longhornVolumeList({ isLoading, filteredVolumes, sortBy, setSortBy, setSearch, setHealthFilter, hasActiveFilters })}
+    </>
+  );
+}
+
+function NasSection() {
+  const providersQuery = useNasProviders();
+  const mountsQuery = useNasMounts();
+  const providers = providersQuery.data ?? [];
+  const mounts = mountsQuery.data ?? [];
+  const [providerFilter, setProviderFilter] = useState<string>("all");
+  const [accessFilter, setAccessFilter] = useState<"all" | "ro" | "rw">("all");
+  const filteredMounts = useMemo(
+    () => mounts.filter((m) => (providerFilter === "all" || m.provider === providerFilter) && (accessFilter === "all" || m.access === accessFilter)),
+    [mounts, providerFilter, accessFilter],
+  );
+  const roCount = mounts.filter((m) => m.access === "ro").length;
+  const rwCount = mounts.length - roCount;
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard label="NAS providers" value={providers.length.toString()} description={`${providers.filter((p) => p.reachable).length} reachable`} icon={Server} tone="text-[#0078D4] bg-[#0078D4]/10" />
+        <SummaryCard label="NAS-backed PVCs" value={mounts.length.toString()} description="Across all namespaces" icon={HardDrive} tone="text-cyan-400 bg-cyan-500/10" />
+        <SummaryCard label="Read-only mounts" value={roCount.toString()} description="Enforced RO at SC + pod" icon={Lock} tone="text-emerald-400 bg-emerald-500/10" />
+        <SummaryCard label="Read-write mounts" value={rwCount.toString()} description="Writable NAS credentials" icon={Unlock} tone="text-amber-400 bg-amber-500/10" />
+      </div>
+
+      <CollapsibleSection title="Providers" storageKey="storage-nas-providers">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {providers.length === 0 ? (
+            <EmptyState icon={Server} title="No NAS providers configured" description="Add Synology or TrueNAS credentials via OpenBao to see them here." />
+          ) : providers.map((p) => (
+            <div key={p.id} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{p.name}</p>
+                  <p className="mt-1 text-xs text-slate-500">{p.protocol}://{p.host}:{p.port}</p>
+                </div>
+                <span className={cn("rounded-full px-2 py-1 text-xs font-medium", p.reachable ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300")}>
+                  {p.reachable ? "reachable" : "unreachable"}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CollapsibleSection>
+
+      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            Provider
+            <select value={providerFilter} onChange={(e) => setProviderFilter(e.target.value)} className="rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2 py-1 text-sm text-gray-900 dark:text-white">
+              <option value="all">All</option>
+              {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            Access
+            <select value={accessFilter} onChange={(e) => setAccessFilter(e.target.value as "all" | "ro" | "rw")} className="rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-2 py-1 text-sm text-gray-900 dark:text-white">
+              <option value="all">All</option>
+              <option value="ro">Read-only</option>
+              <option value="rw">Read-write</option>
+            </select>
+          </label>
+          <span className="ml-auto text-xs text-slate-500">{filteredMounts.length} of {mounts.length} mounts</span>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]">
+        <table className="w-full min-w-[900px] text-sm">
+          <thead className="bg-white dark:bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium">App / namespace</th>
+              <th className="px-4 py-3 text-left font-medium">Provider</th>
+              <th className="px-4 py-3 text-left font-medium">Share / subfolder</th>
+              <th className="px-4 py-3 text-left font-medium">Access</th>
+              <th className="px-4 py-3 text-left font-medium">Bound pod</th>
+              <th className="px-4 py-3 text-left font-medium">Mount path</th>
+              <th className="px-4 py-3 text-left font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredMounts.length === 0 ? (
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">No NAS-backed volumes match the current filters.</td></tr>
+            ) : filteredMounts.map((m) => <NasMountRow key={`${m.pvcNamespace}/${m.pvcName}/${m.pod ?? "unbound"}`} mount={m} />)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function NasMountRow({ mount }: { mount: NasMount }) {
+  return (
+    <tr className="border-t border-[#1c1c1c] text-slate-700 dark:text-slate-300">
+      <td className="px-4 py-3">
+        <p className="font-medium text-gray-900 dark:text-white">{mount.user || mount.pvcName}</p>
+        <p className="mt-1 text-xs text-slate-500">{mount.pvcNamespace} / {mount.pvcName}</p>
+      </td>
+      <td className="px-4 py-3">{mount.provider}</td>
+      <td className="px-4 py-3">
+        <p className="text-xs">{mount.source ?? "—"}</p>
+        <p className="mt-1 text-xs text-slate-500">{mount.subDir ? `/${mount.subDir}` : "(root)"}</p>
+      </td>
+      <td className="px-4 py-3">
+        <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium", mount.access === "ro" ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300")}>
+          {mount.access === "ro" ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+          {mount.access.toUpperCase()}
+        </span>
+      </td>
+      <td className="px-4 py-3">
+        {mount.pod ? <><p className="text-xs">{mount.pod}</p><p className="mt-1 text-xs text-slate-500">{mount.podPhase}</p></> : <span className="text-xs text-slate-500">unbound</span>}
+      </td>
+      <td className="px-4 py-3 text-xs">{mount.mountPath ?? "—"}</td>
+      <td className="px-4 py-3">
+        <span className={cn("rounded-full px-2 py-1 text-xs font-medium", mount.phase === "Bound" ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300")}>{mount.phase ?? "unknown"}</span>
+      </td>
+    </tr>
+  );
+}
+
+function SummaryCard({ label, value, description, icon: Icon, tone }: { label: string; value: string; description: string; icon: React.ComponentType<{ className?: string }>; tone: string }) {
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</p>
+          <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{value}</p>
+        </div>
+        <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl", tone)}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+      <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{description}</p>
+    </div>
+  );
+}
+
+// Local helpers below split the Longhorn panel JSX into single-use factories to
+// keep StorageVolumesView compact. They are intentionally not exported.
+
+function longhornSummaryCards(summary: LonghornPanelProps["summary"]) {
+  const cards = [
+    { label: "Tracked volumes", value: summary.total.toString(), description: summary.total > 0 ? `${summary.healthy} healthy · ${summary.attention} need review` : "Waiting for Longhorn data", icon: HardDrive, tone: "text-[#0078D4] bg-[#0078D4]/10" },
+    { label: "Healthy replicas", value: summary.healthy.toString(), description: summary.critical > 0 ? `${summary.critical} critical volume${summary.critical === 1 ? "" : "s"}` : "All replica sets look stable", icon: CheckCircle2, tone: "text-emerald-400 bg-emerald-500/10" },
+    { label: "Provisioned / used", value: `${formatBytes(summary.usedBytes)} / ${formatBytes(summary.provisionedBytes)}`, description: summary.hottest ? `${summary.hottest.name} is hottest at ${usagePct(summary.hottest)}%` : "No provisioned capacity reported", icon: AlertCircle, tone: "text-amber-400 bg-amber-500/10" },
+    { label: "Average usage", value: `${summary.avgUsage}%`, description: summary.avgUsage >= 70 ? "Capacity trend is above the safe operating band" : "Average utilization is within the safe band", icon: Activity, tone: "text-violet-400 bg-violet-500/10" },
+  ];
+  return cards.map((card) => <SummaryCard key={card.label} {...card} />);
+}
+
+function longhornFilterBar(props: {
+  search: string;
+  setSearch: (v: string) => void;
+  searchRef: React.RefObject<HTMLInputElement | null>;
+  sortBy: SortBy;
+  setSortBy: (v: SortBy) => void;
+  healthFilter: HealthFilter;
+  setHealthFilter: (v: HealthFilter) => void;
+  hasActiveFilters: boolean;
+  filteredCount: number;
+  total: number;
+}) {
+  const { search, setSearch, searchRef, sortBy, setSortBy, healthFilter, setHealthFilter, hasActiveFilters, filteredCount, total } = props;
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 sm:p-5">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
+          <div className="relative min-w-[260px] flex-1 xl:max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+            <input
+              ref={searchRef}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search volumes, namespaces, or hot paths..."
+              className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] py-2.5 pl-9 pr-3 text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-[#0078D4]/50"
+            />
+          </div>
+          <label className="flex min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 text-xs text-slate-500 dark:text-slate-400">
+            <ArrowUpDown className="h-3.5 w-3.5" />
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)} className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none">
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value} className="bg-slate-100 dark:bg-slate-900">{option.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {HEALTH_FILTERS.map((option) => (
+            <button key={option.value} type="button" onClick={() => setHealthFilter(option.value)} className={cn("min-h-[40px] rounded-full border px-3 py-1.5 text-xs font-medium transition-colors", healthFilter === option.value ? "border-[#0078D4]/40 bg-[#0078D4]/10 text-[#7cb9ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white")}>{option.label}</button>
+          ))}
+          {hasActiveFilters ? (
+            <button type="button" onClick={() => { setSearch(""); setHealthFilter("all"); }} className="min-h-[40px] rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 transition-colors hover:text-gray-900 dark:hover:text-white">Reset</button>
+          ) : null}
+          <span className="text-xs text-slate-500">{filteredCount} of {total} volumes</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function longhornBreakdown(breakdownData: { breakdown: BreakdownEntry[] } | undefined, totalBreakdownGi: number) {
+  if (!breakdownData || breakdownData.breakdown.length === 0) return null;
+  return (
+    <CollapsibleSection title="Storage by Class" storageKey="storage-breakdown">
+      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <StoragePieChart data={breakdownData.breakdown.map((entry) => ({ name: entry.name, value: entry.totalGi, color: entry.color }))} unit="Gi" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+          {breakdownData.breakdown.map((entry) => (
+            <div key={entry.name} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{entry.name}</p>
+                  <p className="mt-1 text-xs text-slate-500">{entry.pvcCount} PVC{entry.pvcCount === 1 ? "" : "s"}</p>
+                </div>
+                <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{entry.totalGi} Gi</span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
+                <div className="h-full rounded-full" style={{ width: `${totalBreakdownGi > 0 ? Math.max(10, Math.round((entry.totalGi / totalBreakdownGi) * 100)) : 0}%`, backgroundColor: entry.color }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </CollapsibleSection>
+  );
+}
+
+function longhornBackups(backupVolumes: BackupVolume[], backupSummary: LonghornPanelProps["backupSummary"], backupData: BackupStatusResponse | undefined) {
+  if (backupVolumes.length === 0) return null;
+  return (
+    <CollapsibleSection title="Backup status" count={backupSummary.total} storageKey="storage-backup-status">
+      <div className="mb-4 grid gap-3 md:grid-cols-4">
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4"><p className="text-xs uppercase tracking-[0.18em] text-slate-500">Protected volumes</p><p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.total}</p><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Longhorn backup volumes detected on the TrueNAS target.</p></div>
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4"><p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current backups</p><p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.healthy}</p><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Recovered within the {backupData?.maxAgeHours ?? 36}h freshness window.</p></div>
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4"><p className="text-xs uppercase tracking-[0.18em] text-slate-500">Stale backups</p><p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.stale}</p><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Backups that are too old or ended in an error state.</p></div>
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4"><p className="text-xs uppercase tracking-[0.18em] text-slate-500">Missing backups</p><p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">{backupSummary.missing}</p><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Volumes that have never produced a remote backup yet.</p></div>
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]">
+        <table className="w-full min-w-[720px] text-sm">
+          <thead className="bg-white dark:bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
+            <tr><th className="px-4 py-3 text-left font-medium">Volume</th><th className="px-4 py-3 text-left font-medium">Status</th><th className="px-4 py-3 text-left font-medium">Last backup</th><th className="px-4 py-3 text-left font-medium">Age</th><th className="px-4 py-3 text-left font-medium">Count</th></tr>
+          </thead>
+          <tbody>
+            {backupVolumes.map((volume) => (
+              <tr key={volume.name} className="border-t border-[#1c1c1c] text-slate-700 dark:text-slate-300">
+                <td className="px-4 py-4"><p className="font-medium text-gray-900 dark:text-white">{volume.name}</p><p className="mt-1 text-xs text-slate-500">{volume.lastBackupState ?? "No backup yet"}</p></td>
+                <td className="px-4 py-4"><span className={cn("rounded-full px-2 py-1 text-xs font-medium", volume.status === "healthy" ? "bg-emerald-500/10 text-emerald-300" : volume.status === "stale" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300")}>{volume.status}</span></td>
+                <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{volume.lastBackupAt ? new Date(volume.lastBackupAt).toLocaleString() : "Never"}</td>
+                <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{formatBackupAge(volume.ageHours)}</td>
+                <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{volume.backupCount}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </CollapsibleSection>
+  );
+}
+
+function longhornVolumeList(props: { isLoading: boolean; filteredVolumes: Volume[]; sortBy: SortBy; setSortBy: (v: SortBy) => void; setSearch: (v: string) => void; setHealthFilter: (v: HealthFilter) => void; hasActiveFilters: boolean }) {
+  const { isLoading, filteredVolumes, sortBy, setSortBy, setSearch, setHealthFilter, hasActiveFilters } = props;
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        <div className="hidden overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] lg:block">
+          <div className="h-12 border-b border-gray-200 dark:border-[#2a2a2a] bg-gray-100 dark:bg-white/5 animate-pulse" />
+          {[...Array(6)].map((_, index) => <div key={index} className="h-16 border-b border-gray-200 dark:border-[#1a1a1a] bg-white/5/0 animate-pulse" />)}
+        </div>
+        <div className="grid gap-3 lg:hidden">
+          {[...Array(4)].map((_, index) => <div key={index} className="h-28 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-100 dark:bg-white/5 animate-pulse" />)}
+        </div>
+      </div>
+    );
+  }
+  if (filteredVolumes.length === 0) {
+    return (
+      <EmptyState
+        icon={HardDrive}
+        title={hasActiveFilters ? "No volumes match the current filters" : "No storage volumes found"}
+        description={hasActiveFilters ? "Try clearing your search or broadening the health filter to bring volumes back into view." : "Longhorn did not return any volumes. Refresh this page after confirming the storage API is reachable."}
+        action={hasActiveFilters ? { label: "Clear filters", onClick: () => { setSearch(""); setHealthFilter("all"); } } : undefined}
+      />
+    );
+  }
+  return (
+    <>
+      <div className="hidden overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] lg:block">
+        <table className="w-full text-sm">
+          <thead className="bg-white dark:bg-[#0d0d0d] text-xs uppercase tracking-[0.16em] text-slate-500">
+            <tr>
+              {[["name", "Volume"], ["health", "Health"], ["replicas", "Replicas"], ["size", "Provisioned"], ["usage", "Usage"]].map(([value, label]) => (
+                <th key={value} className="px-4 py-3 text-left font-medium">
+                  <button type="button" onClick={() => setSortBy(value as SortBy)} className={cn("inline-flex items-center gap-1 transition-colors hover:text-gray-900 dark:hover:text-white", sortBy === value && "text-[#7cb9ff]")}>{label}<ArrowUpDown className="h-3 w-3" /></button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
             {filteredVolumes.map((volume) => {
               const pct = usagePct(volume);
               const bucket = healthBucket(volume);
               const healthy = bucket === "healthy";
               return (
-                <motion.div key={volume.name} whileHover={{ x: 2 }} whileTap={{ scale: 0.99 }} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <HardDrive className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                        <span className="truncate text-sm font-medium text-gray-900 dark:text-white">{volume.name}</span>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-500">{volume.numberOfReplicas} replicas</p>
+                <tr key={volume.name} className="border-t border-[#1c1c1c] transition-colors hover:bg-white/[0.03]">
+                  <td className="px-4 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white dark:bg-[#0d0d0d] text-slate-500 dark:text-slate-400"><HardDrive className="h-4 w-4" /></div>
+                      <div className="min-w-0"><p className="truncate font-medium text-gray-900 dark:text-white">{volume.name}</p><p className="mt-1 text-xs text-slate-500">{pct}% utilized</p></div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {healthy ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <AlertCircle className="h-4 w-4 text-amber-400" />}
-                      <span className={cn("text-xs font-medium", healthy ? "text-emerald-300" : bucket === "critical" ? "text-red-300" : "text-amber-300")}>{volume.robustness}</span>
+                  </td>
+                  <td className="px-4 py-4"><div className="flex items-center gap-2">{healthy ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <AlertCircle className="h-4 w-4 text-amber-400" />}<span className={cn("rounded-full border px-2 py-1 text-xs font-medium", healthy ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : bucket === "critical" ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-amber-500/30 bg-amber-500/10 text-amber-300")}>{volume.robustness}</span></div></td>
+                  <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{volume.numberOfReplicas}x</td>
+                  <td className="px-4 py-4 text-slate-700 dark:text-slate-300">{formatBytes(volume.size ?? 0)}</td>
+                  <td className="px-4 py-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400"><span>{formatBytes(volume.actualSize ?? 0)} used</span><span className={cn("font-medium", bucket === "critical" ? "text-red-300" : bucket === "attention" ? "text-amber-300" : "text-emerald-300")}>{pct}%</span></div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]"><div className={cn("h-full rounded-full transition-all", bucket === "critical" ? "bg-red-500" : bucket === "attention" ? "bg-amber-500" : "bg-[#0078D4]")} style={{ width: `${pct}%` }} /></div>
                     </div>
-                  </div>
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                      <span>{formatBytes(volume.actualSize ?? 0)} of {formatBytes(volume.size ?? 0)}</span>
-                      <span className={cn("font-medium", bucket === "critical" ? "text-red-300" : bucket === "attention" ? "text-amber-300" : "text-emerald-300")}>{pct}%</span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]">
-                      <div className={cn("h-full rounded-full transition-all", bucket === "critical" ? "bg-red-500" : bucket === "attention" ? "bg-amber-500" : "bg-[#0078D4]")} style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                </motion.div>
+                  </td>
+                </tr>
               );
             })}
-          </div>
-        </>
-      )}
-    </div>
+          </tbody>
+        </table>
+      </div>
+      <div className="space-y-3 lg:hidden">
+        {filteredVolumes.map((volume) => {
+          const pct = usagePct(volume);
+          const bucket = healthBucket(volume);
+          const healthy = bucket === "healthy";
+          return (
+            <motion.div key={volume.name} whileHover={{ x: 2 }} whileTap={{ scale: 0.99 }} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0"><div className="flex items-center gap-2"><HardDrive className="h-4 w-4 text-slate-500 dark:text-slate-400" /><span className="truncate text-sm font-medium text-gray-900 dark:text-white">{volume.name}</span></div><p className="mt-1 text-xs text-slate-500">{volume.numberOfReplicas} replicas</p></div>
+                <div className="flex items-center gap-1.5">{healthy ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <AlertCircle className="h-4 w-4 text-amber-400" />}<span className={cn("text-xs font-medium", healthy ? "text-emerald-300" : bucket === "critical" ? "text-red-300" : "text-amber-300")}>{volume.robustness}</span></div>
+              </div>
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400"><span>{formatBytes(volume.actualSize ?? 0)} of {formatBytes(volume.size ?? 0)}</span><span className={cn("font-medium", bucket === "critical" ? "text-red-300" : bucket === "attention" ? "text-amber-300" : "text-emerald-300")}>{pct}%</span></div>
+                <div className="h-2 overflow-hidden rounded-full bg-white dark:bg-[#1a1a1a]"><div className={cn("h-full rounded-full transition-all", bucket === "critical" ? "bg-red-500" : bucket === "attention" ? "bg-amber-500" : "bg-[#0078D4]")} style={{ width: `${pct}%` }} /></div>
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+    </>
   );
 }

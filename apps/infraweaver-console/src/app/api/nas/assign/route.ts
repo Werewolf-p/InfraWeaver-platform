@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
 import { gitCommitFiles } from "@/lib/git-provider";
+import { generateK8sManifest, type NasBackend } from "@/lib/nas/manifest";
+import { evaluateFolderAcl } from "@/lib/nas/folder-acl";
+import { getProviderConfig, listProviderConfigs } from "@/lib/nas/providers";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { getSessionEffectivePermissions, getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { loadUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
@@ -14,25 +17,31 @@ const K8S_NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 const SAFE_HOST = /^[a-z0-9.-]+$/i;
 const YAML_UNSAFE_RE = /[\r\n\[\]{}&*!|>'"%@`]/;
 
+// `provider` is an open string so future providers registered via
+// `NAS_PROVIDERS_JSON` work without a code change. It is validated against the
+// live registry at request time (below).
 const AssignBody = z.object({
   username: z.string().min(1).max(63).regex(K8S_NAME_RE, "Invalid username"),
-  provider: z.enum(["synology", "truenas"]),
+  provider: z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*$/),
+  backend: z.enum(["smb", "nfs"]).optional(),
   share: z.string().min(1).max(63),
   subfolder: z.string().min(1).max(200).optional(),
   access: z.enum(["readonly", "readwrite"]),
   pvc_namespace: z.string().min(1).max(63).regex(K8S_NAME_RE).optional(),
   pvc_name: z.string().min(1).max(253).regex(K8S_NAME_RE).optional(),
+  size: z.string().min(1).max(20).regex(/^[0-9]+(Ki|Mi|Gi|Ti|Pi)$/).optional(),
 });
 
 const DeleteBody = z.object({
   username: z.string().min(1).max(63).regex(K8S_NAME_RE),
-  provider: z.string().min(1).max(30),
+  provider: z.string().min(1).max(63),
   share: z.string().min(1).max(63),
   subfolder: z.string().min(1).max(200).optional(),
 });
 
 interface NasShareAssignment {
-  provider: "synology" | "truenas";
+  provider: string;
+  backend?: NasBackend;
   share: string;
   subfolder?: string;
   access: "readonly" | "readwrite";
@@ -49,70 +58,13 @@ function isSafeYamlScalar(value: string) {
     && !YAML_UNSAFE_RE.test(value);
 }
 
-function generateK8sManifest(
-  params: {
-    username: string;
-    provider: string;
-    share: string;
-    subfolder: string;
-    pvc_name: string;
-    pvc_namespace: string;
-    host: string;
-  },
-  yamlLib: Pick<typeof import("js-yaml"), "dump">,
-): string {
-  const { username, provider, share, subfolder, pvc_name, pvc_namespace, host } = params;
-  const scName = `smb-${username}-${share.toLowerCase()}`;
-  const documents = [
-    {
-      apiVersion: "storage.k8s.io/v1",
-      kind: "StorageClass",
-      metadata: { name: scName },
-      provisioner: "smb.csi.k8s.io",
-      reclaimPolicy: "Retain",
-      volumeBindingMode: "Immediate",
-      allowVolumeExpansion: false,
-      parameters: {
-        source: `//${host}/${share}`,
-        subDir: subfolder,
-        "csi.storage.k8s.io/provisioner-secret-name": "synology-smb-credentials",
-        "csi.storage.k8s.io/provisioner-secret-namespace": pvc_namespace,
-        "csi.storage.k8s.io/node-stage-secret-name": "synology-smb-credentials",
-        "csi.storage.k8s.io/node-stage-secret-namespace": pvc_namespace,
-      },
-    },
-    {
-      apiVersion: "v1",
-      kind: "PersistentVolumeClaim",
-      metadata: {
-        name: pvc_name,
-        namespace: pvc_namespace,
-        labels: {
-          "infraweaver.io/nas-share": "true",
-          "infraweaver.io/user": username,
-          "infraweaver.io/provider": provider,
-        },
-      },
-      spec: {
-        accessModes: ["ReadWriteMany"],
-        storageClassName: scName,
-        resources: {
-          requests: {
-            storage: "100Gi",
-          },
-        },
-      },
-    },
-  ];
-
-  return documents.map((document) => yamlLib.dump(document, { lineWidth: -1, indent: 2 })).join("---\n");
-}
+// (Manifest generator lives in `@/lib/nas/manifest` for unit-testability.)
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "nas:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const rbac = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(rbac, "nas:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!checkRateLimit(rateLimitKey("nas-assign-post", req), 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -128,9 +80,37 @@ export async function POST(req: NextRequest) {
     if (!SAFE_NAME.test(share)) return NextResponse.json({ error: "Invalid share name" }, { status: 400 });
     if (subfolder && !SAFE_SUBFOLDER.test(subfolder)) return NextResponse.json({ error: "Invalid subfolder" }, { status: 400 });
 
-    const pvc_namespace = body.pvc_namespace ?? "plex";
+    // Resolve the provider via the registry so `synology` isn't hardcoded and
+    // future providers work without touching this route (plan §"generic").
+    const providerCfg = getProviderConfig(provider);
+    if (!providerCfg) {
+      return NextResponse.json({ error: `Unknown NAS provider '${provider}'. Registered: ${listProviderConfigs().map((p) => p.id).join(", ") || "(none)"}` }, { status: 400 });
+    }
+    const backend: NasBackend = body.backend ?? providerCfg.backends[0];
+    if (!providerCfg.backends.includes(backend)) {
+      return NextResponse.json({ error: `Provider '${provider}' does not support backend '${backend}'` }, { status: 400 });
+    }
+
+    // Folder-level ACL. Callers with `*` bypass; otherwise the requested
+    // (provider, share, subfolder, access) must be granted to the caller's
+    // groups (or their `@user:<name>` identity). Undeclared shares stay open.
+    const permissions = [...getSessionEffectivePermissions(rbac)];
+    const aclDecision = evaluateFolderAcl({
+      username: rbac.username || username,
+      groups: rbac.groups,
+      permissions,
+      provider,
+      share,
+      subfolder,
+      access: body.access,
+    });
+    if (!aclDecision.allowed) {
+      return NextResponse.json({ error: `NAS folder ACL denied: ${aclDecision.reason}` }, { status: 403 });
+    }
+
+    const pvc_namespace = body.pvc_namespace ?? username;
     const pvc_name = body.pvc_name ?? `nas-${username}-${share.toLowerCase()}`;
-    const host = provider === "synology" ? (process.env.SYNOLOGY_HOST ?? "10.25.0.21") : (process.env.TRUENAS_HOST ?? "10.25.0.135");
+    const host = providerCfg.host;
 
     for (const [field, value] of Object.entries({ username, share, subfolder, pvc_namespace, pvc_name })) {
       if (!isSafeYamlScalar(value)) {
@@ -152,10 +132,10 @@ export async function POST(req: NextRequest) {
     const existingShares = (userData.nas_shares as NasShareAssignment[]) ?? [];
     userData.nas_shares = [
       ...existingShares,
-      { provider, share, subfolder, access, pvc_namespace, pvc_name, created_at: new Date().toISOString() },
+      { provider, backend, share, subfolder, access, pvc_namespace, pvc_name, created_at: new Date().toISOString() },
     ];
 
-    const manifestContent = generateK8sManifest({ username, provider, share, subfolder, pvc_name, pvc_namespace, host }, yaml);
+    const manifestContent = generateK8sManifest({ username, provider, backend, share, subfolder, pvc_name, pvc_namespace, host, access, size: body.size }, yaml);
     const manifestSubfolder = subfolder.replace(/\//g, "-");
     const manifestPath = `kubernetes/catalog/nas-shares/${username}-${share.toLowerCase()}-${manifestSubfolder}.yaml`;
     const newUsersContent = yaml.dump(usersData, { lineWidth: -1, indent: 2 });

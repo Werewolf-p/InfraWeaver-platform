@@ -7,6 +7,8 @@ export interface NasProvider {
   host: string;
   port: number;
   protocol: string;
+  kind?: string;
+  backends?: Array<"smb" | "nfs">;
   enabled: boolean;
   reachable: boolean;
 }
@@ -36,6 +38,36 @@ export interface UserAssignments {
   username: string;
   name: string;
   nas_shares: NasAssignment[];
+}
+
+export interface NasMount {
+  pvcName: string;
+  pvcNamespace: string;
+  storageClass: string;
+  provider: string;
+  user: string;
+  access: "ro" | "rw";
+  source: string | null;
+  subDir: string | null;
+  pod: string | null;
+  podPhase: string | null;
+  mountPath: string | null;
+  mountReadOnly: boolean | null;
+  phase: string | null;
+}
+
+export function useNasMounts() {
+  return useQuery({
+    queryKey: ["nas", "mounts"],
+    queryFn: async () => {
+      const res = await fetch("/api/nas/mounts", { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) throw new Error("Failed to fetch NAS mounts");
+      const data = await res.json() as { mounts: NasMount[] };
+      return data.mounts;
+    },
+    staleTime: 30000,
+    refetchInterval: 60000,
+  });
 }
 
 export function useNasProviders() {
