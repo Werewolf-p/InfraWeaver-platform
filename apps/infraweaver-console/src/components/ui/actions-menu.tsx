@@ -37,7 +37,9 @@ export function ActionsMenu({ actions, label = "Actions", className }: ActionsMe
   useEffect(() => {
     if (!open) return;
     menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
-    return () => triggerRef.current?.focus();
+    // Capture the trigger now; it persists across open/close, so this is the node to restore focus to.
+    const trigger = triggerRef.current;
+    return () => trigger?.focus();
   }, [open]);
 
   useEffect(() => {

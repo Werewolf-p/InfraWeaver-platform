@@ -876,9 +876,11 @@ interface MiddlewareUsage {
   routes: Array<{ name: string; hosts: string[]; tier: AccessTier }>;
 }
 
-function MiddlewarePanel({ routes, loading }: { routes: UnifiedRoute[]; loading: boolean }) {
-  const tierMiddlewares = new Set(Object.values(ACCESS_TIER_MIDDLEWARES).map((value) => value.toLowerCase()));
+// Names of the built-in access-tier middlewares. Module-level so it keeps a stable
+// ref and does not need to be a dependency of the usage useMemo below.
+const tierMiddlewares = new Set(Object.values(ACCESS_TIER_MIDDLEWARES).map((value) => value.toLowerCase()));
 
+function MiddlewarePanel({ routes, loading }: { routes: UnifiedRoute[]; loading: boolean }) {
   const usage = useMemo(() => {
     const map = new Map<string, MiddlewareUsage>();
     for (const route of routes) {

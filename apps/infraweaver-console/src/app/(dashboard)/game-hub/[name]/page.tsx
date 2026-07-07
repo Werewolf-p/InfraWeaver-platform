@@ -656,7 +656,7 @@ function FilesTab({
     }
   }
 
-  async function saveFile() {
+  const saveFile = useCallback(async () => {
     if (!selectedFile || fileContent === null) return;
     setSaving(true);
     try {
@@ -683,11 +683,11 @@ function FilesTab({
     } finally {
       setSaving(false);
     }
-  }
+  }, [selectedFile, fileContent, name, refetch]);
 
   useEffect(() => {
     saveFileRef.current = saveFile;
-  }, [fileContent, name, selectedFile]);
+  }, [saveFile]);
 
   async function deleteFile(entry: FileEntry) {
     if (!confirm(`Delete ${entry.name}?`)) return;
