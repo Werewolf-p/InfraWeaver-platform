@@ -74,7 +74,14 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const rbac = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(rbac, "nas:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // `nas:write` governs the NAS/share side; patching a Deployment manifest in a
+  // cluster namespace is a catalog mutation, so also require `catalog:write`.
+  // Without this, a bare `nas:write` holder (e.g. a delegated NAS-only custom
+  // group) could inject a volume/volumeMount into ANY catalog Deployment in ANY
+  // namespace — cross-tenant privilege escalation.
+  if (!hasSessionPermission(rbac, "nas:write") || !hasSessionPermission(rbac, "catalog:write")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   if (!checkRateLimit(rateLimitKey("nas-mount-workload", req), 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }

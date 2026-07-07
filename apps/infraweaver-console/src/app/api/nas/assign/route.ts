@@ -64,7 +64,13 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const rbac = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(rbac, "nas:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // `nas:write` gates NAS-share management; provisioning a StorageClass/PVC into
+  // a caller-chosen `pvc_namespace` is a catalog mutation, so also require
+  // `catalog:write`. Without it, a bare `nas:write` holder could place a PVC in
+  // any namespace (cross-namespace name collision / share hijack).
+  if (!hasSessionPermission(rbac, "nas:write") || !hasSessionPermission(rbac, "catalog:write")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   if (!checkRateLimit(rateLimitKey("nas-assign-post", req), 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -157,7 +163,11 @@ export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "nas:write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Same authority as POST: deleting the assignment removes a StorageClass/PVC
+  // manifest from `kubernetes/catalog/`, so require both permissions.
+  if (!hasSessionPermission(access, "nas:write") || !hasSessionPermission(access, "catalog:write")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   if (!checkRateLimit(rateLimitKey("nas-assign-delete", req), 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -178,10 +188,30 @@ export async function DELETE(req: NextRequest) {
     const yaml = await import("js-yaml");
     const { raw } = await loadUsersConfig();
     const usersData = yaml.load(raw) as { users?: Record<string, Record<string, unknown>> };
-    if (usersData?.users?.[username]) {
-      const existing = (usersData.users[username].nas_shares as NasShareAssignment[]) ?? [];
-      usersData.users[username].nas_shares = existing.filter((entry) => !(entry.provider === provider && entry.share === share && (entry.subfolder ?? username) === subfolder));
+    const existing = (usersData?.users?.[username]?.nas_shares as NasShareAssignment[]) ?? [];
+    const matched = existing.find((entry) => entry.provider === provider && entry.share === share && (entry.subfolder ?? username) === subfolder);
+    // Nothing to revoke — idempotent no-op, and never delete a manifest we
+    // can't tie back to a recorded assignment.
+    if (!matched) return NextResponse.json({ ok: true, removed: false });
+
+    // Enforce the same folder ACL as POST, using the assignment's own access
+    // mode. Without this, any catalog:write+nas:write holder could revoke a
+    // share the ACL would have blocked them from ever assigning.
+    const permissions = [...getSessionEffectivePermissions(access)];
+    const aclDecision = evaluateFolderAcl({
+      username: access.username || username,
+      groups: access.groups,
+      permissions,
+      provider,
+      share,
+      subfolder,
+      access: matched.access,
+    });
+    if (!aclDecision.allowed) {
+      return NextResponse.json({ error: `NAS folder ACL denied: ${aclDecision.reason}` }, { status: 403 });
     }
+
+    usersData!.users![username].nas_shares = existing.filter((entry) => entry !== matched);
 
     const manifestSubfolder = subfolder.replace(/\//g, "-");
     const manifestPath = `kubernetes/catalog/nas-shares/${username}-${share.toLowerCase()}-${manifestSubfolder}.yaml`;

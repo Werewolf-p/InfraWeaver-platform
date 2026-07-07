@@ -58,7 +58,7 @@ interface PodResource {
   };
 }
 
-export const GET = withAuth({ permission: "nas:read" }, async ({ req }) => {
+export const GET = withAuth({ permission: "nas:read", rateLimit: { name: "nas-mounts", limit: 30, windowMs: 60_000 } }, async ({ req }) => {
   try {
     const kc = loadKubeConfig(getRequestClusterId(req));
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
