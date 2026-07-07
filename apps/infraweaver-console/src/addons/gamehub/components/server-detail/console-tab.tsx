@@ -415,6 +415,7 @@ const XtermConsole = dynamic<XtermConsoleProps>(
           fitAddonRef.current = null;
           searchAddonRef.current = null;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- create the terminal once on mount; fontSize/lineHeight/theme are applied reactively by the effect below without tearing the terminal down
       }, []);
 
       useEffect(() => {

@@ -555,13 +555,16 @@ export default function NewGameServerPage() {
   const storageClasses = setupData?.storageClasses ?? [{ name: "longhorn", provisioner: "driver.longhorn.io", isDefault: true }];
 
   // Sync storageClass default once setup data loads (avoids hardcoded "longhorn-game" which may not exist)
+  // Keyed on the class-name string so the effect only reacts to the set of names, not object-ref churn.
+  const storageClassNames = storageClasses.map((sc) => sc.name).join(",");
   useEffect(() => {
     if (!storageClass && storageClasses.length > 0) {
       const preferred = storageClasses.find((sc) => sc.name === "longhorn-game") ?? storageClasses.find((sc) => sc.isDefault) ?? storageClasses[0];
       // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
       setStorageClass(preferred.name);
     }
-  }, [storageClasses.map((sc) => sc.name).join(",")]); // dep on names string to avoid object ref changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- storageClass is set-once-when-empty; re-running on its change (or on storageClasses ref churn) is unwanted — keyed on storageClassNames instead
+  }, [storageClassNames]);
   const activeEgg = sourceTab === "built-in"
     ? BUILT_IN_EGGS.find((egg) => egg.id === selectedBuiltInId) ?? null
     : remoteEggData?.egg ?? null;
@@ -603,6 +606,7 @@ export default function NewGameServerPage() {
     setEulaAccepted(false);
     setEnvErrors({});
     setOverriddenVars(new Set());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on activeEggKey (string id); depending on the activeEgg object would loop via new refs (React #185, see note above)
   }, [activeEggKey]); // intentionally omitting activeEgg — key change implies egg change
 
   useEffect(() => {
