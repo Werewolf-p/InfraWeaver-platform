@@ -2,7 +2,8 @@ import { isUdmConfigured, parseUdmConfig, UdmConfigError, getUdmClient } from "@
 
 const FULL_ENV = {
   UDM_HOST: "https://10.10.0.1",
-  UDM_API_KEY: "test-key",
+  UDM_USERNAME: "apiuser",
+  UDM_PASSWORD: "test-pw",
   UDM_CERT_SHA256: "138fe3eec634b3ebdb973788c188e23f5aa499e42c6632309c79d6a1d7f97bf6",
 } as NodeJS.ProcessEnv;
 
@@ -11,7 +12,8 @@ describe("parseUdmConfig", () => {
     const config = parseUdmConfig(FULL_ENV);
     expect(config).toMatchObject({
       host: "https://10.10.0.1",
-      apiKey: "test-key",
+      username: "apiuser",
+      password: "test-pw",
       site: "default",
     });
   });
@@ -28,7 +30,8 @@ describe("parseUdmConfig", () => {
     } catch (error) {
       const message = (error as Error).message;
       expect(message).toContain("UDM_HOST");
-      expect(message).toContain("UDM_API_KEY");
+      expect(message).toContain("UDM_USERNAME");
+      expect(message).toContain("UDM_PASSWORD");
       expect(message).toContain("UDM_CERT_SHA256");
     }
   });
