@@ -91,8 +91,6 @@ export interface FreePortOptions {
   min?: number;
   /** Highest port the allocator may hand out (inclusive). Default {@link MAX_PORT}. */
   max?: number;
-  /** Cap on candidates probed before giving up. Default = full [min,max] span. */
-  maxProbe?: number;
 }
 
 /**
@@ -109,9 +107,8 @@ export function firstFreePort(
   const max = opts.max ?? MAX_PORT;
   if (min > max) return null;
   const span = max - min + 1;
-  const maxProbe = Math.min(opts.maxProbe ?? span, span);
   let candidate = Math.min(Math.max(desired, min), max);
-  for (let i = 0; i < maxProbe; i++) {
+  for (let i = 0; i < span; i++) {
     if (!occupied.has(candidate)) return candidate;
     candidate = candidate >= max ? min : candidate + 1;
   }
