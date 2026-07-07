@@ -842,7 +842,7 @@ export function DashboardTab({
   const connectHint =
     server.egg?.connectionHint ??
     "Use the address below with your game client.";
-  const rawProcessRows = processes?.processes ?? [];
+  const rawProcessRows = useMemo(() => processes?.processes ?? [], [processes?.processes]);
   const processRows = useMemo(() => {
     const filtered = rawProcessRows.filter((row) =>
       row.command.toLowerCase().includes(processSearch.toLowerCase()),

@@ -541,7 +541,7 @@ function FilesTab({
   const diffLines = useMemo(
     // eslint-disable-next-line react-hooks/refs -- intentional render-time read of last-loaded file content for dirty-state and diff display
     () => buildUnifiedDiff(originalContentRef.current ?? "", fileContent ?? ""),
-    [fileContent, selectedFile?.path],
+    [fileContent],
   );
   const changedDiffLines = diffLines.filter((line) => line.type !== "context").length;
 
@@ -1334,7 +1334,7 @@ function ServerRbacPanel({
     staleTime: 30000,
   });
 
-  const availableUsers = accessQuery.data?.availableUsers ?? [];
+  const availableUsers = useMemo(() => accessQuery.data?.availableUsers ?? [], [accessQuery.data?.availableUsers]);
   const inheritedAssignments = accessQuery.data?.inherited ?? [];
   const serverAssignments = accessQuery.data?.serverAssignments ?? [];
 
@@ -3632,7 +3632,7 @@ export default function ServerDetailPage() {
     retry: false,
   });
 
-  async function doAction(action: string, successMessage?: string) {
+  const doAction = useCallback(async (action: string, successMessage?: string) => {
     setActionLoading(action);
     try {
       await fetchJson(`/api/game-hub/servers/${name}`, {
@@ -3648,7 +3648,7 @@ export default function ServerDetailPage() {
     } finally {
       setActionLoading(null);
     }
-  }
+  }, [name, queryClient]);
 
   // Trust the API's authoritative status (it derives "stopped" from the desired
   // replica count, spec.replicas === 0) instead of re-deriving from live pod
