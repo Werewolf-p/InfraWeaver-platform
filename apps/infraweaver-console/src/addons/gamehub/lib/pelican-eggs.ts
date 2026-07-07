@@ -319,10 +319,61 @@ function inferResources(
   return { memory: "2Gi", cpu: "1", storage: "10Gi" };
 }
 
+// Common SteamCMD dedicated-server games whose Pelican egg exposes NO game-port
+// variable (only SRCDS_APPID + RCON_PORT), so the game port and protocol can't be
+// derived from egg variables at all. Palworld is the canonical case: its egg has
+// SRCDS_APPID 2394010 and RCON_PORT but no SERVER_PORT, so the old `?? 25565` TCP
+// fallback produced 25565/TCP even though the game listens on 8211/UDP.
+// Keyed by SRCDS_APPID (steam app id). Extend as new steamcmd games surface the
+// same gap. Ports are the game's documented default; SERVER_PORT is later derived
+// from gamePort (see pelicanRuntimeEnv), so the -port flag follows this value.
+const KNOWN_STEAM_GAME_PORTS: Record<string, { port: number; protocol: "TCP" | "UDP" }> = {
+  "2394010": { port: 8211, protocol: "UDP" }, // Palworld
+  "896660": { port: 2456, protocol: "UDP" }, // Valheim
+  "258550": { port: 28015, protocol: "UDP" }, // Rust
+  "376030": { port: 7777, protocol: "UDP" }, // ARK: Survival Evolved
+  "2430930": { port: 7777, protocol: "UDP" }, // ARK: Survival Ascended
+  "294420": { port: 26900, protocol: "UDP" }, // 7 Days to Die
+  "380870": { port: 16261, protocol: "UDP" }, // Project Zomboid
+  "1690800": { port: 7777, protocol: "UDP" }, // Satisfactory
+  "443030": { port: 7777, protocol: "UDP" }, // Conan Exiles
+  "1829350": { port: 9876, protocol: "UDP" }, // V Rising
+  "2278520": { port: 15636, protocol: "UDP" }, // Enshrouded
+};
+
+// Secondary key for steamcmd eggs that omit SRCDS_APPID: the catalog-id slug
+// (last path segment, e.g. "steamcmd_servers/palworld" -> "palworld").
+const KNOWN_GAME_PORTS_BY_SLUG: Record<string, { port: number; protocol: "TCP" | "UDP" }> = {
+  palworld: { port: 8211, protocol: "UDP" },
+  valheim: { port: 2456, protocol: "UDP" },
+  rust: { port: 28015, protocol: "UDP" },
+};
+
+/**
+ * Resolve a known game port/protocol for eggs (mostly steamcmd) that don't expose
+ * a game-port variable. Tries SRCDS_APPID first, then the egg-id slug. Returns
+ * null when the game isn't in the tables (caller keeps the 25565 last resort).
+ */
+function lookupKnownGamePort(
+  pelican: PelicanEgg,
+  id: string,
+): { port: number; protocol: "TCP" | "UDP" } | null {
+  const appId = (pelican.variables ?? [])
+    .find((v) => v.env_variable.toUpperCase() === "SRCDS_APPID")
+    ?.default_value?.trim();
+  if (appId && KNOWN_STEAM_GAME_PORTS[appId]) return KNOWN_STEAM_GAME_PORTS[appId];
+
+  const slug = id.split("/").filter(Boolean).pop()?.toLowerCase();
+  if (slug && KNOWN_GAME_PORTS_BY_SLUG[slug]) return KNOWN_GAME_PORTS_BY_SLUG[slug];
+
+  return null;
+}
+
 function extractPorts(
   pelican: PelicanEgg,
   primaryProtocol: "UDP" | "TCP",
-): { ports: GameEgg["ports"]; gamePort: number } {
+  id: string,
+): { ports: GameEgg["ports"]; gamePort: number; gameProtocol: "UDP" | "TCP" } {
   const portVars = (pelican.variables ?? []).filter((v) => {
     const env = v.env_variable.toUpperCase();
     const name = v.name.toLowerCase();
@@ -331,6 +382,7 @@ function extractPorts(
 
   const ports: NonNullable<GameEgg["ports"]> = [];
   let gamePort = 0;
+  let gameProtocol: "UDP" | "TCP" = primaryProtocol;
 
   for (const v of portVars) {
     const port = Number.parseInt(v.default_value, 10);
@@ -367,13 +419,15 @@ function extractPorts(
   }
 
   if (!gamePort) {
-    gamePort = parsePortFromStartup(pelican.startup) ?? 25565;
+    const known = lookupKnownGamePort(pelican, id);
+    gamePort = parsePortFromStartup(pelican.startup) ?? known?.port ?? 25565;
+    gameProtocol = known?.protocol ?? primaryProtocol;
     if (!ports.some((p) => p.port === gamePort)) {
-      ports.unshift({ name: "game", port: gamePort, protocol: primaryProtocol });
+      ports.unshift({ name: "game", port: gamePort, protocol: gameProtocol });
     }
   }
 
-  return { ports, gamePort };
+  return { ports, gamePort, gameProtocol };
 }
 
 function inferQuickCommands(pelican: PelicanEgg, label: string): GameEgg["quickCommands"] {
@@ -461,8 +515,8 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
 
   const label = `${pelican.name} ${id}`;
   const features = (pelican.features ?? []).filter((f): f is string => typeof f === "string" && f.length > 0);
-  const protocol = inferProtocol(label);
-  const { ports, gamePort } = extractPorts(pelican, protocol);
+  const primaryProtocol = inferProtocol(label);
+  const { ports, gamePort, gameProtocol } = extractPorts(pelican, primaryProtocol, id);
   const resources = inferResources(features, label);
 
   // Parse `config.startup` — it can be a JSON-encoded string or an object
@@ -493,7 +547,7 @@ export function pelicanToGameEgg(pelican: PelicanEgg, id: string): GameEgg {
     startupReadySignal: startupReadySignal || undefined,
     gamePort,
     mountPath: "/home/container",
-    protocol,
+    protocol: gameProtocol,
     ports,
     environment: (pelican.variables ?? []).map((variable) => ({
       name: variable.env_variable,
