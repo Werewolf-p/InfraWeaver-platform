@@ -1,5 +1,5 @@
 import { UdmClient, UdmError } from "@/lib/udm/client";
-import type { PortForwardRecord, TransportResponse, UdmTransport } from "@/lib/udm/types";
+import type { PortForwardRecord, UdmTransport } from "@/lib/udm/types";
 
 interface Call {
   method: string;

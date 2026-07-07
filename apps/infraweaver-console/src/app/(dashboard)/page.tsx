@@ -6,7 +6,7 @@ import { usePlatformApps } from "@/hooks/use-platform-apps";
 import {
   Box, CheckCircle2, AlertTriangle, RefreshCw, Zap,
   Loader2, Clock, Activity, HardDrive, Shield, Users, BarChart3,
-  BookOpen, Network, ArrowRight, ExternalLink,
+  BookOpen, ArrowRight, ExternalLink,
   LayoutDashboard, Terminal, Key, TrendingUp, Server,
   ChevronRight, AlertCircle,
 } from "lucide-react";

@@ -469,7 +469,6 @@ export default function NewGameServerPage() {
   });
 
   // Install-console polling — only active while deploying
-  const [installPollData, setInstallPollData] = useState<{ status: string; podPhase: string | null } | null>(null);
   useEffect(() => {
     if (installPhase !== "deploying" || !deployedServerName) return;
     let alive = true;
@@ -478,7 +477,6 @@ export default function NewGameServerPage() {
         const r = await fetch(`/api/game-hub/servers/${deployedServerName}`);
         if (!r.ok) return;
         const d = await r.json() as { status: string; podPhase: string | null };
-        if (alive) setInstallPollData(d);
         if (d.status === "running") { if (alive) setInstallPhase("running"); }
         else if (d.podPhase === "Failed") { if (alive) setInstallPhase("error"); }
       } catch {}
@@ -557,7 +555,6 @@ export default function NewGameServerPage() {
   const storageClasses = setupData?.storageClasses ?? [{ name: "longhorn", provisioner: "driver.longhorn.io", isDefault: true }];
 
   // Sync storageClass default once setup data loads (avoids hardcoded "longhorn-game" which may not exist)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!storageClass && storageClasses.length > 0) {
       const preferred = storageClasses.find((sc) => sc.name === "longhorn-game") ?? storageClasses.find((sc) => sc.isDefault) ?? storageClasses[0];
@@ -589,7 +586,6 @@ export default function NewGameServerPage() {
   // Use activeEggKey (string ID) as the sole trigger — the activeEgg object itself
   // can be a new reference on re-renders (React Query or find() returning same data),
   // which would cause an infinite setState loop (React error #185) if used as a dep.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!activeEgg || !activeEggKey) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state

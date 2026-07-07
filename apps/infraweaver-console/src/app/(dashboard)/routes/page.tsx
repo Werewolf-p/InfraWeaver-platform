@@ -344,8 +344,6 @@ export default function RoutingPage() {
     ports: portsQuery.data?.servers.length ?? 0,
   };
 
-  const isRouteTab = tab === "all" || tab === "manual" || tab === "auto";
-
   return (
     <div className="space-y-6">
       <PageHeader

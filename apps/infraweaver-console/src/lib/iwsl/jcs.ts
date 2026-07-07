@@ -35,7 +35,6 @@ function canonicalizeArray(values: readonly unknown[]): string {
 function canonicalizeObject(obj: Record<string, unknown>): string {
   const entries = Object.entries(obj).filter(([, v]) => v !== undefined);
   for (const [key] of entries) {
-    // eslint-disable-next-line no-control-regex
     if (!/^[\x00-\x7f]*$/.test(key)) {
       throw new Error("IWSL JCS: object keys must be ASCII");
     }

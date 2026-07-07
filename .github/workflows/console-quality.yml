@@ -1,0 +1,57 @@
+name: Console Quality Gate
+
+# Runs the console's lint, typecheck, and unit test suite on every change to
+# apps/infraweaver-console. The console is built in-cluster (see
+# build-infraweaver-apps.yml note), so this workflow is the only gate that
+# exercises its 788-test suite before code lands on main.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/infraweaver-console/**'
+      - 'apps/infraweaver-wp-connector/**'
+      - '.github/workflows/console-quality.yml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'apps/infraweaver-console/**'
+      - 'apps/infraweaver-wp-connector/**'
+      - '.github/workflows/console-quality.yml'
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/infraweaver-console/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/infraweaver-console
+        run: npm ci
+
+      # Mirror the prebuild step so tsc/jest see the generated addon registry
+      # and the vendored wp-connector sources.
+      - name: Generate addon registry + vendor wp-connector
+        working-directory: apps/infraweaver-console
+        run: |
+          node ./scripts/build-addon-registry.mjs
+          sh ./scripts/sync-wp-connector.sh
+
+      - name: Typecheck
+        working-directory: apps/infraweaver-console
+        run: npx tsc --noEmit
+
+      - name: Lint
+        working-directory: apps/infraweaver-console
+        run: npm run lint
+
+      - name: Unit tests
+        working-directory: apps/infraweaver-console
+        run: npm test -- --ci

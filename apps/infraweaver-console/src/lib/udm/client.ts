@@ -117,7 +117,7 @@ export class UdmClient {
    */
   async upsertPortForwardNoConflict(
     rule: PortForwardRule,
-    opts: { min?: number; max?: number; maxProbe?: number; keepFwdPortInSync?: boolean } = {},
+    opts: { min?: number; max?: number; keepFwdPortInSync?: boolean } = {},
   ): Promise<PortAllocation> {
     const rules = await this.listPortForwards();
     const existing = rules.find((r) => r.name === rule.name) ?? null;

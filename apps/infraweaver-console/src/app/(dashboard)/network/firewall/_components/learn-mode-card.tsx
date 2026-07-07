@@ -54,6 +54,7 @@ export function LearnModeCard({ namespace, podNames, onChanged }: LearnModeCardP
   }, [namespace, podsParam]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refresh() is async; setState runs only after await, so no synchronous cascade
     refresh();
     const t = setInterval(refresh, POLL_MS);
     return () => clearInterval(t);

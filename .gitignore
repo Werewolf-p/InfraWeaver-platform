@@ -115,6 +115,7 @@ yarn-error.log*
 # Editor / Tool state (never commit)
 # ---------------------------------------------------------------------------
 .copilot/
+.claude/
 
 
 # Compiled TypeScript output - not committed; built locally or via CI
@@ -146,3 +147,7 @@ generated/
 
 # Impeccable skill scratch caches
 .impeccable/
+
+# graphify skill knowledge-graph output (generated — never commit)
+graphify-out/
+**/graphify-out/

@@ -24,7 +24,6 @@ import {
   type CommandEnvelope,
   type IwKeyPair,
   type ResponseEnvelope,
-  type SignatureSet,
   type SignedCommand,
   type SignedResponse,
   type VerifyResult,
