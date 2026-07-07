@@ -7,6 +7,7 @@ import { checkJavaCompatibility, minecraftVersionFromEnv } from "@/addons/gamehu
 import { EGG_CONFIG_PARSER_CONFIGMAP, buildConfigSyncInitContainer, buildEggConfigParserConfigMap, computeEffectiveConfigFiles } from "@/addons/gamehub/lib/egg-config-sync";
 import { INSTALL_MOUNT, wrapInstallScript } from "@/addons/gamehub/lib/install-wrapper";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, hasGameHubPermission } from "@/lib/game-hub";
+import { getLanNodeIp, openGameServerPortForward } from "@/addons/gamehub/lib/game-port-forward";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
 import { derivePowerStatus, getDeploymentGameType, getNodeIp, getRconConnection, getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg, type RconConnection } from "@/lib/game-hub-server";
@@ -477,7 +478,7 @@ async function createServer(body: {
     },
   });
 
-  await coreApi.createNamespacedService({
+  const createdService = await coreApi.createNamespacedService({
     namespace: GAME_HUB_NAMESPACE,
     body: {
       metadata: {
@@ -499,7 +500,64 @@ async function createServer(body: {
     body: buildEggConfigMap(GAME_HUB_NAMESPACE, slug, egg, env),
   });
 
-  return { name: slug, game: egg.id, gameId: egg.id, status: "creating" };
+  // ── WAN exposure: open a UDM port-forward to the freshly-assigned NodePort ──
+  // Best-effort — a missing/unreachable connector must NOT fail server creation;
+  // the pod is already up, it just isn't reachable from the WAN yet. The primary
+  // (game) port is ports[0]; k8s stamps its nodePort onto the created Service.
+  const wan = await openGameServerWan(coreApi, appsApi, slug, egg, createdService);
+
+  return { name: slug, game: egg.id, gameId: egg.id, status: "creating", ...wan };
+}
+
+/**
+ * Reconcile the WAN port-forward for a freshly-created game server and persist
+ * the assigned WAN port back onto the Deployment. Fully self-contained and
+ * best-effort: any failure (connector down, router unreachable) is logged and
+ * swallowed so it can never abort server creation. Returns the fields to merge
+ * into the create response.
+ */
+async function openGameServerWan(
+  coreApi: import("@kubernetes/client-node").CoreV1Api,
+  appsApi: import("@kubernetes/client-node").AppsV1Api,
+  slug: string,
+  egg: { gamePort: number; protocol?: "TCP" | "UDP"; ports?: Array<{ name: string; port: number; protocol: "TCP" | "UDP" }> },
+  createdService: import("@kubernetes/client-node").V1Service,
+): Promise<{ wanPort?: string; wanForward?: string }> {
+  try {
+    const primary = getEggPorts(egg as never)[0];
+    const svcPort =
+      (createdService.spec?.ports ?? []).find((port) => port.port === primary.port) ??
+      createdService.spec?.ports?.[0];
+    const nodePort = svcPort?.nodePort;
+    const nodeIp = await getLanNodeIp(coreApi);
+    if (!nodePort || !nodeIp) {
+      console.warn(`WAN port-forward skipped for ${slug}: nodePort=${nodePort ?? "?"} nodeIp=${nodeIp ?? "?"}`);
+      return {};
+    }
+    const forward = await openGameServerPortForward({ serverName: slug, protocol: primary.protocol, nodeIp, nodePort });
+    if (!forward.configured || !forward.assignedPort) return {};
+
+    // Persist the assigned WAN port on the server (annotations are the server's
+    // durable store; writeServerManifest picks these up into git afterwards).
+    await appsApi.patchNamespacedDeployment({
+      name: slug,
+      namespace: GAME_HUB_NAMESPACE,
+      body: {
+        metadata: {
+          annotations: {
+            "infraweaver.io/wan-port": forward.assignedPort,
+            "infraweaver.io/wan-forward": forward.ruleName ?? `game-${slug}`,
+            "infraweaver.io/wan-node-ip": nodeIp,
+          },
+        },
+      },
+      fieldManager: "infraweaver",
+    });
+    return { wanPort: forward.assignedPort, wanForward: forward.ruleName ?? `game-${slug}` };
+  } catch (error) {
+    console.error(`WAN port-forward setup failed for ${slug}:`, error);
+    return {};
+  }
 }
 
 /**
@@ -798,6 +856,8 @@ export const GET = withAuth({}, async ({ session }) => {
         port,
         nodePort,
         nodeIp,
+        wanPort: deployment.metadata?.annotations?.["infraweaver.io/wan-port"] ?? null,
+        wanForward: deployment.metadata?.annotations?.["infraweaver.io/wan-forward"] ?? null,
         memory: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.memory ?? egg.defaultMemory ?? "",
         cpu: deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits?.cpu ?? egg.defaultCpu ?? "",
         createdAt: deployment.metadata?.creationTimestamp ?? null,
@@ -884,6 +944,9 @@ export const POST = withAuth(
 
     const result = await createServer(body);
     await auditLog("game-hub:create", session.user?.email ?? "unknown", `created ${result.name}`);
+    if (result.wanPort) {
+      await auditLog("udm:portforward:upsert", session.user?.email ?? "unknown", `opened WAN port-forward ${result.wanForward} (:${result.wanPort}) for ${result.name}`);
+    }
 
     try {
       await writeServerManifest(result.name, makeGameHubClients());

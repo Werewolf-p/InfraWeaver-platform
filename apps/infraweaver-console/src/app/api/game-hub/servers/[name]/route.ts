@@ -32,6 +32,7 @@ import {
   writeSavedCommands,
   isKubernetesNotFoundError,
 } from "@/lib/game-hub-server";
+import { removeGameServerPortForward } from "@/addons/gamehub/lib/game-port-forward";
 import { validateK8sName } from "@/lib/api-security";
 import { logMutatingAccess } from "@/lib/access-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -457,6 +458,9 @@ async function buildResponse(name: string, limitedToken = false, access?: Awaite
     port: service?.spec?.ports?.[0]?.port ?? null,
     nodePort,
     nodeIp,
+    wanPort: deployment.metadata?.annotations?.["infraweaver.io/wan-port"] ?? null,
+    wanForward: deployment.metadata?.annotations?.["infraweaver.io/wan-forward"] ?? null,
+    wanNodeIp: deployment.metadata?.annotations?.["infraweaver.io/wan-node-ip"] ?? null,
     allPorts,
     portReachable,
     hpa,
@@ -630,6 +634,15 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
     await deleteCronJob(batchApi, `gameserver-${name}-backup`);
     await deleteCronJob(batchApi, `gameserver-${name}-scheduled-start`);
     await deleteCronJob(batchApi, `gameserver-${name}-scheduled-stop`);
+
+    // Tear down the WAN port-forward opened at create time. Best-effort — a
+    // missing/unreachable connector must not block server deletion; an absent
+    // rule is a no-op inside the client.
+    try {
+      await removeGameServerPortForward(name);
+    } catch (fwdErr) {
+      console.error(`WAN port-forward teardown failed for ${name}:`, fwdErr);
+    }
 
     try {
       const pvcs = await coreApi.listNamespacedPersistentVolumeClaim({ namespace: GAME_HUB_NAMESPACE, labelSelector: `app=${name}` });
