@@ -310,7 +310,7 @@ function NasSection() {
   const providersQuery = useNasProviders();
   const mountsQuery = useNasMounts();
   const providers = providersQuery.data ?? [];
-  const mounts = mountsQuery.data ?? [];
+  const mounts = useMemo(() => mountsQuery.data ?? [], [mountsQuery.data]);
   const [providerFilter, setProviderFilter] = useState<string>("all");
   const [accessFilter, setAccessFilter] = useState<"all" | "ro" | "rw">("all");
   const filteredMounts = useMemo(
