@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
@@ -86,9 +86,10 @@ export function CommandPalette() {
   const [recentItems, setRecentItems] = useState<PaletteItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const results = query.trim()
-    ? fuse.search(query).map(r => r.item)
-    : [];
+  const results = useMemo(
+    () => (query.trim() ? fuse.search(query).map(r => r.item) : []),
+    [query]
+  );
 
   const displayItems = query.trim() ? results : recentItems;
   const showSections = !query.trim();
