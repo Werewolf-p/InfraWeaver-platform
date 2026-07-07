@@ -23,7 +23,7 @@ const PAGE_CONTEXT = [
   { match: (pathname: string) => pathname.startsWith("/apps"), description: "Installed apps, catalog installs, and community deployments.", badge: "Apps workspace" },
   { match: (pathname: string) => pathname.startsWith("/cluster"), description: "Node health, autoscaling, and workload movement controls.", badge: "Cluster control" },
   { match: (pathname: string) => pathname.startsWith("/storage"), description: "Longhorn capacity, replica health, and hot-volume visibility.", badge: "Storage watch" },
-  { match: (_pathname: string) => true, description: "Use search to jump anywhere and keep production changes moving.", badge: "Operator mode" },
+  { match: () => true, description: "Use search to jump anywhere and keep production changes moving.", badge: "Operator mode" },
 ] as const;
 
 function isTypingTarget(target: EventTarget | null) {

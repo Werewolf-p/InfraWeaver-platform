@@ -486,11 +486,9 @@ function PlayersTab({ name, server }: { name: string; server: ServerDetail }) {
 
 function FilesTab({
   name,
-  status,
   mountPath,
 }: {
   name: string;
-  status: string;
   mountPath: string;
 }) {
   const [currentPath, setCurrentPath] = useState(mountPath);
@@ -4296,7 +4294,7 @@ export default function ServerDetailPage() {
                 <PlayersTab name={name} server={server} />
               )}
               {resolvedActiveTab === "files" && (
-                <FilesTab name={name} status={status} mountPath={mountPath} />
+                <FilesTab name={name} mountPath={mountPath} />
               )}
               {resolvedActiveTab === "activity" && <ActivityTab name={name} />}
               {resolvedActiveTab === "settings" && (

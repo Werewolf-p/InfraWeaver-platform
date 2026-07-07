@@ -85,7 +85,6 @@ export function ClusterProvider({ children }: { children: React.ReactNode }) {
       })
       .catch(() => { /* ignore */ });
   // Only run once on mount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // If the stored cluster no longer exists in the configured list, fall back to the

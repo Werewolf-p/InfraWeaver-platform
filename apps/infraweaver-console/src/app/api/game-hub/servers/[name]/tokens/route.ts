@@ -32,6 +32,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
     const tokens = await readServerTokens(coreApi, name);
     const now = Date.now();
     return NextResponse.json({
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- `token` is destructured out to strip the secret from the API response
       tokens: tokens.map(({ token, expiresAt, ...entry }) => ({
         ...entry,
         expiresAt: expiresAt ?? null,

@@ -12,7 +12,6 @@ import {
   getEffectivePermissions,
   resolveRoleDefinition,
   scopeLabel,
-  type Permission,
   type RoleAssignment,
 } from "@/lib/rbac";
 import { queryKeys } from "@/lib/query-keys";
