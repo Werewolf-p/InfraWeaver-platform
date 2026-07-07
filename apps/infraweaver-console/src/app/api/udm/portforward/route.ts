@@ -18,7 +18,7 @@ import { auditLog } from "@/lib/audit-log";
 import { logAccess, logMutatingAccess, accessFieldsFromRequest } from "@/lib/access-log";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { getUdmClient } from "@/lib/udm/config";
+import { getUdmClientAsync } from "@/lib/udm/config";
 import { UdmError } from "@/lib/udm/client";
 import { isValidRuleName, validatePortForwardRule } from "@/lib/udm/validate";
 
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const client = getUdmClient();
+  const client = await getUdmClientAsync();
   if (!client) return NextResponse.json({ error: "UDM connector not configured" }, { status: 503 });
 
   const wantWan = new URL(req.url).searchParams.get("wan") === "true";
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
-  const client = getUdmClient();
+  const client = await getUdmClientAsync();
   if (!client) return NextResponse.json({ error: "UDM connector not configured" }, { status: 503 });
 
   const body = await req.json().catch(() => null);
@@ -112,7 +112,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
-  const client = getUdmClient();
+  const client = await getUdmClientAsync();
   if (!client) return NextResponse.json({ error: "UDM connector not configured" }, { status: 503 });
 
   const name = new URL(req.url).searchParams.get("name");

@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import { PlatformEditorPanel } from "@/components/settings/platform-editor-panel";
+import { UdmConnectorCard } from "@/components/settings/udm-connector-card";
 import { DensityToggle, PageScaffold, SettingsCard, ThemeToggle } from "@/components/ui";
 import { useSettingsContext, type RefreshInterval } from "@/contexts/settings-context";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
@@ -182,6 +183,10 @@ export default function SettingsPage() {
                   <ConnectionStatus label="GitHub" path="/api/config/platform" />
                 </div>
               </SettingsCard>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.21 }}>
+              <UdmConnectorCard />
             </motion.div>
           </div>
         ) : (

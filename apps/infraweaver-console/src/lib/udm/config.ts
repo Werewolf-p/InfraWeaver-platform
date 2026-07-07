@@ -10,6 +10,7 @@
 
 import { UdmClient } from "@/lib/udm/client";
 import { createHttpsTransport } from "@/lib/udm/https-transport";
+import { readStoredUdmConfig } from "@/lib/udm/store";
 import type { UdmConfig } from "@/lib/udm/types";
 
 export class UdmConfigError extends Error {}
@@ -56,4 +57,25 @@ export function getUdmClient(env: NodeJS.ProcessEnv = process.env): UdmClient | 
   if (!isUdmConfigured(env)) return null;
   const config = parseUdmConfig(env);
   return new UdmClient(createHttpsTransport(config), config.site);
+}
+
+/**
+ * Build a cert-pinned client from an explicit config — used to test a candidate
+ * connector config against the live gateway before persisting it.
+ */
+export function buildUdmClient(config: UdmConfig): UdmClient {
+  return new UdmClient(createHttpsTransport(config), config.site);
+}
+
+/**
+ * Build a client from the stored (OpenBao) connector config, falling back to the
+ * environment. Async because the stored config is read from OpenBao at request
+ * time, so a key/host saved through the settings UI is live without a pod
+ * restart. Returns null when neither source is configured.
+ */
+export async function getUdmClientAsync(): Promise<UdmClient | null> {
+  const stored = await readStoredUdmConfig().catch(() => null);
+  if (stored) return buildUdmClient(stored);
+  if (isUdmConfigured()) return buildUdmClient(parseUdmConfig());
+  return null;
 }
