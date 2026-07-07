@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 interface ConnectorStatus {
   configured: boolean;
   host?: string;
+  username?: string;
   wanIp?: string;
   isCgnat?: boolean;
 }
@@ -15,11 +16,14 @@ interface ConnectorStatus {
 const INPUT_CLASS =
   "mt-1 w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-slate-400 focus:border-indigo-500/50 focus:outline-none focus:ring-1 focus:ring-indigo-500/40";
 
-/** Settings card: paste the UDM gateway IP + API key. Saving tests the key
- *  against the live gateway before it is persisted (server-side, to OpenBao). */
+/** Settings card: UDM gateway IP + UniFi OS username/password. Saving tests the
+ *  credentials against the live gateway before they are persisted (server-side,
+ *  to OpenBao). This firmware rejects API keys on the Network API, so login
+ *  (cookie) auth is used. */
 export function UdmConnectorCard() {
   const [host, setHost] = useState("10.10.0.1");
-  const [apiKey, setApiKey] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [status, setStatus] = useState<ConnectorStatus | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -32,6 +36,7 @@ export function UdmConnectorCard() {
         if (!active || !data) return;
         setStatus(data);
         if (data.host) setHost(data.host.replace(/^https?:\/\//, ""));
+        if (data.username) setUsername(data.username);
       })
       .catch(() => {});
     return () => {
@@ -46,7 +51,7 @@ export function UdmConnectorCard() {
       const res = await fetch("/api/udm/connector", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ host, apiKey }),
+        body: JSON.stringify({ host, username, password }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -57,8 +62,8 @@ export function UdmConnectorCard() {
         setMessage({ ok: false, text: data.error ?? `Save failed (${res.status})` });
         return;
       }
-      setApiKey("");
-      setStatus({ configured: true, host, wanIp: data.wanIp, isCgnat: data.isCgnat });
+      setPassword("");
+      setStatus({ configured: true, host, username, wanIp: data.wanIp, isCgnat: data.isCgnat });
       setMessage({
         ok: true,
         text: data.wanIp ? `Connected — WAN ${data.wanIp}${data.isCgnat ? " (CGNAT)" : ""}` : "Saved",
@@ -70,12 +75,13 @@ export function UdmConnectorCard() {
     }
   }
 
-  const canSave = Boolean(host) && (Boolean(apiKey) || Boolean(status?.configured)) && !saving;
+  const canSave =
+    Boolean(host) && Boolean(username) && (Boolean(password) || Boolean(status?.configured)) && !saving;
 
   return (
     <SettingsCard
       title="UDM Connector"
-      description="UniFi gateway address + API key for firewall / port-forward control"
+      description="UniFi gateway address + local admin login for firewall / port-forward control"
       icon={Router}
     >
       <div className="space-y-3">
@@ -92,12 +98,24 @@ export function UdmConnectorCard() {
         </label>
 
         <label className="block">
-          <span className="text-xs text-slate-500 dark:text-slate-400">API key</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">Username (local UDM admin)</span>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="apiuser"
+            autoComplete="off"
+            spellCheck={false}
+            className={INPUT_CLASS}
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-xs text-slate-500 dark:text-slate-400">Password</span>
           <input
             type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={status?.configured ? "•••••• stored — leave blank to keep" : "paste UDM API key"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={status?.configured ? "•••••• stored — leave blank to keep" : "UDM admin password"}
             autoComplete="new-password"
             spellCheck={false}
             className={INPUT_CLASS}

@@ -22,12 +22,14 @@ export class UdmConfigError extends Error {}
  */
 export function parseUdmConfig(env: NodeJS.ProcessEnv = process.env): UdmConfig {
   const host = env.UDM_HOST?.trim();
-  const apiKey = env.UDM_API_KEY?.trim();
+  const username = env.UDM_USERNAME?.trim();
+  const password = env.UDM_PASSWORD?.trim();
   const fingerprintSha256 = env.UDM_CERT_SHA256?.trim();
 
   const missing = [
     ["UDM_HOST", host],
-    ["UDM_API_KEY", apiKey],
+    ["UDM_USERNAME", username],
+    ["UDM_PASSWORD", password],
     ["UDM_CERT_SHA256", fingerprintSha256],
   ]
     .filter(([, v]) => !v)
@@ -38,7 +40,8 @@ export function parseUdmConfig(env: NodeJS.ProcessEnv = process.env): UdmConfig 
 
   return {
     host: host as string,
-    apiKey: apiKey as string,
+    username: username as string,
+    password: password as string,
     fingerprintSha256: fingerprintSha256 as string,
     site: env.UDM_SITE?.trim() || "default",
   };
@@ -46,7 +49,9 @@ export function parseUdmConfig(env: NodeJS.ProcessEnv = process.env): UdmConfig 
 
 /** True when all required UDM env vars are present. */
 export function isUdmConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.UDM_HOST?.trim() && env.UDM_API_KEY?.trim() && env.UDM_CERT_SHA256?.trim());
+  return Boolean(
+    env.UDM_HOST?.trim() && env.UDM_USERNAME?.trim() && env.UDM_PASSWORD?.trim() && env.UDM_CERT_SHA256?.trim(),
+  );
 }
 
 /**

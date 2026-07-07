@@ -3,8 +3,9 @@
  *
  * The connector talks to the edge router's Network API to reconcile WAN
  * port-forward rules (e.g. exposing a game server's NodePort) and to read WAN
- * health (public IP + CGNAT detection). Auth is a UniFi OS **API key** sent as
- * the `X-API-KEY` header — no username/password, no CSRF/cookie dance.
+ * health (public IP + CGNAT detection). Auth is a UniFi OS local admin login
+ * (username/password → session cookie + CSRF); this firmware rejects API keys on
+ * the Network API.
  */
 
 export type PortForwardProto = "tcp" | "udp" | "tcp_udp";
@@ -49,8 +50,10 @@ export interface WanStatus {
 export interface UdmConfig {
   /** Base URL, e.g. `https://10.10.0.1`. */
   host: string;
-  /** UniFi OS API key (X-API-KEY). */
-  apiKey: string;
+  /** UniFi OS local admin username (cookie login auth). */
+  username: string;
+  /** UniFi OS local admin password. */
+  password: string;
   /** Pinned server-cert SHA-256 fingerprint (colon-hex or plain hex). */
   fingerprintSha256: string;
   /** UniFi site slug; defaults to `default`. */

@@ -1,13 +1,15 @@
 /**
  * UDM connector configuration API.
  *
- *   GET   → connector status (configured? host? source) — never returns the key
- *   POST  {host, apiKey} → validate host, capture+pin the cert (TOFU), test the
- *          key against the live gateway, then persist to OpenBao. A blank apiKey
- *          keeps the stored key (host-only update).
+ *   GET   → connector status (configured? host? source) — never returns creds
+ *   POST  {host, username, password} → validate host, capture+pin the cert
+ *          (TOFU), test the credentials against the live gateway, then persist to
+ *          OpenBao. A blank password keeps the stored one (host/username update).
  *
- * Reads require `infra:read`; the write is gated on `infra:write`, rate-limited,
- * access-logged and audited. The API key value is never logged.
+ * This firmware rejects API keys on the local Network API, so the connector uses
+ * UniFi OS username/password (cookie) auth. Reads require `infra:read`; the write
+ * is gated on `infra:write`, rate-limited, access-logged and audited. The
+ * password is never logged.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -44,9 +46,8 @@ function normalizeHost(raw: unknown): string | null {
   return url.port ? `https://${host}:${url.port}` : `https://${host}`;
 }
 
-/** A UniFi OS API key is a long opaque token; reject obviously-wrong input. */
-function isPlausibleApiKey(value: unknown): value is string {
-  return typeof value === "string" && value.length >= 20 && value.length <= 512 && !/\s/.test(value);
+function isNonEmptyString(value: unknown, max: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= max;
 }
 
 export async function GET() {
@@ -62,6 +63,7 @@ export async function GET() {
   return NextResponse.json({
     configured: Boolean(stored) || envConfigured,
     host: stored?.host ?? process.env.UDM_HOST ?? "",
+    username: stored?.username ?? "",
     site: stored?.site ?? process.env.UDM_SITE ?? "default",
     source: stored ? "openbao" : envConfigured ? "env" : "none",
   });
@@ -84,26 +86,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
-  const body = (await req.json().catch(() => null)) as { host?: unknown; apiKey?: unknown; site?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as
+    | { host?: unknown; username?: unknown; password?: unknown; site?: unknown }
+    | null;
 
   const host = normalizeHost(body?.host);
   if (!host) return NextResponse.json({ error: "invalid host" }, { status: 400 });
 
-  const rawKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
-  let apiKey = rawKey;
-  if (!apiKey) {
-    // Blank key on an already-configured connector = host-only update: reuse the stored key.
+  if (!isNonEmptyString(body?.username, 128)) {
+    return NextResponse.json({ error: "username required" }, { status: 400 });
+  }
+  const username = (body.username as string).trim();
+
+  const rawPassword = typeof body?.password === "string" ? body.password : "";
+  let password = rawPassword;
+  if (!password) {
+    // Blank password on an already-configured connector = host/username update:
+    // reuse the stored password.
     const existing = await readStoredUdmConfig().catch(() => null);
-    if (!existing) return NextResponse.json({ error: "apiKey required" }, { status: 400 });
-    apiKey = existing.apiKey;
-  } else if (!isPlausibleApiKey(apiKey)) {
-    return NextResponse.json({ error: "invalid apiKey" }, { status: 400 });
+    if (!existing) return NextResponse.json({ error: "password required" }, { status: 400 });
+    password = existing.password;
+  } else if (!isNonEmptyString(password, 256)) {
+    return NextResponse.json({ error: "invalid password" }, { status: 400 });
   }
 
   const site = typeof body?.site === "string" && body.site.trim() ? body.site.trim() : "default";
 
-  // Establish the cert pin against the given host (TOFU), then prove the key
-  // works before persisting anything.
+  // Establish the cert pin against the given host (TOFU), then prove the
+  // credentials work before persisting anything.
   let fingerprintSha256: string;
   try {
     fingerprintSha256 = await fetchServerFingerprint(host);
@@ -112,11 +122,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `could not reach UDM at ${host}: ${message}` }, { status: 502 });
   }
 
-  const config: UdmConfig = { host, apiKey, fingerprintSha256, site };
+  const config: UdmConfig = { host, username, password, fingerprintSha256, site };
   try {
     const wan = await buildUdmClient(config).getWanStatus();
-    await writeStoredUdmConfig({ host, apiKey, fingerprintSha256, site });
-    await auditLog("udm:connector:configure", actor, `set UDM connector host=${host} site=${site}`);
+    await writeStoredUdmConfig({ host, username, password, fingerprintSha256, site });
+    await auditLog("udm:connector:configure", actor, `set UDM connector host=${host} user=${username} site=${site}`);
     return NextResponse.json({ ok: true, configured: true, host, wanIp: wan.wanIp, isCgnat: wan.isCgnat });
   } catch (error) {
     const message = error instanceof Error ? error.message : "connector test failed";

@@ -1,12 +1,14 @@
 /**
  * OpenBao-backed storage for the UDM connector config — SERVER ONLY.
  *
- * The connector needs a host, an API key, and a pinned cert fingerprint. The API
- * key is a secret, so the whole config lives in OpenBao at `secret/platform/udm`
- * (KV v2) — never in git or a static env var. It is read at request time so a
- * key saved through the settings UI is live immediately, without a pod restart.
- * The console's OpenBao token needs `create,update,read` on
- * `secret/data/platform/udm` (see infra `bootstrap-openbao.sh`).
+ * The connector authenticates to the local UDM with a UniFi OS username +
+ * password (this firmware rejects API keys on the Network API), plus a pinned
+ * cert fingerprint. The password is a secret, so the whole config lives in
+ * OpenBao at `secret/platform/udm` (KV v2) — never in git or a static env var.
+ * It is read at request time so credentials saved through the settings UI are
+ * live immediately, without a pod restart. The console's OpenBao token needs
+ * `create,update,read` on `secret/data/platform/udm` (see infra
+ * `bootstrap-openbao.sh`).
  */
 
 import type { UdmConfig } from "@/lib/udm/types";
@@ -18,7 +20,8 @@ const VAULT_TIMEOUT_MS = Number(process.env.OPENBAO_TIMEOUT_MS) || 10_000;
 /** Shape persisted in OpenBao. Hyphenated keys match the existing seed convention. */
 interface StoredUdm {
   host: string;
-  "api-key": string;
+  username: string;
+  password: string;
   "cert-sha256": string;
   site?: string;
 }
@@ -55,8 +58,8 @@ async function vaultFetch(init: RequestInit): Promise<Response> {
 
 /**
  * Read the stored connector config, or null when unset or incomplete. A missing
- * secret (404) returns null rather than throwing, so callers degrade to the env
- * fallback / "not configured" state.
+ * secret (404) returns null rather than throwing, so callers degrade to the
+ * "not configured" state.
  */
 export async function readStoredUdmConfig(): Promise<UdmConfig | null> {
   const res = await vaultFetch({ method: "GET" });
@@ -64,10 +67,11 @@ export async function readStoredUdmConfig(): Promise<UdmConfig | null> {
   if (!res.ok) throw new Error(`OpenBao read udm config failed: ${res.status}`);
   const body = (await res.json()) as { data?: { data?: Partial<StoredUdm> } };
   const stored = body.data?.data;
-  if (!stored?.host || !stored["api-key"] || !stored["cert-sha256"]) return null;
+  if (!stored?.host || !stored.username || !stored.password || !stored["cert-sha256"]) return null;
   return {
     host: stored.host,
-    apiKey: stored["api-key"],
+    username: stored.username,
+    password: stored.password,
     fingerprintSha256: stored["cert-sha256"],
     site: stored.site || "default",
   };
@@ -79,13 +83,15 @@ export async function readStoredUdmConfig(): Promise<UdmConfig | null> {
  */
 export async function writeStoredUdmConfig(config: {
   host: string;
-  apiKey: string;
+  username: string;
+  password: string;
   fingerprintSha256: string;
   site: string;
 }): Promise<void> {
   const data: StoredUdm = {
     host: config.host,
-    "api-key": config.apiKey,
+    username: config.username,
+    password: config.password,
     "cert-sha256": config.fingerprintSha256,
     site: config.site,
   };
