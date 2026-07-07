@@ -241,7 +241,7 @@ export default function UpdateManagerPage() {
     });
   }, [updatesQuery.data]);
 
-  const apps = updatesQuery.data ?? [];
+  const apps = useMemo(() => updatesQuery.data ?? [], [updatesQuery.data]);
 
   const summary = useMemo(() => {
     const total = apps.length;

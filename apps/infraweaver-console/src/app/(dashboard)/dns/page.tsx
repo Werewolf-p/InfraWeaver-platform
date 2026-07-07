@@ -162,8 +162,8 @@ export default function DnsManagementPage() {
     staleTime: 60000,
   });
 
-  const records = data?.records ?? [];
-  const traefikRoutes = traefikData?.routes ?? [];
+  const records = useMemo(() => data?.records ?? [], [data?.records]);
+  const traefikRoutes = useMemo(() => traefikData?.routes ?? [], [traefikData?.routes]);
   const filteredRecords = useMemo(() => {
     const scoped = records.filter((record) => (tab === "internal" ? record.internal : !record.internal));
     const query = search.trim().toLowerCase();
