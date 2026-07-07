@@ -525,6 +525,7 @@ export function DashboardTab({
       localStorage.setItem(`storage-history:${name}`, JSON.stringify(next));
       return next;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the individual filesystem fields (percent/total/used) intentionally; depending on the disk.filesystem object would re-run on ref churn with unchanged values
   }, [disk?.filesystem.percent, disk?.filesystem.total, disk?.filesystem.used, name]);
   const [networkThroughputData, setNetworkThroughputData] =
     useState<NetworkThroughputPoint[]>([]);

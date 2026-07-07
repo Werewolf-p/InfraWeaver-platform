@@ -418,6 +418,7 @@ function AddServerDrawer({
     if (prefill.nodePort) {
       setPorts([{ port: prefill.nodePort, protocol: "TCP", name: "game" }]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- prefill the form from the specific fields on open; depending on the whole prefill object would re-run on ref churn
   }, [open, prefill?.name, prefill?.nodeIp, prefill?.nodePort, prefill?.description]);
 
   const handleModeToggle = () => {
