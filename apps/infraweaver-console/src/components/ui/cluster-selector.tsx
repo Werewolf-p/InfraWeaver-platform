@@ -67,7 +67,7 @@ export function ClusterSelector() {
     };
   }, []);
 
-  const clusters = clustersQuery.data?.clusters ?? [];
+  const clusters = useMemo(() => clustersQuery.data?.clusters ?? [], [clustersQuery.data?.clusters]);
   const activeClusterId = activeClusterQuery.data?.clusterId ?? "default";
   const activeCluster = useMemo(
     () => clusters.find((cluster) => cluster.id === activeClusterId) ?? clusters[0] ?? null,

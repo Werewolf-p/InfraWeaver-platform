@@ -115,7 +115,7 @@ export default function MemoryPage() {
     staleTime: 10_000,
   });
 
-  const namespaces = heatmapQuery.data?.namespaces ?? [];
+  const namespaces = useMemo(() => heatmapQuery.data?.namespaces ?? [], [heatmapQuery.data?.namespaces]);
   const cpuConsumers: CpuConsumer[] = topConsumersQuery.data?.cpu ?? [];
   const memoryConsumers: MemoryConsumer[] = topConsumersQuery.data?.memory ?? [];
   const maxRequestMiB = useMemo(
