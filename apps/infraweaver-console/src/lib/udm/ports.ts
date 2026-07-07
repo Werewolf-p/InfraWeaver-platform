@@ -124,6 +124,19 @@ export interface DuplicateWanPort {
 }
 
 /**
+ * Rule names that appear on more than one rule — an integrity check for the UI.
+ * Pure counterpart of `UdmClient.findDuplicateNames` so the list route can derive
+ * it from a SINGLE fetched rule set instead of issuing another UDM request (the
+ * cookie-auth transport logs in per call, and concurrent logins clobber each
+ * other's session — so all read-derived data must come off one list fetch).
+ */
+export function findDuplicateNames(rules: readonly PortForwardRecord[]): string[] {
+  const counts = new Map<string, number>();
+  for (const r of rules) counts.set(r.name, (counts.get(r.name) ?? 0) + 1);
+  return [...counts.entries()].filter(([, n]) => n > 1).map(([name]) => name).sort();
+}
+
+/**
  * WAN ports claimed by more than one enabled rule on overlapping protocols — an
  * integrity report for the UI, mirroring `findDuplicateNames`. A `tcp` rule and
  * a `udp` rule on the same port are NOT a duplicate (distinct wires); a `tcp`

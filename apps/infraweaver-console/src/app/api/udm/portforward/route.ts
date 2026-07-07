@@ -20,6 +20,7 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getUdmClientAsync } from "@/lib/udm/config";
 import { UdmError } from "@/lib/udm/client";
+import { findDuplicateNames, findDuplicateWanPorts } from "@/lib/udm/ports";
 import { isValidRuleName, validatePortForwardRule } from "@/lib/udm/validate";
 
 function udmErrorResponse(error: unknown): NextResponse {
@@ -49,12 +50,16 @@ export async function GET(req: NextRequest) {
       logAccess(accessFieldsFromRequest(req, session.user?.email ?? "unknown"));
       return NextResponse.json(await client.getWanStatus());
     }
-    const [rules, duplicates, portDuplicates] = await Promise.all([
-      client.listPortForwards(),
-      client.findDuplicateNames(),
-      client.findDuplicatePorts(),
-    ]);
-    return NextResponse.json({ rules, duplicates, portDuplicates });
+    // Fetch the rule set ONCE and derive the integrity reports locally. The
+    // previous Promise.all issued three independent UDM reads; the cookie-auth
+    // transport logs in per request, so concurrent logins clobbered each other's
+    // session and the reads silently came back empty. One fetch → correct list.
+    const rules = await client.listPortForwards();
+    return NextResponse.json({
+      rules,
+      duplicates: findDuplicateNames(rules),
+      portDuplicates: findDuplicateWanPorts(rules),
+    });
   } catch (error) {
     return udmErrorResponse(error);
   }

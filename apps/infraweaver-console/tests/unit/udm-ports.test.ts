@@ -140,3 +140,15 @@ describe("findDuplicateWanPorts", () => {
     expect(findDuplicateWanPorts(rules)).toEqual([]);
   });
 });
+
+describe("findDuplicateNames", () => {
+  test("returns names appearing on more than one rule, sorted", () => {
+    const { findDuplicateNames } = require("@/lib/udm/ports");
+    const rules = [rec({ name: "game-a" }), rec({ name: "game-b" }), rec({ name: "game-a" }), rec({ name: "z" }), rec({ name: "z" })];
+    expect(findDuplicateNames(rules)).toEqual(["game-a", "z"]);
+  });
+  test("empty when all unique", () => {
+    const { findDuplicateNames } = require("@/lib/udm/ports");
+    expect(findDuplicateNames([rec({ name: "a" }), rec({ name: "b" })])).toEqual([]);
+  });
+});
