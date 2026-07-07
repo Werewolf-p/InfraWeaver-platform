@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Plus, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
@@ -84,7 +84,7 @@ export function AgentStudioModal({ open, onClose }: AgentStudioModalProps) {
     setSteps((current) => current.filter((_, i) => i !== index));
   const addStep = () => setSteps((current) => [...current, makeEmptyStep(current.length)]);
 
-  async function save() {
+  const save = useCallback(async () => {
     const pipeline: Pipeline = { version: 1, steps };
     const problem = validatePipeline(pipeline);
     if (problem) {
@@ -103,7 +103,7 @@ export function AgentStudioModal({ open, onClose }: AgentStudioModalProps) {
     } finally {
       setBusy("");
     }
-  }
+  }, [steps]);
 
   async function reset() {
     setBusy("reset");
@@ -165,7 +165,7 @@ export function AgentStudioModal({ open, onClose }: AgentStudioModalProps) {
         </button>
       </div>
     ),
-    [busy, configured, editing, steps],
+    [busy, configured, editing, save],
   );
 
   return (
