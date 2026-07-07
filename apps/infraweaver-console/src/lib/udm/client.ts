@@ -9,7 +9,15 @@
  */
 
 import { isCgnatIp } from "@/lib/udm/cgnat";
+import {
+  findDuplicateWanPorts,
+  firstFreePort,
+  occupiedLanTargets,
+  occupiedWanPorts,
+  type DuplicateWanPort,
+} from "@/lib/udm/ports";
 import type {
+  PortAllocation,
   PortForwardRecord,
   PortForwardRule,
   ReconcileResult,
@@ -91,6 +99,72 @@ export class UdmClient {
     );
     const created = dataArray(res)[0] as { _id?: string } | undefined;
     return { action: "created", id: created?._id ?? null };
+  }
+
+  /**
+   * Upsert a rule, but never collide on the WAN port. If the requested
+   * `dst_port` is already claimed by another enabled, protocol-overlapping rule,
+   * the port is bumped upward (wrapping within `[min,max]`) until a free one is
+   * found — so two servers can never silently share a WAN port. The rule stays
+   * keyed by `name`, so re-reconciling the same server is idempotent and keeps
+   * its already-assigned port (it only moves if that port later conflicts).
+   *
+   * "Free on both sides": the LAN target (`fwd:fwd_port`) must also be unclaimed;
+   * a second forward to the identical internal endpoint is rejected (409) rather
+   * than silently duplicated. With `keepFwdPortInSync`, the LAN `fwd_port` tracks
+   * the assigned WAN port so both sides advance together (the game-server case
+   * where the public port and the nodePort are meant to match).
+   */
+  async upsertPortForwardNoConflict(
+    rule: PortForwardRule,
+    opts: { min?: number; max?: number; maxProbe?: number; keepFwdPortInSync?: boolean } = {},
+  ): Promise<PortAllocation> {
+    const rules = await this.listPortForwards();
+    const existing = rules.find((r) => r.name === rule.name) ?? null;
+    const requestedPort = rule.dst_port;
+
+    const occupied = occupiedWanPorts(rules, rule.proto, rule.name);
+    const desiredNum = Number(rule.dst_port);
+
+    // Prefer stability: an existing same-name rule keeps its current WAN port
+    // unless that port now conflicts with another rule.
+    let assignedNum: number | null = null;
+    if (existing) {
+      const currentNum = Number(existing.dst_port);
+      if (Number.isInteger(currentNum) && !occupied.has(currentNum)) {
+        assignedNum = currentNum;
+      }
+    }
+    if (assignedNum === null) {
+      assignedNum = firstFreePort(desiredNum, occupied, opts);
+    }
+    if (assignedNum === null) {
+      throw new UdmError("no free WAN port available in range", 409);
+    }
+
+    const assigned = String(assignedNum);
+    const fwdPort = opts.keepFwdPortInSync ? assigned : rule.fwd_port;
+
+    // LAN-side duplicate guard: don't create a second forward that delivers to
+    // the exact same internal endpoint under a different rule name.
+    const lanOccupied = occupiedLanTargets(rules, rule.proto, rule.name);
+    if (lanOccupied.has(`${rule.fwd}:${fwdPort}`)) {
+      throw new UdmError(`LAN target ${rule.fwd}:${fwdPort} is already forwarded`, 409);
+    }
+
+    const finalRule: PortForwardRule = { ...rule, dst_port: assigned, fwd_port: fwdPort };
+    const result = await this.upsertPortForward(finalRule);
+    return {
+      ...result,
+      requestedPort,
+      assignedPort: assigned,
+      bumped: assigned !== requestedPort,
+    };
+  }
+
+  /** WAN ports claimed by more than one rule (overlapping protos) — UI integrity check. */
+  async findDuplicatePorts(): Promise<DuplicateWanPort[]> {
+    return findDuplicateWanPorts(await this.listPortForwards());
   }
 
   /** Delete the rule with this `name`. Returns `absent` when nothing matched. */

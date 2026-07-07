@@ -49,8 +49,12 @@ export async function GET(req: NextRequest) {
       logAccess(accessFieldsFromRequest(req, session.user?.email ?? "unknown"));
       return NextResponse.json(await client.getWanStatus());
     }
-    const [rules, duplicates] = await Promise.all([client.listPortForwards(), client.findDuplicateNames()]);
-    return NextResponse.json({ rules, duplicates });
+    const [rules, duplicates, portDuplicates] = await Promise.all([
+      client.listPortForwards(),
+      client.findDuplicateNames(),
+      client.findDuplicatePorts(),
+    ]);
+    return NextResponse.json({ rules, duplicates, portDuplicates });
   } catch (error) {
     return udmErrorResponse(error);
   }
@@ -81,8 +85,22 @@ export async function POST(req: NextRequest) {
   if (!validation.ok || !validation.rule) {
     return NextResponse.json({ error: validation.error ?? "invalid rule" }, { status: 400 });
   }
+  // Control flags live alongside the rule fields but are not part of the rule
+  // itself; read them off the raw body after the rule is validated.
+  const raw = (body ?? {}) as Record<string, unknown>;
+  const autoAllocate = raw.autoAllocate === true;
+  const keepFwdPortInSync = raw.keepFwdPortInSync === true;
 
   try {
+    if (autoAllocate) {
+      const alloc = await client.upsertPortForwardNoConflict(validation.rule, { keepFwdPortInSync });
+      await auditLog(
+        "udm:portforward:upsert",
+        actor,
+        `${alloc.action} port-forward ${validation.rule.name} (${validation.rule.proto} :${alloc.assignedPort} -> ${validation.rule.fwd}:${keepFwdPortInSync ? alloc.assignedPort : validation.rule.fwd_port})${alloc.bumped ? ` [bumped from :${alloc.requestedPort}]` : ""}`,
+      );
+      return NextResponse.json({ ok: true, ...alloc });
+    }
     const result = await client.upsertPortForward(validation.rule);
     await auditLog(
       "udm:portforward:upsert",

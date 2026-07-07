@@ -40,6 +40,16 @@ export interface ReconcileResult {
   id: string | null;
 }
 
+/** Result of a collision-aware upsert, reporting whether the WAN port was bumped. */
+export interface PortAllocation extends ReconcileResult {
+  /** The `dst_port` the caller asked for. */
+  requestedPort: string;
+  /** The `dst_port` actually written (may differ if bumped past a conflict). */
+  assignedPort: string;
+  /** True when `assignedPort !== requestedPort`. */
+  bumped: boolean;
+}
+
 /** Parsed WAN status, including CGNAT detection. */
 export interface WanStatus {
   wanIp: string;
