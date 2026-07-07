@@ -566,7 +566,7 @@ export default function NewGameServerPage() {
     ? BUILT_IN_EGGS.find((egg) => egg.id === selectedBuiltInId) ?? null
     : remoteEggData?.egg ?? null;
   const activeEggKey = sourceTab === "built-in" ? selectedBuiltInId : selectedRemoteEntry?.id ?? null;
-  const clusterNodes = clusterNodesData?.nodes ?? [];
+  const clusterNodes = useMemo(() => clusterNodesData?.nodes ?? [], [clusterNodesData?.nodes]);
   const highestPressureNode = capacityData?.nodes.reduce<GameHubCapacityNode | null>((worst, node) => {
     if (!node.ready) return worst;
     if (!worst || node.requestMemoryPct > worst.requestMemoryPct) return node;
@@ -772,7 +772,7 @@ export default function NewGameServerPage() {
     return () => clearTimeout(id);
   }, [normalizedName, serverListData]);
 
-  const remoteCategories = catalogData?.categories ?? [];
+  const remoteCategories = useMemo(() => catalogData?.categories ?? [], [catalogData?.categories]);
   const remoteEggs = useMemo(() => remoteCategories.flatMap((category) =>
     category.eggs.map((egg) => ({ ...egg, categoryPath: category.path, categoryName: category.name }))
   ), [remoteCategories]);
