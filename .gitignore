@@ -151,3 +151,8 @@ generated/
 # graphify skill knowledge-graph output (generated — never commit)
 graphify-out/
 **/graphify-out/
+
+# ---------------------------------------------------------------------------
+# Local planning docs — working notes, never committed
+# ---------------------------------------------------------------------------
+plans/

@@ -2,14 +2,25 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { HardDrive, AlertCircle, CheckCircle2, Search, ArrowUpDown, Activity, Server, Lock, Unlock } from "lucide-react";
+import { HardDrive, AlertCircle, CheckCircle2, Search, ArrowUpDown, Activity, Server, Lock, Unlock, Plus, Trash2, Loader2 } from "lucide-react";
 import { formatBytes, cn } from "@/lib/utils";
 import { StoragePieChart } from "@/components/charts/PieChart";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { PageHeader } from "@/components/ui/page-header";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useNasProviders, useNasMounts, type NasMount } from "@/hooks/use-nas";
+import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  useNasProviders,
+  useNasMounts,
+  useNasAddProvider,
+  useNasDeleteProvider,
+  type NasMount,
+  type NasProvider,
+  type NasProviderInput,
+  type NasProviderKind,
+} from "@/hooks/use-nas";
 
 interface BreakdownEntry {
   name: string;
@@ -309,10 +320,13 @@ function LonghornPanel({
 function NasSection() {
   const providersQuery = useNasProviders();
   const mountsQuery = useNasMounts();
+  const deleteProvider = useNasDeleteProvider();
   const providers = providersQuery.data ?? [];
   const mounts = useMemo(() => mountsQuery.data ?? [], [mountsQuery.data]);
   const [providerFilter, setProviderFilter] = useState<string>("all");
   const [accessFilter, setAccessFilter] = useState<"all" | "ro" | "rw">("all");
+  const [addOpen, setAddOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<NasProvider | null>(null);
   const filteredMounts = useMemo(
     () => mounts.filter((m) => (providerFilter === "all" || m.provider === providerFilter) && (accessFilter === "all" || m.access === accessFilter)),
     [mounts, providerFilter, accessFilter],
@@ -328,25 +342,78 @@ function NasSection() {
         <SummaryCard label="Read-write mounts" value={rwCount.toString()} description="Writable NAS credentials" icon={Unlock} tone="text-amber-400 bg-amber-500/10" />
       </div>
 
-      <CollapsibleSection title="Providers" storageKey="storage-nas-providers">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Providers</h3>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Synology / TrueNAS backends. Credentials are stored in OpenBao and read at request time.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setAddOpen(true)}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#0078D4]/30 bg-[#0078D4]/10 px-3 py-1.5 text-xs font-medium text-[#7cb9ff] transition-colors hover:bg-[#0078D4]/20"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add provider
+        </button>
+      </div>
+
+      <CollapsibleSection title="Configured providers" count={providers.length} storageKey="storage-nas-providers">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {providers.length === 0 ? (
-            <EmptyState icon={Server} title="No NAS providers configured" description="Add Synology or TrueNAS credentials via OpenBao to see them here." />
+            <EmptyState
+              icon={Server}
+              title="No NAS providers configured"
+              description="Add a Synology or TrueNAS provider — its credentials are stored securely in OpenBao."
+              action={{ label: "Add provider", onClick: () => setAddOpen(true) }}
+            />
           ) : providers.map((p) => (
             <div key={p.id} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{p.name}</p>
-                  <p className="mt-1 text-xs text-slate-500">{p.protocol}://{p.host}:{p.port}</p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{p.name}</p>
+                  <p className="mt-1 truncate text-xs text-slate-500">{p.protocol}://{p.host}:{p.port}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", p.reachable ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300")}>
+                      {p.reachable ? "reachable" : "unreachable"}
+                    </span>
+                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", p.hasCredentials ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300")}>
+                      {p.hasCredentials ? "credentials set" : "no credentials"}
+                    </span>
+                    <span className="rounded-full bg-slate-500/10 px-2 py-0.5 text-[10px] font-medium text-slate-400">
+                      {p.source === "openbao" ? "OpenBao" : "environment"}
+                    </span>
+                  </div>
                 </div>
-                <span className={cn("rounded-full px-2 py-1 text-xs font-medium", p.reachable ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300")}>
-                  {p.reachable ? "reachable" : "unreachable"}
-                </span>
+                {p.source === "openbao" ? (
+                  <button
+                    type="button"
+                    onClick={() => setPendingDelete(p)}
+                    aria-label={`Delete ${p.name}`}
+                    className="shrink-0 rounded-lg border border-gray-200 dark:border-white/10 p-1.5 text-slate-400 transition-colors hover:border-red-500/40 hover:text-red-400"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
               </div>
             </div>
           ))}
         </div>
       </CollapsibleSection>
+
+      <AddProviderSheet open={addOpen} onClose={() => setAddOpen(false)} />
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="Delete NAS provider"
+        description={pendingDelete ? `Remove "${pendingDelete.name}" and its stored credentials from OpenBao? Existing mounts are not affected.` : ""}
+        confirmText="Delete"
+        danger
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) deleteProvider.mutate(pendingDelete.id);
+          setPendingDelete(null);
+        }}
+      />
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -436,6 +503,137 @@ function SummaryCard({ label, value, description, icon: Icon, tone }: { label: s
       </div>
       <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{description}</p>
     </div>
+  );
+}
+
+const PROVIDER_INPUT_CLASS =
+  "mt-1 w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder:text-slate-400 focus:border-[#0078D4]/50 focus:outline-none focus:ring-1 focus:ring-[#0078D4]/40";
+
+const KIND_OPTIONS: Array<{ value: NasProviderKind; label: string; portHint: string }> = [
+  { value: "synology", label: "Synology (SMB)", portHint: "5001" },
+  { value: "truenas", label: "TrueNAS Scale (SMB/NFS)", portHint: "443" },
+];
+
+/** Slide-over form to register a new NAS provider. Credentials are validated
+ *  against the live NAS server-side and then persisted to OpenBao — nothing is
+ *  stored until the "save & test" succeeds. */
+function AddProviderSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const addProvider = useNasAddProvider();
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<NasProviderKind>("synology");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function reset() {
+    setName(""); setKind("synology"); setHost(""); setPort("");
+    setUsername(""); setPassword(""); setApiKey(""); setError(null);
+  }
+
+  function close() {
+    reset();
+    onClose();
+  }
+
+  async function submit() {
+    setError(null);
+    const credentials = kind === "synology" ? { username, password } : { apiKey };
+    const input: NasProviderInput = {
+      name: name.trim(),
+      kind,
+      host: host.trim(),
+      credentials,
+      ...(port.trim() ? { port: Number(port.trim()) } : {}),
+    };
+    try {
+      await addProvider.mutateAsync(input);
+      close();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add provider");
+    }
+  }
+
+  const credsReady = kind === "synology" ? Boolean(username && password) : Boolean(apiKey);
+  const canSave = Boolean(name.trim()) && Boolean(host.trim()) && credsReady && !addProvider.isPending;
+  const portHint = KIND_OPTIONS.find((k) => k.value === kind)?.portHint ?? "";
+
+  return (
+    <ResponsiveSheet
+      open={open}
+      onClose={close}
+      title="Add NAS provider"
+      description="Credentials are tested against the live NAS, then stored in OpenBao."
+      size="sm"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" onClick={close} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white">Cancel</button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSave}
+            className={cn(
+              "flex min-h-[40px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+              canSave ? "border border-[#0078D4]/30 bg-[#0078D4]/20 text-[#7cb9ff] hover:bg-[#0078D4]/30" : "border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-400",
+            )}
+          >
+            {addProvider.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Save &amp; test
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        <label className="block">
+          <span className="text-xs text-slate-500 dark:text-slate-400">Display name</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Media NAS" autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+        </label>
+
+        <label className="block">
+          <span className="text-xs text-slate-500 dark:text-slate-400">Type</span>
+          <select value={kind} onChange={(e) => setKind(e.target.value as NasProviderKind)} className={PROVIDER_INPUT_CLASS}>
+            {KIND_OPTIONS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+          </select>
+        </label>
+
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <label className="block">
+            <span className="text-xs text-slate-500 dark:text-slate-400">Host / IP</span>
+            <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="10.25.0.21" autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-500 dark:text-slate-400">Port</span>
+            <input value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ""))} placeholder={portHint} inputMode="numeric" className={cn(PROVIDER_INPUT_CLASS, "w-24")} />
+          </label>
+        </div>
+
+        {kind === "synology" ? (
+          <>
+            <label className="block">
+              <span className="text-xs text-slate-500 dark:text-slate-400">Username</span>
+              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="console-svc" autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-500 dark:text-slate-400">Password</span>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="NAS account password" autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+            </label>
+          </>
+        ) : (
+          <label className="block">
+            <span className="text-xs text-slate-500 dark:text-slate-400">API key</span>
+            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="TrueNAS API key" autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+          </label>
+        )}
+
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          The host must be on the platform internal allowlist (SSRF guard). New NAS IPs need to be added there first.
+        </p>
+
+        {error ? <p className="text-xs text-red-400">{error}</p> : null}
+      </div>
+    </ResponsiveSheet>
   );
 }
 

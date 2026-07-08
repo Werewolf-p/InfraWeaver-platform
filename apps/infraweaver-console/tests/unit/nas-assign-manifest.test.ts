@@ -9,7 +9,7 @@
 // upstream to the shared media folder — the exact vulnerability Phase 1 fixes.
 
 import * as yaml from "js-yaml";
-import { generateK8sManifest } from "@/lib/nas/manifest";
+import { deriveNasSecretName, generateK8sManifest, generateNasCredentialExternalSecret } from "@/lib/nas/manifest";
 
 interface StorageClassManifest {
   kind: string;
@@ -113,5 +113,41 @@ describe("generateK8sManifest — least-privilege invariants", () => {
     const docs = yaml.loadAll(rendered) as Array<{ kind: string; spec?: { resources?: { requests?: { storage?: string } } } }>;
     const pvc = docs.find((d) => d.kind === "PersistentVolumeClaim");
     expect(pvc?.spec?.resources?.requests?.storage).toBe("500Gi");
+  });
+});
+
+describe("NAS credential ExternalSecret generator", () => {
+  it("derives a per-share, per-access secret name", () => {
+    expect(deriveNasSecretName("Media Share", "readonly")).toBe("nas-media-share-ro");
+    expect(deriveNasSecretName("media", "readwrite")).toBe("nas-media-rw");
+  });
+
+  it("renders an ExternalSecret that pulls username/password from the creds path", () => {
+    const rendered = generateNasCredentialExternalSecret({
+      secretName: "nas-media-rw",
+      namespace: "plex",
+      access: "readwrite",
+      credsLogicalPath: "platform/nas/creds/media-nas",
+      yamlLib: yaml,
+    });
+    const doc = yaml.load(rendered) as {
+      kind: string;
+      metadata: { name: string; namespace: string };
+      spec: {
+        secretStoreRef: { name: string; kind: string };
+        target: { name: string };
+        data: Array<{ secretKey: string; remoteRef: { key: string; property: string } }>;
+      };
+    };
+    expect(doc.kind).toBe("ExternalSecret");
+    expect(doc.metadata.namespace).toBe("plex");
+    expect(doc.spec.secretStoreRef).toEqual({ name: "openbao", kind: "ClusterSecretStore" });
+    expect(doc.spec.target.name).toBe("nas-media-rw");
+    // Both keys must resolve against the provider's OpenBao creds path.
+    expect(doc.spec.data.map((d) => d.remoteRef.key)).toEqual([
+      "secret/platform/nas/creds/media-nas",
+      "secret/platform/nas/creds/media-nas",
+    ]);
+    expect(doc.spec.data.map((d) => d.secretKey).sort()).toEqual(["password", "username"]);
   });
 });

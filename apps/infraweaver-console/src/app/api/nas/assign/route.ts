@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
 import { gitCommitFiles } from "@/lib/git-provider";
-import { generateK8sManifest, type NasBackend } from "@/lib/nas/manifest";
+import { deriveNasSecretName, generateK8sManifest, generateNasCredentialExternalSecret, type NasBackend } from "@/lib/nas/manifest";
 import { evaluateFolderAcl } from "@/lib/nas/folder-acl";
-import { getProviderConfig, listProviderConfigs } from "@/lib/nas/providers";
+import { getResolvedNasProvider, resolveNasCredentials, resolveNasProviders } from "@/lib/nas/providers";
+import { nasCredsLogicalPath } from "@/lib/nas/store";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionEffectivePermissions, getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { loadUsersConfig } from "@/lib/users-config";
@@ -88,9 +89,10 @@ export async function POST(req: NextRequest) {
 
     // Resolve the provider via the registry so `synology` isn't hardcoded and
     // future providers work without touching this route (plan §"generic").
-    const providerCfg = getProviderConfig(provider);
+    const providerCfg = await getResolvedNasProvider(provider);
     if (!providerCfg) {
-      return NextResponse.json({ error: `Unknown NAS provider '${provider}'. Registered: ${listProviderConfigs().map((p) => p.id).join(", ") || "(none)"}` }, { status: 400 });
+      const registered = (await resolveNasProviders()).map((p) => p.id).join(", ") || "(none)";
+      return NextResponse.json({ error: `Unknown NAS provider '${provider}'. Registered: ${registered}` }, { status: 400 });
     }
     const backend: NasBackend = body.backend ?? providerCfg.backends[0];
     if (!providerCfg.backends.includes(backend)) {
@@ -144,13 +146,35 @@ export async function POST(req: NextRequest) {
     const manifestContent = generateK8sManifest({ username, provider, backend, share, subfolder, pvc_name, pvc_namespace, host, access, size: body.size }, yaml);
     const manifestSubfolder = subfolder.replace(/\//g, "-");
     const manifestPath = `kubernetes/catalog/nas-shares/${username}-${share.toLowerCase()}-${manifestSubfolder}.yaml`;
+    const secretPath = `kubernetes/catalog/nas-shares/${username}-${share.toLowerCase()}-${manifestSubfolder}-secret.yaml`;
     const newUsersContent = yaml.dump(usersData, { lineWidth: -1, indent: 2 });
+
+    const addOrUpdateFiles = [
+      { path: manifestPath, content: manifestContent },
+      { path: "users.yaml", content: newUsersContent },
+    ];
+
+    // For a dynamically-added SMB provider (creds live in OpenBao under
+    // `platform/nas/creds/<id>`), also emit the ExternalSecret that materialises
+    // the CSI credential Secret the StorageClass references — so the mount can
+    // authenticate. Built-in (env) providers are covered by their own ESO wiring.
+    if (backend === "smb" && providerCfg.source === "openbao" && (providerCfg.kind === "synology" || providerCfg.kind === "generic-smb")) {
+      const creds = await resolveNasCredentials(provider);
+      if (creds?.username && creds.password) {
+        const secretContent = generateNasCredentialExternalSecret({
+          secretName: deriveNasSecretName(share, access),
+          namespace: pvc_namespace,
+          access,
+          credsLogicalPath: nasCredsLogicalPath(provider),
+          yamlLib: yaml,
+        });
+        addOrUpdateFiles.push({ path: secretPath, content: secretContent });
+      }
+    }
+
     await gitCommitFiles({
       message: `feat(nas): assign ${share}/${subfolder} to ${username}`,
-      addOrUpdateFiles: [
-        { path: manifestPath, content: manifestContent },
-        { path: "users.yaml", content: newUsersContent },
-      ],
+      addOrUpdateFiles,
     });
 
     return NextResponse.json({ ok: true, pvc_name, pvc_namespace, manifest_path: manifestPath, yaml: manifestContent });
@@ -215,11 +239,14 @@ export async function DELETE(req: NextRequest) {
 
     const manifestSubfolder = subfolder.replace(/\//g, "-");
     const manifestPath = `kubernetes/catalog/nas-shares/${username}-${share.toLowerCase()}-${manifestSubfolder}.yaml`;
+    // The per-share ExternalSecret is only present for dynamically-added SMB
+    // providers; deleting a non-existent path is a no-op, so list it always.
+    const secretPath = `kubernetes/catalog/nas-shares/${username}-${share.toLowerCase()}-${manifestSubfolder}-secret.yaml`;
     const newUsersContent = yaml.dump(usersData, { lineWidth: -1, indent: 2 });
     await gitCommitFiles({
       message: `feat(nas): revoke ${share}/${subfolder} from ${username}`,
       addOrUpdateFiles: [{ path: "users.yaml", content: newUsersContent }],
-      deleteFiles: [manifestPath],
+      deleteFiles: [manifestPath, secretPath],
     });
 
     return NextResponse.json({ ok: true });

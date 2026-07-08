@@ -1,16 +1,34 @@
 "use client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
+export type NasProviderKind = "synology" | "truenas" | "generic-smb" | "generic-nfs";
+
 export interface NasProvider {
   id: string;
   name: string;
   host: string;
   port: number;
   protocol: string;
-  kind?: string;
+  kind?: NasProviderKind;
   backends?: Array<"smb" | "nfs">;
+  /** "env" = built-in from environment (read-only); "openbao" = added via UI. */
+  source?: "env" | "openbao";
   enabled: boolean;
+  hasCredentials?: boolean;
   reachable: boolean;
+}
+
+export interface NasProviderInput {
+  name: string;
+  host: string;
+  kind: NasProviderKind;
+  port?: number;
+  protocol?: "http" | "https";
+  credentials: {
+    username?: string;
+    password?: string;
+    apiKey?: string;
+  };
 }
 
 export interface NasShare {
@@ -25,7 +43,7 @@ export interface NasFolder {
 }
 
 export interface NasAssignment {
-  provider: "synology" | "truenas";
+  provider: string;
   share: string;
   subfolder?: string;
   access: "readonly" | "readwrite";
@@ -83,6 +101,49 @@ export function useNasProviders() {
   });
 }
 
+export function useNasAddProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: NasProviderInput) => {
+      const res = await fetch("/api/nas/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: unknown; id?: string };
+      if (!res.ok) {
+        const message = typeof data.error === "string" ? data.error : "Failed to add provider";
+        throw new Error(message);
+      }
+      return data as { ok: boolean; id: string; reachable: boolean };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["nas", "providers"] });
+    },
+  });
+}
+
+export function useNasDeleteProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch("/api/nas/providers", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "Failed to delete provider");
+      }
+      return res.json() as Promise<{ ok: boolean }>;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["nas", "providers"] });
+    },
+  });
+}
+
 export function useNasShares(provider: string | null) {
   return useQuery({
     queryKey: ["nas", "shares", provider],
@@ -131,7 +192,8 @@ export function useNasAssign() {
   return useMutation({
     mutationFn: async (params: {
       username: string;
-      provider: "synology" | "truenas";
+      /** Any registered provider id (built-in or dynamically added). */
+      provider: string;
       share: string;
       subfolder?: string;
       access: "readonly" | "readwrite";

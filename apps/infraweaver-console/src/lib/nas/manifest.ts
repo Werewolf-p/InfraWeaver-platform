@@ -79,6 +79,56 @@ function renderBackend(params: GenerateManifestParams, secretName: string): Back
   };
 }
 
+/** SMB CSI credential Secret name for a share/access pair. Kept in one place so
+ *  the StorageClass parameters and the ExternalSecret that materialises the
+ *  Secret always agree. */
+export function deriveNasSecretName(share: string, access: NasAccess): string {
+  const accessSuffix = access === "readonly" ? "ro" : "rw";
+  return `nas-${share.toLowerCase().replace(/[^a-z0-9-]/g, "-")}-${accessSuffix}`;
+}
+
+/**
+ * ExternalSecret that materialises a share's SMB credential Secret from OpenBao.
+ * Emitted alongside the SC/PVC for dynamically-added SMB providers so the CSI
+ * driver has a Secret to authenticate with — no plaintext credentials in git.
+ *
+ * `credsLogicalPath` is the OpenBao logical path (e.g. `platform/nas/creds/foo`);
+ * the ClusterSecretStore `openbao` resolves it against the `secret/` KV mount.
+ */
+export function generateNasCredentialExternalSecret(params: {
+  secretName: string;
+  namespace: string;
+  access: NasAccess;
+  credsLogicalPath: string;
+  yamlLib: Pick<typeof import("js-yaml"), "dump">;
+}): string {
+  const { secretName, namespace, access, credsLogicalPath, yamlLib } = params;
+  const remoteKey = `secret/${credsLogicalPath}`;
+  const doc = {
+    apiVersion: "external-secrets.io/v1",
+    kind: "ExternalSecret",
+    metadata: {
+      name: secretName,
+      namespace,
+      labels: {
+        "infraweaver.io/nas-share": "true",
+        "infraweaver.io/component": "nas-credentials",
+        "infraweaver.io/access": access === "readonly" ? "ro" : "rw",
+      },
+    },
+    spec: {
+      refreshInterval: "1h",
+      secretStoreRef: { name: "openbao", kind: "ClusterSecretStore" },
+      target: { name: secretName, creationPolicy: "Owner", deletionPolicy: "Retain" },
+      data: [
+        { secretKey: "username", remoteRef: { key: remoteKey, property: "username" } },
+        { secretKey: "password", remoteRef: { key: remoteKey, property: "password" } },
+      ],
+    },
+  };
+  return yamlLib.dump(doc, { lineWidth: -1, indent: 2 });
+}
+
 export function generateK8sManifest(
   params: GenerateManifestParams,
   yamlLib: Pick<typeof import("js-yaml"), "dump">,
@@ -90,7 +140,7 @@ export function generateK8sManifest(
   // `nas-<share>-<ro|rw>` into the consuming namespace, sourced from OpenBao.
   // NOTE: NFS has no per-client credential (host-based auth), but we still
   // derive the name so future secret-based NFS drivers slot in unchanged.
-  const secretName = `nas-${share.toLowerCase().replace(/[^a-z0-9-]/g, "-")}-${accessSuffix}`;
+  const secretName = deriveNasSecretName(share, access);
   const scName = `${backend}-${username}-${share.toLowerCase().replace(/[^a-z0-9-]/g, "-")}-${accessSuffix}`;
   const backendRender = renderBackend(params, secretName);
   const size = params.size ?? "100Gi";

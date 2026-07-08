@@ -22,7 +22,7 @@ import { gitCommitFiles, gitReadFile } from "@/lib/git-provider";
 import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
 import { evaluateFolderAcl } from "@/lib/nas/folder-acl";
 import { generateK8sManifest, type NasBackend } from "@/lib/nas/manifest";
-import { getProviderConfig, listProviderConfigs } from "@/lib/nas/providers";
+import { getResolvedNasProvider, resolveNasProviders } from "@/lib/nas/providers";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionEffectivePermissions, getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
@@ -95,9 +95,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "manifest_path must be under kubernetes/catalog/" }, { status: 400 });
     }
 
-    const providerCfg = getProviderConfig(body.provider);
+    const providerCfg = await getResolvedNasProvider(body.provider);
     if (!providerCfg) {
-      return NextResponse.json({ error: `Unknown NAS provider '${body.provider}'. Registered: ${listProviderConfigs().map((p) => p.id).join(", ") || "(none)"}` }, { status: 400 });
+      const registered = (await resolveNasProviders()).map((p) => p.id).join(", ") || "(none)";
+      return NextResponse.json({ error: `Unknown NAS provider '${body.provider}'. Registered: ${registered}` }, { status: 400 });
     }
     const backend: NasBackend = body.backend ?? providerCfg.backends[0];
     if (!providerCfg.backends.includes(backend)) {

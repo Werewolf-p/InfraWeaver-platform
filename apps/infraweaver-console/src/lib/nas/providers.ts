@@ -20,6 +20,11 @@
 // - Nothing in this file talks to Kubernetes; it is pure config resolution.
 
 import { z } from "zod";
+import {
+  readStoredNasProviders,
+  type StoredNasCredentials,
+  type StoredNasProvider,
+} from "@/lib/nas/store";
 
 /** Storage backends the assign/mount pipeline knows how to render. */
 export type NasBackend = "smb" | "nfs";
@@ -136,4 +141,103 @@ export function isProviderEnabled(provider: NasProviderConfig, env: NodeJS.Proce
 /** Test-only helper: clears the memoised list so a new env can be exercised. */
 export function resetProviderRegistry() {
   cached = null;
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic (OpenBao-backed) provider resolution.
+//
+// The functions above resolve *static* providers (env + NAS_PROVIDERS_JSON) and
+// stay synchronous so existing call sites are untouched. The functions below
+// merge those with *dynamic* providers added through the Storage UI and stored
+// in OpenBao (`@/lib/nas/store`). They are async (OpenBao is read at request
+// time) and are the resolver every NAS route should prefer.
+// ---------------------------------------------------------------------------
+
+export interface ResolvedNasProvider extends NasProviderConfig {
+  /** Where this provider came from — an env/JSON built-in, or the OpenBao registry. */
+  source: "env" | "openbao";
+  /** True when usable credentials are available (env vars or stored secret). */
+  hasCredentials: boolean;
+}
+
+/** Strip credentials off a stored provider to get its public config shape. */
+function toProviderConfig(stored: StoredNasProvider): NasProviderConfig {
+  return {
+    id: stored.id,
+    name: stored.name,
+    host: stored.host,
+    port: stored.port,
+    protocol: stored.protocol,
+    kind: stored.kind,
+    backends: stored.backends,
+  };
+}
+
+/** Whether a stored provider's persisted credentials are complete for its kind. */
+function storedHasCredentials(stored: StoredNasProvider): boolean {
+  if (stored.kind === "synology") return Boolean(stored.credentials.username && stored.credentials.password);
+  if (stored.kind === "truenas") return Boolean(stored.credentials.apiKey);
+  return true; // generic-smb / generic-nfs use host-based auth
+}
+
+/** Credentials for a built-in (env-declared) provider, from the standard env vars. */
+function envCredentials(id: string, env: NodeJS.ProcessEnv): StoredNasCredentials | null {
+  if (id === "synology" && env.SYNOLOGY_PASSWORD) {
+    return { username: env.SYNOLOGY_USER ?? "", password: env.SYNOLOGY_PASSWORD };
+  }
+  if (id === "truenas" && env.TRUENAS_API_KEY) {
+    return { apiKey: env.TRUENAS_API_KEY };
+  }
+  return null;
+}
+
+/**
+ * Full provider list: env/JSON built-ins overlaid with OpenBao-stored dynamic
+ * providers. On id collision the stored entry wins, so an operator can retarget
+ * a built-in through the UI. Never throws on an OpenBao outage — it degrades to
+ * the static list so the Storage page still renders.
+ */
+export async function resolveNasProviders(env: NodeJS.ProcessEnv = process.env): Promise<ResolvedNasProvider[]> {
+  const stored = await readStoredNasProviders().catch(() => [] as StoredNasProvider[]);
+  const storedById = new Map(stored.map((s) => [s.id, s]));
+
+  const merged = new Map<string, ResolvedNasProvider>();
+  for (const builtIn of listProviderConfigs(env)) {
+    merged.set(builtIn.id, {
+      ...builtIn,
+      source: "env",
+      hasCredentials: Boolean(envCredentials(builtIn.id, env)),
+    });
+  }
+  for (const s of storedById.values()) {
+    merged.set(s.id, {
+      ...toProviderConfig(s),
+      source: "openbao",
+      hasCredentials: storedHasCredentials(s),
+    });
+  }
+  return [...merged.values()];
+}
+
+/** Resolve a single provider by id from the merged (env + OpenBao) registry. */
+export async function getResolvedNasProvider(
+  id: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ResolvedNasProvider | undefined> {
+  return (await resolveNasProviders(env)).find((p) => p.id === id);
+}
+
+/**
+ * Resolve usable credentials for a provider id: prefer the OpenBao-stored secret
+ * (dynamic providers, or a retargeted built-in), else fall back to the built-in
+ * env vars. Returns null when no credentials exist. SERVER ONLY.
+ */
+export async function resolveNasCredentials(
+  id: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<StoredNasCredentials | null> {
+  const stored = await readStoredNasProviders().catch(() => [] as StoredNasProvider[]);
+  const match = stored.find((p) => p.id === id);
+  if (match && storedHasCredentials(match)) return match.credentials;
+  return envCredentials(id, env);
 }

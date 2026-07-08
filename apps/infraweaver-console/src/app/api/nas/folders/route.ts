@@ -1,28 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { fetchInternalService } from "@/lib/insecure-fetch";
+import { synologyListFolders, truenasListFolders } from "@/lib/nas/discovery";
+import { getResolvedNasProvider, resolveNasCredentials } from "@/lib/nas/providers";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-
-async function synologyLogin(): Promise<string | null> {
-  const host = process.env.SYNOLOGY_HOST ?? "10.25.0.21";
-  const port = process.env.SYNOLOGY_PORT ?? "5001";
-  const user = encodeURIComponent(process.env.SYNOLOGY_USER ?? "");
-  const pass = encodeURIComponent(process.env.SYNOLOGY_PASSWORD ?? "");
-  if (!user || !pass) return null;
-
-  try {
-    const res = await fetchInternalService(
-      `https://${host}:${port}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account=${user}&passwd=${pass}&session=FileStation&format=sid`,
-      {},
-      { allowInsecureTls: true },
-    );
-    const data = await res.json() as { success: boolean; data?: { sid: string } };
-    return data.success ? data.data?.sid ?? null : null;
-  } catch {
-    return null;
-  }
-}
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -33,53 +14,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
-  const provider = req.nextUrl.searchParams.get("provider");
+  const providerId = req.nextUrl.searchParams.get("provider");
   const share = req.nextUrl.searchParams.get("share");
-  if (!provider || !share) return NextResponse.json({ error: "provider and share params required" }, { status: 400 });
+  if (!providerId || !share) return NextResponse.json({ error: "provider and share params required" }, { status: 400 });
 
-  if (provider === "synology") {
-    const host = process.env.SYNOLOGY_HOST ?? "10.25.0.21";
-    const port = process.env.SYNOLOGY_PORT ?? "5001";
-    const sid = await synologyLogin();
-    if (!sid) return NextResponse.json({ folders: [] });
+  const provider = await getResolvedNasProvider(providerId);
+  if (!provider) return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
+  const creds = await resolveNasCredentials(providerId);
+  if (!creds) return NextResponse.json({ folders: [] });
 
-    try {
-      const folderPath = encodeURIComponent(`/${share}`);
-      const res = await fetchInternalService(
-        `https://${host}:${port}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list&folder_path=${folderPath}&filetype=dir&SID=${sid}`,
-        {},
-        { allowInsecureTls: true },
-      );
-      const data = await res.json() as { success: boolean; data?: { files: Array<{ name: string; path: string }> } };
-      if (!data.success) return NextResponse.json({ folders: [] });
-      return NextResponse.json({ folders: (data.data?.files ?? []).map((file) => ({ name: file.name, path: file.path })) });
-    } catch {
-      return NextResponse.json({ folders: [] });
-    }
+  if (provider.kind === "synology") {
+    const folders = await synologyListFolders(
+      { host: provider.host, port: provider.port, user: creds.username ?? "", password: creds.password ?? "" },
+      share,
+    );
+    return NextResponse.json({ folders });
   }
-
-  if (provider === "truenas") {
-    const host = process.env.TRUENAS_HOST ?? "10.25.0.135";
-    const apiKey = process.env.TRUENAS_API_KEY;
-    if (!apiKey) return NextResponse.json({ folders: [] });
-
-    try {
-      const res = await fetchInternalService(`https://${host}/api/v2/pool/dataset?type=FILESYSTEM&limit=50`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      }, { allowInsecureTls: true });
-      if (!res.ok) return NextResponse.json({ folders: [] });
-      const datasets = await res.json() as Array<{ name: string; mountpoint?: { value?: string } }>;
-      const folders = datasets
-        .filter((dataset) => dataset.name.toLowerCase().includes(share.toLowerCase()))
-        .map((dataset) => ({
-          name: dataset.name.split("/").pop() ?? dataset.name,
-          path: dataset.mountpoint?.value ?? `/${dataset.name}`,
-        }));
-      return NextResponse.json({ folders });
-    } catch {
-      return NextResponse.json({ folders: [] });
-    }
+  if (provider.kind === "truenas") {
+    const folders = await truenasListFolders({ host: provider.host, apiKey: creds.apiKey ?? "" }, share);
+    return NextResponse.json({ folders });
   }
-
-  return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
+  return NextResponse.json({ folders: [] });
 }
