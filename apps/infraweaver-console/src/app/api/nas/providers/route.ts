@@ -22,6 +22,7 @@ import {
   isAllowedInternalHostForWizard,
 } from "@/lib/internal-url-allowlist-server";
 import { probeNasCredentials } from "@/lib/nas/discovery";
+import { provisionScopedNasAccount } from "@/lib/nas/provision-account";
 import { resolveNasProviders, type ResolvedNasProvider } from "@/lib/nas/providers";
 import {
   deleteNasSmbCreds,
@@ -88,6 +89,11 @@ const CreateBody = z.object({
       apiKey: z.string().max(1024).optional(),
     })
     .default({}),
+  // When true, the supplied `credentials` are treated as a ONE-TIME admin
+  // credential: the console uses them to mint a least-privilege service account
+  // on the NAS, persists only that scoped account, and discards the admin
+  // credential (never stored, never logged). Synology/TrueNAS only.
+  provisionScoped: z.boolean().optional(),
 });
 
 /** Slugify a name into a stable, url-safe provider id. */
@@ -194,6 +200,57 @@ export async function POST(req: NextRequest) {
     }
     const port = body.port ?? DEFAULT_PORT[kind];
     const backends = body.backends ?? DEFAULT_BACKENDS[kind];
+
+    // Least-privilege self-provisioning: the pasted credentials are a one-time
+    // admin credential. Verify it, use it to mint a scoped service account on
+    // the NAS, persist ONLY the scoped credential, and let the admin credential
+    // fall out of scope — it is never written to OpenBao and never logged.
+    if (body.provisionScoped === true && (kind === "synology" || kind === "truenas")) {
+      const adminCredentials = {
+        username: body.credentials.username,
+        password: body.credentials.password,
+        apiKey: body.credentials.apiKey,
+      };
+      const adminProbe = await probeNasCredentials({ host: hostname, port, kind }, adminCredentials);
+      if (!adminProbe.ok) {
+        await auditLog("nas:provider:configure", actor, `admin test failed for ${id} (${hostname})`, { result: "failure" });
+        return NextResponse.json({ error: `Admin credential test failed: ${adminProbe.error ?? "unknown"}` }, { status: 502 });
+      }
+
+      const provisioned = await provisionScopedNasAccount({ host: hostname, port, kind }, adminCredentials, [], id);
+      if (!provisioned.ok || !provisioned.credentials) {
+        await auditLog("nas:provider:configure", actor, `scoped provisioning failed for ${id} (${hostname})`, { result: "failure" });
+        return NextResponse.json({ error: provisioned.error ?? "Scoped account provisioning failed" }, { status: 502 });
+      }
+
+      // Only the scoped credential survives. Prove it works before persisting.
+      const scopedCredentials = provisioned.credentials;
+      const scopedProbe = await probeNasCredentials({ host: hostname, port, kind }, scopedCredentials);
+      if (!scopedProbe.ok) {
+        return NextResponse.json(
+          { error: `Scoped account was created but failed verification: ${scopedProbe.error ?? "unknown"}` },
+          { status: 502 },
+        );
+      }
+
+      await upsertStoredNasProvider({ id, name: body.name, host: hostname, port, protocol, kind, backends, credentials: scopedCredentials });
+      invalidateInternalHostAllowlist();
+      if (kind === "synology" && scopedCredentials.username && scopedCredentials.password) {
+        await writeNasSmbCreds(id, { username: scopedCredentials.username, password: scopedCredentials.password });
+      }
+
+      await auditLog(
+        "nas:provider:configure",
+        actor,
+        `saved NAS provider ${id} host=${hostname} kind=${kind} via least-privilege account ${provisioned.scopedName ?? "?"}`,
+      );
+      return NextResponse.json({
+        ok: true,
+        id,
+        reachable: true,
+        provisioned: { scopedName: provisioned.scopedName, warning: provisioned.warning },
+      });
+    }
 
     // On an existing provider, blank credentials mean "keep the stored ones" —
     // reuse them so we can still run the save & test.

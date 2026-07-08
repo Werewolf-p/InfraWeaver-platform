@@ -39,7 +39,7 @@ export interface TruenasConn {
 
 const PROBE_TIMEOUT_MS = 5000;
 
-async function synologyLogin(conn: SynologyConn): Promise<string | null> {
+export async function synologyLogin(conn: SynologyConn): Promise<string | null> {
   const user = encodeURIComponent(conn.user);
   const pass = encodeURIComponent(conn.password);
   if (!conn.user || !conn.password) return null;

@@ -562,6 +562,12 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
   const [password, setPassword] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Least-privilege provisioning: on a NEW provider, default to using the
+  // entered credential as a one-time admin credential to mint a scoped service
+  // account. Off in edit mode (the scoped account already exists).
+  const [provisionScoped, setProvisionScoped] = useState(!isEdit);
+  const adminMode = !isEdit && provisionScoped;
 
   function close() {
     onClose();
@@ -569,6 +575,7 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
 
   async function submit() {
     setError(null);
+    setNotice(null);
     // In edit mode, blank credential fields mean "keep the stored ones" — the
     // API's upsertStoredNasProvider merges with the prior secret so we don't
     // have to prompt the operator for the NAS password just to rename a box.
@@ -582,10 +589,17 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
       host: host.trim(),
       credentials,
       ...(port.trim() ? { port: Number(port.trim()) } : {}),
+      ...(adminMode ? { provisionScoped: true } : {}),
     };
     try {
-      await saveProvider.mutateAsync(input);
-      close();
+      const result = await saveProvider.mutateAsync(input);
+      if (result.provisioned?.warning) {
+        // Provider is saved; keep the sheet open so the operator sees the
+        // one non-fatal caveat (e.g. a share grant to finish manually).
+        setNotice(result.provisioned.warning);
+      } else {
+        close();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save provider");
     }
@@ -658,27 +672,46 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
           </label>
         </div>
 
+        {!isEdit ? (
+          <label className="flex items-start gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2">
+            <input
+              type="checkbox"
+              checked={provisionScoped}
+              onChange={(e) => setProvisionScoped(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[#0078D4]"
+            />
+            <span className="text-xs text-slate-600 dark:text-slate-300">
+              <span className="font-medium text-gray-900 dark:text-white">Create a least-privilege service account</span>{" "}
+              <span className="text-slate-500 dark:text-slate-400">(recommended)</span>
+              <span className="mt-1 block text-slate-500 dark:text-slate-400">
+                Enter a temporary {kind === "synology" ? "admin" : "admin API"} credential below. It is used once to create a
+                dedicated scoped account for InfraWeaver, which is stored in the vault — your admin credential is never saved.
+              </span>
+            </span>
+          </label>
+        ) : null}
+
         {kind === "synology" ? (
           <>
             <label className="block">
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                Username{canKeepStoredCreds ? " (leave blank to keep stored)" : ""}
+                {adminMode ? "Admin username (used once)" : `Username${canKeepStoredCreds ? " (leave blank to keep stored)" : ""}`}
               </span>
-              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={canKeepStoredCreds ? "•••••••• (unchanged)" : "console-svc"} autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={adminMode ? "admin" : canKeepStoredCreds ? "•••••••• (unchanged)" : "console-svc"} autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
             </label>
             <label className="block">
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                Password{canKeepStoredCreds ? " (leave blank to keep stored)" : ""}
+                {adminMode ? "Admin password (used once)" : `Password${canKeepStoredCreds ? " (leave blank to keep stored)" : ""}`}
               </span>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={canKeepStoredCreds ? "•••••••• (unchanged)" : "NAS account password"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={adminMode ? "admin password" : canKeepStoredCreds ? "•••••••• (unchanged)" : "NAS account password"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
             </label>
           </>
         ) : (
           <label className="block">
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              API key{canKeepStoredCreds ? " (leave blank to keep stored)" : ""}
+              {adminMode ? "Admin API key (used once)" : `API key${canKeepStoredCreds ? " (leave blank to keep stored)" : ""}`}
             </span>
-            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={canKeepStoredCreds ? "•••••••• (unchanged)" : "TrueNAS API key"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={adminMode ? "admin API key" : canKeepStoredCreds ? "•••••••• (unchanged)" : "TrueNAS API key"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
           </label>
         )}
 
@@ -690,6 +723,7 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
         </p>
 
         {error ? <p className="text-xs text-red-400">{error}</p> : null}
+        {notice ? <p className="text-xs text-amber-400">Saved. {notice}</p> : null}
       </div>
     </ResponsiveSheet>
   );
