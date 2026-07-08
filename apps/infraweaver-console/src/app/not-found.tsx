@@ -22,7 +22,7 @@ export default function NotFound() {
             </div>
             <p className="mt-2 text-xs text-slate-500">Jump back to the InfraWeaver home portal.</p>
           </Link>
-          <Link href="/dns" className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/70 p-4 transition hover:border-emerald-500/30 hover:bg-emerald-500/5">
+          <Link href="/routes?tab=dns" className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/70 p-4 transition hover:border-emerald-500/30 hover:bg-emerald-500/5">
             <div className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
               <Search className="h-4 w-4 text-emerald-200" />
               Open DNS
