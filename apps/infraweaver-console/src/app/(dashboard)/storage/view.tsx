@@ -2,7 +2,7 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { HardDrive, AlertCircle, CheckCircle2, Search, ArrowUpDown, Activity, Server, Lock, Unlock, Plus, Trash2, Loader2 } from "lucide-react";
+import { HardDrive, AlertCircle, CheckCircle2, Search, ArrowUpDown, Activity, Server, Lock, Unlock, Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { formatBytes, cn } from "@/lib/utils";
 import { StoragePieChart } from "@/components/charts/PieChart";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
@@ -326,6 +326,7 @@ function NasSection() {
   const [providerFilter, setProviderFilter] = useState<string>("all");
   const [accessFilter, setAccessFilter] = useState<"all" | "ro" | "rw">("all");
   const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState<NasProvider | null>(null);
   const [pendingDelete, setPendingDelete] = useState<NasProvider | null>(null);
   const filteredMounts = useMemo(
     () => mounts.filter((m) => (providerFilter === "all" || m.provider === providerFilter) && (accessFilter === "all" || m.access === accessFilter)),
@@ -385,14 +386,26 @@ function NasSection() {
                   </div>
                 </div>
                 {p.source === "openbao" ? (
-                  <button
-                    type="button"
-                    onClick={() => setPendingDelete(p)}
-                    aria-label={`Delete ${p.name}`}
-                    className="shrink-0 rounded-lg border border-gray-200 dark:border-white/10 p-1.5 text-slate-400 transition-colors hover:border-red-500/40 hover:text-red-400"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setEditing(p)}
+                      aria-label={`Edit ${p.name}`}
+                      title="Edit provider"
+                      className="rounded-lg border border-gray-200 dark:border-white/10 p-1.5 text-slate-400 transition-colors hover:border-[#0078D4]/40 hover:text-[#7cb9ff]"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDelete(p)}
+                      aria-label={`Delete ${p.name}`}
+                      title="Delete provider"
+                      className="rounded-lg border border-gray-200 dark:border-white/10 p-1.5 text-slate-400 transition-colors hover:border-red-500/40 hover:text-red-400"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -400,7 +413,13 @@ function NasSection() {
         </div>
       </CollapsibleSection>
 
-      <AddProviderSheet open={addOpen} onClose={() => setAddOpen(false)} />
+      <ProviderSheet key="add-new" open={addOpen} onClose={() => setAddOpen(false)} />
+      <ProviderSheet
+        key={editing ? `edit-${editing.id}` : "edit-idle"}
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        initial={editing}
+      />
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}
@@ -514,34 +533,44 @@ const KIND_OPTIONS: Array<{ value: NasProviderKind; label: string; portHint: str
   { value: "truenas", label: "TrueNAS Scale (SMB/NFS)", portHint: "443" },
 ];
 
-/** Slide-over form to register a new NAS provider. Credentials are validated
- *  against the live NAS server-side and then persisted to OpenBao — nothing is
- *  stored until the "save & test" succeeds. */
-function AddProviderSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const addProvider = useNasAddProvider();
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState<NasProviderKind>("synology");
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("");
+/** Slide-over form to register a NEW NAS provider, or edit an existing one.
+ *
+ *  Add mode  (initial=null): full form, credentials required.
+ *  Edit mode (initial set): kind is fixed (a different kind = different provider,
+ *  delete + add), credentials are optional — leaving them blank preserves the
+ *  stored ones so the operator can rename / change host without re-entering
+ *  the NAS password. In both modes the server runs the live save-and-test
+ *  probe before persisting, so nothing changes on a bad host or wrong creds. */
+function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () => void; initial?: NasProvider | null }) {
+  const saveProvider = useNasAddProvider();
+  const isEdit = Boolean(initial);
+  // State is seeded from `initial` on mount. The parent gives this sheet a
+  // `key` derived from initial?.id, so React remounts the component whenever
+  // the operator switches between add and edit (or between different edit
+  // targets), giving us a clean re-seed without a setState-in-effect.
+  const [name, setName] = useState(initial?.name ?? "");
+  const [kind, setKind] = useState<NasProviderKind>((initial?.kind ?? "synology") as NasProviderKind);
+  const [host, setHost] = useState(initial?.host ?? "");
+  const [port, setPort] = useState(initial ? String(initial.port) : "");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  function reset() {
-    setName(""); setKind("synology"); setHost(""); setPort("");
-    setUsername(""); setPassword(""); setApiKey(""); setError(null);
-  }
-
   function close() {
-    reset();
     onClose();
   }
 
   async function submit() {
     setError(null);
-    const credentials = kind === "synology" ? { username, password } : { apiKey };
+    // In edit mode, blank credential fields mean "keep the stored ones" — the
+    // API's upsertStoredNasProvider merges with the prior secret so we don't
+    // have to prompt the operator for the NAS password just to rename a box.
+    const credentials = kind === "synology"
+      ? { ...(username ? { username } : {}), ...(password ? { password } : {}) }
+      : { ...(apiKey ? { apiKey } : {}) };
     const input: NasProviderInput = {
+      ...(isEdit && initial ? { id: initial.id } : {}),
       name: name.trim(),
       kind,
       host: host.trim(),
@@ -549,23 +578,29 @@ function AddProviderSheet({ open, onClose }: { open: boolean; onClose: () => voi
       ...(port.trim() ? { port: Number(port.trim()) } : {}),
     };
     try {
-      await addProvider.mutateAsync(input);
+      await saveProvider.mutateAsync(input);
       close();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add provider");
+      setError(err instanceof Error ? err.message : "Failed to save provider");
     }
   }
 
-  const credsReady = kind === "synology" ? Boolean(username && password) : Boolean(apiKey);
-  const canSave = Boolean(name.trim()) && Boolean(host.trim()) && credsReady && !addProvider.isPending;
+  const credsReady = isEdit
+    ? true // credentials optional in edit mode (blank = keep stored)
+    : kind === "synology" ? Boolean(username && password) : Boolean(apiKey);
+  const canSave = Boolean(name.trim()) && Boolean(host.trim()) && credsReady && !saveProvider.isPending;
   const portHint = KIND_OPTIONS.find((k) => k.value === kind)?.portHint ?? "";
 
   return (
     <ResponsiveSheet
       open={open}
       onClose={close}
-      title="Add NAS provider"
-      description="Credentials are tested against the live NAS, then stored in OpenBao."
+      title={isEdit ? `Edit ${initial?.name ?? "provider"}` : "Add NAS provider"}
+      description={
+        isEdit
+          ? "Blank credential fields keep the stored NAS password. Every save re-tests against the live NAS."
+          : "Credentials are tested against the live NAS, then stored in OpenBao."
+      }
       size="sm"
       footer={
         <div className="flex items-center justify-end gap-2">
@@ -579,7 +614,7 @@ function AddProviderSheet({ open, onClose }: { open: boolean; onClose: () => voi
               canSave ? "border border-[#0078D4]/30 bg-[#0078D4]/20 text-[#7cb9ff] hover:bg-[#0078D4]/30" : "border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-400",
             )}
           >
-            {addProvider.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {saveProvider.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Save &amp; test
           </button>
         </div>
@@ -593,7 +628,13 @@ function AddProviderSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
         <label className="block">
           <span className="text-xs text-slate-500 dark:text-slate-400">Type</span>
-          <select value={kind} onChange={(e) => setKind(e.target.value as NasProviderKind)} className={PROVIDER_INPUT_CLASS}>
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as NasProviderKind)}
+            disabled={isEdit}
+            title={isEdit ? "Type is fixed after creation — delete + re-add to change it" : undefined}
+            className={cn(PROVIDER_INPUT_CLASS, isEdit && "cursor-not-allowed opacity-60")}
+          >
             {KIND_OPTIONS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
           </select>
         </label>
@@ -612,23 +653,32 @@ function AddProviderSheet({ open, onClose }: { open: boolean; onClose: () => voi
         {kind === "synology" ? (
           <>
             <label className="block">
-              <span className="text-xs text-slate-500 dark:text-slate-400">Username</span>
-              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="console-svc" autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Username{isEdit ? " (leave blank to keep stored)" : ""}
+              </span>
+              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={isEdit ? "•••••••• (unchanged)" : "console-svc"} autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
             </label>
             <label className="block">
-              <span className="text-xs text-slate-500 dark:text-slate-400">Password</span>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="NAS account password" autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Password{isEdit ? " (leave blank to keep stored)" : ""}
+              </span>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isEdit ? "•••••••• (unchanged)" : "NAS account password"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
             </label>
           </>
         ) : (
           <label className="block">
-            <span className="text-xs text-slate-500 dark:text-slate-400">API key</span>
-            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="TrueNAS API key" autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              API key{isEdit ? " (leave blank to keep stored)" : ""}
+            </span>
+            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={isEdit ? "•••••••• (unchanged)" : "TrueNAS API key"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
           </label>
         )}
 
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          The host must be on the platform internal allowlist (SSRF guard). New NAS IPs need to be added there first.
+          Any private-network host is accepted (RFC1918, loopback, link-local,
+          <code className="mx-1 rounded bg-slate-500/10 px-1">.local</code>,
+          single-label intranet, or any <code className="mx-1 rounded bg-slate-500/10 px-1">*.int</code> name).
+          Public/external hosts must be added to the platform allowlist first.
         </p>
 
         {error ? <p className="text-xs text-red-400">{error}</p> : null}

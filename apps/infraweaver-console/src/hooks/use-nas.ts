@@ -19,6 +19,8 @@ export interface NasProvider {
 }
 
 export interface NasProviderInput {
+  /** Set to update an existing provider; omit to create a new one. */
+  id?: string;
   name: string;
   host: string;
   kind: NasProviderKind;
