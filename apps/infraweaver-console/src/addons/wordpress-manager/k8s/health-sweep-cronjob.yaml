@@ -1,0 +1,98 @@
+# WordPress Connector health sweep — hourly, server-driven (§12.5).
+#
+# Every hour this CronJob POSTs to the console's own /api/wordpress/health-sweep
+# endpoint, which runs a signed `health.check` against every commandable managed
+# link and persists the outcome (`lastHealth`) on each link record. This keeps
+# the ✓/✗ + "last checked" indicator fresh even when no operator has the console
+# open — the button on the connector page becomes a manual override, not the
+# only trigger.
+#
+# APPLY NOTES (operator):
+#   * The Job runs IN the console's namespace and calls the console Service by
+#     its in-cluster DNS name. The values below match the reference deployment
+#     (Service `infraweaver-console` on port 3000, namespace `infraweaver-console`).
+#     If your console runs elsewhere (some installs use the `infraweaver`
+#     namespace), adjust `metadata.namespace` and the curl URL host accordingly.
+#   * Auth uses a shared secret. Populate the `wordpress-health-cron` Secret
+#     below with the SAME value you set on the console Deployment as the
+#     `WORDPRESS_HEALTH_CRON_TOKEN` environment variable. Without a matching
+#     token the endpoint fails closed (401/403) and the sweep will not run.
+#   * `deploy.sh` only applies `namespace.yaml`; apply this file separately:
+#       kubectl apply -f k8s/health-sweep-cronjob.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wordpress-health-cron
+  namespace: infraweaver-console
+  labels:
+    app.kubernetes.io/managed-by: infraweaver-console
+    infraweaver.io/component: iwsl
+type: Opaque
+stringData:
+  # PLACEHOLDER — replace with the same value as the console's
+  # WORDPRESS_HEALTH_CRON_TOKEN env var. Generate one with e.g.
+  #   openssl rand -hex 32
+  # In a real deployment prefer sourcing this from OpenBao/External Secrets
+  # rather than committing a literal; this stub keeps the manifest self-contained.
+  token: "replace-me-with-WORDPRESS_HEALTH_CRON_TOKEN"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: wordpress-connector-health-sweep
+  namespace: infraweaver-console
+  labels:
+    app.kubernetes.io/managed-by: infraweaver-console
+    infraweaver.io/component: iwsl
+spec:
+  schedule: "0 * * * *" # top of every hour
+  concurrencyPolicy: Forbid # never overlap two sweeps
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/managed-by: infraweaver-console
+            infraweaver.io/component: iwsl
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: health-sweep
+              image: curlimages/curl:8.11.1
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: CRON_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: wordpress-health-cron
+                      key: token
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+              command: ["/bin/sh", "-c"]
+              args:
+                - >-
+                  curl --fail --silent --show-error --max-time 300
+                  -X POST
+                  -H "x-internal-cron-token: ${CRON_TOKEN}"
+                  http://infraweaver-console.infraweaver-console.svc.cluster.local:3000/api/wordpress/health-sweep

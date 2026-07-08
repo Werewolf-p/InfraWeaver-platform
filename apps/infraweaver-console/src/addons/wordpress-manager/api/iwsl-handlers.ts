@@ -1,8 +1,10 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { AddonHttpError } from "../lib/errors";
+import { runHealthSweep } from "../lib/health-sweep";
 import {
   getWordpressAccessContext,
   hasWordpressPermission,
@@ -296,4 +298,40 @@ export async function unlinkManagedSiteHandler(site: string): Promise<NextRespon
     await unlinkManagedSite(site);
     return json({ ok: true });
   });
+}
+
+// ── Server-driven health sweep (§12.5 — hourly CronJob) ──────────────────────
+
+/**
+ * Constant-time compare of the internal cron token. Returns false whenever the
+ * shared secret is unset/empty (fail-closed — an unconfigured deployment can't
+ * be driven by the header path) or the header is missing/mismatched.
+ */
+function cronTokenValid(req: NextRequest): boolean {
+  const expected = process.env.WORDPRESS_HEALTH_CRON_TOKEN;
+  if (!expected) return false;
+  const provided = req.headers.get("x-internal-cron-token");
+  if (!provided) return false;
+  const expectedBuf = Buffer.from(expected, "utf8");
+  const providedBuf = Buffer.from(provided, "utf8");
+  // timingSafeEqual throws on length mismatch — length itself is not secret.
+  if (expectedBuf.length !== providedBuf.length) return false;
+  return timingSafeEqual(expectedBuf, providedBuf);
+}
+
+/**
+ * POST — run the connector health sweep across every commandable managed link.
+ * Authenticated either by the in-cluster cron token (`x-internal-cron-token`,
+ * how the hourly CronJob calls in) or by an operator session with
+ * `wordpress:write`. Fail-closed: no valid token and no authorized session ⇒
+ * rejected.
+ */
+export async function healthSweepHandler(req: NextRequest): Promise<NextResponse> {
+  if (!cronTokenValid(req)) {
+    const gate = await authorize("wordpress:write");
+    if (!gate.ok) return gate.error;
+    const limited = rateLimited("health-sweep", gate.ctx.username, 6);
+    if (limited) return limited;
+  }
+  return guard(async () => json({ summary: await runHealthSweep() }));
 }

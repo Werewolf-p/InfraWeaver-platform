@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -18,8 +18,9 @@ import {
   ShieldBan,
   ShieldCheck,
   Unlink,
+  XCircle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { SiteTabs } from "./site-tabs";
 
@@ -112,6 +113,51 @@ function MetaRow({ label, value, tone }: { label: string; value: string; tone?: 
       <span className="shrink-0 text-zinc-500">{label}</span>
       <span className={cn("truncate text-right font-mono", tone === "danger" ? "text-red-300" : "text-zinc-300")}>
         {value}
+      </span>
+    </div>
+  );
+}
+
+/** A health result older than this is flagged stale — the hourly sweep is overdue. */
+const HEALTH_STALE_MS = 90 * 60 * 1000;
+
+function isHealthStale(at: string): boolean {
+  return Date.now() - new Date(at).getTime() > HEALTH_STALE_MS;
+}
+
+/**
+ * §12.5 last-health row: a ✓/✗ glyph for the pass/fail verdict, a relative
+ * "checked" time, and a stale warning when the last check is over 90 min old.
+ * A stale-but-passing result reads as a warning, not as healthy.
+ */
+function HealthRow({ lastHealth }: { lastHealth?: ManagedLink["lastHealth"] }) {
+  if (!lastHealth) {
+    return (
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="shrink-0 text-zinc-500">Last health check</span>
+        <span className="inline-flex items-center gap-1.5 font-mono text-zinc-500">
+          <CircleDashed className="h-3.5 w-3.5 shrink-0" aria-hidden /> never checked
+        </span>
+      </div>
+    );
+  }
+  const stale = isHealthStale(lastHealth.at);
+  const { ok } = lastHealth;
+  const Icon = ok ? CheckCircle2 : XCircle;
+  const color = !ok ? "text-red-300" : stale ? "text-amber-300" : "text-emerald-300";
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs">
+      <span className="shrink-0 text-zinc-500">Last health check</span>
+      <span className={cn("inline-flex items-center gap-1.5 font-mono", color)}>
+        <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {ok ? "pass" : `fail (${lastHealth.reason ?? "unknown"})`}
+        <span className="text-zinc-600">·</span>
+        <span className="text-zinc-400">{timeAgo(lastHealth.at)}</span>
+        {stale && (
+          <span className="inline-flex items-center gap-1 text-amber-400">
+            <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden /> stale
+          </span>
+        )}
       </span>
     </div>
   );
@@ -225,6 +271,21 @@ export function ConnectorView({ site }: { site: string }) {
   const health = healthMutation.data?.health;
   const debug = debugMutation.data?.debug;
 
+  // Belt-and-suspenders: the hourly sweep is the reliable driver, but if an
+  // operator lands here on a link whose last check is missing or stale, kick a
+  // single refresh so the page shows a current verdict. The ref guards against
+  // re-triggering when the mutation's refetch swaps `link` back in.
+  const autoCheckedRef = useRef(false);
+  const runHealth = healthMutation.mutate;
+  useEffect(() => {
+    if (autoCheckedRef.current) return;
+    if (!link || link.state !== "active" || !link.fingerprintConfirmed) return;
+    const stale = !link.lastHealth || isHealthStale(link.lastHealth.at);
+    if (!stale) return;
+    autoCheckedRef.current = true;
+    runHealth();
+  }, [link, runHealth]);
+
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
       <Link href="/wordpress" className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-200">
@@ -261,17 +322,7 @@ export function ConnectorView({ site }: { site: string }) {
               <MetaRow label="Key epoch (kid / floor)" value={`${link.kid} / ${link.epochFloor}`} />
               <MetaRow label="Command seq" value={`${link.lastSeq ?? 0}`} />
               {link.activatedAt && <MetaRow label="Linked since" value={new Date(link.activatedAt).toLocaleString()} />}
-              {link.lastHealth && (
-                <MetaRow
-                  label="Last health check"
-                  value={
-                    link.lastHealth.ok
-                      ? `ok · ${link.lastHealth.roundtripMs ?? "?"} ms · ${new Date(link.lastHealth.at).toLocaleString()}`
-                      : `failed (${link.lastHealth.reason ?? "unknown"})`
-                  }
-                  tone={link.lastHealth.ok ? undefined : "danger"}
-                />
-              )}
+              {(commandable || link.lastHealth) && <HealthRow lastHealth={link.lastHealth} />}
               {link.lastVerify && !link.lastVerify.ok && (
                 <MetaRow label="Last verify" value={link.lastVerify.reason ?? "failed"} tone="danger" />
               )}

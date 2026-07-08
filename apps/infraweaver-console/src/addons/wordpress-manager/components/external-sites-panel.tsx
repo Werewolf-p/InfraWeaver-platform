@@ -15,8 +15,9 @@ import {
   RadioTower,
   ShieldCheck,
   Trash2,
+  XCircle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -45,6 +46,7 @@ interface ExternalSite {
   epochFloor: number;
   iwKid: number;
   lastVerify?: { at: string; ok: boolean; reason?: string };
+  lastHealth?: { at: string; ok: boolean; roundtripMs?: number; reason?: string };
   rejections: number;
   wpFingerprint: string | null;
   iwFingerprint: string;
@@ -108,6 +110,40 @@ function LinkField({ label, value, mono }: { label: string; value: string; mono?
     <div className="flex items-baseline justify-between gap-3 text-xs">
       <span className="shrink-0 text-zinc-500">{label}</span>
       <span className={cn("truncate text-right text-zinc-300", mono && "font-mono")}>{value}</span>
+    </div>
+  );
+}
+
+/** A health result older than this is flagged stale — the hourly sweep is overdue. */
+const HEALTH_STALE_MS = 90 * 60 * 1000;
+
+/**
+ * At-a-glance connector health: a ✓/✗ glyph for the last sweep verdict plus a
+ * relative "checked" time, with a stale flag once the result passes 90 minutes.
+ * A stale-but-passing check reads as a warning, not as healthy.
+ */
+function HealthField({ lastHealth }: { lastHealth?: ExternalSite["lastHealth"] }) {
+  if (!lastHealth) {
+    return <LinkField label="Last health check" value="never checked" />;
+  }
+  const stale = Date.now() - new Date(lastHealth.at).getTime() > HEALTH_STALE_MS;
+  const { ok } = lastHealth;
+  const Icon = ok ? CheckCircle2 : XCircle;
+  const color = !ok ? "text-red-300" : stale ? "text-amber-300" : "text-emerald-300";
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs">
+      <span className="shrink-0 text-zinc-500">Last health check</span>
+      <span className={cn("inline-flex items-center gap-1.5", color)}>
+        <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {ok ? "pass" : "fail"}
+        <span className="text-zinc-600">·</span>
+        <span className="text-zinc-400">{timeAgo(lastHealth.at)}</span>
+        {stale && (
+          <span className="inline-flex items-center gap-1 text-amber-400">
+            <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden /> stale
+          </span>
+        )}
+      </span>
     </div>
   );
 }
@@ -361,6 +397,7 @@ export function ExternalSitesPanel() {
                         : "never"
                     }
                   />
+                  <HealthField lastHealth={site.lastHealth} />
                   <LinkField label="Rejections" value={String(site.rejections)} />
                   {site.state === "pending" && site.bundleIssuedAt && (
                     <LinkField
