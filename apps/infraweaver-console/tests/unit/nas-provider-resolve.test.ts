@@ -67,4 +67,32 @@ describe("dynamic NAS provider resolution", () => {
     ).resolves.toEqual({ apiKey: "abc" });
     await expect(resolveNasCredentials("unknown", {} as NodeJS.ProcessEnv)).resolves.toBeNull();
   });
+
+  it("hides a suppressed (tombstoned) env provider from the registry", async () => {
+    jest.spyOn(store, "readStoredNasProviders").mockResolvedValue([]);
+    jest.spyOn(store, "readSuppressedEnvProviderIds").mockResolvedValue(["synology"]);
+    resetProviderRegistry();
+    const providers = await resolveNasProviders({
+      SYNOLOGY_HOST: "10.25.0.21",
+      SYNOLOGY_PASSWORD: "envpw",
+      TRUENAS_HOST: "10.25.0.135",
+    } as NodeJS.ProcessEnv);
+    expect(providers.find((p) => p.id === "synology")).toBeUndefined();
+    // Non-suppressed env providers still resolve.
+    expect(providers.find((p) => p.id === "truenas")).toBeDefined();
+  });
+
+  it("keeps an env id visible when a stored provider re-uses it despite suppression", async () => {
+    jest.spyOn(store, "readStoredNasProviders").mockResolvedValue([{ ...STORED, id: "synology", host: "10.25.0.99" }]);
+    jest.spyOn(store, "readSuppressedEnvProviderIds").mockResolvedValue(["synology"]);
+    resetProviderRegistry();
+    const providers = await resolveNasProviders({
+      SYNOLOGY_HOST: "10.25.0.21",
+      SYNOLOGY_PASSWORD: "envpw",
+    } as NodeJS.ProcessEnv);
+    const syno = providers.find((p) => p.id === "synology");
+    expect(syno).toBeDefined();
+    expect(syno?.source).toBe("openbao");
+    expect(syno?.host).toBe("10.25.0.99");
+  });
 });

@@ -395,17 +395,15 @@ function NasSection() {
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
-                  {p.source === "openbao" ? (
-                    <button
-                      type="button"
-                      onClick={() => setPendingDelete(p)}
-                      aria-label={`Delete ${p.name}`}
-                      title="Delete provider"
-                      className="rounded-lg border border-gray-200 dark:border-white/10 p-1.5 text-slate-400 transition-colors hover:border-red-500/40 hover:text-red-400"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setPendingDelete(p)}
+                    aria-label={`Remove ${p.name}`}
+                    title="Remove provider"
+                    className="rounded-lg border border-gray-200 dark:border-white/10 p-1.5 text-slate-400 transition-colors hover:border-red-500/40 hover:text-red-400"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -423,9 +421,15 @@ function NasSection() {
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}
-        title="Delete NAS provider"
-        description={pendingDelete ? `Remove "${pendingDelete.name}" and its stored credentials from OpenBao? Existing mounts are not affected.` : ""}
-        confirmText="Delete"
+        title="Remove NAS provider"
+        description={
+          pendingDelete
+            ? pendingDelete.source === "openbao"
+              ? `Remove "${pendingDelete.name}" and its stored credentials from OpenBao? Existing mounts are not affected.`
+              : `Remove "${pendingDelete.name}" from the console? It will no longer appear here. You can re-add it any time with the Add provider wizard. Existing mounts are not affected.`
+            : ""
+        }
+        confirmText="Remove"
         danger
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => {

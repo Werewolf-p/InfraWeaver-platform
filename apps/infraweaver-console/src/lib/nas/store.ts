@@ -21,6 +21,10 @@ import { z } from "zod";
 import type { NasBackend } from "@/lib/nas/providers";
 
 const KV_MOUNT = process.env.OPENBAO_KV_MOUNT || "secret";
+// The registry secret holds BOTH the dynamically-added providers and the list of
+// env-declared built-ins the operator has "removed" (`suppressedEnvIds`). Both
+// live in this one secret so the console's OpenBao policy needs no extra path
+// (it already grants create/read/update on `platform/nas/providers`).
 const NAS_LOGICAL_PATH = "platform/nas/providers";
 // Flat, ESO-readable per-provider SMB credentials (username/password) live here,
 // one secret per provider id. The assign flow's ExternalSecret references this
@@ -75,8 +79,12 @@ export const STORED_PROVIDER_SCHEMA = z.object({
   credentials: CREDENTIALS_SCHEMA.default({}),
 });
 
+const PROVIDER_ID_SCHEMA = z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*$/);
+
 const REGISTRY_SCHEMA = z.object({
   providers: z.array(STORED_PROVIDER_SCHEMA).default([]),
+  // Ids of env-declared built-ins the operator has removed from the console.
+  suppressedEnvIds: z.array(PROVIDER_ID_SCHEMA).default([]),
 });
 
 function vaultAuth(): { addr: string; token: string } {
@@ -114,34 +122,61 @@ async function vaultFetch(logicalPath: string, init: RequestInit): Promise<Respo
  * callers degrade to "no dynamic providers". Malformed entries are dropped
  * defensively rather than throwing, so one bad row never blanks the registry.
  */
-export async function readStoredNasProviders(): Promise<StoredNasProvider[]> {
-  const res = await vaultFetch(NAS_LOGICAL_PATH, { method: "GET" });
-  if (res.status === 404) return [];
-  if (!res.ok) throw new Error(`OpenBao read nas providers failed: ${res.status}`);
-  const body = (await res.json()) as { data?: { data?: unknown } };
-  const parsed = REGISTRY_SCHEMA.safeParse(body.data?.data ?? {});
-  if (!parsed.success) {
-    // Try to salvage individual rows so a single bad entry doesn't hide the rest.
-    const raw = (body.data?.data as { providers?: unknown[] })?.providers;
-    if (!Array.isArray(raw)) return [];
-    const salvaged: StoredNasProvider[] = [];
-    for (const row of raw) {
-      const parsedRow = STORED_PROVIDER_SCHEMA.safeParse(row);
-      if (parsedRow.success) salvaged.push(parsedRow.data);
-    }
-    return salvaged;
-  }
-  return parsed.data.providers;
+interface NasRegistry {
+  providers: StoredNasProvider[];
+  suppressedEnvIds: string[];
 }
 
-/** Persist the full provider list (KV v2 write replaces the whole secret). */
-export async function writeStoredNasProviders(providers: StoredNasProvider[]): Promise<void> {
+/**
+ * Read the whole registry object (providers + env suppression list). A missing
+ * secret (404) returns empties. Malformed entries are dropped defensively rather
+ * than throwing, so one bad row never blanks the registry.
+ */
+async function readRegistry(): Promise<NasRegistry> {
+  const res = await vaultFetch(NAS_LOGICAL_PATH, { method: "GET" });
+  if (res.status === 404) return { providers: [], suppressedEnvIds: [] };
+  if (!res.ok) throw new Error(`OpenBao read nas providers failed: ${res.status}`);
+  const body = (await res.json()) as { data?: { data?: unknown } };
+  const data = body.data?.data ?? {};
+  const parsed = REGISTRY_SCHEMA.safeParse(data);
+  if (parsed.success) return parsed.data;
+  // Salvage rows individually so a single bad entry doesn't hide the rest.
+  const rawProviders = (data as { providers?: unknown[] }).providers;
+  const providers: StoredNasProvider[] = [];
+  if (Array.isArray(rawProviders)) {
+    for (const row of rawProviders) {
+      const parsedRow = STORED_PROVIDER_SCHEMA.safeParse(row);
+      if (parsedRow.success) providers.push(parsedRow.data);
+    }
+  }
+  const rawIds = (data as { suppressedEnvIds?: unknown[] }).suppressedEnvIds;
+  const suppressedEnvIds = Array.isArray(rawIds)
+    ? rawIds.filter((x): x is string => PROVIDER_ID_SCHEMA.safeParse(x).success)
+    : [];
+  return { providers, suppressedEnvIds };
+}
+
+/** Write the whole registry object (KV v2 write replaces the whole secret). */
+async function writeRegistry(registry: NasRegistry): Promise<void> {
   const res = await vaultFetch(NAS_LOGICAL_PATH, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data: { providers } }),
+    body: JSON.stringify({ data: registry }),
   });
   if (!res.ok) throw new Error(`OpenBao write nas providers failed: ${res.status}`);
+}
+
+export async function readStoredNasProviders(): Promise<StoredNasProvider[]> {
+  return (await readRegistry()).providers;
+}
+
+/**
+ * Persist the provider list, preserving the env-suppression list in the same
+ * secret (KV v2 replaces the whole secret, so it must be re-supplied).
+ */
+export async function writeStoredNasProviders(providers: StoredNasProvider[]): Promise<void> {
+  const { suppressedEnvIds } = await readRegistry();
+  await writeRegistry({ providers, suppressedEnvIds });
 }
 
 /**
@@ -202,4 +237,31 @@ export async function deleteStoredNasProvider(id: string): Promise<boolean> {
   if (next.length === existing.length) return false;
   await writeStoredNasProviders(next);
   return true;
+}
+
+/**
+ * Ids of env-declared built-in providers the operator has removed from the
+ * console. Stored alongside the dynamic providers in the same registry secret.
+ */
+export async function readSuppressedEnvProviderIds(): Promise<string[]> {
+  return (await readRegistry()).suppressedEnvIds;
+}
+
+/** Tombstone an env-declared provider so it stops appearing in the registry.
+ *  Returns true when the id was newly suppressed, false when already suppressed. */
+export async function suppressEnvProvider(id: string): Promise<boolean> {
+  const registry = await readRegistry();
+  if (registry.suppressedEnvIds.includes(id)) return false;
+  await writeRegistry({ ...registry, suppressedEnvIds: [...registry.suppressedEnvIds, id] });
+  return true;
+}
+
+/** Clear an env provider's tombstone (e.g. when it is re-added via the wizard). */
+export async function unsuppressEnvProvider(id: string): Promise<void> {
+  const registry = await readRegistry();
+  if (!registry.suppressedEnvIds.includes(id)) return;
+  await writeRegistry({
+    ...registry,
+    suppressedEnvIds: registry.suppressedEnvIds.filter((x) => x !== id),
+  });
 }

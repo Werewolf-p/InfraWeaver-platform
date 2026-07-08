@@ -4,6 +4,9 @@
 
 import {
   readStoredNasProviders,
+  readSuppressedEnvProviderIds,
+  suppressEnvProvider,
+  unsuppressEnvProvider,
   writeStoredNasProviders,
   upsertStoredNasProvider,
   deleteStoredNasProvider,
@@ -60,15 +63,23 @@ describe("nas store (OpenBao registry)", () => {
     expect(providers.map((p) => p.id)).toEqual(["media-nas"]);
   });
 
-  it("sends X-Vault-Token and posts the whole list on write", async () => {
-    const fetchMock = jest.fn().mockResolvedValue(vaultResponse({}, { ok: true }));
+  it("sends X-Vault-Token and posts the whole registry on write", async () => {
+    // Write reads the current registry first (to preserve suppressedEnvIds),
+    // then POSTs providers + suppressedEnvIds together in the one secret.
+    const fetchMock = jest.fn().mockImplementation((_url: string, init: RequestInit) => {
+      if ((init?.method ?? "GET") === "GET") {
+        return Promise.resolve(vaultResponse({ data: { data: { providers: [], suppressedEnvIds: ["truenas"] } } }));
+      }
+      return Promise.resolve(vaultResponse({}, { ok: true }));
+    });
     global.fetch = fetchMock;
     await writeStoredNasProviders([SYNO]);
-    const [url, init] = fetchMock.mock.calls[0];
+    const postCall = fetchMock.mock.calls.find((c) => (c[1]?.method ?? "GET") === "POST")!;
+    const [url, init] = postCall;
     expect(String(url)).toContain("/v1/secret/data/platform/nas/providers");
-    expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>)["X-Vault-Token"]).toBe("test-token");
-    expect(JSON.parse(init.body as string)).toEqual({ data: { providers: [SYNO] } });
+    // Existing suppression list is preserved through a providers write.
+    expect(JSON.parse(init.body as string)).toEqual({ data: { providers: [SYNO], suppressedEnvIds: ["truenas"] } });
   });
 
   it("upsert preserves stored credentials when the incoming entry omits them", async () => {
@@ -102,5 +113,44 @@ describe("nas store (OpenBao registry)", () => {
     const fetchMock2 = jest.fn().mockResolvedValue(vaultResponse({ data: { data: { providers: [] } } }));
     global.fetch = fetchMock2;
     await expect(deleteStoredNasProvider("nope")).resolves.toBe(false);
+  });
+
+  it("suppresses an env provider into the SAME registry secret, preserving providers", async () => {
+    const fetchMock = jest.fn().mockImplementation((_url: string, init: RequestInit) => {
+      if ((init?.method ?? "GET") === "GET") {
+        return Promise.resolve(vaultResponse({ data: { data: { providers: [SYNO], suppressedEnvIds: [] } } }));
+      }
+      return Promise.resolve(vaultResponse({}, { ok: true }));
+    });
+    global.fetch = fetchMock;
+
+    await expect(suppressEnvProvider("truenas")).resolves.toBe(true);
+
+    const postCall = fetchMock.mock.calls.find((c) => (c[1]?.method ?? "GET") === "POST")!;
+    // Same permitted path as providers — NOT a separate secret the policy denies.
+    expect(String(postCall[0])).toContain("/v1/secret/data/platform/nas/providers");
+    const body = JSON.parse(postCall[1].body as string);
+    expect(body.data.suppressedEnvIds).toEqual(["truenas"]);
+    expect(body.data.providers).toHaveLength(1); // dynamic provider preserved
+  });
+
+  it("is idempotent and reversible for env suppression", async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(vaultResponse({ data: { data: { providers: [], suppressedEnvIds: ["synology"] } } }));
+    // Already suppressed → no new write needed.
+    await expect(suppressEnvProvider("synology")).resolves.toBe(false);
+    await expect(readSuppressedEnvProviderIds()).resolves.toEqual(["synology"]);
+
+    const fetchMock = jest.fn().mockImplementation((_url: string, init: RequestInit) => {
+      if ((init?.method ?? "GET") === "GET") {
+        return Promise.resolve(vaultResponse({ data: { data: { providers: [], suppressedEnvIds: ["synology"] } } }));
+      }
+      return Promise.resolve(vaultResponse({}, { ok: true }));
+    });
+    global.fetch = fetchMock;
+    await unsuppressEnvProvider("synology");
+    const postCall = fetchMock.mock.calls.find((c) => (c[1]?.method ?? "GET") === "POST")!;
+    expect(JSON.parse(postCall[1].body as string).data.suppressedEnvIds).toEqual([]);
   });
 });

@@ -44,6 +44,24 @@ export function checkSameOrigin(req: Pick<Request, "headers">) {
   return false
 }
 
+/**
+ * Constant-time comparison of the internal cron token used by in-cluster
+ * automation (e.g. the hourly WordPress health-sweep CronJob) to authenticate
+ * without a session. Length is not secret, so a fast length check first; then
+ * XOR-accumulate over the full length so a match and a same-length mismatch
+ * take the same time. Pure JS (no node:crypto) so it is safe in the middleware
+ * bundle. Fail-closed: a missing token or unset expected value returns false.
+ */
+export function internalCronTokenMatches(provided: string | null, expected: string | undefined): boolean {
+  if (!expected || !provided) return false
+  if (provided.length !== expected.length) return false
+  let mismatch = 0
+  for (let i = 0; i < expected.length; i++) {
+    mismatch |= provided.charCodeAt(i) ^ expected.charCodeAt(i)
+  }
+  return mismatch === 0
+}
+
 export function getRequestBodyLimit(pathname: string) {
   const override = API_BODY_LIMIT_OVERRIDES.find((entry) => pathname.startsWith(entry.prefix))
   return override?.bytes ?? DEFAULT_API_BODY_LIMIT

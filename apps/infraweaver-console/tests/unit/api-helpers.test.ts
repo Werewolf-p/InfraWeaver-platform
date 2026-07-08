@@ -1,4 +1,4 @@
-import { checkSameOrigin, getRequestBodyLimit, getRequestSizeViolation, sanitizeConsoleCommand } from "@/lib/api-helpers";
+import { checkSameOrigin, getRequestBodyLimit, getRequestSizeViolation, internalCronTokenMatches, sanitizeConsoleCommand } from "@/lib/api-helpers";
 
 describe("api security helpers", () => {
   it("uses route-specific body size overrides", () => {
@@ -81,5 +81,27 @@ describe("sanitizeConsoleCommand (char allowlist)", () => {
 
   it("strips null bytes before validating", () => {
     expect(sanitizeConsoleCommand("say hi\0").ok).toBe(true);
+  });
+
+  describe("internalCronTokenMatches", () => {
+    const secret = "a".repeat(64);
+
+    it("accepts an exact token match", () => {
+      expect(internalCronTokenMatches(secret, secret)).toBe(true);
+    });
+
+    it("rejects a wrong token of equal length", () => {
+      expect(internalCronTokenMatches("b".repeat(64), secret)).toBe(false);
+    });
+
+    it("rejects a length mismatch", () => {
+      expect(internalCronTokenMatches(secret + "x", secret)).toBe(false);
+    });
+
+    it("fails closed on missing provided or expected", () => {
+      expect(internalCronTokenMatches(null, secret)).toBe(false);
+      expect(internalCronTokenMatches(secret, undefined)).toBe(false);
+      expect(internalCronTokenMatches("", "")).toBe(false);
+    });
   });
 });

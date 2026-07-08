@@ -23,11 +23,13 @@ import {
 } from "@/lib/internal-url-allowlist-server";
 import { probeNasCredentials } from "@/lib/nas/discovery";
 import { provisionScopedNasAccount } from "@/lib/nas/provision-account";
-import { resolveNasProviders, type ResolvedNasProvider } from "@/lib/nas/providers";
+import { listProviderConfigs, resolveNasProviders, type ResolvedNasProvider } from "@/lib/nas/providers";
 import {
   deleteNasSmbCreds,
   deleteStoredNasProvider,
   readStoredNasProviders,
+  suppressEnvProvider,
+  unsuppressEnvProvider,
   upsertStoredNasProvider,
   writeNasSmbCreds,
   type NasProviderKind,
@@ -234,6 +236,8 @@ export async function POST(req: NextRequest) {
       }
 
       await upsertStoredNasProvider({ id, name: body.name, host: hostname, port, protocol, kind, backends, credentials: scopedCredentials });
+      // Re-adding an id that was previously hidden lifts its tombstone.
+      await unsuppressEnvProvider(id);
       invalidateInternalHostAllowlist();
       if (kind === "synology" && scopedCredentials.username && scopedCredentials.password) {
         await writeNasSmbCreds(id, { username: scopedCredentials.username, password: scopedCredentials.password });
@@ -269,6 +273,8 @@ export async function POST(req: NextRequest) {
     }
 
     await upsertStoredNasProvider({ id, name: body.name, host: hostname, port, protocol, kind, backends, credentials });
+    // Re-adding an id that was previously hidden lifts its tombstone.
+    await unsuppressEnvProvider(id);
     // A newly-stored provider host must be trusted for SSRF-guarded fetches on
     // the very next request (reachability probe, assign, mount-workload).
     invalidateInternalHostAllowlist();
@@ -313,9 +319,20 @@ export async function DELETE(req: NextRequest) {
 
     const removed = await deleteStoredNasProvider(id);
     if (!removed) {
-      // Either unknown, or a built-in env provider (which isn't in the store).
+      // Not in the OpenBao store. If it is an env-declared built-in, "remove" it
+      // by recording a tombstone — resolveNasProviders() then hides it. The env
+      // var stays put (it is git/deployment-managed); this just clears it from
+      // the console. Re-adding the same id via the wizard lifts the tombstone.
+      const isEnvBuiltIn = listProviderConfigs().some((p) => p.id === id);
+      if (isEnvBuiltIn) {
+        await suppressEnvProvider(id);
+        await deleteNasSmbCreds(id);
+        invalidateInternalHostAllowlist();
+        await auditLog("nas:provider:delete", actor, `hid env-declared NAS provider ${id}`);
+        return NextResponse.json({ ok: true, hidden: true });
+      }
       return NextResponse.json(
-        { error: `No dynamically-added provider '${id}'. Built-in providers are managed via environment.` },
+        { error: `No provider '${id}' to remove.` },
         { status: 400 },
       );
     }
