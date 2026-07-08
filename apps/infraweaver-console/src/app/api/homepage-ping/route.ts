@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getHomepageServiceHealthMap } from "@/lib/homepage-health";
-import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
+import { parseAllowedInternalUrlAsync } from "@/lib/internal-url-allowlist-server";
 import { safeError } from "@/lib/utils";
 import { INTERNAL_DOMAIN } from "@/lib/domain";
 
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
   const url = req.nextUrl.searchParams.get("url");
   if (url) {
-    const allowedUrl = parseAllowedInternalUrl(url);
+    const allowedUrl = await parseAllowedInternalUrlAsync(url);
     if (!allowedUrl) {
       return NextResponse.json({ error: `Only *.${INTERNAL_DOMAIN} and approved internal service URLs are allowed` }, { status: 400 });
     }

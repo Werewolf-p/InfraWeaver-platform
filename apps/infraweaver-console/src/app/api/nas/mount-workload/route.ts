@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { gitCommitFiles, gitReadFile } from "@/lib/git-provider";
-import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
+import { parseAllowedInternalUrlAsync } from "@/lib/internal-url-allowlist-server";
 import { evaluateFolderAcl } from "@/lib/nas/folder-acl";
 import { generateK8sManifest, type NasBackend } from "@/lib/nas/manifest";
 import { getResolvedNasProvider, resolveNasProviders } from "@/lib/nas/providers";
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Provider '${body.provider}' does not support backend '${backend}'` }, { status: 400 });
     }
     const host = providerCfg.host;
-    if (!SAFE_HOST.test(host) || !parseAllowedInternalUrl(`https://${host}`)) {
+    if (!SAFE_HOST.test(host) || !(await parseAllowedInternalUrlAsync(`https://${host}`))) {
       return NextResponse.json({ error: "Invalid NAS host" }, { status: 400 });
     }
 

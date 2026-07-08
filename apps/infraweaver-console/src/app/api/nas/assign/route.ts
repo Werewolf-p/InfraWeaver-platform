@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
+import { parseAllowedInternalUrlAsync } from "@/lib/internal-url-allowlist-server";
 import { gitCommitFiles } from "@/lib/git-provider";
 import { deriveNasSecretName, generateK8sManifest, generateNasCredentialExternalSecret, type NasBackend } from "@/lib/nas/manifest";
 import { evaluateFolderAcl } from "@/lib/nas/folder-acl";
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Invalid ${field}` }, { status: 400 });
       }
     }
-    if (!SAFE_HOST.test(host) || !isSafeYamlScalar(host) || !parseAllowedInternalUrl(`https://${host}`)) {
+    if (!SAFE_HOST.test(host) || !isSafeYamlScalar(host) || !(await parseAllowedInternalUrlAsync(`https://${host}`))) {
       return NextResponse.json({ error: "Invalid host" }, { status: 400 });
     }
 

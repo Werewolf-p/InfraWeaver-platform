@@ -15,8 +15,12 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { logMutatingAccess } from "@/lib/access-log";
+import { INTERNAL_DOMAIN } from "@/lib/domain";
 import { fetchInternalService } from "@/lib/insecure-fetch";
-import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
+import {
+  invalidateInternalHostAllowlist,
+  isAllowedInternalHostForWizard,
+} from "@/lib/internal-url-allowlist-server";
 import { probeNasCredentials } from "@/lib/nas/discovery";
 import { resolveNasProviders, type ResolvedNasProvider } from "@/lib/nas/providers";
 import {
@@ -164,11 +168,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid host" }, { status: 400 });
     }
     const protocol = body.protocol ?? "https";
-    // SSRF guard: the host must be on the internal allowlist. New NAS boxes on
-    // other IPs must be added to the platform internalHostAllowlist first.
-    if (!parseAllowedInternalUrl(`${protocol}://${hostname}`)) {
+    // SSRF guard for the WIZARD: accept the host when it's already on the
+    // resolved allowlist (env/git overlay + previously-stored providers) OR
+    // unambiguously private (RFC1918 / loopback / link-local / `.local` /
+    // single-label / `.${INTERNAL_DOMAIN}`). A public/attacker-controlled
+    // target is still fail-closed. This is what turns "add a new NAS box" from
+    // a git edit + rebuild into a wizard-only flow.
+    if (!(await isAllowedInternalHostForWizard(hostname))) {
       return NextResponse.json(
-        { error: `Host ${hostname} is not on the internal allowlist. Add it to the platform host allowlist first.` },
+        {
+          error:
+            `Host ${hostname} is not allowed: it is neither on the internal ` +
+            `allowlist nor an unambiguously private address. Use a private IP, ` +
+            `a *.${INTERNAL_DOMAIN} name, or add it ` +
+            `to the platform host allowlist first.`,
+        },
         { status: 400 },
       );
     }
@@ -198,6 +212,9 @@ export async function POST(req: NextRequest) {
     }
 
     await upsertStoredNasProvider({ id, name: body.name, host: hostname, port, protocol, kind, backends, credentials });
+    // A newly-stored provider host must be trusted for SSRF-guarded fetches on
+    // the very next request (reachability probe, assign, mount-workload).
+    invalidateInternalHostAllowlist();
 
     // SMB-capable providers whose login credentials ARE the SMB credentials
     // (Synology, generic-smb) also get a flat, ESO-readable secret so the assign
@@ -246,6 +263,9 @@ export async function DELETE(req: NextRequest) {
       );
     }
     await deleteNasSmbCreds(id);
+    // Drop the deleted host from the resolved allowlist so a stale entry cannot
+    // keep a removed NAS reachable through SSRF-guarded fetches.
+    invalidateInternalHostAllowlist();
     await auditLog("nas:provider:delete", actor, `removed NAS provider ${id}`);
     return NextResponse.json({ ok: true });
   } catch (error) {

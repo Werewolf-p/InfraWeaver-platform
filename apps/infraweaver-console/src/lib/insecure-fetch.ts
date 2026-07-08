@@ -1,4 +1,4 @@
-import { parseAllowedInternalUrl } from "@/lib/internal-url-allowlist";
+import { parseAllowedInternalUrlAsync } from "@/lib/internal-url-allowlist-server";
 
 /**
  * SECURITY NOTE — `allowInsecureTls` does NOT disable TLS verification.
@@ -18,7 +18,7 @@ export async function fetchInternalService(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   options: { allowInsecureTls?: boolean } = {},
 ) {
-  const url = parseAllowedInternalUrl(rawUrl);
+  const url = await parseAllowedInternalUrlAsync(rawUrl);
   if (!url) {
     throw new Error("URL not allowed");
   }
