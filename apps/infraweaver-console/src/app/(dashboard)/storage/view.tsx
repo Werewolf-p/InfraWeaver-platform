@@ -385,17 +385,17 @@ function NasSection() {
                     </span>
                   </div>
                 </div>
-                {p.source === "openbao" ? (
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setEditing(p)}
-                      aria-label={`Edit ${p.name}`}
-                      title="Edit provider"
-                      className="rounded-lg border border-gray-200 dark:border-white/10 p-1.5 text-slate-400 transition-colors hover:border-[#0078D4]/40 hover:text-[#7cb9ff]"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditing(p)}
+                    aria-label={`Edit ${p.name}`}
+                    title={p.source === "openbao" ? "Edit provider" : "Override this built-in provider (saves to OpenBao)"}
+                    className="rounded-lg border border-gray-200 dark:border-white/10 p-1.5 text-slate-400 transition-colors hover:border-[#0078D4]/40 hover:text-[#7cb9ff]"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  {p.source === "openbao" ? (
                     <button
                       type="button"
                       onClick={() => setPendingDelete(p)}
@@ -405,8 +405,8 @@ function NasSection() {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </div>
             </div>
           ))}
@@ -544,6 +544,12 @@ const KIND_OPTIONS: Array<{ value: NasProviderKind; label: string; portHint: str
 function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () => void; initial?: NasProvider | null }) {
   const saveProvider = useNasAddProvider();
   const isEdit = Boolean(initial);
+  // A built-in (env-sourced) provider has no OpenBao secret yet, so saving one
+  // for the first time still needs full credentials (the upsert has nothing
+  // to merge with). Once saved it becomes source=openbao and future edits can
+  // leave the credential fields blank to keep the stored NAS password.
+  const isOverridingEnv = initial?.source === "env";
+  const canKeepStoredCreds = isEdit && !isOverridingEnv;
   // State is seeded from `initial` on mount. The parent gives this sheet a
   // `key` derived from initial?.id, so React remounts the component whenever
   // the operator switches between add and edit (or between different edit
@@ -585,8 +591,8 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
     }
   }
 
-  const credsReady = isEdit
-    ? true // credentials optional in edit mode (blank = keep stored)
+  const credsReady = canKeepStoredCreds
+    ? true // OpenBao secret already stored — blank fields mean "keep them"
     : kind === "synology" ? Boolean(username && password) : Boolean(apiKey);
   const canSave = Boolean(name.trim()) && Boolean(host.trim()) && credsReady && !saveProvider.isPending;
   const portHint = KIND_OPTIONS.find((k) => k.value === kind)?.portHint ?? "";
@@ -597,9 +603,11 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
       onClose={close}
       title={isEdit ? `Edit ${initial?.name ?? "provider"}` : "Add NAS provider"}
       description={
-        isEdit
-          ? "Blank credential fields keep the stored NAS password. Every save re-tests against the live NAS."
-          : "Credentials are tested against the live NAS, then stored in OpenBao."
+        isOverridingEnv
+          ? "This is a built-in provider from environment variables. Saving here writes an OpenBao entry that overrides it — enter credentials so the live save-and-test can run."
+          : canKeepStoredCreds
+            ? "Blank credential fields keep the stored NAS password. Every save re-tests against the live NAS."
+            : "Credentials are tested against the live NAS, then stored in OpenBao."
       }
       size="sm"
       footer={
@@ -654,23 +662,23 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
           <>
             <label className="block">
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                Username{isEdit ? " (leave blank to keep stored)" : ""}
+                Username{canKeepStoredCreds ? " (leave blank to keep stored)" : ""}
               </span>
-              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={isEdit ? "•••••••• (unchanged)" : "console-svc"} autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={canKeepStoredCreds ? "•••••••• (unchanged)" : "console-svc"} autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
             </label>
             <label className="block">
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                Password{isEdit ? " (leave blank to keep stored)" : ""}
+                Password{canKeepStoredCreds ? " (leave blank to keep stored)" : ""}
               </span>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isEdit ? "•••••••• (unchanged)" : "NAS account password"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={canKeepStoredCreds ? "•••••••• (unchanged)" : "NAS account password"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
             </label>
           </>
         ) : (
           <label className="block">
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              API key{isEdit ? " (leave blank to keep stored)" : ""}
+              API key{canKeepStoredCreds ? " (leave blank to keep stored)" : ""}
             </span>
-            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={isEdit ? "•••••••• (unchanged)" : "TrueNAS API key"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={canKeepStoredCreds ? "•••••••• (unchanged)" : "TrueNAS API key"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
           </label>
         )}
 
