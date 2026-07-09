@@ -176,12 +176,40 @@ interface FilesystemAcl {
   acl: FilesystemAce[];
 }
 
+/**
+ * An account plus the numeric uid TrueNAS resolved it to.
+ *
+ * ACEs must be written with `id`, not `who`: the appliance resolves `who` to a
+ * uid on write and always returns `{id: <uid>, who: null}` on read. Keying the
+ * merge below on `who` therefore never matched an existing entry, and every
+ * folder-create appended a fresh duplicate ACE.
+ */
+export interface ResolvedNasAccount extends NasSmbAccount {
+  uid: number;
+}
+
+export type ResolvedNasAccounts = Record<"readonly" | "readwrite", ResolvedNasAccount>;
+
+/** Look up the uid of each scoped account so its ACEs can be written and deduped by id. */
+export async function resolveTruenasAccountUids(
+  conn: TruenasConnection,
+  accounts: NasSmbAccounts,
+): Promise<ResolvedNasAccounts> {
+  const resolved = {} as ResolvedNasAccounts;
+  for (const access of ["readonly", "readwrite"] as const) {
+    const account = accounts[access];
+    const user = await findTruenasUser(conn, account.username);
+    if (!user) throw new Error(`Scoped NAS account '${account.username}' does not exist on the appliance`);
+    resolved[access] = { ...account, uid: user.uid };
+  }
+  return resolved;
+}
+
 /** NFSv4 basic permission set per access mode. MODIFY = read+write+delete, not FULL_CONTROL. */
-function nfs4Ace(username: string, access: NasAccess): FilesystemAce {
+function nfs4Ace(uid: number, access: NasAccess): FilesystemAce {
   return {
     tag: "USER",
-    // `who` (account name) is accepted in place of a numeric `id`, so no uid lookup.
-    who: username,
+    id: uid,
     type: "ALLOW",
     perms: { BASIC: access === "readonly" ? "READ" : "MODIFY" },
     // Inherit onto files and subdirectories created later, e.g. by Nextcloud.
@@ -189,18 +217,24 @@ function nfs4Ace(username: string, access: NasAccess): FilesystemAce {
   };
 }
 
-function posixAce(username: string, access: NasAccess): FilesystemAce {
+function posixAce(uid: number, access: NasAccess): FilesystemAce {
   return {
     tag: "USER",
-    who: username,
+    id: uid,
     perms: { READ: true, WRITE: access !== "readonly", EXECUTE: true },
     default: false,
   };
 }
 
-/** Replace this account's ACE, preserving every other entry on the directory. */
-function mergeAce(existing: FilesystemAce[], ace: FilesystemAce, username: string): FilesystemAce[] {
-  const others = existing.filter((entry) => !(entry.tag === "USER" && entry.who === username));
+/**
+ * Replace this account's ACE, preserving every other entry on the directory.
+ *
+ * Idempotent: drops EVERY prior ACE for this uid, so re-running a grant collapses
+ * duplicates left by an earlier version rather than adding one more.
+ */
+export function mergeUserAce(existing: FilesystemAce[], ace: FilesystemAce, uid: number, username: string): FilesystemAce[] {
+  const others = existing.filter((entry) =>
+    !(entry.tag === "USER" && (entry.id === uid || entry.who === username)));
   return [...others, ace];
 }
 
@@ -220,20 +254,18 @@ export async function grantTruenasFolderAccess(
   accounts: NasSmbAccounts,
 ): Promise<void> {
   const path = joinNasPath(sharePath, subfolder);
+  const resolved = await resolveTruenasAccountUids(conn, accounts);
   const current = await truenasRequestOrThrow<FilesystemAcl>(conn, "/filesystem/getacl", {
     method: "POST",
     body: { path },
   });
   const isNfs4 = current.acltype === "NFS4";
-  const build = (username: string, access: NasAccess) =>
-    isNfs4 ? nfs4Ace(username, access) : posixAce(username, access);
 
   let dacl = Array.isArray(current.acl) ? current.acl : [];
-  for (const [access, account] of [
-    ["readonly", accounts.readonly],
-    ["readwrite", accounts.readwrite],
-  ] as Array<[NasAccess, NasSmbAccount]>) {
-    dacl = mergeAce(dacl, build(account.username, access), account.username);
+  for (const access of ["readonly", "readwrite"] as const) {
+    const { uid, username } = resolved[access];
+    const ace = isNfs4 ? nfs4Ace(uid, access) : posixAce(uid, access);
+    dacl = mergeUserAce(dacl, ace, uid, username);
   }
 
   // `setacl` answers 200 with a job id and can still fail asynchronously.
@@ -263,25 +295,23 @@ export async function grantTruenasTraversal(
   });
   if (current.acltype !== "NFS4") return; // POSIX1E share roots already allow x via mode bits.
 
-  let dacl = Array.isArray(current.acl) ? current.acl : [];
-  let changed = false;
-  for (const account of [accounts.readonly, accounts.readwrite]) {
-    const has = dacl.some((entry) => entry.tag === "USER" && entry.who === account.username);
-    if (has) continue;
-    changed = true;
-    dacl = [
-      ...dacl,
-      {
-        tag: "USER",
-        who: account.username,
-        type: "ALLOW",
-        perms: { BASIC: "TRAVERSE" },
-        // NOINHERIT: traversal must not become read access on every child folder.
-        flags: { BASIC: "NOINHERIT" },
-      },
-    ];
+  const resolved = await resolveTruenasAccountUids(conn, accounts);
+  const before = Array.isArray(current.acl) ? current.acl : [];
+  let dacl = before;
+  for (const access of ["readonly", "readwrite"] as const) {
+    const { uid, username } = resolved[access];
+    dacl = mergeUserAce(dacl, {
+      tag: "USER",
+      id: uid,
+      type: "ALLOW",
+      perms: { BASIC: "TRAVERSE" },
+      // NOINHERIT: traversal must not become read access on every child folder.
+      flags: { BASIC: "NOINHERIT" },
+    }, uid, username);
   }
-  if (!changed) return;
+  // Nothing to do when the ACL already says exactly this (the common case on a
+  // second mount into the same share).
+  if (JSON.stringify(before) === JSON.stringify(dacl)) return;
 
   await truenasJobCall(
     conn,
