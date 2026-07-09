@@ -117,6 +117,11 @@ function LinkField({ label, value, mono }: { label: string; value: string; mono?
 /** A health result older than this is flagged stale — the hourly sweep is overdue. */
 const HEALTH_STALE_MS = 90 * 60 * 1000;
 
+// Plain helper so the impure Date.now() read stays out of component render.
+function isHealthStale(at: string) {
+  return Date.now() - new Date(at).getTime() > HEALTH_STALE_MS;
+}
+
 /**
  * At-a-glance connector health: a ✓/✗ glyph for the last sweep verdict plus a
  * relative "checked" time, with a stale flag once the result passes 90 minutes.
@@ -126,7 +131,7 @@ function HealthField({ lastHealth }: { lastHealth?: ExternalSite["lastHealth"] }
   if (!lastHealth) {
     return <LinkField label="Last health check" value="never checked" />;
   }
-  const stale = Date.now() - new Date(lastHealth.at).getTime() > HEALTH_STALE_MS;
+  const stale = isHealthStale(lastHealth.at);
   const { ok } = lastHealth;
   const Icon = ok ? CheckCircle2 : XCircle;
   const color = !ok ? "text-red-300" : stale ? "text-amber-300" : "text-emerald-300";
