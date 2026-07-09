@@ -8,7 +8,7 @@ import { safeError } from "@/lib/utils";
 
 const routeSchema = z.object({
   host: z.string().min(1).max(253),
-  accessTier: z.enum(["vpn", "internal", "public"]),
+  accessTier: z.enum(["internal", "public"]),
   targetType: z.enum(["k8s", "baremetal"]),
   targetService: z.string().max(128).optional(),
   targetNamespace: z.string().max(128).optional(),

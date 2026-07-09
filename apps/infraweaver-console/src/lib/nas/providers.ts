@@ -22,6 +22,7 @@
 import { z } from "zod";
 import {
   readStoredNasProviders,
+  readSuppressedEnvProviderIds,
   type StoredNasCredentials,
   type StoredNasProvider,
 } from "@/lib/nas/store";
@@ -198,11 +199,19 @@ function envCredentials(id: string, env: NodeJS.ProcessEnv): StoredNasCredential
  * the static list so the Storage page still renders.
  */
 export async function resolveNasProviders(env: NodeJS.ProcessEnv = process.env): Promise<ResolvedNasProvider[]> {
-  const stored = await readStoredNasProviders().catch(() => [] as StoredNasProvider[]);
+  const [stored, suppressedEnvIds] = await Promise.all([
+    readStoredNasProviders().catch(() => [] as StoredNasProvider[]),
+    readSuppressedEnvProviderIds().catch(() => [] as string[]),
+  ]);
   const storedById = new Map(stored.map((s) => [s.id, s]));
+  const suppressed = new Set(suppressedEnvIds);
 
   const merged = new Map<string, ResolvedNasProvider>();
   for (const builtIn of listProviderConfigs(env)) {
+    // An env provider the operator "deleted" is tombstoned and hidden — unless a
+    // stored (OpenBao) provider re-uses the same id, in which case the loop below
+    // re-adds it as a real dynamic provider.
+    if (suppressed.has(builtIn.id) && !storedById.has(builtIn.id)) continue;
     merged.set(builtIn.id, {
       ...builtIn,
       source: "env",

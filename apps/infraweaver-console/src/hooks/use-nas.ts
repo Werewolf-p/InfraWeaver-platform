@@ -31,6 +31,10 @@ export interface NasProviderInput {
     password?: string;
     apiKey?: string;
   };
+  /** When true, `credentials` are a one-time admin credential: the server mints
+   *  a least-privilege service account on the NAS and stores only that scoped
+   *  credential (the admin credential is never persisted). Synology/TrueNAS only. */
+  provisionScoped?: boolean;
 }
 
 export interface NasShare {
@@ -117,7 +121,12 @@ export function useNasAddProvider() {
         const message = typeof data.error === "string" ? data.error : "Failed to add provider";
         throw new Error(message);
       }
-      return data as { ok: boolean; id: string; reachable: boolean };
+      return data as {
+        ok: boolean;
+        id: string;
+        reachable: boolean;
+        provisioned?: { scopedName?: string; warning?: string };
+      };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["nas", "providers"] });

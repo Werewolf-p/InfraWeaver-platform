@@ -38,14 +38,15 @@ export const DEFAULT_CLUSTER_ID = "homelab-prod";
 /** TLS secret names referenced by IngressRoutes for public vs internal hosts. */
 export const DEFAULT_TLS_SECRETS = {
   public: "platform-wildcard-tls",
-  internal: "platform-wildcard-int-tls",
+  internal: "platform-int-wildcard-tls",
 } as const;
 
-/** Traefik middleware names that mark an access tier. */
-export const DEFAULT_ACCESS_TIER_MIDDLEWARES = {
-  vpn: "vpn-only",
-  internal: "internal-only",
-} as const;
+/**
+ * Traefik middleware that puts Authentik (forward-auth) in front of a route.
+ * Applied ALWAYS to internal routes and opt-in for public ones. There is no
+ * network-tier middleware anymore — VPN is retired and the perimeter is identity.
+ */
+export const DEFAULT_AUTH_MIDDLEWARE = "forward-auth";
 
 /** Extra internal hosts (beyond `*.${INTERNAL_DOMAIN}`) allowed for SSRF-guarded fetches. */
 export const DEFAULT_INTERNAL_HOST_ALLOWLIST: readonly string[] = [
@@ -159,10 +160,6 @@ const TlsSecretsSchema = z
   .object({ public: z.string().min(1), internal: z.string().min(1) })
   .partial();
 
-const AccessTierMiddlewaresSchema = z
-  .object({ vpn: z.string().min(1), internal: z.string().min(1) })
-  .partial();
-
 export const PlatformIdentitySchema = z
   .object({
     baseDomain: z.string().min(1),
@@ -173,7 +170,7 @@ export const PlatformIdentitySchema = z
     authentikIssuer: z.string().url(),
     defaultCluster: z.string().min(1),
     tlsSecrets: TlsSecretsSchema,
-    accessTierMiddlewares: AccessTierMiddlewaresSchema,
+    authMiddleware: z.string().min(1),
     internalHostAllowlist: z.array(z.string().min(1)),
     externalRouteDomains: z.array(z.string().min(1)),
     homepageServiceMap: z.record(z.string(), z.string()),
@@ -192,7 +189,7 @@ export interface ResolvedPlatformIdentity {
   authentikIssuer: string;
   defaultCluster: string;
   tlsSecrets: { public: string; internal: string };
-  accessTierMiddlewares: { vpn: string; internal: string };
+  authMiddleware: string;
   internalHostAllowlist: string[];
   externalRouteDomains: string[];
   homepageServiceMap: Record<string, string>;
@@ -209,7 +206,7 @@ export function envAndDefaultIdentity(): ResolvedPlatformIdentity {
     authentikIssuer: authentikIssuer(),
     defaultCluster: defaultClusterId(),
     tlsSecrets: { ...DEFAULT_TLS_SECRETS },
-    accessTierMiddlewares: { ...DEFAULT_ACCESS_TIER_MIDDLEWARES },
+    authMiddleware: DEFAULT_AUTH_MIDDLEWARE,
     internalHostAllowlist: [...DEFAULT_INTERNAL_HOST_ALLOWLIST],
     externalRouteDomains: [...DEFAULT_EXTERNAL_ROUTE_DOMAINS],
     homepageServiceMap: { ...DEFAULT_HOMEPAGE_SERVICE_MAP },
@@ -228,7 +225,7 @@ export function overlayIdentity(base: ResolvedPlatformIdentity, git: PlatformIde
     ...(git.authentikIssuer ? { authentikIssuer: git.authentikIssuer } : {}),
     ...(git.defaultCluster ? { defaultCluster: git.defaultCluster } : {}),
     tlsSecrets: { ...base.tlsSecrets, ...(git.tlsSecrets ?? {}) },
-    accessTierMiddlewares: { ...base.accessTierMiddlewares, ...(git.accessTierMiddlewares ?? {}) },
+    ...(git.authMiddleware ? { authMiddleware: git.authMiddleware } : {}),
     // Collections are ADDITIVE — git entries extend the built-in defaults rather
     // than replace them, so forks add hosts/domains without dropping the
     // service hosts (and NAS hosts) the console relies on.

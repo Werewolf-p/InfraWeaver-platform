@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   Cloud,
@@ -14,25 +15,24 @@ import {
   Plus,
   RefreshCw,
   Server,
-  ShieldCheck,
   Sparkles,
   Trash2,
   Wrench,
 } from "lucide-react";
 import { AccessTierBadge } from "@/components/access-tier-badge";
 import { RouteEditorSheet } from "@/components/routing/route-editor-sheet";
+import { DnsManager } from "@/components/dns/dns-manager";
 import { DnsRecordDialog, type DnsRecordDefaults } from "@/components/dns/dns-record-dialog";
 import { ActionsMenu } from "@/components/ui/actions-menu";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { CopyButton } from "@/components/ui/copy-button";
 import { DashboardPanel } from "@/components/ui/dashboard-panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
-import { ACCESS_TIER_MIDDLEWARES, type AccessTier } from "@/lib/access-tier";
-import { INTERNAL_DNS_DOMAIN, isInternalDnsName, type ManagedDnsRecord } from "@/lib/dns";
+import { type AccessTier } from "@/lib/access-tier";
+import { isInternalDnsName, type ManagedDnsRecord } from "@/lib/dns";
 import type { ExternalRouteItem, ExternalRoutesResponse } from "@/lib/external-routes";
-import { cn, timeAgo } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
 
@@ -164,7 +164,19 @@ export default function RoutingPage() {
   const canWrite = can("infra:write");
   const canWriteDns = can("config:write");
 
-  const [tab, setTab] = useState<TabKey>("all");
+  // Tabs are URL-addressable (/routes?tab=dns) so deep links, the retired /dns
+  // redirect, and mobile FAB actions all land on the right tab. "all" is the
+  // bare /routes URL with no query string.
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const requestedTab = searchParams?.get("tab");
+  const tab: TabKey = requestedTab && TABS.some((entry) => entry.key === requestedTab) ? (requestedTab as TabKey) : "all";
+  const setTab = (next: TabKey) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (next === "all") params.delete("tab");
+    else params.set("tab", next);
+    router.push(`/routes${params.size > 0 ? `?${params}` : ""}`);
+  };
   const [search, setSearch] = useState("");
   const [accessTierFilter, setAccessTierFilter] = useState<"all" | AccessTier>("all");
 
@@ -279,12 +291,6 @@ export default function RoutingPage() {
     setDnsDialogOpen(true);
   }
 
-  function openDnsCreate() {
-    setEditingDns(null);
-    setDnsDefaults({ type: "A", internal: false });
-    setDnsDialogOpen(true);
-  }
-
   async function refreshAll() {
     await Promise.all([
       managedQuery.refetch(),
@@ -360,17 +366,7 @@ export default function RoutingPage() {
               <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
               Refresh
             </button>
-            {tab === "dns" ? (
-              <button
-                type="button"
-                onClick={openDnsCreate}
-                disabled={!canWriteDns}
-                className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-700 dark:text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" />
-                Add DNS record
-              </button>
-            ) : (
+            {tab === "dns" ? null : (
               <button
                 type="button"
                 onClick={openCreate}
@@ -424,25 +420,12 @@ export default function RoutingPage() {
       ) : tab === "middleware" ? (
         <MiddlewarePanel routes={unified} loading={managedQuery.isLoading || liveQuery.isLoading} />
       ) : tab === "dns" ? (
-        <DnsPanel
-          records={dnsRecords}
-          loading={dnsQuery.isLoading}
-          error={dnsQuery.error}
-          canWrite={canWriteDns}
-          onAdd={openDnsCreate}
-          onEdit={(record) => {
-            setEditingDns(record);
-            setDnsDefaults({});
-            setDnsDialogOpen(true);
-          }}
-          onDelete={setDnsToDelete}
-          onRefetch={() => void dnsQuery.refetch()}
-        />
+        <DnsManager />
       ) : (
         <DashboardPanel title="Routes" description="Search and filter across manual and auto-generated routes." icon={Server}>
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              {(["all", "vpn", "internal", "public"] as const).map((tier) => (
+              {(["all", "internal", "public"] as const).map((tier) => (
                 <button
                   key={tier}
                   type="button"
@@ -662,223 +645,15 @@ export default function RoutingPage() {
   );
 }
 
-type DnsScope = "all" | "internal" | "public";
-
-function DnsPanel({
-  records,
-  loading,
-  error,
-  canWrite,
-  onAdd,
-  onEdit,
-  onDelete,
-  onRefetch,
-}: {
-  records: ManagedDnsRecord[];
-  loading: boolean;
-  error: unknown;
-  canWrite: boolean;
-  onAdd: () => void;
-  onEdit: (record: ManagedDnsRecord) => void;
-  onDelete: (record: ManagedDnsRecord) => void;
-  onRefetch: () => void;
-}) {
-  const [scope, setScope] = useState<DnsScope>("all");
-  const [search, setSearch] = useState("");
-  const [proxyUpdatingIds, setProxyUpdatingIds] = useState<string[]>([]);
-
-  const filtered = useMemo(() => {
-    const scoped = records.filter((record) => (scope === "all" ? true : scope === "internal" ? record.internal : !record.internal));
-    const query = search.trim().toLowerCase();
-    if (!query) return scoped;
-    return scoped.filter((record) => [record.name, record.shortName, record.value, record.type].some((value) => value.toLowerCase().includes(query)));
-  }, [records, scope, search]);
-
-  const counts = {
-    all: records.length,
-    internal: records.filter((record) => record.internal).length,
-    public: records.filter((record) => !record.internal).length,
-  };
-
-  async function toggleProxy(record: ManagedDnsRecord) {
-    if (!canWrite) {
-      toast.error("You do not have permission to update DNS records");
-      return;
-    }
-    if (record.type !== "A" && record.type !== "CNAME") return;
-    setProxyUpdatingIds((current) => [...current, record.id]);
-    try {
-      const res = await fetch(`/api/dns/${record.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proxied: !record.proxied }),
-      });
-      const payload = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Failed to update proxy status");
-      toast.success(`${record.name} is now ${record.proxied ? "DNS-only" : "proxied"}`);
-      onRefetch();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update proxy status");
-    } finally {
-      setProxyUpdatingIds((current) => current.filter((id) => id !== record.id));
-    }
-  }
-
-  return (
-    <DashboardPanel
-      title="DNS records"
-      description={`Internal targets *.${INTERNAL_DNS_DOMAIN}; public records resolve through Cloudflare.`}
-      icon={Globe}
-    >
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          {(["all", "internal", "public"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setScope(value)}
-              className={cn(
-                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition",
-                scope === value
-                  ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-200"
-                  : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
-              )}
-            >
-              {value === "internal" ? <ShieldCheck className="h-4 w-4" /> : <Globe className="h-4 w-4" />}
-              <span className="capitalize">{value === "all" ? "All records" : value}</span>
-              <span className="rounded-full bg-slate-200/70 px-2 text-xs text-slate-600 dark:bg-white/10 dark:text-slate-300">{counts[value]}</span>
-            </button>
-          ))}
-        </div>
-
-        <ToolbarSearchInput value={search} onChange={setSearch} placeholder="Search DNS names, values, types…" />
-
-        {error ? (
-          <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-200">
-            {error instanceof Error ? error.message : "DNS records could not be loaded."}
-          </div>
-        ) : null}
-
-        {loading ? (
-          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 p-6 text-sm text-slate-500">
-            Loading DNS records…
-          </div>
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={Globe}
-            title="No DNS records"
-            description={error ? "DNS provider is unavailable — check Cloudflare configuration." : "No records match this scope or search."}
-            action={canWrite && !error ? { label: "Add DNS record", onClick: onAdd } : undefined}
-            className="py-12"
-          />
-        ) : (
-          <div className="overflow-x-auto rounded-2xl border border-gray-200 dark:border-white/10">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-[#2a2a2a] bg-slate-50/80 dark:bg-[#0f0f0f] text-left text-xs text-slate-500 dark:text-[#888]">
-                  <th className="px-4 py-3 font-medium">Name</th>
-                  <th className="px-4 py-3 font-medium">Scope</th>
-                  <th className="px-4 py-3 font-medium">Type</th>
-                  <th className="px-4 py-3 font-medium">Value</th>
-                  <th className="px-4 py-3 font-medium">TTL</th>
-                  <th className="px-4 py-3 font-medium">Updated</th>
-                  <th className="px-4 py-3 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((record) => {
-                  const supportsProxy = record.type === "A" || record.type === "CNAME";
-                  const isUpdating = proxyUpdatingIds.includes(record.id);
-                  return (
-                    <tr key={record.id} className="border-b border-gray-200 dark:border-[#1e1e1e] hover:bg-slate-50/80 dark:hover:bg-[#141414]">
-                      <td className="px-4 py-3 align-top">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900 dark:text-white">{record.name}</span>
-                          <CopyButton text={record.name} className="px-1.5 py-0.5" />
-                        </div>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{record.shortName}</p>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <span className={cn(
-                          "inline-flex rounded-full border px-2 py-0.5 text-[11px]",
-                          record.internal
-                            ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
-                            : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-                        )}>
-                          {record.internal ? "Internal" : "Public"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <span className="inline-flex rounded-full border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300">{record.type}</span>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="flex items-center gap-2">
-                          <span className="max-w-[260px] truncate font-mono text-xs text-slate-800 dark:text-slate-200" title={record.value}>{record.value}</span>
-                          <CopyButton text={record.value} className="px-1.5 py-0.5" />
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 align-top text-slate-600 dark:text-slate-300">{record.ttl}s</td>
-                      <td className="px-4 py-3 align-top text-slate-500 dark:text-slate-400">{record.updatedAt ? timeAgo(record.updatedAt) : "—"}</td>
-                      <td className="px-4 py-3 align-top text-right">
-                        <div className="flex justify-end gap-2">
-                          {supportsProxy ? (
-                            <button
-                              type="button"
-                              onClick={() => void toggleProxy(record)}
-                              disabled={!canWrite || isUpdating}
-                              title={record.proxied ? "Disable Cloudflare proxy" : "Enable Cloudflare proxy"}
-                              className={cn(
-                                "rounded-lg border p-2 transition disabled:cursor-not-allowed disabled:opacity-50",
-                                record.proxied
-                                  ? "border-[#f38020]/40 bg-[#f38020]/10 text-[#f38020] hover:bg-[#f38020]/20 dark:text-[#ff9a3d]"
-                                  : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
-                                isUpdating && "animate-pulse",
-                              )}
-                            >
-                              <Cloud className={cn("h-4 w-4", record.proxied && "fill-current")} />
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => canWrite && onEdit(record)}
-                            disabled={!canWrite}
-                            className="rounded-lg border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 p-2 text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                            title={`Edit ${record.name}`}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => canWrite && onDelete(record)}
-                            disabled={!canWrite}
-                            className="rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-red-600 dark:text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-                            title={`Delete ${record.name}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </DashboardPanel>
-  );
-}
-
 interface MiddlewareUsage {
   name: string;
   isAuth: boolean;
   routes: Array<{ name: string; hosts: string[]; tier: AccessTier }>;
 }
 
-// Names of the built-in access-tier middlewares. Module-level so it keeps a stable
-// ref and does not need to be a dependency of the usage useMemo below.
-const tierMiddlewares = new Set(Object.values(ACCESS_TIER_MIDDLEWARES).map((value) => value.toLowerCase()));
+// The Authentik forward-auth middlewares that gate a route. Module-level so it keeps
+// a stable ref and does not need to be a dependency of the usage useMemo below.
+const tierMiddlewares = new Set(["forward-auth", "forward-auth-admin"]);
 
 function MiddlewarePanel({ routes, loading }: { routes: UnifiedRoute[]; loading: boolean }) {
   const usage = useMemo(() => {
@@ -904,8 +679,8 @@ function MiddlewarePanel({ routes, loading }: { routes: UnifiedRoute[]; loading:
         <div className="flex items-start gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm text-violet-700 dark:text-violet-200">
           <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <p>
-            Access mode (VPN / Internal / Public) maps to forward-auth middleware automatically. Edit a route from any routes tab to
-            change which middlewares it uses.
+            Access mode maps to middleware automatically: Internal routes always get Authentik forward-auth; Public routes get it
+            only when login is required. Edit a route from any routes tab to change which middlewares it uses.
           </p>
         </div>
 

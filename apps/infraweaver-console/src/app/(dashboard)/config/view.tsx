@@ -398,7 +398,7 @@ export function ConfigEditorView() {
               })
             : [
                 { name: "core-monitoring", description: "Prometheus, Loki, Alertmanager — cluster observability", enabled: platformConfig?.groups?.["core-monitoring"]?.enabled ?? true },
-                { name: "core-platform", description: "SSO, VPN, DNS, Homepage, Backups — core platform services", enabled: platformConfig?.groups?.["core-platform"]?.enabled ?? true },
+                { name: "core-platform", description: "SSO, DNS, Homepage, Backups — core platform services", enabled: platformConfig?.groups?.["core-platform"]?.enabled ?? true },
               ].map(group => (
                 <div key={group.name} className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl p-5 flex items-center justify-between animate-pulse">
                   <div>

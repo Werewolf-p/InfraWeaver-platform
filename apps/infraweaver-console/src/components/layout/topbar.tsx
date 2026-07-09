@@ -14,7 +14,7 @@ import { springs } from "@/lib/spring";
 const QUICK_CREATE_ITEMS = [
   { label: "Deploy from Catalog", href: "/catalog-install" },
   { label: "Community App", href: "/community-apps" },
-  { label: "Add DNS Record", href: "/dns" },
+  { label: "Add DNS Record", href: "/routes?tab=dns" },
   { label: "Add Port Route", href: "/gameservers" },
 ];
 

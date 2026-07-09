@@ -333,7 +333,7 @@ function SwipeableAppCard({
                     href={`https://${row.ingressHost}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    title={row.access?.tiers.includes("vpn") ? `${row.ingressHost} — requires VPN` : row.ingressHost}
+                    title={row.access?.tiers.includes("internal") ? `${row.ingressHost} — Authentik login required` : row.ingressHost}
                     className="flex items-center gap-1 text-xs text-[#4a9eff] hover:text-[#7cb9ff] transition-colors"
                     onClick={e => e.stopPropagation()}
                   >
@@ -2446,7 +2446,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
                   <label className="text-gray-500 dark:text-white/60 text-xs mb-1 block">Ingress Hostname</label>
                   <input className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded px-3 py-2 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-indigo-500"
                     value={options.ingressHost} onChange={e => setOptions(o => ({ ...o, ingressHost: e.target.value }))} />
-                  <p className="text-gray-400 dark:text-white/40 text-xs mt-1">Will be VPN-only via the vpn-only middleware</p>
+                  <p className="text-gray-400 dark:text-white/40 text-xs mt-1">Internal host — gated by Authentik (forward-auth)</p>
                 </div>
               )}
 

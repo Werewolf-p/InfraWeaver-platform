@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withAuth } from "@/lib/with-auth";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
+import { findPrivilegedFields } from "@/lib/users-config-guard";
 
 const userPutSchema = z.record(z.string(), z.unknown());
 
@@ -27,27 +28,28 @@ export const PUT = withAuth<{ username: string }>(
       return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
     }
     const body = parsedBody.data;
+
+    // C1 (SECURITY-SCAN-2026-07-08): privileged authorization fields must not be
+    // settable through the generic user edit — that bypasses the grant privilege
+    // ceiling and lets a `users:write` actor escalate to Owner. They only change
+    // through the ceiling-checked RBAC endpoints.
+    const privileged = findPrivilegedFields(body);
+    if (privileged.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot set privileged field(s) via user edit: ${privileged.join(", ")}. Use the RBAC role-assignment endpoints instead.`,
+        },
+        { status: 400 },
+      );
+    }
+
     const { users: rawUsers, sha } = await loadUsersConfig();
 
     if (!rawUsers[username]) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Self-lockout prevention: if changing own role from admin and no other admins remain
     const currentUser = session.user as { email?: string; name?: string };
-    const selfUsername = Object.entries(rawUsers).find(([, u]) => u.email === currentUser.email)?.[0];
-    if (selfUsername === username && body.access_level && body.access_level !== "admin") {
-      const otherAdmins = Object.entries(rawUsers).filter(
-        ([uname, u]) => uname !== username && u.access_level === "admin"
-      );
-      if (otherAdmins.length === 0) {
-        return NextResponse.json(
-          { error: "Cannot remove admin role: you are the last admin" },
-          { status: 400 }
-        );
-      }
-    }
-
     const rest = { ...(body as { username?: string } & Record<string, unknown>) };
     delete rest.username;
     rawUsers[username] = { ...rawUsers[username], ...rest };

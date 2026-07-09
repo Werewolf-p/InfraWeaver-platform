@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withAuth } from "@/lib/with-auth";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
+import { preservePrivilegedFields } from "@/lib/users-config-guard";
 import { BASE_DOMAIN } from "@/lib/domain";
 
 const usersConfigPostSchema = z.object({
@@ -43,14 +44,18 @@ export const POST = withAuth(
       return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
     }
     const body = parsed.data;
-    let sha = body.sha;
-    if (!sha) {
-      ({ sha } = await loadUsersConfig());
-    }
-    // Convert array back to keyed object for YAML storage
+    // Always load the stored config: `sha` for the optimistic-concurrency guard,
+    // and the stored user records so privileged fields are preserved (C1) rather
+    // than trusted from the request body.
+    const { users: storedUsers, sha: currentSha } = await loadUsersConfig();
+    const sha = body.sha ?? currentSha;
+    // Convert array back to keyed object for YAML storage. C1
+    // (SECURITY-SCAN-2026-07-08): a bulk `users:write` must not set
+    // role_assignments / authentik_groups / access_level — preserve the stored
+    // values (or safe defaults for a new user) instead of the request's.
     const usersObj = (body.users as Array<Record<string, unknown>>).reduce<Record<string, Record<string, unknown>>>((acc, u) => {
       const { username, ...rest } = u;
-      acc[username as string] = rest;
+      acc[username as string] = preservePrivilegedFields(rest, storedUsers[username as string] as Record<string, unknown> | undefined);
       return acc;
     }, {});
     const commitMessage = body.commitMessage ?? "chore: update users.yaml via InfraWeaver Console";

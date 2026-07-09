@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { checkSameOrigin, getRequestSizeViolation } from "@/lib/api-helpers";
+import { checkSameOrigin, getRequestSizeViolation, hasUpstreamFeedbackSignature, internalCronTokenMatches } from "@/lib/api-helpers";
 import { auditAuthFailure, auditUnauthorizedAccess } from "@/lib/audit-log";
 import { checkRateLimit, LOGIN_RATE_LIMIT, rateLimitKey, UNAUTHENTICATED_RATE_LIMIT } from "@/lib/rate-limit";
 import { NextResponse, type NextRequest } from "next/server";
@@ -129,6 +129,40 @@ export default auth(async (req) => {
   try {
     const isPublic = isPublicPath(pathname);
     const isLoggedIn = !!req.auth;
+
+    // Internal cron caller: the hourly WordPress health-sweep CronJob POSTs here
+    // with a shared token instead of a session (see wordpress-manager
+    // healthSweepHandler). When the token matches, let the request past the
+    // session gate AND the CSRF same-origin check untouched — the route handler
+    // re-validates the same token (defence in depth). Fail-closed: a missing or
+    // wrong token falls through to the normal auth path and is rejected there.
+    // Kept ahead of the rate-limit/CSRF/auth blocks so the sole authenticator
+    // for this path is the token, not request shape.
+    if (
+      pathname === "/api/wordpress/health-sweep" &&
+      req.method === "POST" &&
+      internalCronTokenMatches(req.headers.get("x-internal-cron-token"), process.env.WORDPRESS_HEALTH_CRON_TOKEN)
+    ) {
+      return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
+    }
+
+    // Cross-deployment ("upstream") feedback ingest: a fork forwards an
+    // HMAC-signed copy of user feedback to the canonical endpoint with NO session
+    // and NO same-origin Origin (it is a server-side fetch). Let a POST carrying
+    // BOTH feedback HMAC headers past the session gate AND the CSRF same-origin
+    // check; the /api/feedback route handler then verifies the signature and
+    // fails closed on a forged/expired one (defence in depth). Mirrors the
+    // health-sweep token bypass above — presence-only, grants no trust: forged or
+    // absent signatures are still rejected downstream (bad → 401 at the handler,
+    // no headers → never reaches here, so anon → 401 at the auth wall). Kept ahead
+    // of the rate-limit/CSRF/auth blocks so the sole authenticator is the HMAC.
+    if (
+      pathname === "/api/feedback" &&
+      req.method === "POST" &&
+      hasUpstreamFeedbackSignature(req)
+    ) {
+      return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
+    }
 
     if (pathname.startsWith("/api/auth/signin") && MUTATION_METHODS.has(req.method)) {
       if (!checkRateLimit(rateLimitKey("login", req), LOGIN_RATE_LIMIT.max, LOGIN_RATE_LIMIT.windowMs)) {

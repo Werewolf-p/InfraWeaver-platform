@@ -78,8 +78,13 @@ export const DELETE = withAuth<{ username: string }>(
     const principal = principalType === "group" ? (body.group ?? "") : username;
     if (principalType === "group" && !principal) return NextResponse.json({ error: "Missing group name" }, { status: 400 });
 
+    const access = await getSessionRBACContext(session);
+    const granterPerms = getSessionEffectivePermissions(access, "/");
     try {
-      const outcome = await revokeRoleAssignment({ assignmentId, principalType, principal }, session.user?.email ?? "unknown");
+      const outcome = await revokeRoleAssignment(
+        { assignmentId, principalType, principal },
+        { granterPerms, actor: session.user?.email ?? "unknown" },
+      );
       if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
       return NextResponse.json({ ok: true });
     } catch (error) {

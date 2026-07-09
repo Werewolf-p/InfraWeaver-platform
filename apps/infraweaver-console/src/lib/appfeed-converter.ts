@@ -407,7 +407,7 @@ export interface ConvertOptions {
   storageClass?: string;
   ingressHost?: string;          // override auto-derived host
   ingressDomain?: string;        // base domain, e.g. "yourdomain.com" → host becomes "${slug}.int.yourdomain.com"
-  ingressMiddleware?: string;    // Traefik middleware name (default: "vpn-only")
+  ingressMiddleware?: string;    // Traefik middleware name (default: "forward-auth")
   ingressMiddlewareNamespace?: string; // namespace of the middleware (default: "traefik")
   createIngress?: boolean;
   /**
@@ -1032,7 +1032,7 @@ function buildIngressRoute(
   namespace: string,
   port: number,
   host: string,
-  middleware = "vpn-only",
+  middleware = "forward-auth",
   middlewareNamespace = "traefik",
 ): string {
   return `---

@@ -4,7 +4,7 @@ import {
   Package, FileText, ShieldCheck, Server,
   Sparkles, Home, Trash2, GitBranch, ArrowUpCircle,
   Globe, BellOff, Shield, HeartPulse,
-  Calendar, TrendingUp, Search, LayoutGrid, TestTube2, Puzzle, MemoryStick,
+  Calendar, Search, LayoutGrid, TestTube2, Puzzle, MemoryStick,
   KeyRound, Lock, Boxes, MessageSquarePlus,
 } from "lucide-react";
 import { mergeRegisteredPages, navItemFromPage } from "@/lib/page-registry";
@@ -61,7 +61,6 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     items: [
       { href: "/home", icon: Home, label: "Home Portal", shortcut: "G O", description: "Platform overview and quick access", pinnable: true },
       { href: "/", icon: LayoutDashboard, label: "Dashboard", shortcut: "G D", description: "Real-time cluster metrics and status", pinnable: true },
-      { href: "/status", icon: Activity, label: "Platform Status", shortcut: "", description: "Live health of all platform services", pinnable: true },
       { href: "/cluster", icon: Boxes, label: "Cluster Nodes", shortcut: "G K", description: "Node management and cluster overview" },
       navItemFromPage("/cost"),
       { href: "/feedback", icon: MessageSquarePlus, label: "Feedback & Fix Flow", description: "Review reported issues, run the Claude fix pipeline, preview, and publish", keywords: ["feedback", "report", "bug", "feature request", "note", "claude", "fix", "review", "publish", "preview"] },
@@ -101,10 +100,8 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       { href: "/network", icon: Network, label: "Network", shortcut: "G N", description: "Service topology, NetworkPolicies, and Ingress", pinnable: true, keywords: ["services", "topology", "connectivity", "networkpolicy", "policies", "ingress", "traefik", "hosts"] },
       { href: "/network/firewall", icon: ShieldCheck, label: "Pod Security", description: "Recent denies per pod — allow with one click, remove allowed rules", pinnable: true, keywords: ["firewall", "cilium", "hubble", "denied", "allow", "ingress", "egress", "networkpolicy", "block"] },
       { href: "/network/wan", icon: Shield, label: "WAN Firewall", description: "All UDM port-forward rules — WAN ports opened to internal services", pinnable: true, keywords: ["firewall", "udm", "unifi", "port forward", "port-forward", "wan", "nat", "gateway", "router", "game", "expose"] },
-      { href: "/dns", icon: Globe, label: "DNS", shortcut: "G Z", description: "Manage internal and public Cloudflare records", pinnable: true, keywords: ["cloudflare", "records", "domain"] },
-      { href: "/routes", icon: Globe, label: "Routing & DNS", description: "Routes, DNS records, access modes, middleware, and port routing — view and edit in one place", pinnable: true, keywords: ["routes", "ingress", "traefik", "external routes", "port routing", "hosts", "tls", "tier", "dns", "cloudflare", "middleware", "auth", "mode"] },
+      { href: "/routes", icon: Globe, label: "Routing & DNS", shortcut: "G Z", description: "Routes, DNS records, access modes, middleware, and port routing — view and edit in one place", pinnable: true, keywords: ["routes", "ingress", "traefik", "external routes", "port routing", "hosts", "tls", "tier", "dns", "cloudflare", "records", "domain", "middleware", "auth", "mode"] },
       { href: "/gameservers", icon: Network, label: "Port Routing", description: "DNS-based port routing for external services", keywords: ["ports", "tcp", "udp", "external services"] },
-      { href: "/uptime", icon: TrendingUp, label: "Uptime History", description: "Historical uptime for all services" },
     ],
   },
   {
@@ -127,11 +124,10 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     icon: Activity,
     defaultOpen: false,
     items: [
-      { href: "/monitoring", icon: HeartPulse, label: "Monitoring", description: "Unified observability dashboard", pinnable: true },
+      { href: "/monitoring", icon: HeartPulse, label: "Monitoring", shortcut: "G H", description: "Unified observability — status, health, uptime, alerts, and latency", pinnable: true, keywords: ["monitoring", "status", "platform status", "health", "uptime", "availability", "sla", "latency", "alerts"] },
       { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L", description: "Live streaming pod logs" },
       { href: "/log-analytics", icon: FileText, label: "Log Analytics", description: "Search and analyze pod logs" },
       { href: "/events", icon: History, label: "Activity Log", shortcut: "G E", description: "Cluster events and audit trail" },
-      { href: "/health", icon: Activity, label: "Health", shortcut: "G H", description: "Node and cluster health checks", pinnable: true },
       { href: "/alert-silence", icon: BellOff, label: "Alert Silence", description: "Silence Prometheus alert rules" },
       { href: "/tests", icon: TestTube2, label: "Diagnostics", description: "Platform tests, self-test, health probes, and webhook testing", pinnable: true, keywords: ["tests", "self test", "self-test", "health tester", "endpoint", "webhook", "diagnostics", "connectivity"] },
     ],

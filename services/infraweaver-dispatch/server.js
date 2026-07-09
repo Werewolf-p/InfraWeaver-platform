@@ -39,6 +39,8 @@ const os = require('os');
 const pipelineStore = require('./pipeline-store');
 const specialists = require('./specialists');
 const fixContext = require('./fix-context');
+const { reviewDiff } = require('./diff-review');
+const { sandboxedAgentEnv, buildAgentLaunch, buildJailLaunch } = require('./agent-sandbox');
 
 const PORT = process.env.DISPATCH_PORT || 9876;
 const WORKSPACE = process.env.WORKSPACE_DIR || '/home/runner/InfraWeaver-platform';
@@ -59,6 +61,18 @@ const DISPATCH_SECRET = process.env.DISPATCH_SECRET || '';
 // --dangerously-skip-permissions, H-3). Env-overridable; per-step lists win.
 const DEFAULT_ALLOWED_TOOLS = (process.env.DISPATCH_ALLOWED_TOOLS || 'Read,Edit,Write,Glob,Grep,Bash')
   .split(',').map(s => s.trim()).filter(Boolean);
+// Optional network-isolation launcher wrapped around the coding-agent spawn
+// (C2). e.g. AGENT_SANDBOX_CMD='firejail --net=none --' or 'unshare -rn --' so the
+// agent's Bash cannot reach the cluster/internal network. Empty on the stock
+// runner (no such tool installed): env-scrub (sandboxedAgentEnv) is then the sole
+// — but always-on — control. See agent-sandbox.js.
+const AGENT_SANDBOX_CMD = process.env.AGENT_SANDBOX_CMD || '';
+// Root helper that runs the coding agent as a dedicated low-privilege UID inside a
+// mount-namespace jail (CRITICAL-1). Set to /usr/local/sbin/iw-agent-jail to
+// enable OS-level isolation (agent runs as `iw-agent`: no sudo, not in docker, a
+// tmpfs HOME hiding every operator credential). Empty → env-scrub only. See
+// agent-sandbox.js (buildJailLaunch) and the iw-agent-jail script.
+const AGENT_JAIL_SCRIPT = process.env.AGENT_JAIL_SCRIPT || '';
 
 function signHmac(message, secret) {
   return crypto.createHmac('sha256', secret).update(message).digest('hex');
@@ -215,14 +229,14 @@ function loadConfig() {
 }
 function saveConfig(cfg) { fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2)); }
 
-// Environment for the spawned coding agent, with this service's own secrets
-// removed. The agent still gets git/registry credentials it needs to do its job,
-// but not DISPATCH_SECRET (the /approve · /publish · /rollback gate) — see the
-// spawn() call below for why.
+// Environment for the spawned coding agent (C2). Allowlist scrub: the agent runs
+// the Bash tool on attacker-influenced feedback text, so it inherits NONE of the
+// dispatch process's credentials — not DISPATCH_SECRET (the /approve · /publish ·
+// /rollback gate), not KUBECONFIG or the in-cluster API host, not the git push
+// token, registry, cloud, or OpenBao creds. A prompt-injected kubectl/git-push/
+// curl-with-token therefore has nothing to authenticate with. See agent-sandbox.js.
 function scrubbedAgentEnv() {
-  const env = { ...process.env, HOME: '/home/runner', ECC_GATEGUARD: 'off' };
-  delete env.DISPATCH_SECRET;
-  return env;
+  return { ...sandboxedAgentEnv(process.env), HOME: '/home/runner', ECC_GATEGUARD: 'off' };
 }
 
 // Run a coding agent, teeing live output to the run log/SSE. `opts` carries the
@@ -249,14 +263,18 @@ function runAgent(agent, task, run, workDir = WORKSPACE, opts = {}) {
     } else {
       return reject(new Error(`Unknown agent: ${agent}`));
     }
-    const child = spawn(cmd, args, {
+    // Sandbox the spawn — three composed layers (see agent-sandbox.js):
+    //  1. scrubbedAgentEnv(): credential-free env (no DISPATCH_SECRET, no cluster/
+    //     git/registry/cloud creds) — always on.
+    //  2. buildJailLaunch(): run as a dedicated low-priv UID (`iw-agent`) inside a
+    //     mount-ns jail that hides every operator credential and drops sudo/docker
+    //     (CRITICAL-1) — active when AGENT_JAIL_SCRIPT is set.
+    //  3. buildAgentLaunch(): optional outer network jail (AGENT_SANDBOX_CMD).
+    // The diff-review gate in doApprove() is the matching "human ship gate".
+    const jailed = buildJailLaunch({ cmd, args, workDir, jailScript: AGENT_JAIL_SCRIPT });
+    const launch = buildAgentLaunch({ cmd: jailed.cmd, args: jailed.args, sandboxCmd: AGENT_SANDBOX_CMD });
+    const child = spawn(launch.cmd, launch.args, {
       cwd: workDir,
-      // Never expose this service's own control secret to the coding agent.
-      // The agent runs on attacker-influenced feedback text with the Bash tool
-      // (C6); DISPATCH_SECRET is the sole gate on /approve, /publish, /rollback,
-      // so a prompt-injected `env`/`curl` must not be able to read and exfil it
-      // to self-approve a malicious change. (Fuller hardening — scrubbed sandbox
-      // + human ship gate — tracked separately; this removes the crown jewel.)
       env: scrubbedAgentEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout,
@@ -574,20 +592,68 @@ function withLock(fn) {
   return result;
 }
 
+// Full diff of EVERYTHING the agent changed since `baseSha` (the branch tip
+// captured right after checkout, before the agent ran) — new + modified + deleted
+// files, INCLUDING any commits the agent made itself. Diffing baseSha↔index (after
+// `git add -A`) rather than `git diff --cached` (HEAD↔index) is the fix for the
+// self-commit bypass: an agent that `git commit`s its payload to hide it from a
+// HEAD-relative diff is still fully captured here, because the index reflects the
+// worktree at/after those commits. Uses execSync (not sh(), which truncates) so no
+// hunk is dropped. Pure enough to unit-test against a temp repo (diff-capture.test.js).
+function stagedDiffSince(cwd, baseSha) {
+  if (!baseSha) throw new Error('no base SHA to diff against');
+  execSync('git add -A', { cwd });
+  return execSync(`git diff --cached --no-color --unified=1 ${baseSha}`, {
+    cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
+// Fail-closed wrapper: any capture error returns '' which reviewDiff() treats as
+// an empty diff and BLOCKS the prod ship (better to block than to ship unreviewed).
+function captureAgentDiff(baseSha, run) {
+  try {
+    return stagedDiffSince(WORKSPACE, baseSha);
+  } catch (err) {
+    if (run) run.append(`diff capture failed (fail-closed, prod ship will be blocked): ${err.message}\n`);
+    return '';
+  }
+}
+
 // ── Pipeline operations ─────────────────────────────────────────────────────
 // /approve: plan→validate→implement on staging, build, push, deploy shared env.
-async function doApprove({ feedbackId, description, pagePath, type, note }) {
+async function doApprove({ feedbackId, description, pagePath, type, note, reviewOverride, reviewedBy }) {
   const id = safeId(feedbackId);
   const run = newRun(id, note ? 'redo' : 'approve');
   try {
     run.setPhase('checkout');
     const co = await checkoutStaging(run);
     if (co.code !== 0) throw new Error('checkout failed');
+    // Pin the pre-agent-run tip NOW so the diff-review gate can diff against it and
+    // see everything the agent does — even changes it commits itself (C2 bypass).
+    let baseSha = '';
+    try { baseSha = execSync('git rev-parse HEAD', { cwd: WORKSPACE, encoding: 'utf8' }).trim(); }
+    catch (err) { run.append(`base SHA capture failed (prod ship will be blocked): ${err.message}\n`); }
 
     // Run the operator-defined Agent Studio pipeline (default: plan→validate→
     // implement). Each step streams its own PHASE marker to the live console.
     const transcript = await runPipeline({ description, pagePath, type, feedbackId: id, note }, run);
     const changeClass = classifyChange(transcript, WORKSPACE);
+
+    // ── Pre-prod diff review (C2) ────────────────────────────────────────────
+    // The agent ran on attacker-influenced feedback text. Review its staged diff
+    // BEFORE anything ships to the live console. A CRITICAL/HIGH finding blocks
+    // the prod pin bump; the change still lands on feedback/staging for a human
+    // to inspect. An operator can consciously override (reviewOverride + a named
+    // reviewedBy) — that decision is HMAC-authed at the route and audited here.
+    run.setPhase('reviewing');
+    const diff = captureAgentDiff(baseSha, run);
+    const review = reviewDiff(diff);
+    const blockers = review.findings.filter((f) => f.severity === 'critical' || f.severity === 'high');
+    for (const f of review.findings) run.append(`review: [${f.severity}] ${f.rule} — ${f.detail}\n`);
+    const overridden = review.approved === false && reviewOverride === true && !!String(reviewedBy || '').trim();
+    if (overridden) {
+      run.append(`review: BLOCKED but overridden by ${String(reviewedBy).trim()} — shipping to prod\n`);
+    }
 
     run.setPhase('committing');
     // Unique tag so the shared staging env actually rolls to the new image, but
@@ -595,6 +661,9 @@ async function doApprove({ feedbackId, description, pagePath, type, note }) {
     // the latest cumulative feedback/staging tip.
     const tag = `staging-${Date.now().toString(36)}`;
     const commitMsg = `fix(feedback): ${id}`;
+    // Commit + push to feedback/staging REGARDLESS of the review verdict, so a
+    // blocked change is preserved on the branch for a human to inspect (never
+    // silently dropped) — only the LIVE prod ship below is gated.
     const commit = await sh(`
       set -e
       git add -A
@@ -603,6 +672,17 @@ async function doApprove({ feedbackId, description, pagePath, type, note }) {
       git rev-parse HEAD
     `, { run });
     const sha = (commit.stdout.trim().split('\n').pop() || '').slice(0, 40);
+
+    // Gate: block the live-prod ship on an un-overridden CRITICAL/HIGH finding.
+    if (!review.approved && !overridden) {
+      const liveUrl = `https://${CONSOLE_HOST}`;
+      run.finish('blocked', { commit: sha, changeClass, review, blocked: true });
+      return {
+        ok: false, blocked: true, review, blockers, commit: sha,
+        error: `diff review blocked live deploy (${blockers.map((f) => f.rule).join(', ')}); change kept on ${FEEDBACK_BRANCH} for human review`,
+        previewUrl: liveUrl, runId: run.rec.runId,
+      };
+    }
 
     run.setPhase('building');
     const build = await buildImage(tag, run);
@@ -623,8 +703,8 @@ async function doApprove({ feedbackId, description, pagePath, type, note }) {
     // `liveUrl` is the canonical field; `previewUrl` is kept (pointing at the same
     // live console) for back-compat with the dashboard's existing deploy link.
     const liveUrl = `https://${CONSOLE_HOST}`;
-    run.finish('success', { liveUrl, previewUrl: liveUrl, tag, commit: sha, changeClass, deployState });
-    return { ok: true, liveUrl, previewUrl: liveUrl, testPath: pagePath || '/', tag, commit: sha, runId: run.rec.runId, changeClass, deployState };
+    run.finish('success', { liveUrl, previewUrl: liveUrl, tag, commit: sha, changeClass, deployState, review });
+    return { ok: true, liveUrl, previewUrl: liveUrl, testPath: pagePath || '/', tag, commit: sha, runId: run.rec.runId, changeClass, deployState, review, overridden };
   } catch (err) {
     run.finish('failed', { error: String(err && err.message || err) });
     return { ok: false, error: String(err && err.message || err), runId: run.rec.runId };
@@ -905,9 +985,21 @@ if (require.main === module) {
       process.exit(1);
     }
   }
+  // Surface the agent sandbox posture so an operator can tell at a glance which
+  // isolation layers are active. Credential scrub (sandboxedAgentEnv) is always on.
+  if (AGENT_JAIL_SCRIPT) {
+    console.log(`[SECURITY] agent OS jail ACTIVE (CRITICAL-1): runs as dedicated low-priv UID via ${AGENT_JAIL_SCRIPT} — no sudo/docker, operator creds hidden.`);
+  } else {
+    console.warn('[SECURITY] agent OS jail OFF (AGENT_JAIL_SCRIPT unset) — agent runs as the dispatch user; only env-scrub protects creds. Set AGENT_JAIL_SCRIPT=/usr/local/sbin/iw-agent-jail to isolate.');
+  }
+  if (AGENT_SANDBOX_CMD) {
+    console.log(`[SECURITY] agent network jail ACTIVE: ${AGENT_SANDBOX_CMD}`);
+  } else {
+    console.warn('[SECURITY] agent network jail OFF (AGENT_SANDBOX_CMD unset) — cluster/creds still blocked via env-scrub + OS jail; set AGENT_SANDBOX_CMD to also block egress.');
+  }
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`InfraWeaver Dispatch (single-branch) on :${PORT} — branch=${FEEDBACK_BRANCH} registry=${REGISTRY}`);
   });
 }
 
-module.exports = { signHmac, verifyHmac, HMAC_WINDOW_MS, bumpConsoleImageTag };
+module.exports = { signHmac, verifyHmac, HMAC_WINDOW_MS, bumpConsoleImageTag, stagedDiffSince };

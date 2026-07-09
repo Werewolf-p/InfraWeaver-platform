@@ -9,7 +9,7 @@ import { safeError } from "@/lib/utils";
 const routeSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/),
   host: z.string().min(1).max(253),
-  accessTier: z.enum(["vpn", "internal", "public"]),
+  accessTier: z.enum(["internal", "public"]),
   targetType: z.enum(["k8s", "baremetal"]),
   targetService: z.string().max(128).optional(),
   targetNamespace: z.string().max(128).optional(),

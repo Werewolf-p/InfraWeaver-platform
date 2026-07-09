@@ -615,7 +615,7 @@ async function loadIngressRoutesUncached(): Promise<IngressRoutePayload> {
         (route.services ?? []).map((service) => `${service.namespace ?? ingressRoute.metadata?.namespace ?? "default"}/${service.name ?? "service"}${service.port ? `:${service.port}` : ""}`)
       ));
       const hosts = uniqueStrings((ingressRoute.spec?.routes ?? []).flatMap((route) => hostnamesFromMatch(route.match)));
-      const accessTier = detectAccessTier(ingressRoute.metadata?.labels?.["infraweaver.io/access-tier"], middlewares);
+      const accessTier = detectAccessTier(ingressRoute.metadata?.labels?.["infraweaver.io/access-tier"], hosts);
       return {
         id: ingressRoute.metadata?.uid ?? `${ingressRoute.metadata?.namespace ?? "default"}/${ingressRoute.metadata?.name ?? "unknown"}`,
         namespace: ingressRoute.metadata?.namespace ?? "default",

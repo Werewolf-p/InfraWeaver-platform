@@ -22,11 +22,14 @@ import {
   isAllowedInternalHostForWizard,
 } from "@/lib/internal-url-allowlist-server";
 import { probeNasCredentials } from "@/lib/nas/discovery";
-import { resolveNasProviders, type ResolvedNasProvider } from "@/lib/nas/providers";
+import { provisionScopedNasAccount } from "@/lib/nas/provision-account";
+import { listProviderConfigs, resolveNasProviders, type ResolvedNasProvider } from "@/lib/nas/providers";
 import {
   deleteNasSmbCreds,
   deleteStoredNasProvider,
   readStoredNasProviders,
+  suppressEnvProvider,
+  unsuppressEnvProvider,
   upsertStoredNasProvider,
   writeNasSmbCreds,
   type NasProviderKind,
@@ -88,6 +91,11 @@ const CreateBody = z.object({
       apiKey: z.string().max(1024).optional(),
     })
     .default({}),
+  // When true, the supplied `credentials` are treated as a ONE-TIME admin
+  // credential: the console uses them to mint a least-privilege service account
+  // on the NAS, persists only that scoped account, and discards the admin
+  // credential (never stored, never logged). Synology/TrueNAS only.
+  provisionScoped: z.boolean().optional(),
 });
 
 /** Slugify a name into a stable, url-safe provider id. */
@@ -195,6 +203,59 @@ export async function POST(req: NextRequest) {
     const port = body.port ?? DEFAULT_PORT[kind];
     const backends = body.backends ?? DEFAULT_BACKENDS[kind];
 
+    // Least-privilege self-provisioning: the pasted credentials are a one-time
+    // admin credential. Verify it, use it to mint a scoped service account on
+    // the NAS, persist ONLY the scoped credential, and let the admin credential
+    // fall out of scope — it is never written to OpenBao and never logged.
+    if (body.provisionScoped === true && (kind === "synology" || kind === "truenas")) {
+      const adminCredentials = {
+        username: body.credentials.username,
+        password: body.credentials.password,
+        apiKey: body.credentials.apiKey,
+      };
+      const adminProbe = await probeNasCredentials({ host: hostname, port, kind }, adminCredentials);
+      if (!adminProbe.ok) {
+        await auditLog("nas:provider:configure", actor, `admin test failed for ${id} (${hostname})`, { result: "failure" });
+        return NextResponse.json({ error: `Admin credential test failed: ${adminProbe.error ?? "unknown"}` }, { status: 502 });
+      }
+
+      const provisioned = await provisionScopedNasAccount({ host: hostname, port, kind }, adminCredentials, [], id);
+      if (!provisioned.ok || !provisioned.credentials) {
+        await auditLog("nas:provider:configure", actor, `scoped provisioning failed for ${id} (${hostname})`, { result: "failure" });
+        return NextResponse.json({ error: provisioned.error ?? "Scoped account provisioning failed" }, { status: 502 });
+      }
+
+      // Only the scoped credential survives. Prove it works before persisting.
+      const scopedCredentials = provisioned.credentials;
+      const scopedProbe = await probeNasCredentials({ host: hostname, port, kind }, scopedCredentials);
+      if (!scopedProbe.ok) {
+        return NextResponse.json(
+          { error: `Scoped account was created but failed verification: ${scopedProbe.error ?? "unknown"}` },
+          { status: 502 },
+        );
+      }
+
+      await upsertStoredNasProvider({ id, name: body.name, host: hostname, port, protocol, kind, backends, credentials: scopedCredentials });
+      // Re-adding an id that was previously hidden lifts its tombstone.
+      await unsuppressEnvProvider(id);
+      invalidateInternalHostAllowlist();
+      if (kind === "synology" && scopedCredentials.username && scopedCredentials.password) {
+        await writeNasSmbCreds(id, { username: scopedCredentials.username, password: scopedCredentials.password });
+      }
+
+      await auditLog(
+        "nas:provider:configure",
+        actor,
+        `saved NAS provider ${id} host=${hostname} kind=${kind} via least-privilege account ${provisioned.scopedName ?? "?"}`,
+      );
+      return NextResponse.json({
+        ok: true,
+        id,
+        reachable: true,
+        provisioned: { scopedName: provisioned.scopedName, warning: provisioned.warning },
+      });
+    }
+
     // On an existing provider, blank credentials mean "keep the stored ones" —
     // reuse them so we can still run the save & test.
     const existing = (await readStoredNasProviders()).find((p) => p.id === id);
@@ -212,6 +273,8 @@ export async function POST(req: NextRequest) {
     }
 
     await upsertStoredNasProvider({ id, name: body.name, host: hostname, port, protocol, kind, backends, credentials });
+    // Re-adding an id that was previously hidden lifts its tombstone.
+    await unsuppressEnvProvider(id);
     // A newly-stored provider host must be trusted for SSRF-guarded fetches on
     // the very next request (reachability probe, assign, mount-workload).
     invalidateInternalHostAllowlist();
@@ -256,9 +319,20 @@ export async function DELETE(req: NextRequest) {
 
     const removed = await deleteStoredNasProvider(id);
     if (!removed) {
-      // Either unknown, or a built-in env provider (which isn't in the store).
+      // Not in the OpenBao store. If it is an env-declared built-in, "remove" it
+      // by recording a tombstone — resolveNasProviders() then hides it. The env
+      // var stays put (it is git/deployment-managed); this just clears it from
+      // the console. Re-adding the same id via the wizard lifts the tombstone.
+      const isEnvBuiltIn = listProviderConfigs().some((p) => p.id === id);
+      if (isEnvBuiltIn) {
+        await suppressEnvProvider(id);
+        await deleteNasSmbCreds(id);
+        invalidateInternalHostAllowlist();
+        await auditLog("nas:provider:delete", actor, `hid env-declared NAS provider ${id}`);
+        return NextResponse.json({ ok: true, hidden: true });
+      }
       return NextResponse.json(
-        { error: `No dynamically-added provider '${id}'. Built-in providers are managed via environment.` },
+        { error: `No provider '${id}' to remove.` },
         { status: 400 },
       );
     }

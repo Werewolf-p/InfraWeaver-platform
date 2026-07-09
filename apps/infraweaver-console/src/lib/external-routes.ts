@@ -24,12 +24,17 @@ export interface ExternalRouteItem {
   scheme: "http" | "https";
   skipTlsVerify: boolean;
   backendServiceName: string;
-  hasVpnFallback: boolean;
 }
 
 export interface ExternalRoutesResponse {
   routes: ExternalRouteItem[];
   files: string[];
+  /**
+   * Set when the route was saved but its Authentik SSO gate could not be ensured
+   * (e.g. Authentik was momentarily unavailable). The route manifest is committed;
+   * pressing save again re-runs the idempotent gate ensure. Absent on success.
+   */
+  gateWarning?: string;
 }
 
 export interface ExternalRouteMutationInput {

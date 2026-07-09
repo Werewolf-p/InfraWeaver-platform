@@ -73,6 +73,19 @@ export class AuthentikClient {
     return (await this.request<ListResponse<T>>("GET", path)).results ?? [];
   }
 
+  /** Like `results`, but follows Authentik's pagination so a full inventory (all
+   * proxy providers / applications) is never truncated to the first page. */
+  private async allResults<T>(path: string): Promise<T[]> {
+    const sep = path.includes("?") ? "&" : "?";
+    const acc: T[] = [];
+    for (let page = 1; ; page++) {
+      const res = await this.request<ListResponse<T> & { pagination?: { next?: number } }>("GET", `${path}${sep}page=${page}&page_size=100`);
+      acc.push(...(res.results ?? []));
+      if (!res.pagination?.next) break;
+    }
+    return acc;
+  }
+
   /** Resolve a flow pk by slug, throwing if the instance lacks it. */
   async flowPk(slug: string): Promise<string> {
     const found = await this.results<{ pk: string; slug: string }>(`/api/v3/flows/instances/?slug=${encodeURIComponent(slug)}`);
@@ -139,11 +152,24 @@ export class AuthentikClient {
     await this.request("POST", `/api/v3/core/applications/`, { slug, ...attrs });
   }
 
-  /** Union a provider pk into the embedded outpost (idempotent, no duplicates). */
-  async addProviderToOutpost(providerPk: number): Promise<void> {
+  /**
+   * Guarantee `providerPk` is served by the embedded outpost, AND heal any other
+   * proxy provider that is an application's primary provider but has drifted off the
+   * outpost (the state that makes forward-auth answer "Not Found — Powered by
+   * authentik"). The written value is the FULL desired set derived from durable
+   * state — the union of (a) whatever is already on the outpost, (b) every
+   * app-primary proxy provider, and (c) the provider in hand — so it is purely
+   * additive (never drops a pk this console does not own) and convergent: two
+   * concurrent runs each write a superset containing the other's addition, so a lost
+   * update cannot silently drop a provider the way a bare read-append-write did.
+   */
+  async ensureProviderOnOutpost(providerPk: number): Promise<void> {
     const { pk, providers } = await this.embeddedOutpost();
-    if (providers.includes(providerPk)) return;
-    await this.request("PATCH", `/api/v3/outposts/instances/${pk}/`, { providers: [...providers, providerPk] });
+    const proxies = await this.allResults<{ pk: number; assigned_application_slug: string | null }>(`/api/v3/providers/proxy/`);
+    const appPrimary = proxies.filter((p) => p.assigned_application_slug).map((p) => p.pk);
+    const desired = new Set<number>([...providers, ...appPrimary, providerPk]);
+    if (desired.size === providers.length && providers.every((p) => desired.has(p))) return;
+    await this.request("PATCH", `/api/v3/outposts/instances/${pk}/`, { providers: [...desired] });
   }
 
   /** Remove a provider pk from the embedded outpost so stale hosts don't accumulate. */

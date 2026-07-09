@@ -149,8 +149,10 @@ export async function ensureSsoGate(input: SsoGateInput, secretStore: SecretStor
     // proxy provider is attached, forward-auth admits every authenticated user until a
     // group binding exists, so binding must happen first to stay fail-closed.
     if (hooks?.beforeOutpostActivation) await hooks.beforeOutpostActivation();
-    // Register on the embedded outpost LAST, so forward-auth never 404s.
-    await client.addProviderToOutpost(proxyProviderPk!);
+    // Register on the embedded outpost LAST, so forward-auth never 404s. This also
+    // heals any app-primary proxy that drifted off the outpost (e.g. a lost update
+    // from an earlier concurrent provision), so every gate op reconverges membership.
+    await client.ensureProviderOnOutpost(proxyProviderPk!);
   }
 
   return { oidc, gated: wantGate };
@@ -167,10 +169,12 @@ export async function removeSsoGate(appSlug: string, host?: string): Promise<voi
   const oauth = await client.findProvider("oauth2", appSlug);
   const proxy = (await client.findProvider("proxy", `${appSlug}-gate`)) ?? (await client.findProvider("proxy", appSlug));
 
-  if (proxy) await client.removeProviderFromOutpost(proxy.pk);
-  // The OIDC consumer app and the separate gate app (both modes) are both removed.
+  // Delete the application(s) FIRST: `ensureProviderOnOutpost` derives the outpost's
+  // membership from app-primary proxy providers, so removing the app first means a
+  // concurrent gate reconcile can no longer re-add this provider after we detach it.
   await client.deleteApplication(appSlug);
   await client.deleteApplication(`${appSlug}-gate`);
+  if (proxy) await client.removeProviderFromOutpost(proxy.pk);
   if (proxy) await client.deleteProvider("proxy", proxy.pk);
   if (oauth) await client.deleteProvider("oauth2", oauth.pk);
 }

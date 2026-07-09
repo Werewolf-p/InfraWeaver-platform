@@ -24,7 +24,7 @@ const BASE_IDENTITY: ResolvedPlatformIdentity = {
   authentikIssuer: "https://auth.example.com/application/o/x/",
   defaultCluster: "homelab-prod",
   tlsSecrets: { public: "p", internal: "i" },
-  accessTierMiddlewares: { vpn: "vpn", internal: "int" },
+  authMiddleware: "forward-auth",
   internalHostAllowlist: ["10.25.0.21", "argocd.int.example.com"],
   externalRouteDomains: [],
   homepageServiceMap: {},

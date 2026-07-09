@@ -1,0 +1,69 @@
+---
+# Zero-trust egress allow for the hourly WordPress health-sweep CronJob pods.
+# Without this the job pod is default-denied and cannot resolve DNS or reach the
+# console (curl: Could not resolve host). Scopes egress to CoreDNS + the console
+# service only. Apply alongside health-sweep-cronjob.yaml.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-wp-health-sweep-egress
+  namespace: infraweaver-console
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: infraweaver-console
+      infraweaver.io/component: iwsl
+  egress:
+    # The cluster resolver (kube-dns svc 10.96.0.10) is backed by CoreDNS in
+    # kube-system (k8s-app=kube-dns). Allow both kube-system and dns-system so
+    # DNS works regardless of which CoreDNS instance answers.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: dns-system
+            app: coredns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: infraweaver-console
+            app: infraweaver-console
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+---
+# Ingress allow so the sweep pod can reach the console pod on :3000. If the
+# console namespace has a default-deny-ingress (it does in the reference
+# deployment, permitting only the ingress controller), the sweep's egress is not
+# enough — the console must also allow the sweep pod inbound. k8s NetworkPolicy
+# ingress is additive, so this only ADDS the sweep pod as an allowed source.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-wp-health-sweep-to-console
+  namespace: infraweaver-console
+spec:
+  podSelector:
+    matchLabels:
+      app: infraweaver-console
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: infraweaver-console
+              infraweaver.io/component: iwsl
+      ports:
+        - port: 3000
+          protocol: TCP
