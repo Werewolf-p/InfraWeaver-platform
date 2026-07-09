@@ -37,7 +37,6 @@ import {
   suppressEnvProvider,
   unsuppressEnvProvider,
   upsertStoredNasProvider,
-  writeNasSmbCreds,
   type NasProviderKind,
 } from "@/lib/nas/store";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
@@ -318,9 +317,9 @@ export async function POST(req: NextRequest) {
       // Re-adding an id that was previously hidden lifts its tombstone.
       await unsuppressEnvProvider(id);
       invalidateInternalHostAllowlist();
-      if (kind === "synology" && scopedCredentials.username && scopedCredentials.password) {
-        await writeNasSmbCreds(id, { username: scopedCredentials.username, password: scopedCredentials.password });
-      }
+      // The scoped *mount* credentials (iw-<provider>-ro / -rw) are minted lazily
+      // by the folder + mount flow, which is the first point that knows which
+      // share they must be scoped to. See `ensureProviderSmbCredentials`.
 
       await auditLog(
         "nas:provider:configure",
@@ -358,12 +357,10 @@ export async function POST(req: NextRequest) {
     // the very next request (reachability probe, assign, mount-workload).
     invalidateInternalHostAllowlist();
 
-    // SMB-capable providers whose login credentials ARE the SMB credentials
-    // (Synology, generic-smb) also get a flat, ESO-readable secret so the assign
-    // flow can materialise the CSI Secret for the mount.
-    if ((kind === "synology" || kind === "generic-smb") && credentials.username && credentials.password) {
-      await writeNasSmbCreds(id, { username: credentials.username, password: credentials.password });
-    }
+    // No SMB mount credential is written here. The scoped `iw-<provider>-ro` /
+    // `iw-<provider>-rw` accounts are minted on first use by the folder + mount
+    // flow (`ensureProviderSmbCredentials`), so a provider that is only ever
+    // browsed never gets mount accounts created on the appliance.
 
     await auditLog("nas:provider:configure", actor, `saved NAS provider ${id} host=${hostname} kind=${kind}`);
     return NextResponse.json({ ok: true, id, reachable: true });

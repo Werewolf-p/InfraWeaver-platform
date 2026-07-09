@@ -1,63 +1,92 @@
-// POST /api/nas/mount-workload — app-centric NAS mount flow.
+// POST /api/nas/mount-workload — mount one NAS folder into N workloads.
+// DELETE /api/nas/mount-workload — unmount it from one workload.
 //
 // Plan reference: plans/advanced-storage.md §7 Phase 6.
-// Where `/api/nas/assign` is user-centric (records the assignment under
-// `users.yaml` for a person), this endpoint is app-centric: the operator picks
-// a NAS provider/share/subfolder, an access mode, a target namespace + app
-// (Deployment) + mount path, and the console:
-//   1. Emits a StorageClass + PVC into `kubernetes/catalog/nas-shares/…` via
-//      the shared `generateK8sManifest` (so §3 security invariants apply).
-//   2. Patches the target `Deployment` YAML in the same GitOps repo to append
-//      `volumes[]` and `containers[0].volumeMounts[]`, with
-//      `readOnly: true` when access=readonly (Layer C).
-//   3. Commits both files in a single commit — ArgoCD picks up the change and
-//      the pod re-rolls with the NAS mount live.
 //
-// This deliberately does NOT hit the k8s API directly; every change is
-// GitOps-committed so the state is auditable and reversible.
+// This is the app-centric mount flow, and the reason the whole feature is
+// generic: the caller names a folder once and a list of targets, and the console
+//
+//   1. ensures the provider's scoped SMB service accounts exist (RO + RW),
+//   2. emits one ExternalSecret per (namespace, access) so each namespace gets
+//      only the credential its access mode entitles it to,
+//   3. emits a static PV + PVC per (namespace, access) — see `@/lib/nas/manifest`
+//      for why static and not a StorageClass,
+//   4. patches each target workload's `volumes[]` + `containers[].volumeMounts[]`,
+//      with `readOnly: true` wherever access is readonly,
+//
+// and commits all of it together. ArgoCD rolls the pods; nothing touches the
+// Kubernetes API directly, so every mount is auditable and revertible.
+//
+// The worked example — jellyfin RO and nextcloud RW on the same `media` folder —
+// is exactly one POST with two targets.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { auditLog } from "@/lib/audit-log";
 import { gitCommitFiles, gitReadFile } from "@/lib/git-provider";
 import { parseAllowedInternalUrlAsync } from "@/lib/internal-url-allowlist-server";
 import { evaluateFolderAcl } from "@/lib/nas/folder-acl";
-import { generateK8sManifest, type NasBackend } from "@/lib/nas/manifest";
-import { getResolvedNasProvider, resolveNasProviders } from "@/lib/nas/providers";
+import { resolveNasSharePath, type NasFolderTarget } from "@/lib/nas/folders";
+import {
+  deriveNasManifestPath,
+  deriveNasResourceNames,
+  deriveNasSecretManifestPath,
+  generateNasCredentialExternalSecret,
+  generateNasVolumeManifest,
+  type NasAccess,
+  type NasBackend,
+  type NasVolumeIdentity,
+} from "@/lib/nas/manifest";
+import { ensureProviderSmbCredentials } from "@/lib/nas/mount-credentials";
+import { normalizeSubfolder } from "@/lib/nas/paths";
+import { getResolvedNasProvider, resolveNasCredentials, resolveNasProviders } from "@/lib/nas/providers";
+import { nasCredsLogicalPath } from "@/lib/nas/store";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionEffectivePermissions, getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
-const K8S_NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
-const SAFE_NAME = /^[a-z0-9][a-z0-9\-_]*[a-z0-9]$/;
-const SAFE_SUBFOLDER = /^(?!.*\.\.)(?!\/)(?!.*\/\/)[a-z0-9](?:[a-z0-9/_-]{0,198}[a-z0-9])?$/i;
+const K8S_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+const SHARE_RE = /^[a-z0-9][a-z0-9\-_]*$/i;
 const SAFE_MOUNT_PATH = /^\/[a-zA-Z0-9_\-./]{0,254}$/;
 const SAFE_HOST = /^[a-z0-9.-]+$/i;
 
-const Body = z.object({
-  // Open string — validated against the live provider registry below.
-  provider: z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*$/),
-  backend: z.enum(["smb", "nfs"]).optional(),
-  share: z.string().min(1).max(63).regex(SAFE_NAME),
-  subfolder: z.string().min(1).max(200).regex(SAFE_SUBFOLDER).optional(),
-  access: z.enum(["readonly", "readwrite"]),
-  namespace: z.string().min(1).max(63).regex(K8S_NAME_RE),
-  deployment: z.string().min(1).max(253).regex(K8S_NAME_RE),
-  container: z.string().min(1).max(63).regex(K8S_NAME_RE).optional(),
-  mount_path: z.string().min(1).max(255).regex(SAFE_MOUNT_PATH),
-  manifest_path: z.string().min(1).max(255),
-  volume_name: z.string().min(1).max(63).regex(K8S_NAME_RE).optional(),
-  size: z.string().min(1).max(20).regex(/^[0-9]+(Ki|Mi|Gi|Ti|Pi)$/).optional(),
-});
-
-// Sane whitelist: only allow patching files under `kubernetes/catalog/**` so a
-// bad request cannot rewrite core platform manifests.
-function isAllowedManifestPath(p: string): boolean {
-  return /^kubernetes\/catalog\/[a-z0-9][a-z0-9\-_/]*\.ya?ml$/i.test(p) && !p.includes("..");
+/** Only `kubernetes/catalog/**` is patchable: a bad request must not rewrite core platform manifests. */
+function isAllowedManifestPath(path: string): boolean {
+  return /^kubernetes\/catalog\/[a-z0-9][a-z0-9\-_/]*\.ya?ml$/i.test(path) && !path.includes("..");
 }
 
-interface DeploymentDoc {
-  apiVersion?: string;
+const Target = z.object({
+  namespace: z.string().min(1).max(63).regex(K8S_NAME_RE),
+  workload: z.string().min(1).max(253).regex(K8S_NAME_RE),
+  kind: z.enum(["Deployment", "StatefulSet"]).default("Deployment"),
+  container: z.string().min(1).max(63).regex(K8S_NAME_RE).optional(),
+  mount_path: z.string().min(1).max(255).regex(SAFE_MOUNT_PATH),
+  access: z.enum(["readonly", "readwrite"]),
+  manifest_path: z.string().min(1).max(255),
+});
+
+const Body = z.object({
+  provider: z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*$/),
+  backend: z.enum(["smb", "nfs"]).optional(),
+  share: z.string().min(1).max(63).regex(SHARE_RE),
+  subfolder: z.string().max(200).optional(),
+  size: z.string().min(1).max(20).regex(/^[0-9]+(Ki|Mi|Gi|Ti|Pi)$/).optional(),
+  targets: z.array(Target).min(1).max(10),
+});
+
+const DeleteBody = z.object({
+  provider: z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*$/),
+  share: z.string().min(1).max(63).regex(SHARE_RE),
+  subfolder: z.string().max(200).optional(),
+  namespace: z.string().min(1).max(63).regex(K8S_NAME_RE),
+  workload: z.string().min(1).max(253).regex(K8S_NAME_RE),
+  kind: z.enum(["Deployment", "StatefulSet"]).default("Deployment"),
+  access: z.enum(["readonly", "readwrite"]),
+  manifest_path: z.string().min(1).max(255),
+});
+
+interface WorkloadDoc {
   kind?: string;
   metadata?: { name?: string; namespace?: string };
   spec?: {
@@ -70,15 +99,28 @@ interface DeploymentDoc {
   };
 }
 
+function findWorkload(docs: unknown[], kind: string, name: string, namespace: string): WorkloadDoc | undefined {
+  return docs.find((doc): doc is WorkloadDoc => {
+    const workload = doc as WorkloadDoc;
+    return Boolean(workload)
+      && typeof workload === "object"
+      && workload.kind === kind
+      && workload.metadata?.name === name
+      && workload.metadata?.namespace === namespace;
+  });
+}
+
+interface CommitFile { path: string; content: string }
+
 export async function POST(req: NextRequest) {
   const session = await auth();
+  const actor = session?.user?.email ?? "unauthenticated";
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const rbac = await getSessionRBACContext(session, 60);
-  // `nas:write` governs the NAS/share side; patching a Deployment manifest in a
-  // cluster namespace is a catalog mutation, so also require `catalog:write`.
-  // Without this, a bare `nas:write` holder (e.g. a delegated NAS-only custom
-  // group) could inject a volume/volumeMount into ANY catalog Deployment in ANY
-  // namespace — cross-tenant privilege escalation.
+  // `nas:write` governs the NAS side; patching a workload manifest and creating a
+  // PVC in a caller-chosen namespace is a catalog mutation, so also require
+  // `catalog:write`. Without both, a NAS-only group could inject a volume into
+  // ANY catalog Deployment in ANY namespace.
   if (!hasSessionPermission(rbac, "nas:write") || !hasSessionPermission(rbac, "catalog:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -91,113 +133,267 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     const body = parsed.data;
 
-    if (!isAllowedManifestPath(body.manifest_path)) {
-      return NextResponse.json({ error: "manifest_path must be under kubernetes/catalog/" }, { status: 400 });
+    let subfolder: string;
+    try {
+      subfolder = normalizeSubfolder(body.subfolder);
+    } catch (error) {
+      return NextResponse.json({ error: safeError(error) }, { status: 400 });
     }
 
-    const providerCfg = await getResolvedNasProvider(body.provider);
-    if (!providerCfg) {
+    for (const target of body.targets) {
+      if (!isAllowedManifestPath(target.manifest_path)) {
+        return NextResponse.json({ error: `manifest_path must be under kubernetes/catalog/: ${target.manifest_path}` }, { status: 400 });
+      }
+    }
+
+    const provider = await getResolvedNasProvider(body.provider);
+    if (!provider) {
       const registered = (await resolveNasProviders()).map((p) => p.id).join(", ") || "(none)";
       return NextResponse.json({ error: `Unknown NAS provider '${body.provider}'. Registered: ${registered}` }, { status: 400 });
     }
-    const backend: NasBackend = body.backend ?? providerCfg.backends[0];
-    if (!providerCfg.backends.includes(backend)) {
+    const backend: NasBackend = body.backend ?? provider.backends[0];
+    if (!provider.backends.includes(backend)) {
       return NextResponse.json({ error: `Provider '${body.provider}' does not support backend '${backend}'` }, { status: 400 });
     }
-    const host = providerCfg.host;
+    const host = provider.host;
     if (!SAFE_HOST.test(host) || !(await parseAllowedInternalUrlAsync(`https://${host}`))) {
       return NextResponse.json({ error: "Invalid NAS host" }, { status: 400 });
     }
 
-    const subfolder = body.subfolder ?? "";
-
-    // Folder-level ACL — same check as `/api/nas/assign`, so a user can't do
-    // via the app-centric flow what they aren't allowed to do via the
-    // user-centric flow.
+    // Folder ACL, once per requested access mode — the same gate `/api/nas/assign`
+    // applies, so the app-centric path can never grant what the user-centric one
+    // would refuse.
     const permissions = [...getSessionEffectivePermissions(rbac)];
-    const aclDecision = evaluateFolderAcl({
-      username: rbac.username || "unknown",
-      groups: rbac.groups,
-      permissions,
-      provider: body.provider,
-      share: body.share,
-      subfolder,
-      access: body.access,
-    });
-    if (!aclDecision.allowed) {
-      return NextResponse.json({ error: `NAS folder ACL denied: ${aclDecision.reason}` }, { status: 403 });
+    for (const access of new Set(body.targets.map((target) => target.access))) {
+      const decision = evaluateFolderAcl({
+        username: rbac.username || actor,
+        groups: rbac.groups,
+        permissions,
+        provider: body.provider,
+        share: body.share,
+        subfolder,
+        access,
+      });
+      if (!decision.allowed) {
+        return NextResponse.json({ error: `NAS folder ACL denied: ${decision.reason}` }, { status: 403 });
+      }
     }
 
-    const accessSuffix = body.access === "readonly" ? "ro" : "rw";
-    const pvc_name = `nas-${body.deployment}-${body.share.toLowerCase()}-${accessSuffix}`;
-    const volume_name = body.volume_name ?? `nas-${body.share.toLowerCase()}-${accessSuffix}`;
+    const credentials = await resolveNasCredentials(body.provider);
+    if (!credentials) return NextResponse.json({ error: `Provider '${body.provider}' has no stored credentials` }, { status: 400 });
 
-    // Read + parse the target Deployment.
-    const existing = await gitReadFile(body.manifest_path);
-    if (!existing) return NextResponse.json({ error: `Manifest not found: ${body.manifest_path}` }, { status: 404 });
+    const folderTarget: NasFolderTarget = { kind: provider.kind, host: provider.host, port: provider.port, tlsFingerprint256: provider.tlsFingerprint256 };
+    // NFS needs the export's absolute path; SMB does not, but resolving it also
+    // proves the share exists before we write any manifest.
+    const sharePath = await resolveNasSharePath(folderTarget, credentials, body.share);
+
+    // Ensure the scoped mount credentials exist before referencing them from an
+    // ExternalSecret that ESO would otherwise fail to resolve forever.
+    if (backend === "smb") {
+      await ensureProviderSmbCredentials(provider, credentials, { share: body.share });
+    }
 
     const yaml = await import("js-yaml");
-    const docs = yaml.loadAll(existing.content) as unknown[];
-    const deployment = docs.find((doc): doc is DeploymentDoc =>
-      typeof doc === "object" && doc !== null
-      && (doc as { kind?: string }).kind === "Deployment"
-      && (doc as { metadata?: { name?: string; namespace?: string } }).metadata?.name === body.deployment
-      && (doc as { metadata?: { name?: string; namespace?: string } }).metadata?.namespace === body.namespace,
-    );
-    if (!deployment) {
-      return NextResponse.json({ error: `Deployment ${body.namespace}/${body.deployment} not found in manifest` }, { status: 404 });
-    }
-    const podSpec = deployment.spec?.template?.spec;
-    if (!podSpec?.containers?.length) return NextResponse.json({ error: "Deployment has no containers" }, { status: 400 });
-    const container = body.container
-      ? podSpec.containers.find((c) => c.name === body.container)
-      : podSpec.containers[0];
-    if (!container) return NextResponse.json({ error: `Container ${body.container} not found` }, { status: 404 });
-
-    // Idempotency: skip if the same PVC/mount already present.
-    podSpec.volumes = podSpec.volumes ?? [];
-    if (!podSpec.volumes.some((vol) => vol.persistentVolumeClaim?.claimName === pvc_name)) {
-      podSpec.volumes.push({ name: volume_name, persistentVolumeClaim: { claimName: pvc_name } });
-    }
-    container.volumeMounts = container.volumeMounts ?? [];
-    const existingMount = container.volumeMounts.find((vm) => vm.name === volume_name);
-    if (!existingMount) {
-      container.volumeMounts.push({
-        name: volume_name,
-        mountPath: body.mount_path,
-        ...(body.access === "readonly" ? { readOnly: true } : {}),
-      });
-    } else {
-      existingMount.mountPath = body.mount_path;
-      existingMount.readOnly = body.access === "readonly";
-    }
-
-    const patchedContent = docs.map((doc) => yaml.dump(doc, { lineWidth: -1, indent: 2 })).join("---\n");
-
-    const scPvcContent = generateK8sManifest({
-      username: body.deployment,
+    const files = new Map<string, string>();
+    const identityFor = (namespace: string, access: NasAccess): NasVolumeIdentity => ({
       provider: body.provider,
       backend,
-      share: body.share,
-      subfolder,
-      pvc_name,
-      pvc_namespace: body.namespace,
       host,
-      access: body.access,
-      size: body.size,
-    }, yaml);
-    const manifestSubfolder = subfolder.replace(/\//g, "-") || "root";
-    const scPvcPath = `kubernetes/catalog/nas-shares/${body.namespace}-${body.deployment}-${body.share.toLowerCase()}-${manifestSubfolder}-${accessSuffix}.yaml`;
-
-    await gitCommitFiles({
-      message: `feat(nas): mount ${body.share}/${subfolder || "/"} (${accessSuffix}) into ${body.namespace}/${body.deployment}`,
-      addOrUpdateFiles: [
-        { path: scPvcPath, content: scPvcContent },
-        { path: body.manifest_path, content: patchedContent },
-      ],
+      share: body.share,
+      sharePath,
+      subfolder,
+      namespace,
+      access,
     });
 
-    return NextResponse.json({ ok: true, pvc_name, volume_name, sc_pvc_path: scPvcPath, patched: body.manifest_path });
+    // One PV+PVC and one credential ExternalSecret per (namespace, access) —
+    // deduplicated, because two workloads in one namespace share the volume.
+    for (const target of body.targets) {
+      const identity = identityFor(target.namespace, target.access);
+      files.set(deriveNasManifestPath(identity), generateNasVolumeManifest({ ...identity, size: body.size }, yaml));
+      if (backend === "smb") {
+        files.set(
+          deriveNasSecretManifestPath(target.namespace, body.provider, target.access),
+          generateNasCredentialExternalSecret({
+            namespace: target.namespace,
+            provider: body.provider,
+            access: target.access,
+            credsLogicalPath: nasCredsLogicalPath(body.provider, target.access),
+            yamlLib: yaml,
+          }),
+        );
+      }
+    }
+
+    // Patch each target workload. Several targets may live in one manifest file,
+    // so parse-patch-serialise per file, carrying edits forward.
+    const parsedManifests = new Map<string, unknown[]>();
+    for (const target of body.targets) {
+      if (!parsedManifests.has(target.manifest_path)) {
+        const existing = await gitReadFile(target.manifest_path);
+        if (!existing) return NextResponse.json({ error: `Manifest not found: ${target.manifest_path}` }, { status: 404 });
+        parsedManifests.set(target.manifest_path, yaml.loadAll(existing.content) as unknown[]);
+      }
+      const docs = parsedManifests.get(target.manifest_path) as unknown[];
+      const workload = findWorkload(docs, target.kind, target.workload, target.namespace);
+      if (!workload) {
+        return NextResponse.json({ error: `${target.kind} ${target.namespace}/${target.workload} not found in ${target.manifest_path}` }, { status: 404 });
+      }
+      const podSpec = workload.spec?.template?.spec;
+      if (!podSpec?.containers?.length) return NextResponse.json({ error: `${target.workload} has no containers` }, { status: 400 });
+      const container = target.container
+        ? podSpec.containers.find((entry) => entry.name === target.container)
+        : podSpec.containers[0];
+      if (!container) return NextResponse.json({ error: `Container ${target.container} not found in ${target.workload}` }, { status: 404 });
+
+      const names = deriveNasResourceNames(identityFor(target.namespace, target.access));
+      const readOnly = target.access === "readonly";
+
+      podSpec.volumes = podSpec.volumes ?? [];
+      if (!podSpec.volumes.some((volume) => volume.persistentVolumeClaim?.claimName === names.pvcName)) {
+        podSpec.volumes.push({ name: names.volumeName, persistentVolumeClaim: { claimName: names.pvcName } });
+      }
+      container.volumeMounts = container.volumeMounts ?? [];
+      const existingMount = container.volumeMounts.find((mount) => mount.name === names.volumeName);
+      if (existingMount) {
+        existingMount.mountPath = target.mount_path;
+        // Always restate readOnly, so re-mounting readonly over a previous
+        // readwrite mount actually downgrades it.
+        if (readOnly) existingMount.readOnly = true;
+        else delete existingMount.readOnly;
+      } else {
+        container.volumeMounts.push({
+          name: names.volumeName,
+          mountPath: target.mount_path,
+          ...(readOnly ? { readOnly: true } : {}),
+        });
+      }
+    }
+
+    for (const [path, docs] of parsedManifests) {
+      files.set(path, docs.map((doc) => yaml.dump(doc, { lineWidth: -1, indent: 2 })).join("---\n"));
+    }
+
+    const addOrUpdateFiles: CommitFile[] = [...files].map(([path, content]) => ({ path, content }));
+    const summary = body.targets
+      .map((target) => `${target.namespace}/${target.workload} (${target.access === "readonly" ? "ro" : "rw"})`)
+      .join(", ");
+
+    await gitCommitFiles({
+      message: `feat(nas): mount ${body.share}/${subfolder || "/"} into ${summary}`,
+      addOrUpdateFiles,
+    });
+    await auditLog("nas:mount", actor, `mounted ${body.provider}/${body.share}/${subfolder || "/"} into ${summary}`);
+
+    return NextResponse.json({
+      ok: true,
+      subfolder,
+      files: addOrUpdateFiles.map((file) => file.path),
+      mounts: body.targets.map((target) => ({
+        namespace: target.namespace,
+        workload: target.workload,
+        access: target.access,
+        mountPath: target.mount_path,
+        ...deriveNasResourceNames(identityFor(target.namespace, target.access)),
+      })),
+    });
+  } catch (error) {
+    return NextResponse.json({ error: safeError(error) }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth();
+  const actor = session?.user?.email ?? "unauthenticated";
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const rbac = await getSessionRBACContext(session, 60);
+  if (!hasSessionPermission(rbac, "nas:write") || !hasSessionPermission(rbac, "catalog:write")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (!checkRateLimit(rateLimitKey("nas-unmount-workload", req), 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
+  try {
+    const parsed = DeleteBody.safeParse(await req.json());
+    if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    const body = parsed.data;
+    if (!isAllowedManifestPath(body.manifest_path)) {
+      return NextResponse.json({ error: "manifest_path must be under kubernetes/catalog/" }, { status: 400 });
+    }
+
+    let subfolder: string;
+    try {
+      subfolder = normalizeSubfolder(body.subfolder);
+    } catch (error) {
+      return NextResponse.json({ error: safeError(error) }, { status: 400 });
+    }
+
+    const provider = await getResolvedNasProvider(body.provider);
+    if (!provider) return NextResponse.json({ error: `Unknown NAS provider '${body.provider}'` }, { status: 400 });
+
+    // Same authority as mounting: an unmount the ACL would have blocked as a
+    // mount must not be reachable either.
+    const decision = evaluateFolderAcl({
+      username: rbac.username || actor,
+      groups: rbac.groups,
+      permissions: [...getSessionEffectivePermissions(rbac)],
+      provider: body.provider,
+      share: body.share,
+      subfolder,
+      access: body.access,
+    });
+    if (!decision.allowed) {
+      return NextResponse.json({ error: `NAS folder ACL denied: ${decision.reason}` }, { status: 403 });
+    }
+
+    const identity: NasVolumeIdentity = {
+      provider: body.provider,
+      backend: provider.backends[0],
+      host: provider.host,
+      share: body.share,
+      subfolder,
+      namespace: body.namespace,
+      access: body.access,
+    };
+    const names = deriveNasResourceNames(identity);
+
+    const existing = await gitReadFile(body.manifest_path);
+    if (!existing) return NextResponse.json({ error: `Manifest not found: ${body.manifest_path}` }, { status: 404 });
+    const yaml = await import("js-yaml");
+    const docs = yaml.loadAll(existing.content) as unknown[];
+    const workload = findWorkload(docs, body.kind, body.workload, body.namespace);
+    if (!workload) return NextResponse.json({ error: `${body.kind} ${body.namespace}/${body.workload} not found` }, { status: 404 });
+
+    const podSpec = workload.spec?.template?.spec;
+    let changed = false;
+    if (podSpec?.volumes) {
+      const before = podSpec.volumes.length;
+      podSpec.volumes = podSpec.volumes.filter((volume) => volume.persistentVolumeClaim?.claimName !== names.pvcName);
+      changed = podSpec.volumes.length !== before;
+    }
+    for (const container of podSpec?.containers ?? []) {
+      if (!container.volumeMounts) continue;
+      const before = container.volumeMounts.length;
+      container.volumeMounts = container.volumeMounts.filter((mount) => mount.name !== names.volumeName);
+      changed = changed || container.volumeMounts.length !== before;
+    }
+    if (!changed) return NextResponse.json({ ok: true, removed: false });
+
+    // The PV/PVC manifest goes with it. `persistentVolumeReclaimPolicy: Retain`
+    // plus the absence of any provisioner means the NAS directory and its
+    // contents survive — deleting a mount never deletes data.
+    await gitCommitFiles({
+      message: `feat(nas): unmount ${body.share}/${subfolder || "/"} from ${body.namespace}/${body.workload}`,
+      addOrUpdateFiles: [{
+        path: body.manifest_path,
+        content: docs.map((doc) => yaml.dump(doc, { lineWidth: -1, indent: 2 })).join("---\n"),
+      }],
+      deleteFiles: [deriveNasManifestPath(identity)],
+    });
+    await auditLog("nas:unmount", actor, `unmounted ${body.share}/${subfolder || "/"} from ${body.namespace}/${body.workload}`);
+
+    return NextResponse.json({ ok: true, removed: true });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }

@@ -11,6 +11,7 @@ import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { NasFolderExplorer } from "@/components/nas/folder-explorer";
 import {
   useNasProviders,
   useNasMounts,
@@ -439,6 +440,9 @@ function NasSection() {
           setPendingDelete(null);
         }}
       />
+
+      {/* Browse the NAS, carve out a folder, hand it to workloads. */}
+      <NasFolderExplorer providers={providers} />
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
         <div className="flex flex-wrap items-center gap-2">

@@ -8,11 +8,13 @@
 //
 // Discovery model (label-driven, not name-driven):
 //   1. List every PVC in every namespace with label
-//      `infraweaver.io/nas-share=true` (emitted by `generateK8sManifest`).
-//   2. Resolve the bound StorageClass → source (`//host/share`), subDir.
+//      `infraweaver.io/nas-share=true` (emitted by `generateNasVolumeManifest`).
+//   2. Resolve the bound PersistentVolume → `csi.volumeAttributes` (source/share
+//      and subDir) and its `mountOptions`. NAS volumes are statically
+//      provisioned, so there is no StorageClass to read this from.
 //   3. Enumerate pods in each PVC's namespace and match on `volumes[].pvc`.
-//   4. Detect the effective read-only mode from the SC `mountOptions` + the
-//      pod's `volumeMounts[].readOnly` flag.
+//   4. Detect the effective read-only mode from the PV `mountOptions` /
+//      `csi.readOnly` plus the pod's `volumeMounts[].readOnly` flag.
 
 import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
@@ -43,10 +45,16 @@ interface PvcResource {
   status?: { phase?: string };
 }
 
-interface StorageClassResource {
+interface PersistentVolumeResource {
   metadata?: { name?: string };
-  mountOptions?: string[];
-  parameters?: Record<string, string>;
+  spec?: {
+    mountOptions?: string[];
+    csi?: {
+      driver?: string;
+      readOnly?: boolean;
+      volumeAttributes?: Record<string, string>;
+    };
+  };
 }
 
 interface PodResource {
@@ -62,17 +70,16 @@ export const GET = withAuth({ permission: "nas:read", rateLimit: { name: "nas-mo
   try {
     const kc = loadKubeConfig(getRequestClusterId(req));
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    const storageApi = kc.makeApiClient(k8s.StorageV1Api);
 
-    const [pvcResp, scResp] = await Promise.all([
+    const [pvcResp, pvResp] = await Promise.all([
       coreApi.listPersistentVolumeClaimForAllNamespaces({
         labelSelector: "infraweaver.io/nas-share=true",
       }),
-      storageApi.listStorageClass(),
+      coreApi.listPersistentVolume(),
     ]);
     const pvcs = ((pvcResp as { items?: PvcResource[] }).items ?? []);
-    const scs = ((scResp as { items?: StorageClassResource[] }).items ?? []);
-    const scByName = new Map(scs.map((sc) => [sc.metadata?.name ?? "", sc]));
+    const pvs = ((pvResp as { items?: PersistentVolumeResource[] }).items ?? []);
+    const pvByName = new Map(pvs.map((pv) => [pv.metadata?.name ?? "", pv]));
 
     // Group PVCs by namespace so we page pods once per namespace.
     const nsToPvcs = new Map<string, PvcResource[]>();
@@ -99,11 +106,14 @@ export const GET = withAuth({ permission: "nas:read", rateLimit: { name: "nas-mo
     for (const pvc of pvcs) {
       const ns = pvc.metadata?.namespace ?? "";
       const pvcName = pvc.metadata?.name ?? "";
-      const scName = pvc.spec?.storageClassName ?? "";
-      const sc = scByName.get(scName);
+      const pvName = pvc.spec?.volumeName ?? "";
+      const pv = pvByName.get(pvName);
       const labels = pvc.metadata?.labels ?? {};
       const explicitAccess = labels["infraweaver.io/access"] as "ro" | "rw" | undefined;
-      const scReadOnly = Boolean(sc?.mountOptions?.includes("ro"));
+      const volumeReadOnly = Boolean(pv?.spec?.mountOptions?.includes("ro")) || pv?.spec?.csi?.readOnly === true;
+      const attributes = pv?.spec?.csi?.volumeAttributes ?? {};
+      // SMB exposes `source` (//host/share); NFS exposes `server` + `share`.
+      const source = attributes.source ?? (attributes.server ? `${attributes.server}:${attributes.share ?? ""}` : null);
 
       const bindings = (podsByNs.get(ns) ?? []).flatMap<{ pod: PodResource; volName: string; mount?: { mountPath?: string; readOnly?: boolean } }>((pod) => {
         const volNames = (pod.spec?.volumes ?? [])
@@ -120,18 +130,18 @@ export const GET = withAuth({ permission: "nas:read", rateLimit: { name: "nas-mo
       const base = {
         pvcName,
         pvcNamespace: ns,
-        storageClass: scName,
+        storageClass: pvName,
         provider: labels["infraweaver.io/provider"] ?? "unknown",
         user: labels["infraweaver.io/user"] ?? "",
-        source: sc?.parameters?.source ?? null,
-        subDir: sc?.parameters?.subDir ?? null,
+        source,
+        subDir: attributes.subDir ?? null,
         phase: pvc.status?.phase ?? null,
       };
 
       if (bindings.length === 0) {
         mounts.push({
           ...base,
-          access: explicitAccess ?? (scReadOnly ? "ro" : "rw"),
+          access: explicitAccess ?? (volumeReadOnly ? "ro" : "rw"),
           pod: null,
           podPhase: null,
           mountPath: null,
@@ -141,8 +151,8 @@ export const GET = withAuth({ permission: "nas:read", rateLimit: { name: "nas-mo
       }
       for (const binding of bindings) {
         const mountRO = binding.mount?.readOnly ?? null;
-        // Effective RO = SC-level RO OR pod-level RO. RW only when both are false.
-        const effectiveAccess: "ro" | "rw" = (scReadOnly || mountRO === true)
+        // Effective RO = volume-level RO OR pod-level RO. RW only when both are false.
+        const effectiveAccess: "ro" | "rw" = (volumeReadOnly || mountRO === true)
           ? "ro"
           : (explicitAccess ?? "rw");
         mounts.push({
