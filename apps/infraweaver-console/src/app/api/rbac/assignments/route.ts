@@ -103,8 +103,12 @@ export async function DELETE(req: NextRequest) {
   const principal = principalType === "group" ? (group ?? username) : username;
   if (!principal) return NextResponse.json({ error: "Missing principal (username or group)" }, { status: 400 });
 
+  const granterPerms = getSessionEffectivePermissions(access, "/");
   try {
-    const outcome = await revokeRoleAssignment({ assignmentId: id, principalType, principal }, session.user?.email ?? "unknown");
+    const outcome = await revokeRoleAssignment(
+      { assignmentId: id, principalType, principal },
+      { granterPerms, actor: session.user?.email ?? "unknown" },
+    );
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
     return NextResponse.json({ ok: true });
   } catch (error) {

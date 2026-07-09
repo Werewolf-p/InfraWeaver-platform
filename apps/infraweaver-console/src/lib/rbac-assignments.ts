@@ -173,19 +173,44 @@ export interface RevokeAssignmentInput {
   principal: string;
 }
 
-export async function revokeRoleAssignment(input: RevokeAssignmentInput, actor: string): Promise<RevokeResult> {
+/**
+ * Privilege ceiling for revoke (mirrors the grant ceiling at `grantRoleAssignment`).
+ * Revoking an assignment whose role confers permissions the revoker lacks is
+ * denied — whether it is an Allow (revoking it is a lockout / denial-of-service,
+ * e.g. removing an Owner "*") or a Deny (stripping it restores those permissions
+ * to the target, i.e. escalation). Unknown roles are treated as "nothing to
+ * assess" (returns false), same as grant.
+ */
+async function revokeExceedsCeiling(
+  removed: RoleAssignment,
+  input: RevokeAssignmentInput,
+  ctx: AssignmentActionContext,
+): Promise<boolean> {
+  if (!assignmentExceedsGranter(ctx.granterPerms, removed.roleId)) return false;
+  await auditLog(
+    "rbac:revoke:denied",
+    ctx.actor,
+    `Denied revoking assignment '${input.assignmentId}' (role '${removed.roleId}') from ${input.principalType} '${input.principal}': exceeds revoker permissions`,
+  );
+  return true;
+}
+
+export async function revokeRoleAssignment(input: RevokeAssignmentInput, ctx: AssignmentActionContext): Promise<RevokeResult> {
   const file = await loadUsersConfig();
 
   if (input.principalType === "group") {
     const group = file.groups[input.principal];
-    const before = group?.role_assignments ?? [];
+    const before = normalizeGroupRoleAssignments(input.principal, group?.role_assignments);
     const removed = before.find((a) => a.id === input.assignmentId);
+    if (!removed) return { ok: false, status: 404, error: "Assignment not found" };
+    if (await revokeExceedsCeiling(removed, input, ctx)) {
+      return { ok: false, status: 403, error: "Cannot revoke a role that exceeds your own permissions" };
+    }
     const after = before.filter((a) => a.id !== input.assignmentId);
-    if (before.length === after.length) return { ok: false, status: 404, error: "Assignment not found" };
     const nextGroups = { ...file.groups, [input.principal]: { ...group, role_assignments: after } };
     await saveUsersConfig(file.users, file.sha, `rbac: revoke assignment ${input.assignmentId} from group ${input.principal}`, nextGroups);
-    await auditLog("rbac:revoke", actor, `Revoked assignment '${input.assignmentId}' from group '${input.principal}'`);
-    if (removed) syncWordpressAccessForScope(removed.scope);
+    await auditLog("rbac:revoke", ctx.actor, `Revoked assignment '${input.assignmentId}' from group '${input.principal}'`);
+    syncWordpressAccessForScope(removed.scope);
     return { ok: true };
   }
 
@@ -193,11 +218,14 @@ export async function revokeRoleAssignment(input: RevokeAssignmentInput, actor: 
   if (!user) return { ok: false, status: 404, error: "User not found" };
   const before = normalizeRoleAssignments(input.principal, user.role_assignments);
   const removed = before.find((a) => a.id === input.assignmentId);
+  if (!removed) return { ok: false, status: 404, error: "Assignment not found" };
+  if (await revokeExceedsCeiling(removed, input, ctx)) {
+    return { ok: false, status: 403, error: "Cannot revoke a role that exceeds your own permissions" };
+  }
   const after = before.filter((a) => a.id !== input.assignmentId);
-  if (before.length === after.length) return { ok: false, status: 404, error: "Assignment not found" };
   file.users[input.principal] = { ...user, role_assignments: after };
   await saveUsersConfig(file.users, file.sha, `rbac: revoke assignment ${input.assignmentId} from ${input.principal}`, file.groups);
-  await auditLog("rbac:revoke", actor, `Revoked assignment '${input.assignmentId}' from '${input.principal}'`);
-  if (removed) syncWordpressAccessForScope(removed.scope);
+  await auditLog("rbac:revoke", ctx.actor, `Revoked assignment '${input.assignmentId}' from '${input.principal}'`);
+  syncWordpressAccessForScope(removed.scope);
   return { ok: true };
 }
