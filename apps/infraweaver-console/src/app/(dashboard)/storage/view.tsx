@@ -20,6 +20,8 @@ import {
   type NasProvider,
   type NasProviderInput,
   type NasProviderKind,
+  NasCertificateChallenge,
+  type NasCertificate,
 } from "@/hooks/use-nas";
 
 interface BreakdownEntry {
@@ -572,12 +574,31 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
   // account. Off in edit mode (the scoped account already exists).
   const [provisionScoped, setProvisionScoped] = useState(!isEdit);
   const adminMode = !isEdit && provisionScoped;
+  // TrueNAS `api_key.create` binds the new key to a user and the key inherits
+  // that user's privileges, so the operator names the account to bind to.
+  const [scopedUsername, setScopedUsername] = useState("");
+  // Set when the server refused to talk to an appliance whose self-signed
+  // certificate we have not trusted. Rendering it is the operator's chance to
+  // verify the fingerprint out-of-band before any credential is sent.
+  const [pendingCert, setPendingCert] = useState<{ certificate: NasCertificate; state: "untrusted" | "mismatch" } | null>(null);
 
   function close() {
+    // The "add" sheet is not remounted between opens (its `key` is static), so
+    // a certificate challenge left over from an abandoned save would otherwise
+    // be shown against the next appliance the operator types in.
+    setPendingCert(null);
+    setError(null);
+    setNotice(null);
     onClose();
   }
 
-  async function submit() {
+  /** A pin is only meaningful for the endpoint it was observed on. */
+  function retargetEndpoint(apply: () => void) {
+    setPendingCert(null);
+    apply();
+  }
+
+  async function submit(trustFingerprint?: string) {
     setError(null);
     setNotice(null);
     // In edit mode, blank credential fields mean "keep the stored ones" — the
@@ -594,9 +615,12 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
       credentials,
       ...(port.trim() ? { port: Number(port.trim()) } : {}),
       ...(adminMode ? { provisionScoped: true } : {}),
+      ...(adminMode && kind === "truenas" && scopedUsername.trim() ? { scopedUsername: scopedUsername.trim() } : {}),
+      ...(trustFingerprint ? { tlsFingerprint256: trustFingerprint } : {}),
     };
     try {
       const result = await saveProvider.mutateAsync(input);
+      setPendingCert(null);
       if (result.provisioned?.warning) {
         // Provider is saved; keep the sheet open so the operator sees the
         // one non-fatal caveat (e.g. a share grant to finish manually).
@@ -605,6 +629,10 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
         close();
       }
     } catch (err) {
+      if (err instanceof NasCertificateChallenge) {
+        setPendingCert({ certificate: err.certificate, state: err.state });
+        return;
+      }
       setError(err instanceof Error ? err.message : "Failed to save provider");
     }
   }
@@ -612,7 +640,11 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
   const credsReady = canKeepStoredCreds
     ? true // OpenBao secret already stored — blank fields mean "keep them"
     : kind === "synology" ? Boolean(username && password) : Boolean(apiKey);
-  const canSave = Boolean(name.trim()) && Boolean(host.trim()) && credsReady && !saveProvider.isPending;
+  // TrueNAS refuses `api_key.create` without a username, so require it up front
+  // rather than round-tripping to the appliance for a 422.
+  const scopedUserReady = !(adminMode && kind === "truenas") || Boolean(scopedUsername.trim());
+  const canSave =
+    Boolean(name.trim()) && Boolean(host.trim()) && credsReady && scopedUserReady && !saveProvider.isPending;
   const portHint = KIND_OPTIONS.find((k) => k.value === kind)?.portHint ?? "";
 
   return (
@@ -633,7 +665,7 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
           <button type="button" onClick={close} className="rounded-lg border border-gray-200 dark:border-white/10 px-4 py-2 text-sm text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white">Cancel</button>
           <button
             type="button"
-            onClick={submit}
+            onClick={() => submit()}
             disabled={!canSave}
             className={cn(
               "flex min-h-[40px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
@@ -656,7 +688,7 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
           <span className="text-xs text-slate-500 dark:text-slate-400">Type</span>
           <select
             value={kind}
-            onChange={(e) => setKind(e.target.value as NasProviderKind)}
+            onChange={(e) => retargetEndpoint(() => setKind(e.target.value as NasProviderKind))}
             disabled={isEdit}
             title={isEdit ? "Type is fixed after creation — delete + re-add to change it" : undefined}
             className={cn(PROVIDER_INPUT_CLASS, isEdit && "cursor-not-allowed opacity-60")}
@@ -668,11 +700,11 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
         <div className="grid grid-cols-[1fr_auto] gap-2">
           <label className="block">
             <span className="text-xs text-slate-500 dark:text-slate-400">Host / IP</span>
-            <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="10.25.0.21" autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+            <input value={host} onChange={(e) => retargetEndpoint(() => setHost(e.target.value))} placeholder="10.25.0.21" autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
           </label>
           <label className="block">
             <span className="text-xs text-slate-500 dark:text-slate-400">Port</span>
-            <input value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ""))} placeholder={portHint} inputMode="numeric" className={cn(PROVIDER_INPUT_CLASS, "w-24")} />
+            <input value={port} onChange={(e) => retargetEndpoint(() => setPort(e.target.value.replace(/[^0-9]/g, "")))} placeholder={portHint} inputMode="numeric" className={cn(PROVIDER_INPUT_CLASS, "w-24")} />
           </label>
         </div>
 
@@ -711,12 +743,24 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
             </label>
           </>
         ) : (
-          <label className="block">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              {adminMode ? "Admin API key (used once)" : `API key${canKeepStoredCreds ? " (leave blank to keep stored)" : ""}`}
-            </span>
-            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={adminMode ? "admin API key" : canKeepStoredCreds ? "•••••••• (unchanged)" : "TrueNAS API key"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
-          </label>
+          <>
+            <label className="block">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {adminMode ? "Admin API key (used once)" : `API key${canKeepStoredCreds ? " (leave blank to keep stored)" : ""}`}
+              </span>
+              <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={adminMode ? "admin API key" : canKeepStoredCreds ? "•••••••• (unchanged)" : "TrueNAS API key"} autoComplete="new-password" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+            </label>
+            {adminMode ? (
+              <label className="block">
+                <span className="text-xs text-slate-500 dark:text-slate-400">TrueNAS username for the new key</span>
+                <input value={scopedUsername} onChange={(e) => setScopedUsername(e.target.value)} placeholder="iw-svc" autoComplete="off" spellCheck={false} className={PROVIDER_INPUT_CLASS} />
+                <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                  The scoped key is created for this existing TrueNAS user and inherits its privileges.
+                  Name a non-admin account — not <code className="rounded bg-slate-500/10 px-1">root</code>.
+                </span>
+              </label>
+            ) : null}
+          </>
         )}
 
         <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -725,6 +769,53 @@ function ProviderSheet({ open, onClose, initial }: { open: boolean; onClose: () 
           single-label intranet, or any <code className="mx-1 rounded bg-slate-500/10 px-1">*.int</code> name).
           Public/external hosts must be added to the platform allowlist first.
         </p>
+
+        {pendingCert ? (
+          <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+            <p className="text-xs font-medium text-amber-300">
+              {pendingCert.state === "mismatch"
+                ? "This appliance's TLS certificate changed"
+                : "Verify this appliance's TLS certificate"}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {pendingCert.state === "mismatch"
+                ? "The certificate no longer matches the one you trusted. If you did not just replace it on the NAS, stop — something is intercepting this connection."
+                : "NAS appliances ship a self-signed certificate. Compare this fingerprint with the one shown on the NAS itself before trusting it. Your credentials have not been sent."}
+            </p>
+            <dl className="space-y-1 text-xs">
+              {[
+                ["Subject", pendingCert.certificate.subject],
+                ["Issuer", pendingCert.certificate.issuer + (pendingCert.certificate.selfSigned ? " (self-signed)" : "")],
+                ["Expires", pendingCert.certificate.validTo],
+              ].map(([label, value]) => (
+                <div key={label} className="flex gap-2">
+                  <dt className="w-16 shrink-0 text-slate-500 dark:text-slate-400">{label}</dt>
+                  <dd className="min-w-0 break-words text-slate-600 dark:text-slate-300">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="break-all rounded bg-slate-500/10 px-2 py-1 font-mono text-[11px] text-slate-600 dark:text-slate-300">
+              {pendingCert.certificate.fingerprintDisplay}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => submit(pendingCert.certificate.fingerprint256)}
+                disabled={saveProvider.isPending}
+                className="rounded-lg border border-amber-500/40 bg-amber-500/20 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-500/30 disabled:opacity-50"
+              >
+                Trust &amp; save
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingCert(null)}
+                className="rounded-lg border border-gray-200 dark:border-white/10 px-3 py-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
+              >
+                Don&apos;t trust
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {error ? <p className="text-xs text-red-400">{error}</p> : null}
         {notice ? <p className="text-xs text-amber-400">Saved. {notice}</p> : null}
