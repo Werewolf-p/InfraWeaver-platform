@@ -256,7 +256,8 @@ function AssignWizard({
   const { data: shares = [], isLoading: sharesLoading } = useNasShares(state.provider || null);
   const { data: folders = [], isLoading: foldersLoading } = useNasFolders(
     state.provider || null,
-    state.share || null
+    state.share || null,
+    "",
   );
 
   // Host of the selected provider, resolved from the live registry (built-in or

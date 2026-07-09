@@ -26,15 +26,24 @@ const KV_MOUNT = process.env.OPENBAO_KV_MOUNT || "secret";
 // live in this one secret so the console's OpenBao policy needs no extra path
 // (it already grants create/read/update on `platform/nas/providers`).
 const NAS_LOGICAL_PATH = "platform/nas/providers";
-// Flat, ESO-readable per-provider SMB credentials (username/password) live here,
-// one secret per provider id. The assign flow's ExternalSecret references this
-// path so the SMB CSI driver gets a materialised Secret — creds never touch git.
+// Flat, ESO-readable SMB credentials (username/password) live here, one secret
+// per (provider, access) pair — `truenas-ro`, `truenas-rw`. The mount flow's
+// ExternalSecret references this path so the SMB CSI driver gets a materialised
+// Secret; credentials never touch git.
+//
+// The split by access mode is the whole point: the read-only account's password
+// is the only credential that ever lands in a namespace mounting a folder
+// read-only, so that namespace cannot write to the NAS even if its kernel mount
+// flags were stripped.
 const NAS_CREDS_PREFIX = "platform/nas/creds";
 const VAULT_TIMEOUT_MS = Number(process.env.OPENBAO_TIMEOUT_MS) || 10_000;
 
-/** OpenBao logical path (no mount/`data` prefix) for a provider's SMB creds. */
-export function nasCredsLogicalPath(providerId: string): string {
-  return `${NAS_CREDS_PREFIX}/${providerId}`;
+/** Access mode of a NAS mount, mirrored by `@/lib/nas/manifest`. */
+export type NasCredsAccess = "readonly" | "readwrite";
+
+/** OpenBao logical path (no mount/`data` prefix) for a provider's scoped SMB creds. */
+export function nasCredsLogicalPath(providerId: string, access: NasCredsAccess): string {
+  return `${NAS_CREDS_PREFIX}/${providerId}-${access === "readonly" ? "ro" : "rw"}`;
 }
 
 /** Discovery adapters the console knows how to talk to. */
@@ -188,16 +197,16 @@ export async function writeStoredNasProviders(providers: StoredNasProvider[]): P
 }
 
 /**
- * Write a provider's flat SMB credentials (username/password) to its dedicated
- * ESO-readable path. Used for SMB-capable providers whose login credentials ARE
- * the SMB credentials (Synology, generic-smb) so the assign flow's
- * ExternalSecret can materialise the CSI Secret.
+ * Write the SMB credentials for one (provider, access) pair to its dedicated
+ * ESO-readable path, so the mount flow's ExternalSecret can materialise the CSI
+ * Secret in a consuming namespace.
  */
 export async function writeNasSmbCreds(
   providerId: string,
+  access: NasCredsAccess,
   creds: { username: string; password: string },
 ): Promise<void> {
-  const res = await vaultFetch(nasCredsLogicalPath(providerId), {
+  const res = await vaultFetch(nasCredsLogicalPath(providerId, access), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ data: { username: creds.username, password: creds.password } }),
@@ -205,16 +214,32 @@ export async function writeNasSmbCreds(
   if (!res.ok) throw new Error(`OpenBao write nas smb creds failed: ${res.status}`);
 }
 
-/** Best-effort removal of a provider's SMB credential secret (data + metadata). */
+/** Read back a stored SMB credential pair, or null when it has not been minted yet. */
+export async function readNasSmbCreds(
+  providerId: string,
+  access: NasCredsAccess,
+): Promise<{ username: string; password: string } | null> {
+  const res = await vaultFetch(nasCredsLogicalPath(providerId, access), { method: "GET" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`OpenBao read nas smb creds failed: ${res.status}`);
+  const body = (await res.json()) as { data?: { data?: { username?: unknown; password?: unknown } } };
+  const data = body.data?.data ?? {};
+  if (typeof data.username !== "string" || typeof data.password !== "string") return null;
+  return { username: data.username, password: data.password };
+}
+
+/** Best-effort removal of a provider's SMB credential secrets (data + metadata). */
 export async function deleteNasSmbCreds(providerId: string): Promise<void> {
   const { addr, token } = vaultAuth();
-  await fetch(`${addr}/v1/${KV_MOUNT}/metadata/${nasCredsLogicalPath(providerId)}`, {
-    method: "DELETE",
-    headers: { "X-Vault-Token": token },
-    signal: AbortSignal.timeout(VAULT_TIMEOUT_MS),
-  }).catch(() => {
-    /* orphaned creds are harmless; never fail a provider delete on cleanup */
-  });
+  await Promise.all((["readonly", "readwrite"] as const).map((access) =>
+    fetch(`${addr}/v1/${KV_MOUNT}/metadata/${nasCredsLogicalPath(providerId, access)}`, {
+      method: "DELETE",
+      headers: { "X-Vault-Token": token },
+      signal: AbortSignal.timeout(VAULT_TIMEOUT_MS),
+    }).catch(() => {
+      /* orphaned creds are harmless; never fail a provider delete on cleanup */
+    }),
+  ));
 }
 
 /**

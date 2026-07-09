@@ -51,8 +51,10 @@ export interface NasShare {
 }
 
 export interface NasFolder {
+  /** Base name, e.g. `movies`. */
   name: string;
-  path: string;
+  /** Share-relative path, e.g. `media/movies` — what the mount flow consumes. */
+  subfolder: string;
 }
 
 export interface NasAssignment {
@@ -213,18 +215,140 @@ export function useNasShares(provider: string | null) {
   });
 }
 
-export function useNasFolders(provider: string | null, share: string | null) {
+/** Directories directly beneath `share/path`. `path` of "" browses the share root. */
+export function useNasFolders(provider: string | null, share: string | null, path: string) {
   return useQuery({
-    queryKey: ["nas", "folders", provider, share],
+    queryKey: ["nas", "folders", provider, share, path],
     queryFn: async () => {
       if (!provider || !share) return [];
-      const res = await fetch(`/api/nas/folders?provider=${provider}&share=${encodeURIComponent(share)}`, { signal: AbortSignal.timeout(10000) });
-      if (!res.ok) throw new Error("Failed to fetch folders");
+      const params = new URLSearchParams({ provider, share, path });
+      const res = await fetch(`/api/nas/folders?${params}`, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "Failed to fetch folders");
+      }
       const data = await res.json() as { folders: NasFolder[] };
       return data.folders;
     },
-    enabled: !!provider && !!share,
-    staleTime: 60000,
+    enabled: Boolean(provider && share),
+    staleTime: 30000,
+  });
+}
+
+/**
+ * Create a folder on the NAS. The server also mints the provider's scoped SMB
+ * service accounts and grants them the folder ACLs, so a freshly created folder
+ * is immediately mountable at either access mode.
+ */
+export function useNasCreateFolder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { provider: string; share: string; path: string }) => {
+      const res = await fetch("/api/nas/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: unknown; path?: string; created?: string[] };
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Failed to create folder");
+      }
+      return data as { ok: boolean; path: string; created: string[]; accountsGranted: boolean };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["nas", "folders"] });
+    },
+  });
+}
+
+/** A workload in the GitOps catalog that a NAS folder can be mounted into. */
+export interface NasMountTarget {
+  app: string;
+  kind: "Deployment" | "StatefulSet";
+  name: string;
+  namespace: string;
+  containers: string[];
+  manifestPath: string;
+}
+
+export function useNasMountTargets() {
+  return useQuery({
+    queryKey: ["nas", "mount-targets"],
+    queryFn: async () => {
+      const res = await fetch("/api/nas/mount-targets", { signal: AbortSignal.timeout(20000) });
+      if (!res.ok) throw new Error("Failed to fetch mount targets");
+      const data = await res.json() as { targets: NasMountTarget[] };
+      return data.targets;
+    },
+    staleTime: 120000,
+  });
+}
+
+export interface NasMountRequestTarget {
+  namespace: string;
+  workload: string;
+  kind: "Deployment" | "StatefulSet";
+  container?: string;
+  mount_path: string;
+  access: "readonly" | "readwrite";
+  manifest_path: string;
+}
+
+/** Mount one folder into N workloads in a single GitOps commit. */
+export function useNasMountWorkload() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      provider: string;
+      share: string;
+      subfolder?: string;
+      backend?: "smb" | "nfs";
+      size?: string;
+      targets: NasMountRequestTarget[];
+    }) => {
+      const res = await fetch("/api/nas/mount-workload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: unknown; files?: string[] };
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Failed to mount folder");
+      }
+      return data as { ok: boolean; subfolder: string; files: string[] };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["nas", "mounts"] });
+    },
+  });
+}
+
+/** Remove one workload's mount. Never deletes data on the NAS. */
+export function useNasUnmountWorkload() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      provider: string;
+      share: string;
+      subfolder?: string;
+      namespace: string;
+      workload: string;
+      kind: "Deployment" | "StatefulSet";
+      access: "readonly" | "readwrite";
+      manifest_path: string;
+    }) => {
+      const res = await fetch("/api/nas/mount-workload", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed to unmount folder");
+      return data as { ok: boolean; removed: boolean };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["nas", "mounts"] });
+    },
   });
 }
 
