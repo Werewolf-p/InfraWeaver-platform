@@ -65,8 +65,27 @@ export async function isAllowedInternalHostAsync(hostname: string): Promise<bool
   return hosts.has(normalized);
 }
 
+export interface InternalUrlOptions {
+  /**
+   * A host the NAS wizard has ALREADY cleared with
+   * `isAllowedInternalHostForWizard`, threaded down to the save-and-test probe.
+   * Without it a brand-new appliance is unreachable: the host only joins the
+   * resolved allowlist once the provider is stored, and the provider is only
+   * stored once the probe succeeds.
+   *
+   * This does NOT widen the allowlist for ordinary fetches. It admits exactly
+   * one host, for one call, and re-runs the wizard predicate here — so passing
+   * a public or attacker-controlled host through is inert, as is passing a host
+   * that is not the one the URL actually dials.
+   */
+  wizardHost?: string;
+}
+
 /** Server-authoritative `parseAllowedInternalUrl`. Returns null when disallowed. */
-export async function parseAllowedInternalUrlAsync(rawUrl: string): Promise<URL | null> {
+export async function parseAllowedInternalUrlAsync(
+  rawUrl: string,
+  options: InternalUrlOptions = {},
+): Promise<URL | null> {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -75,8 +94,14 @@ export async function parseAllowedInternalUrlAsync(rawUrl: string): Promise<URL 
   }
   if (!["http:", "https:"].includes(url.protocol)) return null;
   if (url.username || url.password) return null;
-  if (!(await isAllowedInternalHostAsync(url.hostname))) return null;
-  return url;
+
+  const hostname = url.hostname.toLowerCase();
+  if (await isAllowedInternalHostAsync(hostname)) return url;
+
+  const wizardHost = options.wizardHost?.trim().toLowerCase();
+  if (wizardHost && wizardHost === hostname && (await isAllowedInternalHostForWizard(hostname))) return url;
+
+  return null;
 }
 
 /**

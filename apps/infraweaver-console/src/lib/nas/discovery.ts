@@ -8,8 +8,9 @@
  *
  * Every outbound call goes through `fetchNasService`, which pins requests to
  * the SSRF allowlist AND to the appliance's operator-confirmed TLS certificate
- * fingerprint. The host is always taken from a resolved provider config (never
- * raw user input) and is separately allowlist-checked by callers.
+ * fingerprint. The host is taken from a resolved provider config, except on the
+ * wizard's save-and-test path, where it is the not-yet-stored host the wizard
+ * cleared with `isAllowedInternalHostForWizard` and passed as `wizardHost`.
  *
  * Error contract for the `*List*` adapters: an ordinary failure (bad password,
  * appliance error, malformed body) degrades to `[]`, but a TLS certificate
@@ -43,6 +44,13 @@ interface NasConn {
   host: string;
   port: number;
   tlsFingerprint256?: string;
+  /**
+   * Set to `host` by the wizard only, once `isAllowedInternalHostForWizard` has
+   * cleared it, so the save-and-test probe can reach an appliance that is not on
+   * the SSRF allowlist yet (it joins the allowlist only once stored). Adapters
+   * driven from a resolved provider leave this unset.
+   */
+  wizardHost?: string;
 }
 
 export interface SynologyConn extends NasConn {
@@ -69,7 +77,7 @@ export async function synologyLogin(conn: SynologyConn): Promise<string | null> 
     const res = await fetchNasService(
       `https://${conn.host}:${conn.port}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account=${user}&passwd=${pass}&session=FileStation&format=sid`,
       { timeoutMs: PROBE_TIMEOUT_MS },
-      { pin: conn.tlsFingerprint256 },
+      { pin: conn.tlsFingerprint256, wizardHost: conn.wizardHost },
     );
     const data = (await res.json()) as { success: boolean; data?: { sid: string } };
     return data.success ? data.data?.sid ?? null : null;
@@ -88,7 +96,7 @@ export async function synologyListShares(conn: SynologyConn): Promise<NasShare[]
     const res = await fetchNasService(
       `https://${conn.host}:${conn.port}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list_share&SID=${sid}`,
       { timeoutMs: PROBE_TIMEOUT_MS },
-      { pin: conn.tlsFingerprint256 },
+      { pin: conn.tlsFingerprint256, wizardHost: conn.wizardHost },
     );
     const data = (await res.json()) as {
       success: boolean;
@@ -114,7 +122,7 @@ export async function synologyListFolders(conn: SynologyConn, share: string): Pr
     const res = await fetchNasService(
       `https://${conn.host}:${conn.port}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list&folder_path=${folderPath}&filetype=dir&SID=${sid}`,
       { timeoutMs: PROBE_TIMEOUT_MS },
-      { pin: conn.tlsFingerprint256 },
+      { pin: conn.tlsFingerprint256, wizardHost: conn.wizardHost },
     );
     const data = (await res.json()) as { success: boolean; data?: { files: Array<{ name: string; path: string }> } };
     if (!data.success) return [];
@@ -131,7 +139,7 @@ export async function truenasListShares(conn: TruenasConn): Promise<NasShare[]> 
     const res = await fetchNasService(
       `${truenasBase(conn)}/sharing/smb`,
       { headers: { Authorization: `Bearer ${conn.apiKey}` }, timeoutMs: PROBE_TIMEOUT_MS },
-      { pin: conn.tlsFingerprint256 },
+      { pin: conn.tlsFingerprint256, wizardHost: conn.wizardHost },
     );
     if (!res.ok) return [];
     const shares = await res.json();
@@ -149,7 +157,7 @@ export async function truenasListFolders(conn: TruenasConn, share: string): Prom
     const res = await fetchNasService(
       `${truenasBase(conn)}/pool/dataset?type=FILESYSTEM&limit=50`,
       { headers: { Authorization: `Bearer ${conn.apiKey}` }, timeoutMs: PROBE_TIMEOUT_MS },
-      { pin: conn.tlsFingerprint256 },
+      { pin: conn.tlsFingerprint256, wizardHost: conn.wizardHost },
     );
     if (!res.ok) return [];
     const parsed = await res.json();
@@ -172,6 +180,8 @@ export interface ProbeTarget {
   port: number;
   kind: "synology" | "truenas" | "generic-smb" | "generic-nfs";
   tlsFingerprint256?: string;
+  /** See `NasConn.wizardHost` — set only by the wizard's save-and-test probe. */
+  wizardHost?: string;
 }
 
 export interface ProbeResult {
@@ -222,6 +232,7 @@ export async function probeNasCredentials(
         host: target.host,
         port: target.port,
         tlsFingerprint256: target.tlsFingerprint256,
+        wizardHost: target.wizardHost,
         user: credentials.username,
         password: credentials.password,
       });
@@ -236,7 +247,7 @@ export async function probeNasCredentials(
       const res = await fetchNasService(
         `${truenasBase(target)}/system/info`,
         { headers: { Authorization: `Bearer ${credentials.apiKey}` }, timeoutMs: PROBE_TIMEOUT_MS },
-        { pin: target.tlsFingerprint256 },
+        { pin: target.tlsFingerprint256, wizardHost: target.wizardHost },
       );
       return res.ok
         ? { ok: true }

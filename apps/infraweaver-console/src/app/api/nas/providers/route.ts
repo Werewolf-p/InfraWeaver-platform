@@ -273,7 +273,12 @@ export async function POST(req: NextRequest) {
       );
     }
     pin ??= priorPin;
-    const probeTarget = { host: hostname, port, kind, tlsFingerprint256: pin };
+    // `hostname` cleared `isAllowedInternalHostForWizard` above but is not on the
+    // SSRF allowlist until the provider is STORED — and it is only stored once
+    // the probe below succeeds. Hand the probe that same cleared host so a brand
+    // new appliance can be reached; `parseAllowedInternalUrlAsync` re-validates
+    // it, so this admits nothing the wizard check would not.
+    const probeTarget = { host: hostname, port, kind, tlsFingerprint256: pin, wizardHost: hostname };
 
     // Least-privilege self-provisioning: the pasted credentials are a one-time
     // admin credential. Verify it, use it to mint a scoped service account on

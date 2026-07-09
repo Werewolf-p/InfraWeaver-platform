@@ -30,7 +30,9 @@
  *     handshake leaks nothing but the SNI hostname.
  *
  * URLs still pass through `parseAllowedInternalUrlAsync`, so the SSRF
- * allowlist applies exactly as it does for `fetchInternalService`.
+ * allowlist applies exactly as it does for `fetchInternalService`. The one
+ * seam is `options.wizardHost`, which lets the not-yet-stored appliance the
+ * wizard is adding be probed; the allowlist re-validates that host itself.
  */
 
 import { request as httpRequest, type IncomingMessage } from "node:http";
@@ -136,6 +138,13 @@ export interface NasFetchInit {
 export interface NasFetchOptions {
   /** SHA-256 fingerprint the operator trusted for this provider. Required for https. */
   pin?: string;
+  /**
+   * Host the NAS wizard already cleared with `isAllowedInternalHostForWizard`,
+   * for the save-and-test probe that runs before the provider is stored. The
+   * allowlist re-validates it, so this can only ever admit the private host the
+   * URL already dials — see `InternalUrlOptions.wizardHost`.
+   */
+  wizardHost?: string;
 }
 
 function collect(res: IncomingMessage, resolve: (r: NasResponse) => void, reject: (e: Error) => void): void {
@@ -177,7 +186,7 @@ export async function fetchNasService(
   init: NasFetchInit = {},
   options: NasFetchOptions = {},
 ): Promise<NasResponse> {
-  const url = await parseAllowedInternalUrlAsync(rawUrl);
+  const url = await parseAllowedInternalUrlAsync(rawUrl, { wizardHost: options.wizardHost });
   if (!url) throw new Error("URL not allowed");
 
   const isHttps = url.protocol === "https:";

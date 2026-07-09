@@ -24,16 +24,22 @@
  *
  * Every outbound call goes through `fetchNasService`, which enforces both the
  * SSRF allowlist and the appliance's operator-confirmed TLS certificate pin.
- * The host always comes from a resolved/allowlisted provider config, never raw
- * user input.
+ * The host comes from a resolved/allowlisted provider config, or — since this
+ * runs before the provider is stored — from the wizard's `wizardHost`, which
+ * the allowlist re-validates as private. Never raw, unchecked user input.
  */
 
 import { randomBytes } from "node:crypto";
 import { synologyLogin, type ProbeTarget } from "@/lib/nas/discovery";
-import { fetchNasService } from "@/lib/nas/pinned-fetch";
+import { fetchNasService, type NasFetchOptions } from "@/lib/nas/pinned-fetch";
 import type { StoredNasCredentials } from "@/lib/nas/store";
 
 const PROVISION_TIMEOUT_MS = 8000;
+
+/** The pin plus, on the wizard's pre-store path, the host it already cleared. */
+function nasOptions(target: ProbeTarget): NasFetchOptions {
+  return { pin: target.tlsFingerprint256, wizardHost: target.wizardHost };
+}
 
 /** Admin credential the operator provides ONCE, used only to mint the scoped account. */
 export interface NasAdminCredentials {
@@ -83,12 +89,12 @@ interface SynoResponse {
 
 /** List share names using an existing admin SID (so the scoped user can be
  *  granted access to the shares that actually exist). Best-effort — returns [] on error. */
-async function synoListShareNames(host: string, port: number, sid: string, pin?: string): Promise<string[]> {
+async function synoListShareNames(host: string, port: number, sid: string, opts: NasFetchOptions): Promise<string[]> {
   try {
     const res = await fetchNasService(
       `https://${host}:${port}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list_share&SID=${sid}`,
       { timeoutMs: PROVISION_TIMEOUT_MS },
-      { pin },
+      opts,
     );
     const data = (await res.json()) as { success: boolean; data?: { shares?: Array<{ name: string }> } };
     if (!data.success) return [];
@@ -102,7 +108,7 @@ async function synoEntry(
   host: string,
   port: number,
   params: Record<string, string>,
-  pin?: string,
+  opts: NasFetchOptions,
 ): Promise<SynoResponse> {
   const query = Object.entries(params)
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
@@ -110,7 +116,7 @@ async function synoEntry(
   const res = await fetchNasService(
     `https://${host}:${port}/webapi/entry.cgi?${query}`,
     { timeoutMs: PROVISION_TIMEOUT_MS },
-    { pin },
+    opts,
   );
   return (await res.json()) as SynoResponse;
 }
@@ -124,11 +130,12 @@ async function provisionSynology(
   if (!admin.username || !admin.password) {
     return { ok: false, error: "Synology admin username and password are required to provision a scoped account" };
   }
-  const pin = target.tlsFingerprint256;
+  const opts = nasOptions(target);
   const sid = await synologyLogin({
     host: target.host,
     port: target.port,
-    tlsFingerprint256: pin,
+    tlsFingerprint256: target.tlsFingerprint256,
+    wizardHost: target.wizardHost,
     user: admin.username,
     password: admin.password,
   });
@@ -150,7 +157,7 @@ async function provisionSynology(
     description: "InfraWeaver least-privilege service account",
     cannot_chg_passwd: "true",
     _sid: sid,
-  }, pin).catch(() => ({ success: false }) as SynoResponse);
+  }, opts).catch(() => ({ success: false }) as SynoResponse);
 
   if (!created.success) {
     const reset = await synoEntry(target.host, target.port, {
@@ -160,7 +167,7 @@ async function provisionSynology(
       name,
       password,
       _sid: sid,
-    }, pin).catch(() => ({ success: false }) as SynoResponse);
+    }, opts).catch(() => ({ success: false }) as SynoResponse);
     if (!reset.success) {
       return {
         ok: false,
@@ -174,7 +181,7 @@ async function provisionSynology(
   // chosen), discover the shares that exist and grant on those so the scoped
   // account is immediately usable. A grant failure is non-fatal — the account
   // still exists and is least-privilege; we surface a warning.
-  const targetShares = shares.length > 0 ? shares : await synoListShareNames(target.host, target.port, sid, pin);
+  const targetShares = shares.length > 0 ? shares : await synoListShareNames(target.host, target.port, sid, opts);
   let warning: string | undefined;
   if (targetShares.length === 0) {
     warning = "Scoped account created, but no shares were found to grant access to — grant read/write in DSM when you add shares.";
@@ -188,7 +195,7 @@ async function provisionSynology(
       user_group_type: "local_user",
       permissions: JSON.stringify([{ name, is_readonly: false, is_writable: true, is_deny: false }]),
       _sid: sid,
-    }, pin).catch(() => ({ success: false }) as SynoResponse);
+    }, opts).catch(() => ({ success: false }) as SynoResponse);
     if (!perm.success) {
       warning = `Scoped account created, but read/write on share '${share}' could not be granted automatically — grant it in DSM (Control Panel → Shared Folder → Edit → Permissions).`;
     }
@@ -223,7 +230,7 @@ async function provisionTruenas(
         "and the key inherits that user's privileges. Name a non-root account.",
     };
   }
-  const pin = target.tlsFingerprint256;
+  const opts = nasOptions(target);
   const authHeader = { Authorization: `Bearer ${admin.apiKey}` };
   // TrueNAS serves its REST API under `/api/v2.0`; `/api/v2` returns 404.
   const base = `https://${target.host}:${target.port}/api/v2.0`;
@@ -232,14 +239,14 @@ async function provisionTruenas(
   // Idempotent: remove any prior key with the same name before minting a fresh
   // one (TrueNAS only reveals a key value at creation time).
   try {
-    const listRes = await fetchNasService(`${base}/api_key`, { headers: authHeader, timeoutMs: PROVISION_TIMEOUT_MS }, { pin });
+    const listRes = await fetchNasService(`${base}/api_key`, { headers: authHeader, timeoutMs: PROVISION_TIMEOUT_MS }, opts);
     if (listRes.ok) {
       const keys = (await listRes.json()) as TruenasApiKey[];
       for (const key of keys.filter((k) => k.name === name)) {
         await fetchNasService(
           `${base}/api_key/id/${key.id}`,
           { method: "DELETE", headers: authHeader, timeoutMs: PROVISION_TIMEOUT_MS },
-          { pin },
+          opts,
         ).catch(() => undefined);
       }
     }
@@ -259,7 +266,7 @@ async function provisionTruenas(
         body: JSON.stringify({ name, username: admin.scopedUsername }),
         timeoutMs: PROVISION_TIMEOUT_MS,
       },
-      { pin },
+      opts,
     );
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
