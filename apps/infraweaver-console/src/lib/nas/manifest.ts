@@ -279,7 +279,9 @@ export function generateNasCredentialExternalSecret(params: {
       },
     },
     spec: {
-      refreshInterval: "1h",
+      // Canonical Go duration. ESO stores `1h` as `1h0m0s`, which ArgoCD then
+      // reports as permanent drift on every generated ExternalSecret.
+      refreshInterval: "1h0m0s",
       secretStoreRef: { name: "openbao", kind: "ClusterSecretStore" },
       // Retain on an OpenBao outage so live mounts survive while ESO retries.
       target: { name: secretName, creationPolicy: "Owner", deletionPolicy: "Retain" },
