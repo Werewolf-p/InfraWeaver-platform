@@ -13,7 +13,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { sandboxedAgentEnv, buildAgentLaunch } = require('./agent-sandbox');
+const { sandboxedAgentEnv, buildAgentLaunch, buildJailLaunch } = require('./agent-sandbox');
 
 const BASE = {
   // must be dropped — cluster / infra / secrets
@@ -137,4 +137,52 @@ test('buildAgentLaunch tolerates extra whitespace in the sandbox command', () =>
   const out = buildAgentLaunch({ cmd: 'claude', args: [], sandboxCmd: '  unshare  -rn  --  ' });
   assert.strictEqual(out.cmd, 'unshare');
   assert.deepStrictEqual(out.args, ['-rn', '--', 'claude']);
+});
+
+// ── buildJailLaunch (CRITICAL-1) ────────────────────────────────────────────
+// The env-scrub above removes credentials but the agent still ran as `runner`
+// (passwordless sudo, docker group, on-disk kube/ssh creds via HOME). The jail
+// wrapper runs the agent as a dedicated low-priv UID inside a mount namespace via
+// a root helper (iw-agent-jail), invoked through the operator's existing sudo.
+
+test('buildJailLaunch passes through unchanged when no jail script configured', () => {
+  const out = buildJailLaunch({ cmd: 'claude', args: ['-p', 'task'], workDir: '/repo', jailScript: '' });
+  assert.deepStrictEqual(out, { cmd: 'claude', args: ['-p', 'task'] });
+});
+
+test('buildJailLaunch wraps the spawn in sudo + the jail helper with the workdir', () => {
+  const out = buildJailLaunch({
+    cmd: '/home/runner/.local/bin/claude',
+    args: ['-p', 'task', '--output-format', 'text'],
+    workDir: '/home/runner/InfraWeaver-platform',
+    jailScript: '/usr/local/sbin/iw-agent-jail',
+  });
+  assert.strictEqual(out.cmd, 'sudo');
+  assert.deepStrictEqual(out.args, [
+    '-n', '/usr/local/sbin/iw-agent-jail',
+    '--workdir', '/home/runner/InfraWeaver-platform',
+    '--',
+    '/home/runner/.local/bin/claude', '-p', 'task', '--output-format', 'text',
+  ]);
+});
+
+test('buildJailLaunch omits --workdir when none is given', () => {
+  const out = buildJailLaunch({ cmd: 'claude', args: ['-p', 'x'], jailScript: '/usr/local/sbin/iw-agent-jail' });
+  assert.deepStrictEqual(out.args, ['-n', '/usr/local/sbin/iw-agent-jail', '--', 'claude', '-p', 'x']);
+});
+
+test('buildJailLaunch does not mutate the input args', () => {
+  const args = ['-p', 'task'];
+  buildJailLaunch({ cmd: 'claude', args, workDir: '/repo', jailScript: '/usr/local/sbin/iw-agent-jail' });
+  assert.deepStrictEqual(args, ['-p', 'task']);
+});
+
+test('jail composes inside an optional outer network jail (buildAgentLaunch of buildJailLaunch)', () => {
+  const jailed = buildJailLaunch({ cmd: 'claude', args: ['-p', 'x'], workDir: '/repo', jailScript: '/usr/local/sbin/iw-agent-jail' });
+  const out = buildAgentLaunch({ cmd: jailed.cmd, args: jailed.args, sandboxCmd: 'firejail --net=none --' });
+  assert.strictEqual(out.cmd, 'firejail');
+  assert.deepStrictEqual(out.args, [
+    '--net=none', '--',
+    'sudo', '-n', '/usr/local/sbin/iw-agent-jail', '--workdir', '/repo', '--', 'claude', '-p', 'x',
+  ]);
 });

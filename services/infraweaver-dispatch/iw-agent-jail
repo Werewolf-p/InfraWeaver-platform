@@ -1,0 +1,133 @@
+#!/bin/bash
+# iw-agent-jail — run an untrusted /approve coding-agent command as a dedicated
+# low-privilege UID inside a private mount namespace. CRITICAL-1
+# (SECURITY-SCAN-2026-07-08): the agent runs the Bash tool on attacker-influenced
+# feedback text; the credential env-scrub (agent-sandbox.js) removed ENV creds but
+# the agent still ran as `runner` (passwordless sudo, docker group, and on-disk
+# kube/ssh/docker creds reachable through HOME). This jail closes that:
+#
+#   * a fresh tmpfs over /home/runner HIDES every operator credential
+#     (.kube/.ssh/.docker/.iw_token/.talosconfig/build logs …);
+#   * ONLY the repo (read-write), the claude runtime (read-only) and a PRIVATE
+#     COPY of the model auth are bound back in;
+#   * the command runs as user `iw-agent` — not in sudo, not in docker, its own
+#     synthetic HOME — with --no-new-privs so a prompt-injected `sudo`/setuid
+#     binary cannot escalate, and a private /proc so it cannot scan other
+#     processes' environments.
+#
+# Invoked (as root, via runner's existing sudo) as:
+#   iw-agent-jail --workdir <dir> -- <cmd> [args...]
+# Fails CLOSED: any setup error aborts before the agent runs.
+set -euo pipefail
+
+AGENT_USER=iw-agent
+AGENT_GROUP=iwrepo                          # iw-agent's primary group (shared with runner)
+REAL_HOME=/home/runner
+REPO=/home/runner/InfraWeaver-platform
+CLAUDE_LINK=/home/runner/.local/bin/claude # symlink -> the standalone claude ELF
+CLAUDE_STATE=/home/runner/.claude          # model auth + runtime state (private copy)
+CLAUDE_JSON=/home/runner/.claude.json      # model auth (private copy)
+HOLD=/var/lib/iw-agent-jail                # ns-private scratch (tmpfs, see below)
+
+# ---- parse args as DATA (never eval'd in the privileged phase) ----
+WORKDIR=""
+if [ "${1:-}" = "--workdir" ]; then WORKDIR="${2:-}"; shift 2 || true; fi
+if [ "${1:-}" = "--" ]; then shift; fi
+[ "$#" -ge 1 ] || { echo "iw-agent-jail: no command given" >&2; exit 2; }
+
+# Workdir must be the repo or a path under it — refuse to point the writable bind
+# anywhere else (a caller cannot widen the jail's write surface).
+case "$WORKDIR" in
+  "") WORKDIR="$REPO" ;;
+  "$REPO"|"$REPO"/*) : ;;
+  *) echo "iw-agent-jail: --workdir must be under $REPO" >&2; exit 2 ;;
+esac
+
+# ---- stage 1: enter a private mount + pid namespace, re-exec into stage 2 ----
+if [ "${IW_JAIL_STAGE:-}" != "inner" ]; then
+  exec env IW_JAIL_STAGE=inner IW_JAIL_WORKDIR="$WORKDIR" \
+    unshare --mount --pid --fork --mount-proc -- \
+    "$0" --workdir "$WORKDIR" -- "$@"
+fi
+WORKDIR="${IW_JAIL_WORKDIR:-$REPO}"
+
+# ---- stage 2: inside the private namespace, still root ----
+# Don't let our mounts propagate back to the host mount table.
+mount --make-rprivate /
+
+# Resolve the standalone claude ELF the symlink points at (root can read through
+# the operator's 0700 ~/.local/share). We rebuild a MINIMAL claude install in the
+# tmpfs below rather than binding all of ~/.local — that dir has 0700 components
+# the agent uid cannot traverse, and it would drag in unrelated operator data.
+CLAUDE_ELF="$(readlink -f "$CLAUDE_LINK")"
+case "$CLAUDE_ELF" in
+  /home/runner/.local/*) : ;;
+  *) echo "iw-agent-jail: unexpected claude path '$CLAUDE_ELF'" >&2; exit 3 ;;
+esac
+
+# ns-private scratch: a tmpfs so nothing we stash here is visible on the host and
+# it all disappears when the namespace exits.
+mount -t tmpfs tmpfs "$HOLD"
+mkdir -p "$HOLD/repo" "$HOLD/cstate"
+mount --bind "$REPO" "$HOLD/repo"
+mount --bind "$CLAUDE_STATE" "$HOLD/cstate"
+: > "$HOLD/claude-elf"; mount --bind "$CLAUDE_ELF" "$HOLD/claude-elf"
+: > "$HOLD/claude.json"; mount --bind "$CLAUDE_JSON" "$HOLD/claude.json"
+
+# Fresh empty HOME — this is what hides every operator credential. Size-capped so
+# a runaway agent write can never exhaust host RAM (this box has no swap).
+mount -t tmpfs -o mode=0755,size=1g tmpfs "$REAL_HOME"
+mkdir -p "$REPO"
+
+# Repo: writable bind (group `iwrepo` grants iw-agent write; edits land on the
+# real repo inode so dispatch sees them after the jail exits).
+mount --bind "$HOLD/repo" "$REPO"
+
+# Minimal claude install rebuilt from fresh, world-traversable (0755) tmpfs dirs,
+# with ONLY the ELF bound in read-only and the launcher symlink recreated. The
+# agent can now traverse to + exec claude without needing any of the operator's
+# real ~/.local perms, and cannot tamper with the binary.
+mkdir -p "$(dirname "$CLAUDE_ELF")" "$(dirname "$CLAUDE_LINK")"
+: > "$CLAUDE_ELF"
+mount --bind "$HOLD/claude-elf" "$CLAUDE_ELF"
+mount -o remount,ro,bind "$CLAUDE_ELF"
+ln -sf "$CLAUDE_ELF" "$CLAUDE_LINK"
+
+# Model auth ONLY, as PRIVATE WRITABLE COPIES in the tmpfs HOME so claude can
+# refresh tokens/session state without touching (or leaking writes to) the
+# operator's real files. Copy JUST the tiny auth files — the operator's real
+# ~/.claude is 3.6G (projects/plugins/history) and copying it would exhaust the
+# tmpfs and host RAM; the agent runs with an explicit --allowedTools/--model and
+# needs only the token. Everything else the agent needs it creates in this tmpfs.
+mkdir -p "$CLAUDE_STATE"
+cp -a "$HOLD/cstate/.credentials.json" "$CLAUDE_STATE"/.credentials.json 2>/dev/null || true
+cp -a "$HOLD/claude.json" "$CLAUDE_JSON"
+chown -R "$AGENT_USER:$AGENT_GROUP" "$CLAUDE_STATE" "$CLAUDE_JSON"
+
+# Forward ONLY non-secret operational vars the agent runtime may need to reach the
+# model API (proxy + TLS trust + model endpoint/name). Model AUTH is NOT forwarded
+# via env — it comes from the private ~/.claude copy above, so no token ever lands
+# on a command line. Everything else (including any DISPATCH_SECRET / operator var
+# that rode in) is dropped by the `env -i` clean slate below.
+FWD=()
+for v in HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy \
+         SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE NODE_EXTRA_CA_CERTS GIT_SSL_CAINFO \
+         ANTHROPIC_BASE_URL ANTHROPIC_MODEL; do
+  [ -n "${!v:-}" ] && FWD+=("$v=${!v}")
+done
+
+cd "$WORKDIR"
+# Drop to the dedicated uid with ONLY its own groups (iwrepo — never sudo/docker),
+# no ability to regain privilege, no inheritable capabilities, and a CLEAN env so
+# nothing the parent held can ride in.
+exec setpriv --reuid "$AGENT_USER" --regid "$AGENT_GROUP" --init-groups \
+  --no-new-privs --inh-caps=-all -- \
+  env -i \
+    HOME="$REAL_HOME" USER="$AGENT_USER" LOGNAME="$AGENT_USER" \
+    PATH=/home/runner/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    KUBECONFIG=/dev/null \
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
+    IW_AGENT_SANDBOX=1 \
+    ${FWD[@]+"${FWD[@]}"} \
+    "$@"

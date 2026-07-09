@@ -19,18 +19,21 @@
  *      launcher (AGENT_SANDBOX_CMD, e.g. `firejail --net=none --`) so the agent's
  *      Bash cannot reach the cluster/internal network at all.
  *
- * SCOPE / LIMITS (important — do not overclaim): this layer removes ENV-based and
- * git/gh credentials only. It does NOT provide OS process isolation. The agent
- * still runs as the same Unix user as dispatch (`runner`), which on the stock
- * runner has passwordless sudo, docker-group access, and on-disk creds (kube
- * configs, SSH keys, ~/.docker/config.json) reachable through the deliberately
- * preserved HOME (claude reads ~/.claude.json). A prompt-injected `sudo`, `docker`,
- * or `cat ~/.kube/…` therefore still escalates. Closing that requires REAL
- * isolation — run the agent as a dedicated low-privilege UID (no sudo, not in the
- * docker group) with a synthetic HOME and no cluster/SSH files, and/or set
- * AGENT_SANDBOX_CMD to a jail (firejail/bubblewrap/user-namespace) that also drops
- * privilege. Tracked as follow-up hardening; the diff-review gate (diff-review.js)
- * is the compensating control on the prod-ship path until then.
+ * SCOPE (env layer): this layer removes ENV-based and git/gh credentials only. On
+ * its own it does NOT provide OS process isolation. OS isolation is now provided
+ * by the THIRD layer:
+ *   3. buildJailLaunch() — wraps the spawn in a root helper (iw-agent-jail,
+ *      invoked via the operator's sudo) that runs the agent as a DEDICATED
+ *      low-privilege UID (`iw-agent`: no sudo, not in the docker group) inside a
+ *      private mount namespace. A tmpfs over /home/runner hides every operator
+ *      credential (kube/ssh/docker/dispatch/token); only the repo (rw), the claude
+ *      binary (ro), and a private copy of the model auth are bound back;
+ *      --no-new-privs blocks setuid escalation and a private /proc hides other
+ *      processes. This closes CRITICAL-1 (prompt-injected `sudo`/`docker`/`cat
+ *      ~/.kube/…` now have no privilege and nothing to read). Enabled by setting
+ *      AGENT_JAIL_SCRIPT=/usr/local/sbin/iw-agent-jail; empty → env-scrub only.
+ * The diff-review gate (diff-review.js) remains the compensating human-ship
+ * control on the prod path regardless of which layers are active.
  */
 
 // Exact names that are always safe to pass through (non-secret, operational).
@@ -125,9 +128,27 @@ function buildAgentLaunch({ cmd, args = [], sandboxCmd = '' }) {
   return { cmd: prefix[0], args: [...prefix.slice(1), cmd, ...args] };
 }
 
+/**
+ * Wrap `{cmd, args}` so the agent runs as a dedicated low-privilege UID inside a
+ * mount-namespace jail (CRITICAL-1, SECURITY-SCAN-2026-07-08). `jailScript` is a
+ * root-owned helper (iw-agent-jail) invoked through the operator's existing sudo;
+ * it hides every operator credential (tmpfs over HOME), binds back ONLY the repo
+ * (rw), the claude binary (ro), and a private copy of the model auth, then drops
+ * to user `iw-agent` (no sudo, not in docker, --no-new-privs, private /proc).
+ * `workDir` is validated by the helper to be under the repo. Empty `jailScript`
+ * → pass through unchanged (the env-scrub remains the sole control). Pure:
+ * returns a NEW `{cmd, args}`; never mutates the input.
+ */
+function buildJailLaunch({ cmd, args = [], workDir = '', jailScript = '' }) {
+  if (!jailScript) return { cmd, args: [...args] };
+  const workdirArgs = workDir ? ['--workdir', workDir] : [];
+  return { cmd: 'sudo', args: ['-n', jailScript, ...workdirArgs, '--', cmd, ...args] };
+}
+
 module.exports = {
   sandboxedAgentEnv,
   buildAgentLaunch,
+  buildJailLaunch,
   SAFE_ALLOW,
   SECRET_NAME_RE,
   RUNTIME_ALLOW_DEFAULT,

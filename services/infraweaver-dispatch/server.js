@@ -40,7 +40,7 @@ const pipelineStore = require('./pipeline-store');
 const specialists = require('./specialists');
 const fixContext = require('./fix-context');
 const { reviewDiff } = require('./diff-review');
-const { sandboxedAgentEnv, buildAgentLaunch } = require('./agent-sandbox');
+const { sandboxedAgentEnv, buildAgentLaunch, buildJailLaunch } = require('./agent-sandbox');
 
 const PORT = process.env.DISPATCH_PORT || 9876;
 const WORKSPACE = process.env.WORKSPACE_DIR || '/home/runner/InfraWeaver-platform';
@@ -67,6 +67,12 @@ const DEFAULT_ALLOWED_TOOLS = (process.env.DISPATCH_ALLOWED_TOOLS || 'Read,Edit,
 // runner (no such tool installed): env-scrub (sandboxedAgentEnv) is then the sole
 // — but always-on — control. See agent-sandbox.js.
 const AGENT_SANDBOX_CMD = process.env.AGENT_SANDBOX_CMD || '';
+// Root helper that runs the coding agent as a dedicated low-privilege UID inside a
+// mount-namespace jail (CRITICAL-1). Set to /usr/local/sbin/iw-agent-jail to
+// enable OS-level isolation (agent runs as `iw-agent`: no sudo, not in docker, a
+// tmpfs HOME hiding every operator credential). Empty → env-scrub only. See
+// agent-sandbox.js (buildJailLaunch) and the iw-agent-jail script.
+const AGENT_JAIL_SCRIPT = process.env.AGENT_JAIL_SCRIPT || '';
 
 function signHmac(message, secret) {
   return crypto.createHmac('sha256', secret).update(message).digest('hex');
@@ -257,12 +263,16 @@ function runAgent(agent, task, run, workDir = WORKSPACE, opts = {}) {
     } else {
       return reject(new Error(`Unknown agent: ${agent}`));
     }
-    // Sandbox the spawn (C2): scrubbed credential-free env (no DISPATCH_SECRET,
-    // no cluster/git/registry/cloud creds) + an optional network-isolation
-    // launcher (AGENT_SANDBOX_CMD) so the agent's Bash can neither read the
-    // control secret nor reach the cluster to self-approve/exfil. The diff-review
-    // gate in doApprove() is the matching "human ship gate" before prod.
-    const launch = buildAgentLaunch({ cmd, args, sandboxCmd: AGENT_SANDBOX_CMD });
+    // Sandbox the spawn — three composed layers (see agent-sandbox.js):
+    //  1. scrubbedAgentEnv(): credential-free env (no DISPATCH_SECRET, no cluster/
+    //     git/registry/cloud creds) — always on.
+    //  2. buildJailLaunch(): run as a dedicated low-priv UID (`iw-agent`) inside a
+    //     mount-ns jail that hides every operator credential and drops sudo/docker
+    //     (CRITICAL-1) — active when AGENT_JAIL_SCRIPT is set.
+    //  3. buildAgentLaunch(): optional outer network jail (AGENT_SANDBOX_CMD).
+    // The diff-review gate in doApprove() is the matching "human ship gate".
+    const jailed = buildJailLaunch({ cmd, args, workDir, jailScript: AGENT_JAIL_SCRIPT });
+    const launch = buildAgentLaunch({ cmd: jailed.cmd, args: jailed.args, sandboxCmd: AGENT_SANDBOX_CMD });
     const child = spawn(launch.cmd, launch.args, {
       cwd: workDir,
       env: scrubbedAgentEnv(),
@@ -975,13 +985,17 @@ if (require.main === module) {
       process.exit(1);
     }
   }
-  // Surface the agent sandbox posture so an operator can tell at a glance whether
-  // network isolation is active (C2). Credential scrub (sandboxedAgentEnv) is
-  // always on; the network jail is only active when AGENT_SANDBOX_CMD is set.
+  // Surface the agent sandbox posture so an operator can tell at a glance which
+  // isolation layers are active. Credential scrub (sandboxedAgentEnv) is always on.
+  if (AGENT_JAIL_SCRIPT) {
+    console.log(`[SECURITY] agent OS jail ACTIVE (CRITICAL-1): runs as dedicated low-priv UID via ${AGENT_JAIL_SCRIPT} — no sudo/docker, operator creds hidden.`);
+  } else {
+    console.warn('[SECURITY] agent OS jail OFF (AGENT_JAIL_SCRIPT unset) — agent runs as the dispatch user; only env-scrub protects creds. Set AGENT_JAIL_SCRIPT=/usr/local/sbin/iw-agent-jail to isolate.');
+  }
   if (AGENT_SANDBOX_CMD) {
     console.log(`[SECURITY] agent network jail ACTIVE: ${AGENT_SANDBOX_CMD}`);
   } else {
-    console.warn('[SECURITY] agent network jail OFF (AGENT_SANDBOX_CMD unset) — cluster/creds still blocked via env-scrub; set AGENT_SANDBOX_CMD (e.g. "firejail --net=none --") to also block egress.');
+    console.warn('[SECURITY] agent network jail OFF (AGENT_SANDBOX_CMD unset) — cluster/creds still blocked via env-scrub + OS jail; set AGENT_SANDBOX_CMD to also block egress.');
   }
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`InfraWeaver Dispatch (single-branch) on :${PORT} — branch=${FEEDBACK_BRANCH} registry=${REGISTRY}`);
