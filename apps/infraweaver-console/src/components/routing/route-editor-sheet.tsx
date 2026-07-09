@@ -214,9 +214,12 @@ export function RouteEditorSheet({ open, editingRoute, canWrite, onClose, onSave
           }),
         },
       );
-      const payload = (await response.json()) as { error?: string };
+      const payload = (await response.json()) as { error?: string; gateWarning?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to save route");
       toast.success(editingRoute ? `Updated ${editingRoute.name}` : `Created ${form.name}`);
+      // The route committed, but its Authentik gate could not be ensured (e.g.
+      // Authentik was momentarily down). Tell the operator to save again to retry.
+      if (payload.gateWarning) toast.warning(payload.gateWarning);
       onClose();
       await onSaved();
     } catch (error) {

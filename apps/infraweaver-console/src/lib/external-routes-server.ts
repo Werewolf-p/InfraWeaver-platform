@@ -6,6 +6,7 @@ import { detectAccessTier, normalizeMiddlewareName, type AccessTier } from "@/li
 import { BASE_DOMAIN, INTERNAL_DOMAIN } from "@/lib/domain";
 import { DEFAULT_AUTH_MIDDLEWARE, DEFAULT_TLS_SECRETS, tlsSecretForHost } from "@/lib/platform-config";
 import type { ExternalRouteItem, ExternalRouteMutationInput, ExternalRoutesResponse, ExternalRouteTargetType } from "@/lib/external-routes";
+import { ensureSsoGate } from "@/lib/sso/sso-gate";
 
 const TRAEFIK_NAMESPACE = "traefik";
 const MANIFEST_DIR = path.join("kubernetes", "platform", "external-routes", "manifests");
@@ -534,6 +535,53 @@ export async function loadExternalRoutes(repoDir = process.env.REPO_DIR || proce
   };
 }
 
+function authentikConfigured(): boolean {
+  return Boolean((process.env.AUTHENTIK_URL || "").trim() && (process.env.AUTHENTIK_TOKEN || "").trim());
+}
+
+// Gate-only `ensureSsoGate` never reads/writes a secret (that path is OIDC-only), so
+// a no-op store satisfies the signature without imposing a vault layout on routes.
+const noopSecretStore = { read: async () => null, write: async () => {} };
+
+/**
+ * Ensure the Authentik forward-auth gate for a route whenever it requires auth
+ * (internal tier is always gated; public opts in via `enableAuth`). The route's
+ * Traefik middleware forwards to Authentik, so without a matching proxy provider on
+ * the embedded outpost forward-auth 404s ("Not Found"). This is what makes "save"
+ * create the Authentik provider if it doesn't exist yet: `ensureSsoGate` is
+ * idempotent (upsert by slug) and self-heals outpost drift, so a route saved before
+ * this wiring existed gets its gate created the next time it is saved.
+ *
+ * Best-effort: returns a warning string instead of throwing so a momentary Authentik
+ * outage never blocks the manifest save — the route is committed and pressing save
+ * again re-runs the ensure. Returns null when no gate is needed or it succeeded.
+ */
+async function ensureRouteGate(input: ExternalRouteMutationInput): Promise<string | null> {
+  if (!requiresAuth(input.accessTier, Boolean(input.enableAuth))) return null;
+  if (!authentikConfigured()) return null; // no Authentik wired in this install; nothing to ensure
+  try {
+    await ensureSsoGate(
+      {
+        host: input.host,
+        appSlug: `route-${input.name}`,
+        appName: input.host,
+        mode: "gate",
+        launchUrl: `https://${input.host}`,
+      },
+      noopSecretStore,
+    );
+    return null;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[routes] SSO gate for ${input.name} (${input.host}) could not be ensured: ${reason}`);
+    return `Route saved, but its Authentik SSO gate could not be created (${reason}). Login may 404 until you save again.`;
+  }
+}
+
+function withGateWarning(response: ExternalRoutesResponse, gateWarning: string | null): ExternalRoutesResponse {
+  return gateWarning ? { ...response, gateWarning } : response;
+}
+
 export async function createExternalRoute(rawInput: ExternalRouteMutationInput, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
   const input = applyTierDefaults(rawInput);
   const state = await loadState(repoDir);
@@ -556,7 +604,10 @@ export async function createExternalRoute(rawInput: ExternalRouteMutationInput, 
   }
 
   await persistAndCommit(repoDir, [targetManifest, state.clusterBackends, state.baremetalBackends], `add ${input.name} external route`);
-  return loadExternalRoutes(repoDir);
+  // Save also ensures the Authentik gate exists for auth-gated routes, so a new
+  // internal/enableAuth route is reachable through forward-auth immediately.
+  const gateWarning = await ensureRouteGate(input);
+  return withGateWarning(await loadExternalRoutes(repoDir), gateWarning);
 }
 
 export async function updateExternalRoute(name: string, rawInput: ExternalRouteMutationInput, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
@@ -598,7 +649,11 @@ export async function updateExternalRoute(name: string, rawInput: ExternalRouteM
   }
 
   await persistAndCommit(repoDir, [location.manifest, destinationManifest, state.clusterBackends, state.baremetalBackends], `update ${name} external route`);
-  return loadExternalRoutes(repoDir);
+  // Re-saving an existing route re-ensures its gate even when the manifest is
+  // unchanged — this is the "press save again to create the missing Authentik
+  // provider" path for routes created before gate-on-save existed.
+  const gateWarning = await ensureRouteGate(input);
+  return withGateWarning(await loadExternalRoutes(repoDir), gateWarning);
 }
 
 export async function deleteExternalRoute(name: string, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
