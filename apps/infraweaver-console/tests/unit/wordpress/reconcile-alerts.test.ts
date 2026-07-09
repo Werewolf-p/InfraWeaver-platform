@@ -87,3 +87,67 @@ describe("emitSsoUnavailableAlert — one alert per outage window, not per poll"
     await flush();
   });
 });
+
+describe("emitSsoUnavailableAlert — re-publishes so a long outage survives Event GC", () => {
+  // Kubernetes GCs the Warning Event at the apiserver Event TTL (~1h). A plain
+  // publish-once guard would leave a >1h outage with no live Event on the bell.
+  // These pin the refresh: deduped WITHIN the window, re-published AFTER it.
+  const REPUBLISH_MS = 30 * 60 * 1000;
+  const t0 = 1_000_000_000_000; // fixed base so `now` is fully deterministic
+
+  beforeEach(() => {
+    createNamespacedEvent.mockClear().mockResolvedValue({});
+    __resetSsoAlertsForTest();
+  });
+
+  test("re-publishes a fresh Event once the refresh window elapses in one outage", async () => {
+    emitSsoUnavailableAlert("truenas", "boom", t0);
+    await flush();
+    expect(createNamespacedEvent).toHaveBeenCalledTimes(1);
+
+    // Still inside the window — deduped, no new Event.
+    emitSsoUnavailableAlert("truenas", "boom", t0 + REPUBLISH_MS - 1);
+    await flush();
+    expect(createNamespacedEvent).toHaveBeenCalledTimes(1);
+
+    // Window elapsed, gate still stuck — refresh so the bell keeps a live Event.
+    emitSsoUnavailableAlert("truenas", "boom", t0 + REPUBLISH_MS);
+    await flush();
+    expect(createNamespacedEvent).toHaveBeenCalledTimes(2);
+
+    // Back inside the fresh window — deduped again.
+    emitSsoUnavailableAlert("truenas", "boom", t0 + REPUBLISH_MS + 1);
+    await flush();
+    expect(createNamespacedEvent).toHaveBeenCalledTimes(2);
+  });
+
+  test("recovery resets the window so the next outage re-publishes immediately", async () => {
+    emitSsoUnavailableAlert("truenas", "boom", t0);
+    await flush();
+    expect(createNamespacedEvent).toHaveBeenCalledTimes(1);
+
+    clearSsoUnavailableAlert("truenas"); // successful reconcile
+
+    // New outage moments later — must alert now, not wait out the refresh window.
+    emitSsoUnavailableAlert("truenas", "boom", t0 + 1000);
+    await flush();
+    expect(createNamespacedEvent).toHaveBeenCalledTimes(2);
+  });
+
+  test("a failed refresh re-arms so the next poll retries immediately", async () => {
+    emitSsoUnavailableAlert("truenas", "boom", t0);
+    await flush();
+    expect(createNamespacedEvent).toHaveBeenCalledTimes(1);
+
+    // Refresh attempt fails (e.g. transient API error) — guard must drop.
+    createNamespacedEvent.mockRejectedValueOnce(new Error("Forbidden"));
+    emitSsoUnavailableAlert("truenas", "boom", t0 + REPUBLISH_MS);
+    await flush();
+    expect(createNamespacedEvent).toHaveBeenCalledTimes(2); // attempted, failed
+
+    // Next poll (no need to wait another window) lands the alert.
+    emitSsoUnavailableAlert("truenas", "boom", t0 + REPUBLISH_MS + 1000);
+    await flush();
+    expect(createNamespacedEvent).toHaveBeenCalledTimes(3); // retried, succeeded
+  });
+});

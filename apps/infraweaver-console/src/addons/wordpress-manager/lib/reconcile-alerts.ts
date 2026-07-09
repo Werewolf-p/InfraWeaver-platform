@@ -12,32 +12,63 @@ import { resourceNames } from "./naming";
  *
  * A stuck gate re-fails on EVERY dashboard poll (each poll re-runs the idempotent
  * reconcile, which re-throws `SsoUnavailableError` until Authentik recovers). If
- * we published an Event per poll the bell would fill with duplicates, so we keep
- * ONE alert per site per outage window: the first failure publishes, subsequent
- * failures are deduped by `alertedSites`, and the guard is only cleared when the
- * site recovers (`clearSsoUnavailableAlert`, called on a successful reconcile).
- * The next outage then re-arms and alerts again.
+ * we published an Event per poll the bell would fill with duplicates, so within a
+ * single outage window we keep ONE alert per site: the first failure publishes,
+ * subsequent failures are deduped by `alertedSites`, and the guard is only cleared
+ * when the site recovers (`clearSsoUnavailableAlert`, called on a successful
+ * reconcile). The next outage then re-arms and alerts again.
+ *
+ * Kubernetes garbage-collects Events (kube-apiserver `--event-ttl`, default ~1h),
+ * so a plain "publish once, dedup forever" guard has a latent gap: after the first
+ * Event is GC'd, an outage lasting longer than the TTL silently vanishes from the
+ * bell even though the gate is still stuck. To close that, we RE-PUBLISH a fresh
+ * Event once `REPUBLISH_INTERVAL_MS` has elapsed since the last publish. The
+ * interval is well under the Event TTL, so there is always a live Event on the
+ * bell for as long as the outage lasts; `alertedSites` still collapses the per-poll
+ * storm inside each interval. Each refresh is a fresh Event (`generateName`),
+ * matching how a post-recovery re-arm already works.
  */
 
 const REASON = "SsoGateUnavailable";
+
+// Re-publish the stuck-gate Event once this much time has elapsed since the last
+// publish for a site. Kept comfortably under the Kubernetes Event TTL (~1h) so the
+// alert is refreshed — and stays on the notification bell — before the prior Event
+// is garbage-collected. Large enough that a long outage only re-publishes a couple
+// of times per hour, not once per dashboard poll.
+const REPUBLISH_INTERVAL_MS = 30 * 60 * 1000;
 
 // Sites with a live (unrecovered) SSO-gate alert. Module-level so it is shared
 // across every poll-driven `reconcileSite` on this replica.
 const alertedSites = new Set<string>();
 
+// site -> epoch ms of its last published stuck-gate Event. Written in lockstep with
+// `alertedSites` (both set on publish, both cleared on recovery/failure), so an
+// entry here means "an Event was published at time T" and drives the re-publish
+// decision above.
+const lastPublishedAt = new Map<string, number>();
+
 /**
  * Emit a deduped platform alert that `site`'s SSO gate is stuck because Authentik
- * is unavailable. No-op if this site already alerted in the current outage window.
+ * is unavailable. No-op if this site already alerted within the current refresh
+ * window; once `REPUBLISH_INTERVAL_MS` has elapsed it re-publishes a fresh Event so
+ * a multi-hour outage stays on the bell after the prior Event is GC'd.
  * Best-effort: a failed publish drops the guard so the next poll retries, and never
- * rejects (the reconcile loop must not wedge on telemetry).
+ * rejects (the reconcile loop must not wedge on telemetry). `now` is injectable for
+ * deterministic tests; production callers use the wall clock.
  */
-export function emitSsoUnavailableAlert(site: string, detail: string): void {
-  if (alertedSites.has(site)) return;
+export function emitSsoUnavailableAlert(site: string, detail: string, now: number = Date.now()): void {
+  const lastPublished = lastPublishedAt.get(site);
+  const withinRefreshWindow = lastPublished !== undefined && now - lastPublished < REPUBLISH_INTERVAL_MS;
+  if (alertedSites.has(site) && withinRefreshWindow) return;
+
   alertedSites.add(site);
+  lastPublishedAt.set(site, now);
   void publishGateStuckEvent(site, detail).catch(() => {
     // Publish failed (RBAC, API down). Re-arm so a later poll can land the alert
     // instead of silently swallowing this outage.
     alertedSites.delete(site);
+    lastPublishedAt.delete(site);
   });
 }
 
@@ -47,11 +78,13 @@ export function emitSsoUnavailableAlert(site: string, detail: string): void {
  */
 export function clearSsoUnavailableAlert(site: string): void {
   alertedSites.delete(site);
+  lastPublishedAt.delete(site);
 }
 
 /** Test-only: drop all guard state so each test starts from a clean window. */
 export function __resetSsoAlertsForTest(): void {
   alertedSites.clear();
+  lastPublishedAt.clear();
 }
 
 async function publishGateStuckEvent(site: string, detail: string): Promise<void> {
