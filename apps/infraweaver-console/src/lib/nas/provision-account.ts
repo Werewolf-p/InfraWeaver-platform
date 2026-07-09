@@ -15,21 +15,31 @@
  *              read/write on the requested shares. A non-admin DSM user has no
  *              access until explicitly granted, so this is least-privilege by
  *              construction.
- *   TrueNAS  → creates a scoped API key whose allowlist is restricted to the
- *              read-only endpoints the console actually uses (system info, SMB
- *              share list, dataset list). The full admin key is never stored.
+ *   TrueNAS  → creates an API key bound to a specific TrueNAS user
+ *              (`api_key.create` requires `username`). Current TrueNAS releases
+ *              dropped the per-key endpoint `allowlist`, so a key inherits the
+ *              privileges of the user it is bound to — binding it to a
+ *              non-root, least-privilege account IS the scoping mechanism. The
+ *              operator names that user; the admin key is never stored.
  *
- * Every outbound call goes through `fetchInternalService` (SSRF-pinned), exactly
- * like `@/lib/nas/discovery`. The host always comes from a resolved/allowlisted
- * provider config, never raw user input.
+ * Every outbound call goes through `fetchNasService`, which enforces both the
+ * SSRF allowlist and the appliance's operator-confirmed TLS certificate pin.
+ * The host comes from a resolved/allowlisted provider config, or — since this
+ * runs before the provider is stored — from the wizard's `wizardHost`, which
+ * the allowlist re-validates as private. Never raw, unchecked user input.
  */
 
 import { randomBytes } from "node:crypto";
-import { fetchInternalService } from "@/lib/insecure-fetch";
 import { synologyLogin, type ProbeTarget } from "@/lib/nas/discovery";
+import { fetchNasService, type NasFetchOptions } from "@/lib/nas/pinned-fetch";
 import type { StoredNasCredentials } from "@/lib/nas/store";
 
 const PROVISION_TIMEOUT_MS = 8000;
+
+/** The pin plus, on the wizard's pre-store path, the host it already cleared. */
+function nasOptions(target: ProbeTarget): NasFetchOptions {
+  return { pin: target.tlsFingerprint256, wizardHost: target.wizardHost };
+}
 
 /** Admin credential the operator provides ONCE, used only to mint the scoped account. */
 export interface NasAdminCredentials {
@@ -39,6 +49,12 @@ export interface NasAdminCredentials {
   password?: string;
   /** TrueNAS: admin API key (Bearer). */
   apiKey?: string;
+  /**
+   * TrueNAS: the existing TrueNAS user the minted API key is bound to. Required
+   * by `api_key.create`. The key inherits this user's privileges, so naming a
+   * non-root account is what makes the stored credential least-privilege.
+   */
+  scopedUsername?: string;
 }
 
 export interface ScopedAccountResult {
@@ -73,12 +89,12 @@ interface SynoResponse {
 
 /** List share names using an existing admin SID (so the scoped user can be
  *  granted access to the shares that actually exist). Best-effort — returns [] on error. */
-async function synoListShareNames(host: string, port: number, sid: string): Promise<string[]> {
+async function synoListShareNames(host: string, port: number, sid: string, opts: NasFetchOptions): Promise<string[]> {
   try {
-    const res = await fetchInternalService(
+    const res = await fetchNasService(
       `https://${host}:${port}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list_share&SID=${sid}`,
-      { signal: AbortSignal.timeout(PROVISION_TIMEOUT_MS) },
-      { allowInsecureTls: true },
+      { timeoutMs: PROVISION_TIMEOUT_MS },
+      opts,
     );
     const data = (await res.json()) as { success: boolean; data?: { shares?: Array<{ name: string }> } };
     if (!data.success) return [];
@@ -92,14 +108,15 @@ async function synoEntry(
   host: string,
   port: number,
   params: Record<string, string>,
+  opts: NasFetchOptions,
 ): Promise<SynoResponse> {
   const query = Object.entries(params)
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
     .join("&");
-  const res = await fetchInternalService(
+  const res = await fetchNasService(
     `https://${host}:${port}/webapi/entry.cgi?${query}`,
-    { signal: AbortSignal.timeout(PROVISION_TIMEOUT_MS) },
-    { allowInsecureTls: true },
+    { timeoutMs: PROVISION_TIMEOUT_MS },
+    opts,
   );
   return (await res.json()) as SynoResponse;
 }
@@ -113,9 +130,12 @@ async function provisionSynology(
   if (!admin.username || !admin.password) {
     return { ok: false, error: "Synology admin username and password are required to provision a scoped account" };
   }
+  const opts = nasOptions(target);
   const sid = await synologyLogin({
     host: target.host,
     port: target.port,
+    tlsFingerprint256: target.tlsFingerprint256,
+    wizardHost: target.wizardHost,
     user: admin.username,
     password: admin.password,
   });
@@ -137,7 +157,7 @@ async function provisionSynology(
     description: "InfraWeaver least-privilege service account",
     cannot_chg_passwd: "true",
     _sid: sid,
-  }).catch(() => ({ success: false }) as SynoResponse);
+  }, opts).catch(() => ({ success: false }) as SynoResponse);
 
   if (!created.success) {
     const reset = await synoEntry(target.host, target.port, {
@@ -147,7 +167,7 @@ async function provisionSynology(
       name,
       password,
       _sid: sid,
-    }).catch(() => ({ success: false }) as SynoResponse);
+    }, opts).catch(() => ({ success: false }) as SynoResponse);
     if (!reset.success) {
       return {
         ok: false,
@@ -161,7 +181,7 @@ async function provisionSynology(
   // chosen), discover the shares that exist and grant on those so the scoped
   // account is immediately usable. A grant failure is non-fatal — the account
   // still exists and is least-privilege; we surface a warning.
-  const targetShares = shares.length > 0 ? shares : await synoListShareNames(target.host, target.port, sid);
+  const targetShares = shares.length > 0 ? shares : await synoListShareNames(target.host, target.port, sid, opts);
   let warning: string | undefined;
   if (targetShares.length === 0) {
     warning = "Scoped account created, but no shares were found to grant access to — grant read/write in DSM when you add shares.";
@@ -175,7 +195,7 @@ async function provisionSynology(
       user_group_type: "local_user",
       permissions: JSON.stringify([{ name, is_readonly: false, is_writable: true, is_deny: false }]),
       _sid: sid,
-    }).catch(() => ({ success: false }) as SynoResponse);
+    }, opts).catch(() => ({ success: false }) as SynoResponse);
     if (!perm.success) {
       warning = `Scoped account created, but read/write on share '${share}' could not be granted automatically — grant it in DSM (Control Panel → Shared Folder → Edit → Permissions).`;
     }
@@ -202,25 +222,31 @@ async function provisionTruenas(
   if (!admin.apiKey) {
     return { ok: false, error: "TrueNAS admin API key is required to provision a scoped key" };
   }
+  if (!admin.scopedUsername) {
+    return {
+      ok: false,
+      error:
+        "A TrueNAS username is required: api_key.create binds the new key to a user, " +
+        "and the key inherits that user's privileges. Name a non-root account.",
+    };
+  }
+  const opts = nasOptions(target);
   const authHeader = { Authorization: `Bearer ${admin.apiKey}` };
-  const base = `https://${target.host}/api/v2`;
+  // TrueNAS serves its REST API under `/api/v2.0`; `/api/v2` returns 404.
+  const base = `https://${target.host}:${target.port}/api/v2.0`;
   const name = scopedAccountName(providerId);
 
   // Idempotent: remove any prior key with the same name before minting a fresh
   // one (TrueNAS only reveals a key value at creation time).
   try {
-    const listRes = await fetchInternalService(
-      `${base}/api_key`,
-      { headers: authHeader, signal: AbortSignal.timeout(PROVISION_TIMEOUT_MS) },
-      { allowInsecureTls: true },
-    );
+    const listRes = await fetchNasService(`${base}/api_key`, { headers: authHeader, timeoutMs: PROVISION_TIMEOUT_MS }, opts);
     if (listRes.ok) {
       const keys = (await listRes.json()) as TruenasApiKey[];
       for (const key of keys.filter((k) => k.name === name)) {
-        await fetchInternalService(
+        await fetchNasService(
           `${base}/api_key/id/${key.id}`,
-          { method: "DELETE", headers: authHeader, signal: AbortSignal.timeout(PROVISION_TIMEOUT_MS) },
-          { allowInsecureTls: true },
+          { method: "DELETE", headers: authHeader, timeoutMs: PROVISION_TIMEOUT_MS },
+          opts,
         ).catch(() => undefined);
       }
     }
@@ -228,31 +254,39 @@ async function provisionTruenas(
     // Non-fatal: if listing fails we still attempt creation below.
   }
 
-  // Least-privilege allowlist: only the read-only endpoints the console uses.
-  const allowlist = [
-    { method: "GET", resource: "/system/info" },
-    { method: "GET", resource: "/sharing/smb" },
-    { method: "GET", resource: "/pool/dataset" },
-  ];
+  // `api_key_create` is `{name, username, expires_at}` with
+  // `additionalProperties: false` — sending the old per-key `allowlist` is a
+  // 422. Privilege scoping now comes entirely from `username`.
   try {
-    const res = await fetchInternalService(
+    const res = await fetchNasService(
       `${base}/api_key`,
       {
         method: "POST",
         headers: { ...authHeader, "Content-Type": "application/json" },
-        body: JSON.stringify({ name, allowlist }),
-        signal: AbortSignal.timeout(PROVISION_TIMEOUT_MS),
+        body: JSON.stringify({ name, username: admin.scopedUsername }),
+        timeoutMs: PROVISION_TIMEOUT_MS,
       },
-      { allowInsecureTls: true },
+      opts,
     );
     if (!res.ok) {
-      return { ok: false, error: `TrueNAS rejected scoped key creation (HTTP ${res.status})` };
+      const detail = await res.text().catch(() => "");
+      return {
+        ok: false,
+        error:
+          `TrueNAS rejected scoped key creation (HTTP ${res.status})` +
+          (detail ? `: ${detail.slice(0, 200)}` : ""),
+      };
     }
     const created = (await res.json()) as { key?: string };
     if (!created.key) {
       return { ok: false, error: "TrueNAS did not return a key value for the scoped API key" };
     }
-    return { ok: true, credentials: { apiKey: created.key }, scopedName: name };
+    const warning =
+      admin.scopedUsername === "root" || admin.scopedUsername === "truenas_admin"
+        ? `The API key is bound to '${admin.scopedUsername}', so it carries that account's full privileges. ` +
+          `Bind it to a dedicated non-admin TrueNAS user to make the stored credential least-privilege.`
+        : undefined;
+    return { ok: true, credentials: { apiKey: created.key }, scopedName: `${name} (user ${admin.scopedUsername})`, warning };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "TrueNAS unreachable during provisioning" };
   }
@@ -263,8 +297,8 @@ async function provisionTruenas(
  * credential. Returns ONLY the scoped credential to persist; the caller must
  * discard the admin credential and never persist or log it.
  *
- * `shares` scopes the Synology share grants (ignored for TrueNAS, whose scoped
- * key is read-only across the allowlisted endpoints).
+ * `shares` scopes the Synology share grants (ignored for TrueNAS, whose key
+ * scope is determined by the user it is bound to).
  */
 export async function provisionScopedNasAccount(
   target: ProbeTarget,

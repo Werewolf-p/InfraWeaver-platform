@@ -54,6 +54,13 @@ export interface NasProviderConfig {
    * gate means the provider is always enabled once declared.
    */
   enabledEnv?: string;
+  /**
+   * SHA-256 fingerprint of the appliance's (self-signed) TLS certificate. HTTPS
+   * discovery calls are pinned to it; without a pin they fail closed. Dynamic
+   * providers carry the operator-confirmed pin from OpenBao; env-declared ones
+   * read `SYNOLOGY_TLS_FINGERPRINT` / `TRUENAS_TLS_FINGERPRINT`.
+   */
+  tlsFingerprint256?: string;
 }
 
 const PROVIDER_SCHEMA = z.object({
@@ -65,9 +72,16 @@ const PROVIDER_SCHEMA = z.object({
   kind: z.enum(["synology", "truenas", "generic-smb", "generic-nfs"]),
   backends: z.array(z.enum(["smb", "nfs"])).min(1),
   enabledEnv: z.string().min(1).max(80).optional(),
+  tlsFingerprint256: z.string().regex(/^[0-9A-Fa-f:\s]{64,95}$/).optional(),
 });
 
 const PROVIDERS_JSON_SCHEMA = z.array(PROVIDER_SCHEMA);
+
+/** A set-but-empty env var must not become `NaN` (`??` only guards nullish). */
+function envPort(raw: string | undefined, fallback: number): number {
+  const parsed = parseInt(raw ?? "", 10);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback;
+}
 
 function builtInProviders(env: NodeJS.ProcessEnv): NasProviderConfig[] {
   const providers: NasProviderConfig[] = [];
@@ -76,11 +90,12 @@ function builtInProviders(env: NodeJS.ProcessEnv): NasProviderConfig[] {
       id: "synology",
       name: "Synology NAS",
       host: env.SYNOLOGY_HOST,
-      port: parseInt(env.SYNOLOGY_PORT ?? "5001", 10),
+      port: envPort(env.SYNOLOGY_PORT, 5001),
       protocol: "https",
       kind: "synology",
       backends: ["smb"],
       enabledEnv: "SYNOLOGY_PASSWORD",
+      tlsFingerprint256: env.SYNOLOGY_TLS_FINGERPRINT,
     });
   }
   if (env.TRUENAS_HOST) {
@@ -88,11 +103,12 @@ function builtInProviders(env: NodeJS.ProcessEnv): NasProviderConfig[] {
       id: "truenas",
       name: "TrueNAS Scale",
       host: env.TRUENAS_HOST,
-      port: 443,
+      port: envPort(env.TRUENAS_PORT, 443),
       protocol: "https",
       kind: "truenas",
       backends: ["smb", "nfs"],
       enabledEnv: "TRUENAS_API_KEY",
+      tlsFingerprint256: env.TRUENAS_TLS_FINGERPRINT,
     });
   }
   return providers;
@@ -161,7 +177,9 @@ export interface ResolvedNasProvider extends NasProviderConfig {
   hasCredentials: boolean;
 }
 
-/** Strip credentials off a stored provider to get its public config shape. */
+/** Strip credentials off a stored provider to get its public config shape. The
+ *  TLS pin is not a credential — it is public certificate material and every
+ *  discovery call needs it, so it rides along. */
 function toProviderConfig(stored: StoredNasProvider): NasProviderConfig {
   return {
     id: stored.id,
@@ -171,6 +189,7 @@ function toProviderConfig(stored: StoredNasProvider): NasProviderConfig {
     protocol: stored.protocol,
     kind: stored.kind,
     backends: stored.backends,
+    tlsFingerprint256: stored.tlsFingerprint256,
   };
 }
 

@@ -60,6 +60,13 @@ export interface StoredNasProvider {
   kind: NasProviderKind;
   backends: NasBackend[];
   credentials: StoredNasCredentials;
+  /**
+   * SHA-256 fingerprint (bare uppercase hex) of the appliance's TLS certificate,
+   * confirmed by the operator when the provider was added. NAS appliances ship
+   * self-signed certs, so this pin — not the CA store — is what makes an HTTPS
+   * call to them trustworthy. See `@/lib/nas/pinned-fetch`.
+   */
+  tlsFingerprint256?: string;
 }
 
 const CREDENTIALS_SCHEMA = z.object({
@@ -77,6 +84,7 @@ export const STORED_PROVIDER_SCHEMA = z.object({
   kind: z.enum(["synology", "truenas", "generic-smb", "generic-nfs"]),
   backends: z.array(z.enum(["smb", "nfs"])).min(1),
   credentials: CREDENTIALS_SCHEMA.default({}),
+  tlsFingerprint256: z.string().regex(/^[0-9A-F]{64}$/).optional(),
 });
 
 const PROVIDER_ID_SCHEMA = z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*$/);
@@ -211,7 +219,8 @@ export async function deleteNasSmbCreds(providerId: string): Promise<void> {
 
 /**
  * Insert or replace a provider by id, preserving stored credentials when the
- * incoming entry omits them (blank-password "update host/name" flow).
+ * incoming entry omits them (blank-password "update host/name" flow) and the
+ * stored TLS pin when the caller did not re-confirm the certificate.
  */
 export async function upsertStoredNasProvider(entry: StoredNasProvider): Promise<void> {
   const existing = await readStoredNasProviders();
@@ -223,6 +232,7 @@ export async function upsertStoredNasProvider(entry: StoredNasProvider): Promise
       password: entry.credentials.password ?? prior?.credentials.password,
       apiKey: entry.credentials.apiKey ?? prior?.credentials.apiKey,
     },
+    tlsFingerprint256: entry.tlsFingerprint256 ?? prior?.tlsFingerprint256,
   };
   const next = existing.some((p) => p.id === entry.id)
     ? existing.map((p) => (p.id === entry.id ? merged : p))

@@ -35,6 +35,13 @@ export interface NasProviderInput {
    *  a least-privilege service account on the NAS and stores only that scoped
    *  credential (the admin credential is never persisted). Synology/TrueNAS only. */
   provisionScoped?: boolean;
+  /** SHA-256 fingerprint of the appliance's TLS certificate, once the operator
+   *  has confirmed it. NAS appliances use self-signed certs, so the first save
+   *  is answered with a certificate challenge instead of a silent trust. */
+  tlsFingerprint256?: string;
+  /** TrueNAS only: the TrueNAS user the minted scoped API key is bound to.
+   *  The key inherits that user's privileges. */
+  scopedUsername?: string;
 }
 
 export interface NasShare {
@@ -107,6 +114,33 @@ export function useNasProviders() {
   });
 }
 
+/** The appliance's certificate, as shown to the operator for confirmation. */
+export interface NasCertificate {
+  subject: string;
+  issuer: string;
+  validFrom: string;
+  validTo: string;
+  fingerprint256: string;
+  fingerprintDisplay: string;
+  selfSigned: boolean;
+}
+
+/**
+ * Thrown when the server refuses to send credentials to an appliance whose TLS
+ * certificate has not been trusted (or no longer matches the stored pin). The
+ * caller shows `certificate` and re-submits with `tlsFingerprint256` to accept.
+ */
+export class NasCertificateChallenge extends Error {
+  constructor(
+    message: string,
+    readonly certificate: NasCertificate,
+    readonly state: "untrusted" | "mismatch",
+  ) {
+    super(message);
+    this.name = "NasCertificateChallenge";
+  }
+}
+
 export function useNasAddProvider() {
   const qc = useQueryClient();
   return useMutation({
@@ -116,9 +150,18 @@ export function useNasAddProvider() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: unknown; id?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: unknown;
+        id?: string;
+        needsCertificateTrust?: boolean;
+        certificateState?: "untrusted" | "mismatch";
+        certificate?: NasCertificate;
+      };
       if (!res.ok) {
         const message = typeof data.error === "string" ? data.error : "Failed to add provider";
+        if (res.status === 409 && data.needsCertificateTrust && data.certificate) {
+          throw new NasCertificateChallenge(message, data.certificate, data.certificateState ?? "untrusted");
+        }
         throw new Error(message);
       }
       return data as {

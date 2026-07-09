@@ -16,12 +16,18 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { logMutatingAccess } from "@/lib/access-log";
 import { INTERNAL_DOMAIN } from "@/lib/domain";
-import { fetchInternalService } from "@/lib/insecure-fetch";
 import {
   invalidateInternalHostAllowlist,
   isAllowedInternalHostForWizard,
 } from "@/lib/internal-url-allowlist-server";
-import { probeNasCredentials } from "@/lib/nas/discovery";
+import { probeNasCredentials, type ProbeResult } from "@/lib/nas/discovery";
+import {
+  fetchNasService,
+  formatFingerprint,
+  isNasCertificateError,
+  normalizeFingerprint,
+  type NasPeerCertificate,
+} from "@/lib/nas/pinned-fetch";
 import { provisionScopedNasAccount } from "@/lib/nas/provision-account";
 import { listProviderConfigs, resolveNasProviders, type ResolvedNasProvider } from "@/lib/nas/providers";
 import {
@@ -46,19 +52,24 @@ function probeUrl(provider: Pick<ResolvedNasProvider, "protocol" | "host" | "por
     case "synology":
       return `${base}/webapi/query.cgi?api=SYNO.API.Info&version=1&method=query`;
     case "truenas":
-      return `${base}/api/v2/system/info`;
+      return `${base}/api/v2.0/system/info`;
     case "generic-smb":
     case "generic-nfs":
       return base;
   }
 }
 
-async function checkReachable(url: string): Promise<boolean> {
+/**
+ * Liveness only — never sends credentials. A certificate error still means the
+ * appliance answered on the wire, so it counts as reachable; trust is decided
+ * separately at save time.
+ */
+async function checkReachable(url: string, pin?: string): Promise<boolean> {
   try {
-    const res = await fetchInternalService(url, { signal: AbortSignal.timeout(2000) }, { allowInsecureTls: true });
+    const res = await fetchNasService(url, { timeoutMs: 2000 }, { pin });
     return res.ok || res.status < 500;
-  } catch {
-    return false;
+  } catch (error) {
+    return isNasCertificateError(error);
   }
 }
 
@@ -91,6 +102,17 @@ const CreateBody = z.object({
       apiKey: z.string().max(1024).optional(),
     })
     .default({}),
+  /**
+   * SHA-256 fingerprint of the appliance's TLS certificate, as shown to and
+   * confirmed by the operator. Required before the console will send any
+   * credential to an appliance with a self-signed certificate.
+   */
+  tlsFingerprint256: z.string().regex(/^[0-9A-Fa-f:\s]{64,95}$/).optional(),
+  /**
+   * TrueNAS only: the existing TrueNAS user the minted scoped API key is bound
+   * to. `api_key.create` requires it and the key inherits that user's rights.
+   */
+  scopedUsername: z.string().max(128).optional(),
   // When true, the supplied `credentials` are treated as a ONE-TIME admin
   // credential: the console uses them to mint a least-privilege service account
   // on the NAS, persists only that scoped account, and discards the admin
@@ -120,6 +142,29 @@ function normalizeHostname(raw: string): string | null {
   }
 }
 
+/**
+ * A NAS appliance ships a self-signed certificate, so the first save cannot
+ * verify it against any CA. Rather than trusting it silently, answer 409 with
+ * the certificate we observed; the wizard shows it and re-submits with
+ * `tlsFingerprint256` once the operator confirms. No credential was sent to the
+ * appliance to produce this response.
+ */
+function certificateChallenge(probe: ProbeResult & { certificate: NasPeerCertificate }): NextResponse {
+  const { certificate } = probe;
+  return NextResponse.json(
+    {
+      error: probe.error,
+      needsCertificateTrust: true,
+      certificateState: probe.certificateState,
+      certificate: {
+        ...certificate,
+        fingerprintDisplay: formatFingerprint(certificate.fingerprint256),
+      },
+    },
+    { status: 409 },
+  );
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -130,7 +175,7 @@ export async function GET(req: NextRequest) {
   }
 
   const configs = await resolveNasProviders();
-  const reachability = await Promise.all(configs.map((p) => checkReachable(probeUrl(p))));
+  const reachability = await Promise.all(configs.map((p) => checkReachable(probeUrl(p), p.tlsFingerprint256)));
   return NextResponse.json({
     providers: configs.map((p, i) => ({
       id: p.id,
@@ -203,6 +248,38 @@ export async function POST(req: NextRequest) {
     const port = body.port ?? DEFAULT_PORT[kind];
     const backends = body.backends ?? DEFAULT_BACKENDS[kind];
 
+    const existing = (await readStoredNasProviders()).find((p) => p.id === id);
+    // An explicit fingerprint means "the operator just confirmed this cert".
+    // Otherwise reuse the pin already trusted for this provider, so a rename or
+    // a port change does not force the operator to re-confirm the certificate.
+    let pin: string | undefined;
+    if (body.tlsFingerprint256) {
+      try {
+        pin = normalizeFingerprint(body.tlsFingerprint256);
+      } catch {
+        return NextResponse.json({ error: "Invalid TLS certificate fingerprint" }, { status: 400 });
+      }
+    }
+    const priorPin = existing?.tlsFingerprint256;
+    // Trusting a NEW certificate for a provider that already had one is the
+    // security-relevant event: either the appliance rotated its cert, or someone
+    // is on the path. Record the transition so it is findable after the fact —
+    // the generic "saved provider" line below would not distinguish the two.
+    if (pin && priorPin && pin !== priorPin) {
+      await auditLog(
+        "nas:provider:retrust",
+        actor,
+        `TLS pin for ${id} (${hostname}) changed ${formatFingerprint(priorPin)} -> ${formatFingerprint(pin)}`,
+      );
+    }
+    pin ??= priorPin;
+    // `hostname` cleared `isAllowedInternalHostForWizard` above but is not on the
+    // SSRF allowlist until the provider is STORED — and it is only stored once
+    // the probe below succeeds. Hand the probe that same cleared host so a brand
+    // new appliance can be reached; `parseAllowedInternalUrlAsync` re-validates
+    // it, so this admits nothing the wizard check would not.
+    const probeTarget = { host: hostname, port, kind, tlsFingerprint256: pin, wizardHost: hostname };
+
     // Least-privilege self-provisioning: the pasted credentials are a one-time
     // admin credential. Verify it, use it to mint a scoped service account on
     // the NAS, persist ONLY the scoped credential, and let the admin credential
@@ -212,14 +289,16 @@ export async function POST(req: NextRequest) {
         username: body.credentials.username,
         password: body.credentials.password,
         apiKey: body.credentials.apiKey,
+        scopedUsername: body.scopedUsername,
       };
-      const adminProbe = await probeNasCredentials({ host: hostname, port, kind }, adminCredentials);
+      const adminProbe = await probeNasCredentials(probeTarget, adminCredentials);
+      if (adminProbe.certificate) return certificateChallenge({ ...adminProbe, certificate: adminProbe.certificate });
       if (!adminProbe.ok) {
         await auditLog("nas:provider:configure", actor, `admin test failed for ${id} (${hostname})`, { result: "failure" });
         return NextResponse.json({ error: `Admin credential test failed: ${adminProbe.error ?? "unknown"}` }, { status: 502 });
       }
 
-      const provisioned = await provisionScopedNasAccount({ host: hostname, port, kind }, adminCredentials, [], id);
+      const provisioned = await provisionScopedNasAccount(probeTarget, adminCredentials, [], id);
       if (!provisioned.ok || !provisioned.credentials) {
         await auditLog("nas:provider:configure", actor, `scoped provisioning failed for ${id} (${hostname})`, { result: "failure" });
         return NextResponse.json({ error: provisioned.error ?? "Scoped account provisioning failed" }, { status: 502 });
@@ -227,7 +306,7 @@ export async function POST(req: NextRequest) {
 
       // Only the scoped credential survives. Prove it works before persisting.
       const scopedCredentials = provisioned.credentials;
-      const scopedProbe = await probeNasCredentials({ host: hostname, port, kind }, scopedCredentials);
+      const scopedProbe = await probeNasCredentials(probeTarget, scopedCredentials);
       if (!scopedProbe.ok) {
         return NextResponse.json(
           { error: `Scoped account was created but failed verification: ${scopedProbe.error ?? "unknown"}` },
@@ -235,7 +314,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      await upsertStoredNasProvider({ id, name: body.name, host: hostname, port, protocol, kind, backends, credentials: scopedCredentials });
+      await upsertStoredNasProvider({ id, name: body.name, host: hostname, port, protocol, kind, backends, credentials: scopedCredentials, tlsFingerprint256: pin });
       // Re-adding an id that was previously hidden lifts its tombstone.
       await unsuppressEnvProvider(id);
       invalidateInternalHostAllowlist();
@@ -258,7 +337,6 @@ export async function POST(req: NextRequest) {
 
     // On an existing provider, blank credentials mean "keep the stored ones" —
     // reuse them so we can still run the save & test.
-    const existing = (await readStoredNasProviders()).find((p) => p.id === id);
     const credentials = {
       username: body.credentials.username || existing?.credentials.username,
       password: body.credentials.password || existing?.credentials.password,
@@ -266,13 +344,14 @@ export async function POST(req: NextRequest) {
     };
 
     // Prove the credentials work against the live NAS before persisting anything.
-    const probe = await probeNasCredentials({ host: hostname, port, kind }, credentials);
+    const probe = await probeNasCredentials(probeTarget, credentials);
+    if (probe.certificate) return certificateChallenge({ ...probe, certificate: probe.certificate });
     if (!probe.ok) {
       await auditLog("nas:provider:configure", actor, `test failed for ${id} (${hostname})`, { result: "failure" });
       return NextResponse.json({ error: probe.error ?? "Credential test failed" }, { status: 502 });
     }
 
-    await upsertStoredNasProvider({ id, name: body.name, host: hostname, port, protocol, kind, backends, credentials });
+    await upsertStoredNasProvider({ id, name: body.name, host: hostname, port, protocol, kind, backends, credentials, tlsFingerprint256: pin });
     // Re-adding an id that was previously hidden lifts its tombstone.
     await unsuppressEnvProvider(id);
     // A newly-stored provider host must be trusted for SSRF-guarded fetches on
