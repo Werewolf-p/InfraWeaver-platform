@@ -20,13 +20,13 @@ describe("IA restructure — navigation groups", () => {
     const hrefs = new Set(ALL_NAV_ITEMS.map((i) => i.href));
     // A sampling spanning each new group home — these moved but must still exist.
     for (const href of [
-      "/cluster", "/cost", "/wiki", "/changelog", // overview
-      "/all-services", "/app-graph", "/namespace-cleanup", "/pod-shell", "/quota", // workloads
-      "/network", "/uptime", "/gameservers", "/network/firewall", // networking (hub)
+      "/cluster", "/changelog", // overview
+      "/all-services", "/app-graph", "/namespace-cleanup", "/pod-shell", // workloads
+      "/network", "/gameservers", "/network/firewall", // networking (hub)
       "/registry", "/config", "/secrets", "/storage", // storage & config hubs
-      "/alert-silence", "/tests", "/events", // observability (diagnostics hub)
+      "/monitoring", "/alert-silence", "/tests", "/events", // observability (diagnostics hub)
       "/rbac-viz", "/access", // security & access
-      "/gitops-diff", "/settings/rbac", "/profile", "/settings/addons", // platform
+      "/gitops-diff", "/settings/rbac", "/settings/addons", // platform
     ]) {
       expect(hrefs.has(href)).toBe(true);
     }
@@ -40,6 +40,8 @@ describe("IA restructure — navigation groups", () => {
       "/storage-timeline", "/pv-browser", "/backups", // → /storage tabs
       "/self-test", "/health-tester", "/webhook-tester", // → /tests tabs
       "/network-policies", "/ingress", // → /network tabs
+      "/status", "/health", "/uptime", // → /monitoring tabs
+      "/dns", // → /routes tabs
     ]) {
       expect(hrefs.has(merged)).toBe(false);
     }
