@@ -11,6 +11,8 @@ import {
 } from "@/lib/feedback-store";
 import { isDispatchConfigured } from "@/lib/feedback-dispatch";
 import { needsReconcile, reconcileStaleEntries } from "@/lib/feedback-pipeline";
+import { signHmac, verifyHmac } from "@/lib/hmac";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 
 // Any authenticated user may submit/list feedback context.
 const SUBMIT: Permission[] = ["apps:read", "cluster:read"];
@@ -24,25 +26,46 @@ const SUBMIT: Permission[] = ["apps:read", "cluster:read"];
 // so every fork reports to the same canonical endpoint regardless of local config.
 const FEEDBACK_URL = "https://infraweaver.rlservers.com/api/feedback";
 
-// Marks a request that is an already-forwarded ("upstream") copy. It serves two
-// purposes: (1) loop guard — the canonical deployment receiving forwarded
-// feedback must NOT forward it again; (2) it is the auth-bypass path used to
-// ingest anonymous cross-deployment feedback (header-gated, minimal fields only).
-const UPSTREAM_HEADER = "x-infraweaver-upstream";
+// C2 (SECURITY-SCAN-2026-07-08): cross-deployment ("upstream") ingest is gated by
+// a shared HMAC between fork and canonical — NOT a client-settable header. A fork
+// signs each forwarded copy with the shared secret; the canonical verifies it and
+// only then bypasses auth. The signed forward also serves as the loop guard: a
+// request carrying a valid signature is a forwarded copy and is NOT re-forwarded.
+// The signature headers follow the canonical scheme in hmac.ts.
+const UPSTREAM_TIMESTAMP_HEADER = "x-iw-timestamp";
+const UPSTREAM_SIGNATURE_HEADER = "x-iw-signature";
 
-// Fire-and-forward a sanitized copy of a feedback entry to the canonical
-// endpoint. Non-blocking and failure-swallowing: it must never affect the local
-// user's response or throw into the request path.
+// Unauthenticated + auto-deploy-adjacent, so rate-limit every submission per IP.
+const FEEDBACK_RATE_LIMIT = { max: 20, windowMs: 60_000 };
+
+/** Shared fork↔canonical secret. When unset, upstream ingest/forward are disabled (fail-closed). */
+function upstreamSecret(): string {
+  return process.env.FEEDBACK_UPSTREAM_SECRET ?? "";
+}
+
+// Fire-and-forget a sanitized, HMAC-signed copy of a feedback entry to the
+// canonical endpoint. Non-blocking and failure-swallowing: it must never affect
+// the local user's response or throw into the request path. Skipped entirely
+// when no shared secret is configured — an unsigned copy would be rejected.
 function forwardToCanonical(payload: {
   description: string;
   type: FeedbackType;
   pagePath: string;
   severity?: FeedbackSeverity;
 }) {
+  const secret = upstreamSecret();
+  if (!secret) return;
+  const ts = Date.now().toString();
+  const body = JSON.stringify(payload);
+  const signature = signHmac(`${ts}.${body}`, secret);
   void fetch(FEEDBACK_URL, {
     method: "POST",
-    headers: { "content-type": "application/json", [UPSTREAM_HEADER]: "1" },
-    body: JSON.stringify(payload),
+    headers: {
+      "content-type": "application/json",
+      [UPSTREAM_TIMESTAMP_HEADER]: ts,
+      [UPSTREAM_SIGNATURE_HEADER]: signature,
+    },
+    body,
   }).catch(() => {
     // Intentionally ignored — upstream reporting is best-effort.
   });
@@ -78,13 +101,33 @@ interface CreateFeedbackBody {
 // POST /api/feedback — capture a new feedback entry.
 //
 // Two paths:
-//  • Normal user (auth-gated): store locally, then fire-and-forward a copy to the
-//    canonical InfraWeaver endpoint (FEEDBACK_URL).
-//  • Upstream copy (carries UPSTREAM_HEADER): an anonymous cross-deployment
-//    submission forwarded from another fork. Auth is bypassed (it has no session)
-//    and it is NOT forwarded again — the canonical deployment ingests it here.
+//  • Normal user (auth-gated): store locally, then fire-and-forward an HMAC-signed
+//    copy to the canonical InfraWeaver endpoint (FEEDBACK_URL).
+//  • Upstream copy (carries a VALID HMAC signature): an anonymous cross-deployment
+//    submission forwarded from another fork. Auth is bypassed only after the
+//    signature verifies; it is NOT forwarded again — the canonical ingests it here.
 export async function POST(request: NextRequest) {
-  const isUpstream = request.headers.get(UPSTREAM_HEADER) === "1";
+  // Rate-limit every submission per client IP (covers both the unauthenticated
+  // upstream path and normal users).
+  if (!checkRateLimit(rateLimitKey("feedback", request), FEEDBACK_RATE_LIMIT.max, FEEDBACK_RATE_LIMIT.windowMs)) {
+    return apiError("Too many requests", { status: 429 });
+  }
+
+  // Read the raw body once — the HMAC is computed over these exact bytes.
+  const rawBody = await request.text().catch(() => "");
+
+  const timestamp = request.headers.get(UPSTREAM_TIMESTAMP_HEADER);
+  const signature = request.headers.get(UPSTREAM_SIGNATURE_HEADER);
+
+  let isUpstream = false;
+  if (timestamp || signature) {
+    // A cross-deployment copy claiming to be signed. Fail closed: a bad/expired
+    // signature, or no shared secret configured, is rejected — it must never fall
+    // through to the auth-gated path or the anonymous ingest.
+    const ok = verifyHmac({ timestamp, signature, rawBody, secret: upstreamSecret(), now: Date.now() });
+    if (!ok) return apiError("Invalid upstream signature", { status: 401 });
+    isUpstream = true;
+  }
 
   let actor = "upstream-fork";
   if (!isUpstream) {
@@ -94,11 +137,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = (await request.json().catch(() => ({}))) as CreateFeedbackBody;
-    const description = body.description?.trim();
-    const type = body.type as FeedbackType;
-    const pagePath = body.pagePath?.trim();
-    const severity = body.severity as FeedbackSeverity | undefined;
+    let parsedBody: CreateFeedbackBody = {};
+    try {
+      parsedBody = rawBody ? (JSON.parse(rawBody) as CreateFeedbackBody) : {};
+    } catch {
+      // Malformed JSON — leave empty so the field validation below returns 400.
+    }
+    const description = parsedBody.description?.trim();
+    const type = parsedBody.type as FeedbackType;
+    const pagePath = parsedBody.pagePath?.trim();
+    const severity = parsedBody.severity as FeedbackSeverity | undefined;
 
     if (!description) return apiError("description is required", { status: 400 });
     if (description.length > 4000) return apiError("description too long", { status: 400 });
@@ -110,8 +158,8 @@ export async function POST(request: NextRequest) {
 
     const entry = await createFeedback({ description, type, pagePath, severity }, actor);
 
-    // Only original (locally-submitted) feedback is forwarded upstream; forwarded
-    // copies are not re-forwarded (loop guard).
+    // Only original (locally-submitted) feedback is forwarded upstream; signed
+    // forwarded copies are not re-forwarded (loop guard).
     if (!isUpstream) {
       forwardToCanonical({ description, type, pagePath, severity });
     }
