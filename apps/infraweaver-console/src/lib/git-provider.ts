@@ -132,9 +132,26 @@ export function getGitAccessToken(): string {
     : (process.env.GITHUB_TOKEN ?? "");
 }
 
+/**
+ * Repository this module reads and writes.
+ *
+ * `GITHUB_REPO` is overloaded: it also names the repo whose GitHub Actions the
+ * console dispatches (`/api/pipelines`, node settings) and whose wiki it renders
+ * — that is the *platform* repo. The GitOps manifests ArgoCD syncs live in the
+ * *infra* repo. Where those differ, every commit this module made (catalog
+ * installs, NAS mounts, users.yaml) landed in a repo no Application watches, so
+ * the change was recorded and never applied.
+ *
+ * `GITOPS_REPO` names the repo ArgoCD actually syncs. It falls back to
+ * `GITHUB_REPO`, so a single-repo deployment is unaffected.
+ */
+function getGitOpsRepo(): string {
+  return process.env.GITOPS_REPO ?? process.env.GITHUB_REPO ?? DEFAULT_GITHUB_REPO;
+}
+
 function getGitHubConfig() {
   const apiUrl = (process.env.GITHUB_API_URL ?? DEFAULT_GITHUB_API_URL).replace(/\/$/, "");
-  const repo = process.env.GITHUB_REPO ?? DEFAULT_GITHUB_REPO;
+  const repo = getGitOpsRepo();
   const token = process.env.GITHUB_TOKEN ?? "";
   return {
     apiUrl,

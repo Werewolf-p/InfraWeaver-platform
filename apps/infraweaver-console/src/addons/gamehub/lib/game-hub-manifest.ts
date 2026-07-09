@@ -45,7 +45,8 @@ export function getGitHubConfig() {
     };
   }
   const apiUrl = (process.env.GITHUB_API_URL ?? DEFAULT_GITHUB_API_URL).replace(/\/$/, "");
-  const repo = process.env.GITHUB_REPO ?? DEFAULT_GITHUB_REPO;
+  // Same GitOps repo the console commits to — see `getGitOpsRepo` in git-provider.
+  const repo = process.env.GITOPS_REPO ?? process.env.GITHUB_REPO ?? DEFAULT_GITHUB_REPO;
   const token = process.env.GITHUB_TOKEN ?? "";
   return {
     apiUrl,
