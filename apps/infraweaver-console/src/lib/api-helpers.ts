@@ -62,6 +62,27 @@ export function internalCronTokenMatches(provided: string | null, expected: stri
   return mismatch === 0
 }
 
+// Header names for the fork↔canonical feedback HMAC. Mirror the constants in
+// src/app/api/feedback/route.ts (UPSTREAM_TIMESTAMP_HEADER / _SIGNATURE_HEADER)
+// and the canonical scheme in lib/hmac.ts.
+const UPSTREAM_TIMESTAMP_HEADER = "x-iw-timestamp"
+const UPSTREAM_SIGNATURE_HEADER = "x-iw-signature"
+
+/**
+ * True when a request carries BOTH feedback HMAC headers. The middleware uses
+ * this to let a *signed* cross-deployment ("upstream") feedback POST past the
+ * session gate AND the CSRF same-origin check — a genuine fork forward is
+ * anonymous and, being a server-side fetch, carries no same-origin Origin. This
+ * grants NO trust: it only defers auth to the HMAC verification in the
+ * /api/feedback route handler, which fails closed on a forged/expired signature
+ * (defence in depth, exactly like the health-sweep token bypass). Presence-only,
+ * fail-closed: either header missing or empty → false. Pure (no node:crypto) so
+ * it is safe in the middleware bundle.
+ */
+export function hasUpstreamFeedbackSignature(req: Pick<Request, "headers">): boolean {
+  return !!req.headers.get(UPSTREAM_TIMESTAMP_HEADER) && !!req.headers.get(UPSTREAM_SIGNATURE_HEADER)
+}
+
 export function getRequestBodyLimit(pathname: string) {
   const override = API_BODY_LIMIT_OVERRIDES.find((entry) => pathname.startsWith(entry.prefix))
   return override?.bytes ?? DEFAULT_API_BODY_LIMIT
