@@ -19,6 +19,8 @@ import { buildWpUserSyncPlan, listWpUsersCommand, parseWpUserList, type WpUserSy
 import { execInWpPod } from "./k8s-exec";
 import { isK8sNotFound } from "./k8s-errors";
 import { ServiceUnavailableError, SiteNotFoundError } from "./errors";
+import { SsoUnavailableError } from "@/lib/sso/errors";
+import { emitSsoUnavailableAlert, clearSsoUnavailableAlert } from "./reconcile-alerts";
 import { siteHealthCommand, parseSiteHealth, type SiteHealth } from "./health";
 import { shapeSitePods, type SitePod, type SitePodSource } from "./site-pods";
 
@@ -643,11 +645,41 @@ export function triggerReconcile(site: string): void {
   if (settled.has(site) || reconcileInFlight.has(site)) return;
   reconcileInFlight.add(site);
   void reconcileSite(site)
-    .then(() => settled.add(site))
-    .catch((err) => {
-      if (!(err instanceof ServiceUnavailableError)) {
-        console.warn(`[wordpress] reconcile for ${site} failed:`, err instanceof Error ? err.message : err);
-      }
+    // `settled` is set ONLY here, on success: every rejection routed through
+    // `reportReconcileError` leaves the site unsettled (and its vault `applied`
+    // flag false), so the next `listSites` poll re-runs this idempotent pass.
+    // Success also clears any live SSO-gate alert so the NEXT outage re-arms.
+    .then(() => {
+      settled.add(site);
+      clearSsoUnavailableAlert(site);
     })
+    .catch((err) => reportReconcileError(site, err))
     .finally(() => reconcileInFlight.delete(site));
+}
+
+/**
+ * Log a reconcile failure at the right volume for its cause. Never settles the site
+ * — settling is the caller's success-only step — so every branch here leaves the
+ * site eligible for the next poll's retry.
+ *
+ *  - `SsoUnavailableError` — Authentik was unreachable / timed out mid-gate (e.g. the
+ *    `ensureProviderOnOutpost` PATCH raced a concurrent reconcile and hit the client's
+ *    request timeout). Expected-and-retryable, but it gets its OWN distinct line:
+ *    folded into the generic branch it reads exactly like a code fault, and an
+ *    operator can't tell "self-heals next poll" from "stuck". This is the alert.
+ *  - `ServiceUnavailableError` — the WordPress pod isn't ready yet; normal during
+ *    provisioning and retried every poll, so stay silent to avoid log spam.
+ *  - anything else — an unexpected fault; log generically.
+ */
+export function reportReconcileError(site: string, err: unknown): void {
+  if (err instanceof SsoUnavailableError) {
+    console.warn(`[wordpress] SSO reconcile for ${site} deferred — Authentik unavailable (${err.message}); leaving site unsettled to retry on next poll`);
+    // The console.warn above is log-only. Also raise a deduped platform alert
+    // (one per outage window, not one per poll) so a stuck gate is visible in the
+    // notification bell without log-grepping.
+    emitSsoUnavailableAlert(site, err.message);
+    return;
+  }
+  if (err instanceof ServiceUnavailableError) return; // pod not ready — normal, retried next poll
+  console.warn(`[wordpress] reconcile for ${site} failed:`, err instanceof Error ? err.message : err);
 }
