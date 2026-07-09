@@ -29,7 +29,7 @@ import { DashboardPanel } from "@/components/ui/dashboard-panel";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
-import { ACCESS_TIER_MIDDLEWARES, type AccessTier } from "@/lib/access-tier";
+import { type AccessTier } from "@/lib/access-tier";
 import { isInternalDnsName, type ManagedDnsRecord } from "@/lib/dns";
 import type { ExternalRouteItem, ExternalRoutesResponse } from "@/lib/external-routes";
 import { cn } from "@/lib/utils";
@@ -425,7 +425,7 @@ export default function RoutingPage() {
         <DashboardPanel title="Routes" description="Search and filter across manual and auto-generated routes." icon={Server}>
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              {(["all", "vpn", "internal", "public"] as const).map((tier) => (
+              {(["all", "internal", "public"] as const).map((tier) => (
                 <button
                   key={tier}
                   type="button"
@@ -651,9 +651,9 @@ interface MiddlewareUsage {
   routes: Array<{ name: string; hosts: string[]; tier: AccessTier }>;
 }
 
-// Names of the built-in access-tier middlewares. Module-level so it keeps a stable
-// ref and does not need to be a dependency of the usage useMemo below.
-const tierMiddlewares = new Set(Object.values(ACCESS_TIER_MIDDLEWARES).map((value) => value.toLowerCase()));
+// The Authentik forward-auth middlewares that gate a route. Module-level so it keeps
+// a stable ref and does not need to be a dependency of the usage useMemo below.
+const tierMiddlewares = new Set(["forward-auth", "forward-auth-admin"]);
 
 function MiddlewarePanel({ routes, loading }: { routes: UnifiedRoute[]; loading: boolean }) {
   const usage = useMemo(() => {
@@ -679,8 +679,8 @@ function MiddlewarePanel({ routes, loading }: { routes: UnifiedRoute[]; loading:
         <div className="flex items-start gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4 text-sm text-violet-700 dark:text-violet-200">
           <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <p>
-            Access mode (VPN / Internal / Public) maps to forward-auth middleware automatically. Edit a route from any routes tab to
-            change which middlewares it uses.
+            Access mode maps to middleware automatically: Internal routes always get Authentik forward-auth; Public routes get it
+            only when login is required. Edit a route from any routes tab to change which middlewares it uses.
           </p>
         </div>
 

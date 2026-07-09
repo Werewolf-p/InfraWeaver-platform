@@ -22,7 +22,6 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/network": { any: ["infra:read"] },
   "/network/firewall": { any: ["infra:read"] },
   "/network/wan": { any: ["infra:read"] },
-  "/vpn": { any: ["infra:read", "cluster:admin"] },
   "/ingress": { any: ["infra:read"] },
   "/certificates": { any: ["security:read", "infra:read"] },
   "/network-policies": { any: ["infra:read"] },

@@ -2,7 +2,9 @@ import { execFileSync } from "child_process";
 import { promises as fs } from "fs";
 import path from "path";
 import * as yaml from "js-yaml";
-import { ACCESS_TIER_MIDDLEWARES, detectAccessTier, normalizeMiddlewareName, type AccessTier } from "@/lib/access-tier";
+import { detectAccessTier, normalizeMiddlewareName, type AccessTier } from "@/lib/access-tier";
+import { BASE_DOMAIN, INTERNAL_DOMAIN } from "@/lib/domain";
+import { DEFAULT_AUTH_MIDDLEWARE, DEFAULT_TLS_SECRETS, tlsSecretForHost } from "@/lib/platform-config";
 import type { ExternalRouteItem, ExternalRouteMutationInput, ExternalRoutesResponse, ExternalRouteTargetType } from "@/lib/external-routes";
 
 const TRAEFIK_NAMESPACE = "traefik";
@@ -12,7 +14,6 @@ const BAREMETAL_BACKENDS_FILE = "05-backends-baremetal.yaml";
 const ROUTE_FILES: Record<AccessTier, string> = {
   internal: "07-routes-internal.yaml",
   public: "08-routes-external.yaml",
-  vpn: "10-routes-vpn-only.yaml",
 };
 
 type ManifestResource = {
@@ -216,16 +217,50 @@ function countRoutesUsingBackend(routeManifests: ManifestFile[], backendServiceN
     .some((block) => routeServiceRefs(block.data!).some((service) => service.name === backendServiceName && service.namespace === TRAEFIK_NAMESPACE));
 }
 
-function preferredSecurityMiddleware(accessTier: AccessTier) {
-  if (accessTier === "vpn") return ACCESS_TIER_MIDDLEWARES.vpn;
-  if (accessTier === "internal") return ACCESS_TIER_MIDDLEWARES.internal;
-  return null;
+/**
+ * Whether a route requires an Authentik login. Internal routes are ALWAYS gated
+ * (the internal domain has no network perimeter — identity is the perimeter);
+ * public routes opt in via the `enableAuth` toggle.
+ */
+function requiresAuth(accessTier: AccessTier, enableAuth: boolean) {
+  return accessTier === "internal" || enableAuth;
 }
 
 function buildRouteMiddlewares(accessTier: AccessTier, enableAuth: boolean) {
-  const security = preferredSecurityMiddleware(accessTier);
-  const names = uniqueStrings(["secure-headers", security, enableAuth ? "forward-auth" : null]);
+  const names = uniqueStrings(["secure-headers", requiresAuth(accessTier, enableAuth) ? DEFAULT_AUTH_MIDDLEWARE : null]);
   return names.map((name) => ({ name, namespace: TRAEFIK_NAMESPACE }));
+}
+
+/** The bare subdomain label of `host`, stripped of the internal/public domain suffix. */
+function subdomainLabel(host: string): string {
+  const normalized = host.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\.+$/, "");
+  const internalSuffix = `.${INTERNAL_DOMAIN}`.toLowerCase();
+  const publicSuffix = `.${BASE_DOMAIN}`.toLowerCase();
+  if (normalized.endsWith(internalSuffix)) return normalized.slice(0, -internalSuffix.length);
+  if (normalized.endsWith(publicSuffix)) return normalized.slice(0, -publicSuffix.length);
+  const dot = normalized.indexOf(".");
+  return dot === -1 ? normalized : normalized.slice(0, dot);
+}
+
+function normalizeHost(host: string): string {
+  return host.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\.+$/, "");
+}
+
+/**
+ * Enforce the internal-tier invariants server-side so an internal route can never
+ * be saved off-domain or without Authentik, regardless of what the client sent:
+ *   internal → `<sub>.${INTERNAL_DOMAIN}` on the internal wildcard cert + forward-auth
+ * Public routes are left as-is (they may use custom domains / other Cloudflare
+ * zones); only the hostname is normalized and the auth flag preserved.
+ */
+function applyTierDefaults(input: ExternalRouteMutationInput): ExternalRouteMutationInput {
+  if (input.accessTier === "internal") {
+    const sub = subdomainLabel(input.host) || input.name;
+    const host = `${sub}.${INTERNAL_DOMAIN}`;
+    const tlsSecret = input.tlsSecret?.trim() || tlsSecretForHost(host, DEFAULT_TLS_SECRETS);
+    return { ...input, host, tlsSecret, enableAuth: true };
+  }
+  return { ...input, host: normalizeHost(input.host), enableAuth: Boolean(input.enableAuth) };
 }
 
 function buildRouteDocument(input: ExternalRouteMutationInput, backendServiceName: string): ManifestResource {
@@ -346,9 +381,8 @@ function parseRouteItem(routeBlock: ParsedBlock, index: BackendIndex): ExternalR
   const serviceRefs = routeServiceRefs(route);
   const firstService = serviceRefs[0];
   const hosts = uniqueStrings(asArray(route.spec?.routes).flatMap((entry) => routeHosts(entry.match)));
-  const accessTier = detectAccessTier(route.metadata?.labels?.["infraweaver.io/access-tier"], middlewares);
+  const accessTier = detectAccessTier(route.metadata?.labels?.["infraweaver.io/access-tier"], hosts);
   const normalizedMiddlewares = middlewares.map((middleware) => normalizeMiddlewareName(middleware));
-  const securityMiddleware = normalizedMiddlewares.find((middleware) => middleware === ACCESS_TIER_MIDDLEWARES.vpn || middleware === ACCESS_TIER_MIDDLEWARES.internal) ?? null;
   const backendServiceName = firstService?.name ?? route.metadata?.name ?? routeBlock.name;
   const backendNamespace = firstService?.namespace ?? route.metadata?.namespace ?? TRAEFIK_NAMESPACE;
   const baremetalService = index.baremetalServices.get(serviceKey(backendNamespace, backendServiceName));
@@ -391,7 +425,6 @@ function parseRouteItem(routeBlock: ParsedBlock, index: BackendIndex): ExternalR
     scheme,
     skipTlsVerify,
     backendServiceName,
-    hasVpnFallback: accessTier === "vpn" && securityMiddleware !== ACCESS_TIER_MIDDLEWARES.vpn,
   };
 }
 
@@ -501,7 +534,8 @@ export async function loadExternalRoutes(repoDir = process.env.REPO_DIR || proce
   };
 }
 
-export async function createExternalRoute(input: ExternalRouteMutationInput, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
+export async function createExternalRoute(rawInput: ExternalRouteMutationInput, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
+  const input = applyTierDefaults(rawInput);
   const state = await loadState(repoDir);
   if (findRouteLocation(state.routeManifests, input.name)) {
     throw new Error(`Route ${input.name} already exists`);
@@ -525,7 +559,8 @@ export async function createExternalRoute(input: ExternalRouteMutationInput, rep
   return loadExternalRoutes(repoDir);
 }
 
-export async function updateExternalRoute(name: string, input: ExternalRouteMutationInput, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
+export async function updateExternalRoute(name: string, rawInput: ExternalRouteMutationInput, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
+  const input = applyTierDefaults({ ...rawInput, name });
   const state = await loadState(repoDir);
   const location = findRouteLocation(state.routeManifests, name);
   if (!location) throw new Error(`Route ${name} not found`);

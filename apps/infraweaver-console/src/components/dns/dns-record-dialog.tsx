@@ -248,7 +248,7 @@ export function DnsRecordDialog({
                   {isEditing ? "Edit DNS Record" : "Add DNS Record"}
                 </Dialog.Title>
                 <Dialog.Description className="mt-1 text-sm text-gray-500 dark:text-[#888]">
-                  Manage internal VPN hostnames and public Cloudflare DNS records without leaving InfraWeaver.
+                  Manage internal (Authentik-gated) hostnames and public Cloudflare DNS records without leaving InfraWeaver.
                 </Dialog.Description>
               </div>
               <button
@@ -354,7 +354,7 @@ export function DnsRecordDialog({
                     {!isDefaultZone && selectedZoneName
                       ? `Creates ${form.name.trim() || "<name>"}.${selectedZoneName} in the selected zone`
                       : form.internal
-                        ? `Creates *.${INTERNAL_DNS_DOMAIN} for internal/VPN access`
+                        ? `Creates *.${INTERNAL_DNS_DOMAIN} for internal (Authentik) access`
                         : `Creates *.${ROOT_DNS_DOMAIN} for public access`}
                   </p>
                   {errors.name ? <p className="mt-1 text-xs text-red-400">{errors.name}</p> : null}

@@ -1,39 +1,42 @@
-import { DEFAULT_ACCESS_TIER_MIDDLEWARES, tlsSecretForHost } from "@/lib/platform-config";
+import { INTERNAL_DOMAIN } from "@/lib/domain";
+import { tlsSecretForHost } from "@/lib/platform-config";
 
-export type AccessTier = "vpn" | "internal" | "public";
+// Two access tiers only — VPN is retired (the perimeter is identity, not network).
+//   internal — served on `*.${INTERNAL_DOMAIN}`, ALWAYS gated by Authentik (forward-auth).
+//   public   — served on the base domain; Authentik is opt-in per route.
+export type AccessTier = "internal" | "public";
 
-export const ACCESS_TIERS: AccessTier[] = ["vpn", "internal", "public"];
+export const ACCESS_TIERS: AccessTier[] = ["internal", "public"];
 
 export const ACCESS_TIER_LABELS: Record<AccessTier, string> = {
-  vpn: "VPN",
   internal: "Internal",
   public: "Public",
 };
-
-// Defined once in platform-config (the single source of truth for fork-specific
-// values); re-exported here for back-compat with existing import sites.
-export const ACCESS_TIER_MIDDLEWARES = DEFAULT_ACCESS_TIER_MIDDLEWARES;
 
 export function normalizeMiddlewareName(value: string | null | undefined) {
   return (value ?? "").split("/").pop()?.trim().toLowerCase() ?? "";
 }
 
 export function isAccessTier(value: unknown): value is AccessTier {
-  return value === "vpn" || value === "internal" || value === "public";
+  return value === "internal" || value === "public";
 }
 
-export function detectAccessTier(label: unknown, middlewares: string[]): AccessTier {
-  if (isAccessTier(label)) return label;
-
-  const normalized = middlewares.map((middleware) => normalizeMiddlewareName(middleware));
-  if (normalized.includes(ACCESS_TIER_MIDDLEWARES.vpn)) return "vpn";
-  if (normalized.includes(ACCESS_TIER_MIDDLEWARES.internal)) return "internal";
+/**
+ * Resolve a route's access tier from its `infraweaver.io/access-tier` label,
+ * falling back to the hostname. Legacy `vpn` / `internal-cluster` labels collapse
+ * into `internal` now that VPN is gone. Anything served under the internal domain
+ * is internal; everything else is public.
+ */
+export function detectAccessTier(label: unknown, hosts: string[] = []): AccessTier {
+  if (label === "internal" || label === "internal-cluster" || label === "vpn") return "internal";
+  if (label === "public") return "public";
+  const internalSuffix = `.${INTERNAL_DOMAIN}`.toLowerCase();
+  if (hosts.some((host) => host.trim().toLowerCase().includes(internalSuffix))) return "internal";
   return "public";
 }
 
 export function accessTierDescription(tier: AccessTier) {
-  if (tier === "vpn") return "VPN required";
-  if (tier === "internal") return "Homelab LAN only";
+  if (tier === "internal") return "Authentik login required";
   return "Public internet";
 }
 
@@ -44,7 +47,6 @@ export function defaultTlsSecretForHost(host: string) {
 export function accessTierTabs() {
   return [
     { value: "all", label: "All" },
-    { value: "vpn", label: "VPN" },
     { value: "internal", label: "Internal" },
     { value: "public", label: "Public" },
   ] as const;

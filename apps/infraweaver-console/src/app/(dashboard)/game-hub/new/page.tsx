@@ -1400,7 +1400,7 @@ export default function NewGameServerPage() {
                       <div className="flex items-center gap-1.5">
                         <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">DNS Hostname</label>
                         <HelpTooltip>
-                          Controls how players connect to the server. Choose Internal for private use (VPN only), Public for internet access, or Custom to use your own domain.
+                          Controls how players connect to the server. Choose Internal for private use (LAN only), Public for internet access, or Custom to use your own domain.
                         </HelpTooltip>
                       </div>
                       {/* DNS type toggle — each option has an inline hint */}
@@ -1424,7 +1424,7 @@ export default function NewGameServerPage() {
                         {/* Contextual hint per DNS type */}
                         <div className="rounded-xl border border-gray-100 dark:border-[#1e1e1e] bg-gray-50 dark:bg-[#0d0d0d] px-3 py-2 text-xs text-gray-500 dark:text-[#777]">
                           {dnsType === "internal" && (
-                            <span>🔒 <strong>Private (VPN only)</strong> — only people connected to the VPN can reach this server. Good for personal or friends-only play.</span>
+                            <span>🔒 <strong>Private (LAN only)</strong> — only people on your local network can reach this server. Good for personal or friends-only play.</span>
                           )}
                           {dnsType === "public" && (
                             <span>🌐 <strong>Public internet</strong> — creates a DNS entry at <code className="font-mono text-[#7cc4ff]">.games.{ROOT_DNS_DOMAIN}</code>. Anyone who knows the address can connect. Make sure your game has a password if needed.</span>

@@ -24,7 +24,6 @@ export interface ExternalRouteItem {
   scheme: "http" | "https";
   skipTlsVerify: boolean;
   backendServiceName: string;
-  hasVpnFallback: boolean;
 }
 
 export interface ExternalRoutesResponse {

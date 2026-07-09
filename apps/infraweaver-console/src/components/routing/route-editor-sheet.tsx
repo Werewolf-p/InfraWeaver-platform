@@ -5,6 +5,7 @@ import { AccessTierBadge } from "@/components/access-tier-badge";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { Select } from "@/components/ui/select";
 import { defaultTlsSecretForHost, type AccessTier } from "@/lib/access-tier";
+import { BASE_DOMAIN, INTERNAL_DOMAIN } from "@/lib/domain";
 import type { ExternalRouteItem, ExternalRouteTargetType } from "@/lib/external-routes";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
@@ -34,8 +35,8 @@ export const DEFAULT_ROUTE_FORM: RouteFormState = {
   targetNamespace: "default",
   targetPort: "80",
   targetIP: "",
-  enableAuth: false,
-  tlsSecret: "platform-wildcard-int-tls",
+  enableAuth: true,
+  tlsSecret: "platform-int-wildcard-tls",
   scheme: "http",
   skipTlsVerify: false,
 };
@@ -59,6 +60,19 @@ export function routeToFormState(route: ExternalRouteItem): RouteFormState {
 
 const inputClass =
   "w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-[#3b82f6] dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]";
+
+// The bare subdomain label of `host`, stripped of the internal/public domain suffix,
+// so switching tiers keeps the chosen subdomain while swapping the domain.
+function bareLabel(host: string, fallback: string): string {
+  const normalized = host.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/\.+$/, "");
+  const intSuffix = `.${INTERNAL_DOMAIN}`.toLowerCase();
+  const pubSuffix = `.${BASE_DOMAIN}`.toLowerCase();
+  if (normalized.endsWith(intSuffix)) return normalized.slice(0, -intSuffix.length);
+  if (normalized.endsWith(pubSuffix)) return normalized.slice(0, -pubSuffix.length);
+  const dot = normalized.indexOf(".");
+  const label = dot === -1 ? normalized : normalized.slice(0, dot);
+  return label || fallback;
+}
 
 interface RouteEditorSheetProps {
   open: boolean;
@@ -138,6 +152,30 @@ export function RouteEditorSheet({ open, editingRoute, canWrite, onClose, onSave
         ...current,
         host: nextHost,
         tlsSecret: !current.tlsSecret || current.tlsSecret === currentDefault ? nextDefault : current.tlsSecret,
+      };
+    });
+  }
+
+  // Internal is always served on `*.${INTERNAL_DOMAIN}` and always gated by
+  // Authentik, so switching to it forces the host onto the internal domain (+ its
+  // wildcard TLS) and pins the login toggle on. The server enforces the same, so a
+  // manual host edit can never save an internal route off-domain. Public keeps its
+  // host — it may live on a custom domain — and is only rebased onto the public
+  // domain when leaving an internal host.
+  function selectAccessTier(tier: AccessTier) {
+    setForm((current) => {
+      if (tier === "internal") {
+        const host = `${bareLabel(current.host, current.name)}.${INTERNAL_DOMAIN}`;
+        return { ...current, accessTier: tier, host, tlsSecret: defaultTlsSecretForHost(host), enableAuth: true };
+      }
+      const normalized = current.host.trim().toLowerCase().replace(/\.+$/, "");
+      const wasInternal = normalized.endsWith(`.${INTERNAL_DOMAIN}`.toLowerCase());
+      const host = wasInternal ? `${bareLabel(current.host, current.name)}.${BASE_DOMAIN}` : current.host;
+      return {
+        ...current,
+        accessTier: tier,
+        host,
+        tlsSecret: host ? defaultTlsSecretForHost(host) : current.tlsSecret,
       };
     });
   }
@@ -261,12 +299,12 @@ export function RouteEditorSheet({ open, editingRoute, canWrite, onClose, onSave
 
         <div>
           <label className="mb-2 block text-sm font-medium text-gray-900 dark:text-white">Access tier</label>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {(["vpn", "internal", "public"] as AccessTier[]).map((tier) => (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(["internal", "public"] as AccessTier[]).map((tier) => (
               <button
                 key={tier}
                 type="button"
-                onClick={() => updateForm("accessTier", tier)}
+                onClick={() => selectAccessTier(tier)}
                 className={cn(
                   "flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition",
                   form.accessTier === tier
@@ -276,7 +314,7 @@ export function RouteEditorSheet({ open, editingRoute, canWrite, onClose, onSave
               >
                 <AccessTierBadge tier={tier} />
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {tier === "vpn" ? "VPN only" : tier === "internal" ? "LAN only" : "Internet"}
+                  {tier === "internal" ? `${INTERNAL_DOMAIN} · Authentik` : `${BASE_DOMAIN} · Internet`}
                 </span>
               </button>
             ))}
@@ -358,9 +396,22 @@ export function RouteEditorSheet({ open, editingRoute, canWrite, onClose, onSave
         ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]">
-            <input type="checkbox" checked={form.enableAuth} onChange={(event) => updateForm("enableAuth", event.target.checked)} />
-            Require Authentik login (forward-auth)
+          <label
+            className={cn(
+              "flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]",
+              form.accessTier === "internal" && "opacity-70",
+            )}
+            title={form.accessTier === "internal" ? "Internal routes are always gated by Authentik" : undefined}
+          >
+            <input
+              type="checkbox"
+              checked={form.accessTier === "internal" ? true : form.enableAuth}
+              disabled={form.accessTier === "internal"}
+              onChange={(event) => updateForm("enableAuth", event.target.checked)}
+            />
+            {form.accessTier === "internal"
+              ? "Authentik login — always required for internal"
+              : "Require Authentik login (forward-auth)"}
           </label>
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">TLS Secret</label>

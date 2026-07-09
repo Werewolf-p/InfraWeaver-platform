@@ -333,7 +333,7 @@ export function DnsManager() {
           <Globe className="h-5 w-5 text-cyan-600 dark:text-cyan-300" />
           <div>
             <p className="text-sm font-semibold text-gray-900 dark:text-white">DNS records</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Internal VPN hostnames and public Cloudflare DNS.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Internal (Authentik-gated) hostnames and public Cloudflare DNS.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -428,7 +428,7 @@ export function DnsManager() {
               )}
             >
               <Shield className="h-4 w-4" />
-              Internal (VPN)
+              Internal
               <span className="rounded-full bg-black/20 px-2 py-0.5 text-xs">{records.filter((record) => record.internal).length}</span>
             </button>
             <button
@@ -502,7 +502,7 @@ export function DnsManager() {
               icon={tab === "internal" ? Shield : Globe}
               title={tab === "internal" ? "No internal DNS records yet" : "No public DNS records yet"}
               description={tab === "internal"
-                ? "Create VPN-only hostnames for machines, services, and game servers."
+                ? "Create internal hostnames for machines, services, and game servers."
                 : "Create public hostnames that resolve through Cloudflare."}
               action={canWriteDns ? {
                 label: "Add first record",

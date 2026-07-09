@@ -1,17 +1,13 @@
 "use client";
 
-import { Globe, Server, Shield } from "lucide-react";
+import { Globe, Shield } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { accessTierDescription, ACCESS_TIER_LABELS, type AccessTier } from "@/lib/access-tier";
 import { cn } from "@/lib/utils";
 
 const ACCESS_TIER_STYLES: Record<AccessTier, { icon: typeof Shield; className: string }> = {
-  vpn: {
-    icon: Shield,
-    className: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  },
   internal: {
-    icon: Server,
+    icon: Shield,
     className: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   },
   public: {
