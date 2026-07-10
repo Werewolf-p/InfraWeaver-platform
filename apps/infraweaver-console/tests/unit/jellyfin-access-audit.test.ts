@@ -70,7 +70,7 @@ describe("reconcileJellyfinAccessWithRetry", () => {
   });
 
   it("stays silent when the sync succeeds", async () => {
-    mockSyncAppUsers.mockResolvedValue({ created: [], roleChanged: [], enabled: [], disabled: [], skippedNoEmail: [] });
+    mockSyncAppUsers.mockResolvedValue({ created: [], roleChanged: [], enabled: [], disabled: [], skippedNoEmail: [], pendingHandoff: [] });
 
     await runToCompletion("/jellyfin");
 
@@ -81,7 +81,7 @@ describe("reconcileJellyfinAccessWithRetry", () => {
   it("stays silent when a transient failure is recovered by a retry", async () => {
     mockSyncAppUsers
       .mockRejectedValueOnce(new Error("transient"))
-      .mockResolvedValue({ created: [], roleChanged: [], enabled: [], disabled: [], skippedNoEmail: [] });
+      .mockResolvedValue({ created: [], roleChanged: [], enabled: [], disabled: [], skippedNoEmail: [], pendingHandoff: [] });
 
     await runToCompletion("/jellyfin");
 

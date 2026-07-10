@@ -81,6 +81,8 @@ export interface JellyfinSyncSummary {
   enabled: string[];
   disabled: string[];
   skippedNoEmail: string[];
+  /** Provisioned accounts whose credential was never handed off — reveal it to them. */
+  pendingHandoff: string[];
 }
 
 export function useSyncJellyfinUsers() {

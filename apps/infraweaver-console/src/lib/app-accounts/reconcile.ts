@@ -17,7 +17,9 @@ import type {
   AccountNotifier,
   AppAccountProvider,
   AppAccountStore,
+  DesiredAppUser,
   DesiredAppUsers,
+  RosterEntry,
 } from "@/lib/app-accounts/types";
 
 export interface SyncDeps {
@@ -35,6 +37,17 @@ export interface AppUserSyncSummary {
   disabled: string[];
   /** Authorized users skipped for lack of an email to deliver the credential to. */
   skippedNoEmail: string[];
+  /**
+   * Still-authorized accounts the roster shows as provisioned but never handed off
+   * (no `notifiedAt`). This is the ONLY signal that a credential delivery failed:
+   * once the account exists, {@link buildAppUserSyncPlan} never re-creates it, so
+   * `provisionAccount` — and with it the notification — never runs for that user
+   * again. A caller that retries the whole sync sees the next attempt succeed.
+   *
+   * Reported, not retried. See {@link provisionAccount} for why re-notifying is a
+   * worse trade than surfacing this.
+   */
+  pendingHandoff: string[];
 }
 
 /**
@@ -67,11 +80,15 @@ export async function syncAppUsers(
     enabled: [],
     disabled: [],
     skippedNoEmail: desired.skippedNoEmail,
+    // From the roster as it was BEFORE this pass: anyone provisioned earlier whose
+    // hand-off never completed. Accounts created below are appended if theirs fails.
+    pendingHandoff: pendingHandoffFromRoster(roster, desired.users),
   };
 
   for (const action of plan.create) {
-    await provisionAccount(provider, deps, action.username, action.email, action.role);
+    const { notified } = await provisionAccount(provider, deps, action.username, action.email, action.role);
     summary.created.push(action.username);
+    if (!notified) summary.pendingHandoff.push(action.username);
   }
   for (const action of plan.setRole) {
     await provider.setUserRole(action.id, action.role);
@@ -89,10 +106,35 @@ export async function syncAppUsers(
   return summary;
 }
 
+/** App usernames compare case-insensitively, matching `plan.ts`. */
+function key(username: string): string {
+  return username.trim().toLowerCase();
+}
+
+/**
+ * Accounts on the roster with no `notifiedAt` that RBAC still authorizes.
+ *
+ * Restricted to the authorized set on purpose: a revoked account is owed no
+ * hand-off, so a user who was provisioned, never notified, and later revoked drops
+ * out of the report rather than nagging forever.
+ *
+ * A `notifiedAt` can also be missing because the notification succeeded and only
+ * `markNotified` failed. That direction is the safe one to be wrong in — it asks a
+ * human to confirm a delivery that already happened, rather than staying quiet
+ * about one that never did.
+ */
+function pendingHandoffFromRoster(roster: RosterEntry[], desired: DesiredAppUser[]): string[] {
+  const authorized = new Set(desired.map((user) => key(user.username)));
+  return roster
+    .filter((entry) => !entry.notifiedAt && authorized.has(key(entry.username)))
+    .map((entry) => entry.username)
+    .sort();
+}
+
 /**
  * Create one account end to end: generate a credential, create the account, record
- * it in the roster, persist the credential, set the role, and deliver the credential
- * once.
+ * it in the roster, persist the credential, set the role, and hand the credential
+ * to the notifier. Resolves `{ notified }` — false when the hand-off did not land.
  *
  * Ordering is a safety property, not a style choice. The moment `createUser` returns,
  * a live account exists that only the roster makes revocable (`plan.ts` disables
@@ -102,6 +144,27 @@ export async function syncAppUsers(
  * the account is simply left at the default role, and the next sync re-roles it.
  * The plaintext password lives only in this function's scope and in the store; it is
  * never logged.
+ *
+ * Why a failed notification is caught rather than thrown, and never retried
+ * ------------------------------------------------------------------------
+ * Delivery here is PULL, not push: `notifyProvisioned` records that a credential is
+ * ready, and the grantee fetches it from `GET /api/jellyfin/credential`, authorized
+ * by the same SSO identity that earned the grant. So a failed notification strands
+ * nobody — it loses an audit line. Letting it throw would abort the whole reconcile
+ * and leave every later `plan.create` user unprovisioned behind a lost log write.
+ *
+ * Retrying it on a later pass, keyed on the missing `notifiedAt`, looks right and is
+ * not. `ProvisionedCredential` carries the plaintext password, and by the next pass
+ * this function's `password` is long gone — re-notifying means reading the plaintext
+ * back out of the vault on every reconcile, to hand it to a notifier that (see
+ * `notify.ts`) deliberately discards it. Today the only code that reads a plaintext
+ * is the reveal route: authenticated, self-or-admin, rate-limited, and audited
+ * against a named actor. A background reconcile has none of those.
+ *
+ * If a notifier that genuinely transmits the password ever lands (SMTP — the seam
+ * exists for it), that calculus flips, and a `readCredential` on {@link AppAccountStore}
+ * should land WITH it. Until then the un-notified state is reported through
+ * `pendingHandoff`, and the credential stays revealable.
  */
 async function provisionAccount(
   provider: AppAccountProvider,
@@ -109,20 +172,32 @@ async function provisionAccount(
   username: string,
   email: string,
   role: import("@/lib/app-accounts/types").AppUserRole,
-): Promise<void> {
+): Promise<{ notified: boolean }> {
   const password = generateAppPassword();
   const account = await provider.createUser(username, password);
   const provisionedAt = new Date().toISOString();
   await deps.store.addRosterEntry(provider.appId, { username, providerUserId: account.id, provisionedAt });
   await deps.store.writeCredential(provider.appId, username, password, email);
   await provider.setUserRole(account.id, role);
-  await deps.notifier.notifyProvisioned({
-    appId: provider.appId,
-    appLabel: provider.appLabel,
-    launchUrl: provider.launchUrl,
-    username,
-    email,
-    password,
-  });
-  await deps.store.markNotified(provider.appId, username, new Date().toISOString());
+  try {
+    await deps.notifier.notifyProvisioned({
+      appId: provider.appId,
+      appLabel: provider.appLabel,
+      launchUrl: provider.launchUrl,
+      username,
+      email,
+      password,
+    });
+    await deps.store.markNotified(provider.appId, username, new Date().toISOString());
+    return { notified: true };
+  } catch (err) {
+    // Not swallowed: the caller lifts this into `summary.pendingHandoff`, which the
+    // access panel renders and an operator resolves with the reveal flow.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[app-accounts] hand-off notification for '${username}' on ${provider.appId} failed; the account exists and its credential is revealable:`,
+      message,
+    );
+    return { notified: false };
+  }
 }

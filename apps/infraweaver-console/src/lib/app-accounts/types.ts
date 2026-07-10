@@ -102,12 +102,17 @@ export interface AccountNotifier {
 }
 
 /** One managed account's durable record — the source of truth for "InfraWeaver
- *  provisioned this" (so manual/app-native users are never disabled) and for
- *  "already notified" (so a re-run never re-emails). */
+ *  provisioned this", so manual/app-native users are never disabled. */
 export interface RosterEntry {
   username: string;
   providerUserId: string;
   provisionedAt: string;
+  /**
+   * When the credential hand-off was recorded. Absent means it never completed —
+   * the reconcile reports those as `pendingHandoff`. It is NOT what stops a re-run
+   * from re-notifying: `plan.ts` only creates accounts that do not exist, so a
+   * re-run never reaches the notifier at all.
+   */
   notifiedAt?: string;
 }
 

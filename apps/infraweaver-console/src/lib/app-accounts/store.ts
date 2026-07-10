@@ -4,8 +4,9 @@
  * Two things live in the vault under `secret/platform/app-accounts/<app>/`:
  *   - `roster`          — the list of accounts InfraWeaver provisioned. This is
  *                         what tells the reconcile which app users it MANAGES (so
- *                         it never disables a manual or app-native account) and
- *                         which it has already NOTIFIED (so a re-run never re-mails).
+ *                         it never disables a manual or app-native account), and
+ *                         whose credential hand-off never completed (`notifiedAt`
+ *                         absent → reported as `pendingHandoff`, never re-sent).
  *   - `users/<name>`    — one per provisioned account: the generated password +
  *                         email, so the console can reveal it for an out-of-band
  *                         hand-off or reset it on request. Credentials never touch

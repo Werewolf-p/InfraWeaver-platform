@@ -232,6 +232,7 @@ export function UserJellyfinAccessPanel({ user, isAdmin }: Props) {
   const [credential, setCredential] = useState<JellyfinCredential | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   const accessQuery = useJellyfinAccess(Boolean(user));
   const revoke = useRevokeJellyfinAccess();
@@ -270,6 +271,7 @@ export function UserJellyfinAccessPanel({ user, isAdmin }: Props) {
   async function submitSync() {
     setError(null);
     setNotice(null);
+    setWarning(null);
     try {
       const result = await sync.mutateAsync();
       const parts = [
@@ -279,6 +281,14 @@ export function UserJellyfinAccessPanel({ user, isAdmin }: Props) {
         result.disabled.length ? `${result.disabled.length} disabled` : "",
       ].filter(Boolean);
       setNotice(parts.length ? `Jellyfin accounts reconciled: ${parts.join(", ")}.` : "Jellyfin accounts already match RBAC.");
+      // A reconcile can succeed while a credential never reached its owner: once the
+      // account exists it is never re-created, so the notification never re-runs.
+      // Nothing else reports this, and the fix is a manual reveal.
+      if (result.pendingHandoff.length) {
+        setWarning(
+          `Credential never handed off to ${result.pendingHandoff.join(", ")}. Their account and password exist — reveal it to them.`,
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reconcile Jellyfin accounts");
     }
@@ -380,6 +390,7 @@ export function UserJellyfinAccessPanel({ user, isAdmin }: Props) {
 
       {error ? <p className="mt-2 text-sm text-red-500">{error}</p> : null}
       {notice ? <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-300">{notice}</p> : null}
+      {warning ? <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">{warning}</p> : null}
 
       {granting ? (
         <GrantJellyfinSheet

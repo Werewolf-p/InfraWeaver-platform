@@ -78,7 +78,13 @@ class FakeStore implements AppAccountStore {
 
 class RecordingNotifier implements AccountNotifier {
   sent: ProvisionedCredential[] = [];
+  /** Set to fail the next delivery only, mimicking a transient notifier fault. */
+  failNext = false;
   async notifyProvisioned(credential: ProvisionedCredential): Promise<void> {
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error("notifier unavailable");
+    }
     this.sent.push(credential);
   }
 }
@@ -91,6 +97,14 @@ function desired(...users: { username: string; role?: AppUserRole }[]): DesiredA
 }
 
 describe("syncAppUsers", () => {
+  beforeEach(() => {
+    // A failed hand-off notification logs; keep the expected noise out of the report.
+    jest.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it("creates a newly-authorized user, stores a strong credential, and notifies exactly once", async () => {
     const provider = new FakeProvider();
     const store = new FakeStore();
@@ -237,6 +251,67 @@ describe("syncAppUsers", () => {
     expect(summary.created).toEqual([]); // never re-created, so never re-passworded
     expect(summary.roleChanged).toEqual(["alice"]);
     expect([...provider.users.values()].find((u) => u.username === "alice")?.role).toBe("admin");
+  });
+
+  it("reports a created account whose hand-off notification failed, without losing the account", async () => {
+    // The notify is the LAST step and delivery is pull-based (the grantee reveals
+    // the password in-console), so a notifier failure must not undo, abort, or hide
+    // a perfectly good account. It must, however, be visible.
+    const provider = new FakeProvider();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+    notifier.failNext = true;
+
+    const summary = await syncAppUsers(provider, desired({ username: "alice" }, { username: "bob" }), { store, notifier });
+
+    expect(summary.created).toEqual(["alice", "bob"]); // bob is NOT stranded behind alice's failure
+    expect(summary.pendingHandoff).toEqual(["alice"]);
+    expect(store.credentials.get("alice")?.password).toHaveLength(20); // still revealable
+    expect(store.roster.find((e) => e.username === "alice")?.notifiedAt).toBeUndefined();
+    expect(store.roster.find((e) => e.username === "bob")?.notifiedAt).toBeTruthy();
+  });
+
+  it("keeps reporting an un-notified account on later passes, when the retry loop would otherwise hide it", async () => {
+    // The bug this pins: once `alice` exists, `buildAppUserSyncPlan` never re-creates
+    // her, so `provisionAccount` — and with it the notify — never runs again. A caller
+    // that retries the whole sync (`reconcileJellyfinAccessWithRetry`) therefore sees
+    // attempt 2 SUCCEED, and alice's missing hand-off vanishes from every signal.
+    const provider = new FakeProvider();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+    notifier.failNext = true;
+
+    await syncAppUsers(provider, desired({ username: "alice" }), { store, notifier });
+    const second = await syncAppUsers(provider, desired({ username: "alice" }), { store, notifier });
+
+    expect(second.created).toEqual([]); // nothing to do — and that is exactly the trap
+    expect(notifier.sent).toHaveLength(0); // the notify genuinely never re-runs
+    expect(second.pendingHandoff).toEqual(["alice"]); // ...but the roster still says so
+  });
+
+  it("stops reporting a pending hand-off once the grant is revoked", async () => {
+    const provider = new FakeProvider();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+    notifier.failNext = true;
+
+    await syncAppUsers(provider, desired({ username: "alice" }), { store, notifier });
+    const revoked = await syncAppUsers(provider, desired(), { store, notifier });
+
+    // No hand-off is owed to someone whose access was taken away.
+    expect(revoked.disabled).toEqual(["alice"]);
+    expect(revoked.pendingHandoff).toEqual([]);
+  });
+
+  it("reports no pending hand-off when every managed account was notified", async () => {
+    const provider = new FakeProvider();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+
+    await syncAppUsers(provider, desired({ username: "alice" }), { store, notifier });
+    const second = await syncAppUsers(provider, desired({ username: "alice" }), { store, notifier });
+
+    expect(second.pendingHandoff).toEqual([]);
   });
 
   it("surfaces users skipped for a missing email", async () => {
