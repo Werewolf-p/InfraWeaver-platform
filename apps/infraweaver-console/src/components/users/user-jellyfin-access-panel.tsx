@@ -74,7 +74,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 /** The revealed password, shown once behind an explicit click. */
-function CredentialCard({ credential, onHide }: { credential: JellyfinCredential; onHide: () => void }) {
+export function CredentialCard({ credential, onHide }: { credential: JellyfinCredential; onHide: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="mt-2 rounded-xl border border-purple-500/20 bg-purple-500/5 p-3">
@@ -119,7 +119,7 @@ function CredentialCard({ credential, onHide }: { credential: JellyfinCredential
   );
 }
 
-function GrantJellyfinSheet({
+export function GrantJellyfinSheet({
   username,
   open,
   onClose,

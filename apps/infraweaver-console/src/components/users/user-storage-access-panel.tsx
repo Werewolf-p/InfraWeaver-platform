@@ -68,7 +68,7 @@ function isStorageScope(scope: string): boolean {
   return scope === "/nas" || scope.startsWith("/nas/");
 }
 
-function GrantFolderSheet({
+export function GrantFolderSheet({
   username,
   open,
   onClose,
