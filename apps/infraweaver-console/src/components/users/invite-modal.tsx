@@ -2,13 +2,20 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
-import { X, Mail, Copy, Check, ChevronDown } from "lucide-react";
+import { X, Mail, Copy, Check, ChevronDown, Users } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
+import { useApiQuery } from "@/hooks/use-api-query";
+import { queryKeys } from "@/lib/query-keys";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+}
+
+interface GroupOption {
+  name: string;
+  secondary?: string;
 }
 
 const EXPIRY_OPTIONS = [
@@ -22,13 +29,38 @@ const EXPIRY_OPTIONS = [
 const inputCls = "w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm";
 
 export function InviteModal({ open, onClose }: Props) {
-  const { canAny } = useRBAC();
+  const { canAny, can } = useRBAC();
   const canManageUsers = canAny(["users:invite", "users:write", "rbac:admin"]);
+  // Assigning groups on an invite can confer privileges, so the picker (and the
+  // server) restrict it to rbac:admin. The `groups` field stays [] for everyone
+  // else and the server rejects a non-empty list without rbac:admin.
+  const canAssignGroups = can("rbac:admin");
   const [email, setEmail] = useState("");
   const [expiryHours, setExpiryHours] = useState(24);
   const [loading, setLoading] = useState(false);
   const [inviteUrl, setInviteUrl] = useState("");
   const [copied, setCopied] = useState(false);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+
+  // Load the RBAC groups an admin can grant on invite. Only fetched when the
+  // modal is open for an rbac:admin operator, so a normal inviter never calls it.
+  const {
+    data: groupOptions = [],
+    isLoading: groupsLoading,
+    isError: groupsError,
+  } = useApiQuery<{ groups?: Array<{ name: string; secondary?: string }> }, GroupOption[]>({
+    queryKey: queryKeys.rbac.subjects(),
+    path: "/api/rbac/subjects",
+    enabled: open && canAssignGroups,
+    select: (data) =>
+      (data.groups ?? []).filter((group) => group.name).map((group) => ({ name: group.name, secondary: group.secondary })),
+  });
+
+  function toggleGroup(name: string) {
+    setSelectedGroups((current) =>
+      current.includes(name) ? current.filter((g) => g !== name) : [...current, name],
+    );
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -41,7 +73,7 @@ export function InviteModal({ open, onClose }: Props) {
       const response = await fetch("/api/users/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, groups: [], expiryHours }),
+        body: JSON.stringify({ email, groups: canAssignGroups ? selectedGroups : [], expiryHours }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Failed");
@@ -66,6 +98,7 @@ export function InviteModal({ open, onClose }: Props) {
     setExpiryHours(24);
     setInviteUrl("");
     setCopied(false);
+    setSelectedGroups([]);
     onClose();
   }
 
@@ -117,6 +150,58 @@ export function InviteModal({ open, onClose }: Props) {
                   className={inputCls}
                 />
               </div>
+
+              {canAssignGroups && (
+                <div>
+                  <label className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">
+                    <Users className="h-4 w-4 text-[#3b82f6]" />
+                    Grant RBAC groups
+                    <span className="font-normal text-gray-400 dark:text-[#666]">(optional)</span>
+                  </label>
+                  <p className="mb-2 text-sm text-gray-400 dark:text-[#666]">
+                    The new account joins these groups when they finish enrolling, inheriting each group&apos;s roles.
+                  </p>
+                  {groupsLoading ? (
+                    <p className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] px-4 py-3 text-sm text-gray-500 dark:text-[#888]">
+                      Loading groups…
+                    </p>
+                  ) : groupsError ? (
+                    <p className="rounded-2xl border border-amber-300 dark:border-amber-900/60 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+                      Could not load groups. You can still invite without one.
+                    </p>
+                  ) : groupOptions.length === 0 ? (
+                    <p className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] px-4 py-3 text-sm text-gray-500 dark:text-[#888]">
+                      No RBAC groups available to grant.
+                    </p>
+                  ) : (
+                    <div className="max-h-44 space-y-1 overflow-y-auto rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-2">
+                      {groupOptions.map((group) => {
+                        const checked = selectedGroups.includes(group.name);
+                        return (
+                          <label
+                            key={group.name}
+                            className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleGroup(group.name)}
+                              className="h-4 w-4 shrink-0 rounded border-gray-300 dark:border-[#2a2a2a] text-[#3b82f6] focus:ring-[#3b82f6]"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm text-gray-900 dark:text-[#f2f2f2]">{group.name}</span>
+                              {group.secondary && (
+                                <span className="block truncate text-xs text-gray-400 dark:text-[#666]">{group.secondary}</span>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <p className="mt-2 text-sm text-gray-400 dark:text-[#666]">The invite link stays below the input on mobile so expiry is never hidden behind the keyboard.</p>
                 <label className="mb-2 mt-3 block text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">Link expiry</label>

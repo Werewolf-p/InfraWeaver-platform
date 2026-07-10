@@ -54,9 +54,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invitation flow is not configured" }, { status: 502 });
   }
 
-  // `groups` (rbac:admin only) are recorded on the invitation for audit; group
-  // membership itself is granted through the console's audited grant path after
-  // the person enrolls, not by the enrollment flow.
+  // `groups` (rbac:admin only) ride along on the invitation's fixed_data. The
+  // enrollment flow's bounded `default-invitation-group-grant` policy reads them
+  // at user-write and adds the new account to each PRE-EXISTING Authentik group
+  // (unknown names are ignored; it never creates groups). Membership is thus
+  // applied in-band by the flow, so no separate post-enrollment grant is needed.
   const fixedData: Record<string, unknown> = { email };
   if (groups.length > 0) fixedData.groups = groups;
 
