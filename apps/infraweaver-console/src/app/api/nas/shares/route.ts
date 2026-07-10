@@ -4,7 +4,8 @@ import { synologyListShares, truenasListShares, type NasShare } from "@/lib/nas/
 import { isNasCertificateError } from "@/lib/nas/pinned-fetch";
 import { getResolvedNasProvider, resolveNasCredentials, resolveNasProviders, type ResolvedNasProvider } from "@/lib/nas/providers";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { getSessionRBACContext, type SessionRBACContext } from "@/lib/session-rbac";
+import { canAccessNasFolder, canReadStorage } from "@/lib/nas/authz";
 
 /**
  * A provider whose TLS certificate is untrusted or has changed. Surfaced to the
@@ -40,11 +41,38 @@ async function listSharesForProvider(provider: ResolvedNasProvider): Promise<Arr
   return shares.map((share) => ({ ...share, provider: provider.id }));
 }
 
+type ListedShare = NasShare & { provider: string };
+
+/**
+ * Hide the shares the caller may not read, and tag the survivors with the access
+ * they actually hold so the UI can badge them without a second round trip.
+ * Enumeration is disclosure: a user granted one folder must not learn the names
+ * of the finance share next to it.
+ *
+ * Each entry carries its own provider — the unfiltered listing fans out across
+ * every appliance — so the scope is rebuilt per share rather than per batch.
+ */
+function scopeSharesToCaller(rbac: SessionRBACContext, shares: ListedShare[]) {
+  return shares
+    .filter((share) =>
+      canAccessNasFolder(rbac, { provider: share.provider, share: share.name, subfolder: "", access: "readonly" }),
+    )
+    .map((share) => ({
+      ...share,
+      access: canAccessNasFolder(rbac, { provider: share.provider, share: share.name, subfolder: "", access: "readwrite" })
+        ? ("readwrite" as const)
+        : ("readonly" as const),
+    }));
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "nas:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Admission is coarse — "does the caller hold nas:read anywhere under /nas?".
+  // Each individual share is then checked against its own scope below, so a user
+  // granted exactly one folder gets in the door and sees exactly that folder.
+  if (!canReadStorage(access)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!checkRateLimit(rateLimitKey("nas-shares", req), 30, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -74,7 +102,7 @@ export async function GET(req: NextRequest) {
       }),
     );
     return NextResponse.json({
-      shares: perProvider.flat(),
+      shares: scopeSharesToCaller(access, perProvider.flat()),
       ...(certificateIssues.length ? { certificateIssues } : {}),
     });
   }
@@ -82,7 +110,7 @@ export async function GET(req: NextRequest) {
   const provider = await getResolvedNasProvider(providerId);
   if (!provider) return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
   try {
-    return NextResponse.json({ shares: await listSharesForProvider(provider) });
+    return NextResponse.json({ shares: scopeSharesToCaller(access, await listSharesForProvider(provider)) });
   } catch (error) {
     if (isNasCertificateError(error)) {
       return NextResponse.json(

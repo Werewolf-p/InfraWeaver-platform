@@ -13,7 +13,8 @@ export type Permission =
   | "game-hub:players"
   | "game-hub:console" | "game-hub:files" | "game-hub:start" | "game-hub:stop" | "game-hub:scale"
   | "wiki:read" | "wiki:edit"
-  | "wordpress:read" | "wordpress:write" | "wordpress:admin";
+  | "wordpress:read" | "wordpress:write" | "wordpress:admin"
+  | "jellyfin:read" | "jellyfin:admin";
 
 /**
  * Runtime registry of every Permission in the union above. Kept next to the
@@ -36,6 +37,7 @@ export const ALL_PERMISSIONS = [
   "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop", "game-hub:scale",
   "wiki:read", "wiki:edit",
   "wordpress:read", "wordpress:write", "wordpress:admin",
+  "jellyfin:read", "jellyfin:admin",
 ] as const satisfies readonly Permission[];
 
 // Compile-time exhaustiveness: every Permission must appear in ALL_PERMISSIONS.
@@ -112,6 +114,10 @@ export type BuiltInRoleId =
   | "wordpress-admin"
   | "wordpress-editor"
   | "wordpress-viewer"
+  | "storage-viewer"
+  | "storage-contributor"
+  | "jellyfin-user"
+  | "jellyfin-admin"
   | "support";
 
 export type RoleId = BuiltInRoleId | string;
@@ -129,7 +135,7 @@ export interface RoleDefinition {
    */
   notActions?: Permission[];
   isBuiltIn: boolean;
-  category?: "scoped" | "platform" | "game-hub" | "wiki" | "wordpress";
+  category?: "scoped" | "platform" | "game-hub" | "wiki" | "wordpress" | "storage" | "jellyfin";
   color?: "red" | "blue" | "green" | "purple" | "orange" | "yellow" | "teal" | "gray";
 }
 
@@ -282,6 +288,7 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
       "game-hub:read", "game-hub:write", "game-hub:admin", "game-hub:players",
       "game-hub:console", "game-hub:files", "game-hub:start", "game-hub:stop", "game-hub:scale",
       "wordpress:read", "wordpress:write", "wordpress:admin",
+      "jellyfin:read", "jellyfin:admin",
     ],
     isBuiltIn: true,
     category: "platform",
@@ -421,6 +428,48 @@ export const BUILT_IN_ROLES: Record<BuiltInRoleId, RoleDefinition> = {
     isBuiltIn: true,
     category: "wordpress",
     color: "gray",
+  },
+  // Storage roles are only meaningful when assigned at a `/nas/...` scope (see
+  // lib/nas/scope.ts). Assigned at "/" they confer blanket NAS access, which is
+  // what platform-admin already carries.
+  "storage-viewer": {
+    id: "storage-viewer",
+    name: "Storage Viewer",
+    description: "Browse the scoped share or folder and mount it read-only.",
+    permissions: ["nas:read"],
+    isBuiltIn: true,
+    category: "storage",
+    color: "gray",
+  },
+  "storage-contributor": {
+    id: "storage-contributor",
+    name: "Storage Contributor",
+    description: "Browse, create folders in, and mount the scoped share or folder read-write.",
+    permissions: ["nas:read", "nas:write"],
+    isBuiltIn: true,
+    category: "storage",
+    color: "teal",
+  },
+  // Jellyfin's OIDC only covers the web UI; native and TV clients authenticate
+  // against a LOCAL Jellyfin account. Granting one of these roles provisions that
+  // account (see lib/jellyfin/access.ts); revoking it disables the account.
+  "jellyfin-user": {
+    id: "jellyfin-user",
+    name: "Jellyfin User",
+    description: "A standard Jellyfin account, provisioned automatically on grant.",
+    permissions: ["jellyfin:read"],
+    isBuiltIn: true,
+    category: "jellyfin",
+    color: "gray",
+  },
+  "jellyfin-admin": {
+    id: "jellyfin-admin",
+    name: "Jellyfin Admin",
+    description: "Full control of the Jellyfin server account (administrator).",
+    permissions: ["jellyfin:read", "jellyfin:admin"],
+    isBuiltIn: true,
+    category: "jellyfin",
+    color: "purple",
   },
   support: {
     id: "support",
@@ -574,19 +623,49 @@ export function isStrictAncestorScope(ancestor: ScopePath, scope: ScopePath): bo
   return scopeCovers(ancestor, scope) && normalizeScope(ancestor) !== normalizeScope(scope);
 }
 
+/**
+ * Does any non-expired assignment covering `scope` confer `permission`, after
+ * Azure-style Deny assignments are subtracted?
+ *
+ * Deny must be honoured here, not only in `getEffectivePermissions`. This helper
+ * is the authoritative grant check behind the NAS folder ACL and the client-side
+ * `useRBAC().can(permission, scope)`. Resolving it with a bare `.some()` had two
+ * failure modes: a Deny carve-out on a subfolder silently did nothing (the
+ * parent's Allow still matched), and a Deny assignment on its own returned true —
+ * a Deny that granted — because the test only asked whether the assignment's role
+ * carries the permission.
+ *
+ * Deny wins over Allow at any scope, matching `getEffectivePermissions`.
+ */
 export function hasAssignedPermissionForScope(
   roleAssignments: RoleAssignment[],
   permission: Permission,
   scope: string,
 ) {
   const now = new Date();
-  return roleAssignments.some((assignment) => {
-    if (assignment.expiresAt && new Date(assignment.expiresAt) < now) return false;
-    if (!scopeCovers(assignment.scope, scope)) return false;
-    return roleHasPermission(resolveRoleDefinition(assignment.roleId), permission);
-  });
+  let allowed = false;
+  for (const assignment of roleAssignments) {
+    if (assignment.expiresAt && new Date(assignment.expiresAt) < now) continue;
+    if (!scopeCovers(assignment.scope, scope)) continue;
+    const role = resolveRoleDefinition(assignment.roleId);
+    if (!role) continue;
+    // `roleHasPermission` already subtracts the role's own notActions.
+    if (!roleHasPermission(role, permission)) continue;
+    if (assignment.effect === "Deny") return false;
+    allowed = true;
+  }
+  return allowed;
 }
 
+/**
+ * Does the subject hold `permission` ANYWHERE in the subtree around
+ * `scopePrefix`? Used for coarse admission and navigation visibility, never as
+ * the authorization for a specific resource — pair it with
+ * {@link hasAssignedPermissionForScope} on the exact scope.
+ *
+ * A `Deny` assignment only ever takes access away, so it must not satisfy an
+ * admission check on its own.
+ */
 export function hasAssignedPermissionInScopeTree(
   roleAssignments: RoleAssignment[],
   permission: Permission,
@@ -594,6 +673,7 @@ export function hasAssignedPermissionInScopeTree(
 ) {
   const now = new Date();
   return roleAssignments.some((assignment) => {
+    if (assignment.effect === "Deny") return false;
     if (assignment.expiresAt && new Date(assignment.expiresAt) < now) return false;
     if (!scopesOverlap(assignment.scope, scopePrefix)) return false;
     return roleHasPermission(resolveRoleDefinition(assignment.roleId), permission);
@@ -817,6 +897,8 @@ export const STATIC_SCOPES = [
   { value: "/", label: "Cluster-wide" },
   { value: "/game-hub/", label: "All Game Hub servers" },
   { value: "/wiki", label: "Wiki" },
+  { value: "/nas", label: "All storage" },
+  { value: "/jellyfin", label: "Jellyfin" },
 ];
 
 export function gameServerScope(serverName: string): string {
@@ -832,6 +914,9 @@ export function scopeLabel(scope: string): string {
   const wordpressSiteMatch = scope.match(/^\/wordpress\/sites\/(.+)$/);
   if (wordpressSiteMatch) return `WordPress: ${wordpressSiteMatch[1]}`;
   if (scope === "/wordpress" || scope === "/wordpress/sites") return "All WordPress sites";
+  // Storage scopes are `/nas/<provider>[/<share>[/<folder…>]]` — see lib/nas/scope.ts.
+  const nasMatch = scope.match(/^\/nas\/(.+)$/);
+  if (nasMatch) return `Storage: ${nasMatch[1].split("/").join(" / ")}`;
   return scope;
 }
 

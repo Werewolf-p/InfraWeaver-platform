@@ -46,12 +46,19 @@ export function NasMountSheet({
   provider,
   share,
   subfolder,
+  access = "readwrite",
 }: {
   open: boolean;
   onClose: () => void;
   provider: string;
   share: string;
   subfolder: string;
+  /**
+   * The caller's own access on this folder. A read-only holder cannot mount
+   * read-write — the server refuses it — so the option is not offered rather
+   * than presented and then rejected after a round trip.
+   */
+  access?: Access;
 }) {
   const targetsQuery = useNasMountTargets();
   const mount = useNasMountWorkload();
@@ -59,6 +66,8 @@ export function NasMountSheet({
   const [selected, setSelected] = useState<Record<string, Selection>>({});
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string[] | null>(null);
+
+  const canMountReadWrite = access === "readwrite";
 
   const targets = useMemo(() => {
     const all = targetsQuery.data ?? [];
@@ -219,7 +228,9 @@ export function NasMountSheet({
                             className="rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0d0d0d] px-2 py-1.5 text-sm text-gray-900 dark:text-white"
                           >
                             <option value="readonly">Read-only</option>
-                            <option value="readwrite">Read-write</option>
+                            <option value="readwrite" disabled={!canMountReadWrite}>
+                              Read-write{canMountReadWrite ? "" : " — needs read-write access"}
+                            </option>
                           </select>
                         </label>
                         <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">

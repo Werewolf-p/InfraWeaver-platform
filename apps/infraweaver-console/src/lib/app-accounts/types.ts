@@ -1,0 +1,132 @@
+/**
+ * App-account provisioning — the app-agnostic contracts.
+ *
+ * Why this exists
+ * ---------------
+ * Some apps InfraWeaver fronts only speak OIDC in their *web* UI. Jellyfin is
+ * the motivating case: its native/TV clients (iOS, Android, tvOS, Roku…) sign in
+ * with a LOCAL Jellyfin username + password, not SSO, so an Authentik access
+ * group alone (the WordPress/NAS model) can never onboard those users.
+ *
+ * For apps like that, "granted in InfraWeaver RBAC" has to materialize as a real
+ * LOCAL account in the app. This module is the reusable engine for that, mirroring
+ * the WordPress addon's `syncSiteWpUsers` and the NAS access reconcile, but for
+ * apps reached over an admin API rather than a pod exec or an Authentik group.
+ *
+ * The split (deliberate, so a second app is a new adapter, not a fork):
+ *   - {@link AppAccountProvider}  — the ONLY app-specific surface. One file per app.
+ *   - policy.ts / plan.ts / password.ts — pure, app-agnostic, unit-tested with no I/O.
+ *   - reconcile.ts — the generic engine, given a provider + store + notifier.
+ *   - store.ts / notify.ts — the durable roster/credential state and the delivery hook.
+ */
+import type { Permission } from "@/lib/rbac";
+
+/** The two access levels the engine maps an RBAC grant onto. Apps translate these
+ *  to their own model (Jellyfin: admin → IsAdministrator, user → standard). */
+export type AppUserRole = "user" | "admin";
+
+/** One account as it exists in the target app, projected to what the engine needs. */
+export interface AppUserAccount {
+  /** Provider-native, stable id (e.g. a Jellyfin user GUID). */
+  id: string;
+  username: string;
+  role: AppUserRole;
+  /** True when the account is present but login-disabled (our revocation state). */
+  disabled: boolean;
+}
+
+/** An account InfraWeaver *wants* to exist, derived purely from RBAC. */
+export interface DesiredAppUser {
+  username: string;
+  /** Required: an account we cannot reach the person at is one we won't email a
+   *  credential to. Users with no email on record are reported, not provisioned. */
+  email: string;
+  role: AppUserRole;
+}
+
+export interface DesiredAppUsers {
+  users: DesiredAppUser[];
+  /** Authorized users skipped because users.yaml has no email to deliver creds to. */
+  skippedNoEmail: string[];
+}
+
+/**
+ * The only app-specific surface. An adapter is one file implementing this; the
+ * engine never learns anything else about the app. Every method is expected to be
+ * idempotent where it can be (ensureServiceAccount, setUserRole, disable/enable).
+ */
+export interface AppAccountProvider {
+  /** Stable slug — namespaces the OpenBao roster/credentials and notifications. */
+  readonly appId: string;
+  /** Human label for notifications and audit lines (e.g. "Jellyfin"). */
+  readonly appLabel: string;
+  /** The URL a provisioned user should open to sign in (goes in their notification). */
+  readonly launchUrl: string;
+  /** Local username of the managed service account — never provisioned or disabled. */
+  readonly serviceAccountUsername: string;
+
+  /** Ensure the InfraWeaver service account + admin credential exist and are usable.
+   *  Idempotent; called before every reconcile so a fresh install self-bootstraps. */
+  ensureServiceAccount(): Promise<void>;
+  /** Every account currently in the app (managed, manual, and the service account). */
+  listUsers(): Promise<AppUserAccount[]>;
+  /** Create a local account with the given password. Returns the created account. */
+  createUser(username: string, password: string): Promise<AppUserAccount>;
+  /** Converge an account's role (admin vs standard user). */
+  setUserRole(id: string, role: AppUserRole): Promise<void>;
+  /** Disable login for an account — the revoke action (retained, not deleted). */
+  disableUser(id: string): Promise<void>;
+  /** Re-enable a previously-disabled account — the re-grant action. */
+  enableUser(id: string): Promise<void>;
+}
+
+/** A credential handed to the notifier for delivery. Held in memory for the call
+ *  only; the plaintext password is never logged and is persisted solely in OpenBao. */
+export interface ProvisionedCredential {
+  appId: string;
+  appLabel: string;
+  launchUrl: string;
+  username: string;
+  email: string;
+  password: string;
+}
+
+/**
+ * Delivery hook. The engine calls this exactly once per newly-created account.
+ * The platform has no first-party SMTP sender (see the design doc), so the default
+ * implementation persists the credential for an in-console reveal + audits the
+ * hand-off; an SMTP-backed notifier can be dropped in without touching the engine.
+ */
+export interface AccountNotifier {
+  notifyProvisioned(credential: ProvisionedCredential): Promise<void>;
+}
+
+/** One managed account's durable record — the source of truth for "InfraWeaver
+ *  provisioned this" (so manual/app-native users are never disabled) and for
+ *  "already notified" (so a re-run never re-emails). */
+export interface RosterEntry {
+  username: string;
+  providerUserId: string;
+  provisionedAt: string;
+  notifiedAt?: string;
+}
+
+/**
+ * Durable state for the engine. Injected so the reconcile is testable with an
+ * in-memory fake and so a different backend (OpenBao here) is a swap, not a rewrite.
+ */
+export interface AppAccountStore {
+  loadRoster(appId: string): Promise<RosterEntry[]>;
+  addRosterEntry(appId: string, entry: RosterEntry): Promise<void>;
+  markNotified(appId: string, username: string, notifiedAt: string): Promise<void>;
+  removeRosterEntry(appId: string, username: string): Promise<void>;
+  /** Persist a per-user credential so the console can reveal/reset it out of band. */
+  writeCredential(appId: string, username: string, password: string, email: string): Promise<void>;
+  deleteCredential(appId: string, username: string): Promise<void>;
+}
+
+/** The RBAC permission pair an app maps its "read" and "admin" access onto. */
+export interface AppPermissionPair {
+  read: Permission;
+  admin: Permission;
+}

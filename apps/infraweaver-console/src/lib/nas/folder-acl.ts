@@ -1,22 +1,34 @@
 // NAS folder-level ACL — decides whether a given InfraWeaver session (username
-// + groups + permission set) is allowed to bind a specific NAS
-// provider/share/subfolder at a given access mode.
+// + groups + role assignments + permission set) is allowed to bind a specific
+// NAS provider/share/subfolder at a given access mode.
 //
 // Why this exists
 // ---------------
 // `nas:write` gates *who can drive the NAS pipeline at all*; this module gates
 // *which folders* a caller may touch and at which access mode. Without it, any
 // user with `nas:write` could assign the CFO's finance share to their own
-// deployment. With it, folder access follows the same InfraWeaver group model
-// as every other resource.
+// deployment.
 //
-// Extensibility
-// -------------
-// ACL rules are declared via the `NAS_FOLDER_ACL_JSON` env var (Zod-validated
-// at load time). An empty/absent value means "no folder restrictions" — the
-// caller only needs `nas:write` (backwards-compatible default).
+// Two sources of truth, in priority order
+// ---------------------------------------
+// 1. SCOPED RBAC GRANTS (preferred). A role assignment on a `/nas/...` scope —
+//    see lib/nas/scope.ts — carrying `nas:read` (readonly) or `nas:write`
+//    (readwrite). These are what the console's storage-access UI writes. They
+//    are audited, expirable, subject to the privilege ceiling, and visible in
+//    the RBAC visualizer, because they are ordinary role assignments.
 //
-// Rule shape:
+// 2. LEGACY ENV RULES (`NAS_FOLDER_ACL_JSON`). A coarse, deploy-time net that
+//    matches raw Authentik group names. Retained so existing clusters keep
+//    working unchanged; an empty/absent value means "no folder restrictions"
+//    and the caller only needs `nas:write` (the original default).
+//
+// A scoped grant is checked FIRST and, when it matches, wins over a restrictive
+// env rule. That is deliberate: the env rule is a blunt deploy-time default,
+// whereas a grant is a specific, audited, ceiling-checked act by an operator
+// who already holds the permission being conferred. The reverse order would
+// make the UI's grants silently ineffective wherever an env rule exists.
+//
+// Legacy rule shape:
 //   {
 //     "provider": "synology" | "*",
 //     "share":    "media"    | "*",
@@ -29,16 +41,19 @@
 //
 // Evaluation model
 // ----------------
-// - Callers holding the `*` (owner) permission bypass ACL entirely.
-// - All matching rules are OR'd — one hit is enough to permit.
-// - If ANY rules are declared for (provider, share) and none match the caller
-//   at the requested access, the request is denied. "Default deny once
-//   restricted." Undeclared shares stay open (opt-in tightening).
+// - Callers holding the `*` (owner) permission bypass everything. This is why
+//   the platform owner sees and can mount every folder with no grants at all.
+// - A scoped RBAC grant covering the folder at the requested access → allow.
+// - Otherwise the legacy rules decide. All matching rules are OR'd — one hit is
+//   enough to permit. If ANY rules are declared for (provider, share) and none
+//   match the caller at the requested access, the request is denied. "Default
+//   deny once restricted." Undeclared shares stay open (opt-in tightening).
 // - Group names are matched case-sensitively; special group `"@user:<username>"`
 //   lets you grant a specific user without creating a group.
 
 import { z } from "zod";
-import type { Permission } from "@/lib/rbac";
+import { hasAssignedPermissionForScope, type Permission, type RoleAssignment } from "@/lib/rbac";
+import { nasAuthorizationScope } from "@/lib/nas/scope";
 
 export type NasAccess = "readonly" | "readwrite";
 
@@ -130,10 +145,59 @@ export interface FolderAclInput {
   groups: readonly string[];
   /** All permissions granted to the session (used only for `*` owner bypass). */
   permissions: readonly (Permission | string)[];
+  /**
+   * The caller's own role assignments (their user grants plus the grants of the
+   * groups they belong to), as assembled by `getSessionRBACContext`. Principal
+   * filtering has already happened by then, so every assignment here applies to
+   * the caller. Omitted/empty means "consult the legacy env rules only".
+   */
+  roleAssignments?: readonly RoleAssignment[];
   provider: string;
   share: string;
   subfolder: string;
   access: NasAccess;
+}
+
+/** The permission a given access mode requires at the folder's scope. */
+export function nasPermissionFor(access: NasAccess): Permission {
+  return access === "readwrite" ? "nas:write" : "nas:read";
+}
+
+/**
+ * Does a scoped role assignment grant `access` on this folder?
+ *
+ * Uses {@link nasAuthorizationScope}, which falls back to the deepest
+ * scope-addressable ancestor when a folder's own name cannot be a scope segment
+ * (`Season.01`, `Movie.2024`). Grants inherit downwards, so checking an ancestor
+ * confers nothing the ancestor did not already confer — while checking the
+ * strict scope would deny a Contributor on `media` access to `media/Season.01`.
+ *
+ * Returns false — never throws — if even the provider/share are unaddressable,
+ * so such a request falls through to the legacy rules rather than auto-allowing.
+ */
+function grantedByScopedAssignment(input: FolderAclInput): boolean {
+  const assignments = input.roleAssignments;
+  if (!assignments || assignments.length === 0) return false;
+  let scope: string;
+  try {
+    scope = nasAuthorizationScope(input.provider, input.share, input.subfolder);
+  } catch {
+    return false;
+  }
+  return hasAssignedPermissionForScope([...assignments], nasPermissionFor(input.access), scope);
+}
+
+/**
+ * Does the caller hold NAS authority *everywhere* (platform-admin's blanket
+ * `nas:read`/`nas:write`, or a root-scoped role assignment), as opposed to
+ * holding it only on specific `/nas/...` scopes?
+ *
+ * This distinction is what makes a scoped grant a LIMIT rather than merely a
+ * key. `permissions` is the session's effective permission set at the ROOT
+ * scope, so a purely scope-granted user has neither verb here.
+ */
+function holdsBlanketNasPermission(permissions: readonly (Permission | string)[]): boolean {
+  return permissions.includes("nas:write") || permissions.includes("nas:read");
 }
 
 export function evaluateFolderAcl(
@@ -141,9 +205,28 @@ export function evaluateFolderAcl(
   env: NodeJS.ProcessEnv = process.env,
 ): FolderAclDecision {
   // Owner (`*`) always bypasses folder ACL — matches the ceiling model in
-  // rbac.ts where `*` outranks everything.
+  // rbac.ts where `*` outranks everything. This is why the platform owner sees
+  // and can mount every folder without holding a single storage grant.
   if (input.permissions.includes("*")) {
     return { allowed: true, reason: "owner-bypass" };
+  }
+
+  // An explicit, audited, ceiling-checked grant on this folder (or any ancestor
+  // scope) is authoritative. `storage-contributor` carries both nas:read and
+  // nas:write, so a read-write grant implies read-only for free.
+  if (grantedByScopedAssignment(input)) {
+    return { allowed: true, reason: "rbac-grant" };
+  }
+
+  // The caller's only NAS authority is scoped grants, and none covered this
+  // folder at this access mode. Deny — do NOT fall through to the legacy rules,
+  // whose default is "open unless a rule says otherwise". Falling through would
+  // turn a grant on one share into blanket access to every unrestricted share.
+  if (!holdsBlanketNasPermission(input.permissions)) {
+    return {
+      allowed: false,
+      reason: `no storage grant covers ${input.provider}/${input.share}/${input.subfolder || ""} at ${input.access} for user '${input.username}'`,
+    };
   }
 
   const rules = listFolderAclRules(env);

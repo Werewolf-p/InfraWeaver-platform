@@ -1,7 +1,8 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { auditLog } from "@/lib/audit-log";
-import { assignmentExceedsGranter, getBuiltInRoles, type Permission, type RoleAssignment } from "@/lib/rbac";
+import { ROOT_SCOPE, assignmentExceedsGranter, getBuiltInRoles, type Permission, type RoleAssignment } from "@/lib/rbac";
+import { isNasScope, parseNasScope } from "@/lib/nas/scope";
 import {
   loadUsersConfig,
   normalizeGroupRoleAssignments,
@@ -65,6 +66,109 @@ function syncWordpressAccessForScope(scope: string): void {
   const match = WORDPRESS_SITE_SCOPE_RE.exec(scope);
   if (!match) return;
   void reconcileWordpressAccessWithRetry(match[1]);
+}
+
+/**
+ * Fan a storage grant/revoke out to the share's Authentik access groups, so an
+ * app that scopes its view by group — Nextcloud's external storage is the
+ * motivating case — shows the folder to exactly the users InfraWeaver granted
+ * it to. See lib/nas/access.ts.
+ *
+ * A grant on a broad scope (`/nas`, `/nas/<provider>`, `/`) covers many folders.
+ * We never enumerate the appliances on this hot path; instead we reconcile the
+ * scopes whose groups actually exist, which the registry records on every sync.
+ */
+function syncStorageAccessForScope(scope: string): void {
+  const parsed = parseNasScope(scope);
+  if (parsed) {
+    // Reconciles the granted scope's groups and, for a folder, its share's groups
+    // too — the pair an external-storage mount binds. See lib/nas/access.ts.
+    void reconcileStorageAccessWithRetry(parsed.provider, parsed.share, parsed.subfolder);
+    return;
+  }
+
+  // A scope that COVERS many folders: `/nas`, `/nas/<provider>`, or `/` (the
+  // platform-owner grant, which puts its holder in every storage group). We
+  // cannot enumerate the appliances on this hot path, but we do know every scope
+  // whose groups were ever materialized, so reconcile exactly those.
+  //
+  // Skipping this is not cosmetic: revoking a broad grant would otherwise
+  // reconcile nothing, leaving the user in the Authentik groups a previous sync
+  // put them in — still seeing the folder in Nextcloud after their access was
+  // taken away. Revocation is a security control.
+  if (scope === ROOT_SCOPE || isNasScope(scope)) void reconcileBroadStorageScopeWithRetry(scope);
+}
+
+/** Same retry discipline as the per-folder reconcile, for the same reason. */
+async function reconcileBroadStorageScopeWithRetry(scope: string): Promise<void> {
+  for (let attempt = 0; attempt <= ACCESS_SYNC_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const mod = await import("@/lib/nas/access");
+      const reconciled = await mod.syncStorageScopesUnder(scope);
+      if (reconciled.length > 0) {
+        console.warn(`[rbac] reconciled ${reconciled.length} storage scope(s) under '${scope}'`);
+      }
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (attempt === ACCESS_SYNC_RETRY_DELAYS_MS.length) {
+        console.error(
+          `[rbac] storage reconcile under '${scope}' failed after ${attempt + 1} attempts; re-run "Sync access groups" on each affected folder:`,
+          message,
+        );
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, ACCESS_SYNC_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
+/**
+ * Retry with backoff for the same reason the WordPress reconcile does: a REVOKE
+ * that silently fails would leave a user seeing a folder they no longer have
+ * rights to. Revocation is a security control, not best-effort.
+ */
+async function reconcileStorageAccessWithRetry(provider: string, share: string, subfolder: string): Promise<void> {
+  const label = [provider, share, subfolder].filter(Boolean).join("/");
+  for (let attempt = 0; attempt <= ACCESS_SYNC_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const mod = await import("@/lib/nas/access");
+      await mod.syncShareAccess(provider, share, subfolder);
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (attempt === ACCESS_SYNC_RETRY_DELAYS_MS.length) {
+        console.error(
+          `[rbac] storage access sync for '${label}' failed after ${attempt + 1} attempts; re-run it from the storage panel:`,
+          message,
+        );
+        return;
+      }
+      console.warn(`[rbac] storage access sync for '${label}' attempt ${attempt + 1} failed, retrying:`, message);
+      await new Promise((resolve) => setTimeout(resolve, ACCESS_SYNC_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
+/**
+ * Provision or deprovision the LOCAL Jellyfin account behind a `/jellyfin` grant.
+ *
+ * Jellyfin's OIDC covers only its web UI; native and TV clients authenticate
+ * against a local account, so "granting Jellyfin" has to materialize one. A
+ * revoke disables it. `lib/jellyfin/access.ts` owns the retry and no-ops when
+ * Jellyfin is not configured, so this stays a one-liner.
+ */
+function syncJellyfinAccessForScope(scope: string): void {
+  void import("@/lib/jellyfin/access")
+    .then((mod) => mod.reconcileJellyfinAccessWithRetry(scope))
+    .catch((err) => console.warn("[rbac] Jellyfin access sync skipped:", err instanceof Error ? err.message : err));
+}
+
+/** Every downstream identity system a scope change can touch. */
+function syncAccessForScope(scope: string): void {
+  syncWordpressAccessForScope(scope);
+  syncStorageAccessForScope(scope);
+  syncJellyfinAccessForScope(scope);
 }
 
 /**
@@ -148,7 +252,7 @@ export async function grantRoleAssignment(
     };
     await saveUsersConfig(file.users, file.sha, `rbac: grant ${input.roleId} to group ${groupName} at ${input.scope}`, nextGroups);
     await auditLog("rbac:assign", ctx.actor, `Granted role '${input.roleId}' to group '${groupName}' at scope '${input.scope}'`);
-    syncWordpressAccessForScope(input.scope);
+    syncAccessForScope(input.scope);
     return { ok: true, assignment: newAssignment };
   }
 
@@ -162,7 +266,7 @@ export async function grantRoleAssignment(
   file.users[username] = { ...user, role_assignments: [...existing, newAssignment] };
   await saveUsersConfig(file.users, file.sha, `rbac: grant ${input.roleId} to ${username} at ${input.scope}`, file.groups);
   await auditLog("rbac:assign", ctx.actor, `Granted role '${input.roleId}' to '${username}' at scope '${input.scope}'`);
-  syncWordpressAccessForScope(input.scope);
+  syncAccessForScope(input.scope);
   return { ok: true, assignment: newAssignment };
 }
 
@@ -210,7 +314,7 @@ export async function revokeRoleAssignment(input: RevokeAssignmentInput, ctx: As
     const nextGroups = { ...file.groups, [input.principal]: { ...group, role_assignments: after } };
     await saveUsersConfig(file.users, file.sha, `rbac: revoke assignment ${input.assignmentId} from group ${input.principal}`, nextGroups);
     await auditLog("rbac:revoke", ctx.actor, `Revoked assignment '${input.assignmentId}' from group '${input.principal}'`);
-    syncWordpressAccessForScope(removed.scope);
+    syncAccessForScope(removed.scope);
     return { ok: true };
   }
 
@@ -226,6 +330,6 @@ export async function revokeRoleAssignment(input: RevokeAssignmentInput, ctx: As
   file.users[input.principal] = { ...user, role_assignments: after };
   await saveUsersConfig(file.users, file.sha, `rbac: revoke assignment ${input.assignmentId} from ${input.principal}`, file.groups);
   await auditLog("rbac:revoke", ctx.actor, `Revoked assignment '${input.assignmentId}' from '${input.principal}'`);
-  syncWordpressAccessForScope(removed.scope);
+  syncAccessForScope(removed.scope);
   return { ok: true };
 }
