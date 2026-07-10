@@ -21,6 +21,7 @@ import {
   Eye,
   EyeOff,
   Info,
+  KeyRound,
   Loader2,
   Plus,
   RefreshCw,
@@ -35,6 +36,7 @@ import type { PlatformUser } from "@/hooks/use-users-config";
 import {
   useGrantJellyfinAccess,
   useJellyfinAccess,
+  useResetJellyfinCredential,
   useRevealJellyfinCredential,
   useRevokeJellyfinAccess,
   useSyncJellyfinUsers,
@@ -232,10 +234,12 @@ export function UserJellyfinAccessPanel({ user, isAdmin }: Props) {
   const [credential, setCredential] = useState<JellyfinCredential | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   const accessQuery = useJellyfinAccess(Boolean(user));
   const revoke = useRevokeJellyfinAccess();
   const reveal = useRevealJellyfinCredential();
+  const resetCred = useResetJellyfinCredential();
   const sync = useSyncJellyfinUsers();
 
   const grants = useMemo(
@@ -267,9 +271,27 @@ export function UserJellyfinAccessPanel({ user, isAdmin }: Props) {
     }
   }
 
+  async function submitReset() {
+    setError(null);
+    setNotice(null);
+    // A reset invalidates the account's current password, so gate it behind an
+    // explicit confirm — this is how an adopted account (no revealable password) is
+    // made usable, and how a forgotten one is recovered.
+    if (!window.confirm(`Reset ${user!.username}'s Jellyfin password? Their existing app logins stop working until they sign in with the new one.`)) {
+      return;
+    }
+    try {
+      setCredential(await resetCred.mutateAsync(user!.username));
+      setNotice(`New Jellyfin password generated for ${user!.username}. Reveal it below and hand it off.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset credential");
+    }
+  }
+
   async function submitSync() {
     setError(null);
     setNotice(null);
+    setWarning(null);
     try {
       const result = await sync.mutateAsync();
       const parts = [
@@ -279,6 +301,19 @@ export function UserJellyfinAccessPanel({ user, isAdmin }: Props) {
         result.disabled.length ? `${result.disabled.length} disabled` : "",
       ].filter(Boolean);
       setNotice(parts.length ? `Jellyfin accounts reconciled: ${parts.join(", ")}.` : "Jellyfin accounts already match RBAC.");
+      // Two failure modes a reconcile can surface but not itself fix:
+      //  - pendingHandoff: the account + password exist, the notify just never landed
+      //    — reveal it to them.
+      //  - adopted: an orphan (existed in Jellyfin, unmanaged) re-adopted so it can be
+      //    revoked again, but its password was lost — reset it to hand off a login.
+      const warnings: string[] = [];
+      if (result.pendingHandoff.length) {
+        warnings.push(`Credential never handed off to ${result.pendingHandoff.join(", ")}. Their account and password exist — reveal it to them.`);
+      }
+      if (result.adopted.length) {
+        warnings.push(`Adopted ${result.adopted.join(", ")} back into management — they existed in Jellyfin but were unmanaged. Their password is unknown; reset it to hand off a working login.`);
+      }
+      setWarning(warnings.length ? warnings.join(" ") : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reconcile Jellyfin accounts");
     }
@@ -363,6 +398,17 @@ export function UserJellyfinAccessPanel({ user, isAdmin }: Props) {
                 {isAdmin ? (
                   <button
                     type="button"
+                    onClick={() => void submitReset()}
+                    disabled={resetCred.isPending}
+                    title="Reset this Jellyfin password (needed to hand off an adopted account, or to recover a forgotten one)"
+                    className="shrink-0 rounded-lg border border-gray-200 p-1.5 text-slate-500 transition-colors hover:border-amber-500/40 hover:text-amber-500 disabled:opacity-40 dark:border-white/10"
+                  >
+                    {resetCred.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
+                  </button>
+                ) : null}
+                {isAdmin ? (
+                  <button
+                    type="button"
                     onClick={() => void submitRevoke(grant.id)}
                     disabled={revoke.isPending}
                     title="Revoke Jellyfin access (disables the account, keeps watch history)"
@@ -380,6 +426,7 @@ export function UserJellyfinAccessPanel({ user, isAdmin }: Props) {
 
       {error ? <p className="mt-2 text-sm text-red-500">{error}</p> : null}
       {notice ? <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-300">{notice}</p> : null}
+      {warning ? <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">{warning}</p> : null}
 
       {granting ? (
         <GrantJellyfinSheet

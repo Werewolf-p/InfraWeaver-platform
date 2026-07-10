@@ -14,13 +14,16 @@
  * `admin` verb maps to a Jellyfin administrator, everything else to a standard user.
  */
 import "server-only";
+import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig } from "@/lib/users-config";
 import type { Permission } from "@/lib/rbac";
 import { computeDesiredAppUsers } from "@/lib/app-accounts/policy";
+import { generateAppPassword } from "@/lib/app-accounts/password";
 import { syncAppUsers, type AppUserSyncSummary } from "@/lib/app-accounts/reconcile";
 import { openBaoAppAccountStore } from "@/lib/app-accounts/store";
 import { consoleAccountNotifier } from "@/lib/app-accounts/notify";
 import type { AppPermissionPair } from "@/lib/app-accounts/types";
+import { JELLYFIN_APP_ID, jellyfinLaunchUrl } from "@/lib/jellyfin/config";
 import { JellyfinAccountProvider } from "@/lib/jellyfin/provider";
 
 /** The single RBAC scope that governs Jellyfin access. */
@@ -66,6 +69,68 @@ export async function syncJellyfinUsers(): Promise<AppUserSyncSummary> {
   });
 }
 
+/** Case-insensitive username key, matching the reconcile engine and Jellyfin itself. */
+function usernameKey(username: string): string {
+  return username.trim().toLowerCase();
+}
+
+/**
+ * The credential a reset hands back to the operator for an out-of-band hand-off.
+ * Identical shape to a reveal, so the panel renders it with the same card.
+ */
+export interface JellyfinResetResult {
+  username: string;
+  password: string;
+  launchUrl: string;
+}
+
+/**
+ * Thrown when a reset targets a name InfraWeaver does not manage. A distinct type so
+ * the route answers 404 for this expected refusal instead of masking it as a 500 —
+ * keeping a genuine fault (Jellyfin down, vault down) legible as the real 500 it is.
+ */
+export class UnmanagedJellyfinAccountError extends Error {
+  constructor(username: string) {
+    super(`'${username}' is not an InfraWeaver-managed Jellyfin account`);
+    this.name = "UnmanagedJellyfinAccountError";
+  }
+}
+
+/**
+ * Explicitly reset one MANAGED Jellyfin account's password. This is the audited admin
+ * action that makes an ADOPTED account usable again — adoption re-rosters an orphan
+ * but cannot recover its lost password, so the credential is unknown until this runs —
+ * and doubles as the "reset a user's Jellyfin password" recovery.
+ *
+ * Restricted to accounts on the roster: InfraWeaver resets only passwords it manages,
+ * never a manual or app-native account (resetting the operator's personal Jellyfin
+ * admin would be an own-goal). The new password is minted here, set on the server,
+ * persisted for reveal, and the hand-off recorded (`markNotified`) so the account
+ * stops surfacing as adopted/pending. The plaintext lives only in this scope and the
+ * store; it is returned to the authenticated admin caller and never logged.
+ */
+export async function resetJellyfinCredential(username: string): Promise<JellyfinResetResult> {
+  const roster = await openBaoAppAccountStore.loadRoster(JELLYFIN_APP_ID);
+  const entry = roster.find((e) => usernameKey(e.username) === usernameKey(username));
+  if (!entry) throw new UnmanagedJellyfinAccountError(username);
+
+  const provider = new JellyfinAccountProvider();
+  await provider.ensureServiceAccount();
+  const password = generateAppPassword();
+  await provider.resetPassword(entry.providerUserId, password);
+
+  await openBaoAppAccountStore.writeCredential(JELLYFIN_APP_ID, entry.username, password, await resolveEmail(entry.username));
+  await openBaoAppAccountStore.markNotified(JELLYFIN_APP_ID, entry.username, new Date().toISOString());
+  return { username: entry.username, password, launchUrl: jellyfinLaunchUrl() };
+}
+
+/** Best-effort email for the credential record; reveal only ever returns user+pass. */
+async function resolveEmail(username: string): Promise<string> {
+  const cfg = await loadUsersConfig();
+  const match = Object.entries(cfg.users).find(([name]) => usernameKey(name) === usernameKey(username));
+  return match?.[1]?.email ?? "";
+}
+
 // Same cadence as the WordPress/NAS access reconciles.
 const ACCESS_SYNC_RETRY_DELAYS_MS = [1_000, 5_000, 15_000] as const;
 
@@ -77,6 +142,11 @@ const ACCESS_SYNC_RETRY_DELAYS_MS = [1_000, 5_000, 15_000] as const;
  * `lib/rbac-assignments.ts` via a lazy import (see the reported edit). Broad scopes
  * (`/`) are handled here too, since Jellyfin is a single instance — no fan-out
  * explosion to guard against, unlike per-share storage.
+ *
+ * Exhausting the retries is a security event, not a log line: the caller is
+ * fire-and-forget, so a terminal failure is the ONLY record that a revoked user may
+ * still hold a working Jellyfin login. It goes to the audit log, where a failed
+ * revocation is reviewable, rather than only to stderr.
  */
 export async function reconcileJellyfinAccessWithRetry(scope: string): Promise<void> {
   if (!isJellyfinScope(scope)) return;
@@ -88,6 +158,12 @@ export async function reconcileJellyfinAccessWithRetry(scope: string): Promise<v
       const message = err instanceof Error ? err.message : String(err);
       if (attempt === ACCESS_SYNC_RETRY_DELAYS_MS.length) {
         console.error(`[rbac] Jellyfin account sync for '${scope}' failed after ${attempt + 1} attempts; run it from the Jellyfin access panel:`, message);
+        await auditLog(
+          "jellyfin:access-sync",
+          "system",
+          `Jellyfin account sync for scope '${scope}' failed after ${attempt + 1} attempts; a revoked user may retain a working local login. Re-run it from the Jellyfin access panel. Last error: ${message}`,
+          { result: "failure", resource: scope },
+        );
         return;
       }
       console.warn(`[rbac] Jellyfin account sync for '${scope}' attempt ${attempt + 1} failed, retrying:`, message);

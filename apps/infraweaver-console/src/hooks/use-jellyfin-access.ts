@@ -81,6 +81,10 @@ export interface JellyfinSyncSummary {
   enabled: string[];
   disabled: string[];
   skippedNoEmail: string[];
+  /** Provisioned accounts whose credential was never handed off — reveal it to them. */
+  pendingHandoff: string[];
+  /** Orphans re-adopted into management; their password is unknown until an admin resets it. */
+  adopted: string[];
 }
 
 export function useSyncJellyfinUsers() {
@@ -112,6 +116,26 @@ export function useRevealJellyfinCredential() {
       const query = username ? `?username=${encodeURIComponent(username)}` : "";
       const res = await fetch(`/api/jellyfin/credential${query}`);
       if (!res.ok) throw new Error(await readError(res, "Failed to reveal credential"));
+      return await res.json() as JellyfinCredential;
+    },
+  });
+}
+
+/**
+ * Reset a managed account's password and get the new one back. The admin-only
+ * recovery for an adopted account (whose old password was lost) or a forgotten one.
+ * A mutation for the same reason reveal is: it mutates server state and must be
+ * driven by an explicit click, never prefetched or cached.
+ */
+export function useResetJellyfinCredential() {
+  return useMutation({
+    mutationFn: async (username: string) => {
+      const res = await fetch("/api/jellyfin/credential", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      });
+      if (!res.ok) throw new Error(await readError(res, "Failed to reset credential"));
       return await res.json() as JellyfinCredential;
     },
   });

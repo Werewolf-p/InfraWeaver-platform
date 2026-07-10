@@ -78,6 +78,13 @@ export interface AppAccountProvider {
   disableUser(id: string): Promise<void>;
   /** Re-enable a previously-disabled account — the re-grant action. */
   enableUser(id: string): Promise<void>;
+  /**
+   * Reset an account's password to `password` as admin (no current password needed).
+   * The reconcile engine never calls this — a sync must never silently rewrite a
+   * credential — but an ADOPTED account's password is unknown until an explicit admin
+   * reset runs it. Also the general "reset a managed account's password" recovery.
+   */
+  resetPassword(id: string, password: string): Promise<void>;
 }
 
 /** A credential handed to the notifier for delivery. Held in memory for the call
@@ -102,13 +109,29 @@ export interface AccountNotifier {
 }
 
 /** One managed account's durable record — the source of truth for "InfraWeaver
- *  provisioned this" (so manual/app-native users are never disabled) and for
- *  "already notified" (so a re-run never re-emails). */
+ *  provisioned this", so manual/app-native users are never disabled. */
 export interface RosterEntry {
   username: string;
   providerUserId: string;
   provisionedAt: string;
+  /**
+   * When the credential hand-off was recorded. Absent means it never completed —
+   * the reconcile reports those as `pendingHandoff`. It is NOT what stops a re-run
+   * from re-notifying: `plan.ts` only creates accounts that do not exist, so a
+   * re-run never reaches the notifier at all.
+   */
   notifiedAt?: string;
+  /**
+   * When InfraWeaver ADOPTED this account: found it live in the app under a still-
+   * authorized username but missing from the roster — the residual orphan window
+   * where `createUser` succeeded and `addRosterEntry` did not. Adoption re-rosters it
+   * (so a revoke can disable it again), but its original password was lost with the
+   * failed provision, so the credential is unknown until an admin explicitly resets
+   * it. Distinct from a normal entry precisely so `pendingHandoff` never promises a
+   * reveal that would 404; the reconcile reports these as `adopted` instead. The
+   * account becomes an ordinary managed one once that reset sets `notifiedAt`.
+   */
+  adoptedAt?: string;
 }
 
 /**
