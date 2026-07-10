@@ -23,6 +23,8 @@ import { useSession } from "next-auth/react";
 import { StorageTab } from "@/components/users/storage-tab";
 import { RoleAssignmentsPanel } from "@/components/users/role-assignments-panel";
 import { UserAccessPanel } from "@/components/users/user-access-panel";
+import { UserStorageAccessPanel } from "@/components/users/user-storage-access-panel";
+import { UserJellyfinAccessPanel } from "@/components/users/user-jellyfin-access-panel";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 
 const ACCESS_LEVELS = ["admin", "platform-user", "viewer"] as const;
@@ -968,6 +970,10 @@ export default function UsersPage() {
           </div>
 
           <UserAccessPanel user={selectedUser} isAdmin={isAdmin} />
+
+          <UserStorageAccessPanel user={selectedUser} isAdmin={isAdmin} />
+
+          <UserJellyfinAccessPanel user={selectedUser} isAdmin={isAdmin} />
 
           <RoleAssignmentsPanel user={selectedUser} isAdmin={isAdmin} />
 

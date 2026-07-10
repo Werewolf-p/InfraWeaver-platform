@@ -1,0 +1,97 @@
+/**
+ * Server-side wiring: InfraWeaver RBAC → real Jellyfin local accounts.
+ *
+ * Ties the pure policy (`lib/app-accounts/policy`) and the generic engine
+ * (`lib/app-accounts/reconcile`) to the Jellyfin adapter, the OpenBao store, and
+ * the default notifier. This is the Jellyfin analogue of the WordPress addon's
+ * `provision.ts#syncSiteWpUsers` and its `access.ts`.
+ *
+ * Scope model
+ * -----------
+ * Jellyfin is a single instance, so it gets one top-level RBAC scope, `/jellyfin`,
+ * matching the per-resource pattern (`/wordpress/...`, `/game-hub/...`, `/nas/...`).
+ * A grant on `/jellyfin` (or an ancestor like `/`) authorizes an account; the app
+ * `admin` verb maps to a Jellyfin administrator, everything else to a standard user.
+ */
+import "server-only";
+import { loadUsersConfig } from "@/lib/users-config";
+import type { Permission } from "@/lib/rbac";
+import { computeDesiredAppUsers } from "@/lib/app-accounts/policy";
+import { syncAppUsers, type AppUserSyncSummary } from "@/lib/app-accounts/reconcile";
+import { openBaoAppAccountStore } from "@/lib/app-accounts/store";
+import { consoleAccountNotifier } from "@/lib/app-accounts/notify";
+import type { AppPermissionPair } from "@/lib/app-accounts/types";
+import { JellyfinAccountProvider } from "@/lib/jellyfin/provider";
+
+/** The single RBAC scope that governs Jellyfin access. */
+export const JELLYFIN_SCOPE = "/jellyfin";
+
+/**
+ * Jellyfin's read/admin permission pair.
+ *
+ * `jellyfin:read` / `jellyfin:admin` are added to the `Permission` union and to the
+ * built-in roles by the reported rbac.ts edit (see docs/app-account-provisioning.md).
+ * The cast is confined to this one place so the rest of the module stays fully typed;
+ * until the edit lands these simply grant nobody (isAllowed → false), so the feature
+ * is inert rather than mis-authorizing. Delete the casts once the union carries them.
+ */
+export const JELLYFIN_PERMISSIONS: AppPermissionPair = {
+  read: "jellyfin:read",
+  admin: "jellyfin:admin",
+};
+
+/** True when a scope change touches Jellyfin (the scope itself or an ancestor). */
+export function isJellyfinScope(scope: string): boolean {
+  return scope === "/" || scope === JELLYFIN_SCOPE || scope.startsWith(`${JELLYFIN_SCOPE}/`);
+}
+
+/**
+ * Materialize the current RBAC grants as Jellyfin local accounts: everyone with
+ * `jellyfin:read` at `/jellyfin` gets an account (admins mapped to Jellyfin
+ * administrators), newly-authorized users get a random password + a credential
+ * notification, and revoked users are disabled. Idempotent.
+ */
+export async function syncJellyfinUsers(): Promise<AppUserSyncSummary> {
+  const cfg = await loadUsersConfig();
+  const desired = computeDesiredAppUsers(
+    JELLYFIN_SCOPE,
+    JELLYFIN_PERMISSIONS.read,
+    JELLYFIN_PERMISSIONS.admin,
+    cfg.users,
+    cfg.groups,
+  );
+  return syncAppUsers(new JellyfinAccountProvider(), desired, {
+    store: openBaoAppAccountStore,
+    notifier: consoleAccountNotifier,
+  });
+}
+
+// Same cadence as the WordPress/NAS access reconciles.
+const ACCESS_SYNC_RETRY_DELAYS_MS = [1_000, 5_000, 15_000] as const;
+
+/**
+ * Fan a grant/revoke on a Jellyfin-covering scope out to the real accounts, with
+ * backoff — for the same reason storage does: a REVOKE that silently failed would
+ * leave a disabled-in-intent user still able to log in. Revocation is a security
+ * control, not best-effort. Called (fire-and-forget) from `syncAccessForScope` in
+ * `lib/rbac-assignments.ts` via a lazy import (see the reported edit). Broad scopes
+ * (`/`) are handled here too, since Jellyfin is a single instance — no fan-out
+ * explosion to guard against, unlike per-share storage.
+ */
+export async function reconcileJellyfinAccessWithRetry(scope: string): Promise<void> {
+  if (!isJellyfinScope(scope)) return;
+  for (let attempt = 0; attempt <= ACCESS_SYNC_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      await syncJellyfinUsers();
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (attempt === ACCESS_SYNC_RETRY_DELAYS_MS.length) {
+        console.error(`[rbac] Jellyfin account sync for '${scope}' failed after ${attempt + 1} attempts; run it from the Jellyfin access panel:`, message);
+        return;
+      }
+      console.warn(`[rbac] Jellyfin account sync for '${scope}' attempt ${attempt + 1} failed, retrying:`, message);
+      await new Promise((resolve) => setTimeout(resolve, ACCESS_SYNC_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
