@@ -14,6 +14,7 @@
  * `admin` verb maps to a Jellyfin administrator, everything else to a standard user.
  */
 import "server-only";
+import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig } from "@/lib/users-config";
 import type { Permission } from "@/lib/rbac";
 import { computeDesiredAppUsers } from "@/lib/app-accounts/policy";
@@ -77,6 +78,11 @@ const ACCESS_SYNC_RETRY_DELAYS_MS = [1_000, 5_000, 15_000] as const;
  * `lib/rbac-assignments.ts` via a lazy import (see the reported edit). Broad scopes
  * (`/`) are handled here too, since Jellyfin is a single instance — no fan-out
  * explosion to guard against, unlike per-share storage.
+ *
+ * Exhausting the retries is a security event, not a log line: the caller is
+ * fire-and-forget, so a terminal failure is the ONLY record that a revoked user may
+ * still hold a working Jellyfin login. It goes to the audit log, where a failed
+ * revocation is reviewable, rather than only to stderr.
  */
 export async function reconcileJellyfinAccessWithRetry(scope: string): Promise<void> {
   if (!isJellyfinScope(scope)) return;
@@ -88,6 +94,12 @@ export async function reconcileJellyfinAccessWithRetry(scope: string): Promise<v
       const message = err instanceof Error ? err.message : String(err);
       if (attempt === ACCESS_SYNC_RETRY_DELAYS_MS.length) {
         console.error(`[rbac] Jellyfin account sync for '${scope}' failed after ${attempt + 1} attempts; run it from the Jellyfin access panel:`, message);
+        await auditLog(
+          "jellyfin:access-sync",
+          "system",
+          `Jellyfin account sync for scope '${scope}' failed after ${attempt + 1} attempts; a revoked user may retain a working local login. Re-run it from the Jellyfin access panel. Last error: ${message}`,
+          { result: "failure", resource: scope },
+        );
         return;
       }
       console.warn(`[rbac] Jellyfin account sync for '${scope}' attempt ${attempt + 1} failed, retrying:`, message);
