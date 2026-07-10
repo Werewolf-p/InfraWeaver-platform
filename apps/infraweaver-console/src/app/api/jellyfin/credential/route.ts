@@ -28,6 +28,7 @@ import { readAppAccountCredential } from "@/lib/app-accounts/store";
 import { JELLYFIN_APP_ID, jellyfinLaunchUrl } from "@/lib/jellyfin/config";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { resetJellyfinCredential, UnmanagedJellyfinAccountError } from "@/lib/jellyfin/access";
 import { safeError } from "@/lib/utils";
 
 const USERNAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$/;
@@ -103,11 +104,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { resetJellyfinCredential } = await import("@/lib/jellyfin/access");
     const credential = await resetJellyfinCredential(parsed.data.username);
     await auditLog("jellyfin:credential:reset", actor, `Reset Jellyfin credential for '${credential.username}'`);
     return NextResponse.json(credential);
   } catch (error) {
+    // An expected refusal (no such managed account) is a 404, not a masked 500.
+    if (error instanceof UnmanagedJellyfinAccountError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
 }

@@ -85,6 +85,18 @@ export interface JellyfinResetResult {
 }
 
 /**
+ * Thrown when a reset targets a name InfraWeaver does not manage. A distinct type so
+ * the route answers 404 for this expected refusal instead of masking it as a 500 —
+ * keeping a genuine fault (Jellyfin down, vault down) legible as the real 500 it is.
+ */
+export class UnmanagedJellyfinAccountError extends Error {
+  constructor(username: string) {
+    super(`'${username}' is not an InfraWeaver-managed Jellyfin account`);
+    this.name = "UnmanagedJellyfinAccountError";
+  }
+}
+
+/**
  * Explicitly reset one MANAGED Jellyfin account's password. This is the audited admin
  * action that makes an ADOPTED account usable again — adoption re-rosters an orphan
  * but cannot recover its lost password, so the credential is unknown until this runs —
@@ -100,7 +112,7 @@ export interface JellyfinResetResult {
 export async function resetJellyfinCredential(username: string): Promise<JellyfinResetResult> {
   const roster = await openBaoAppAccountStore.loadRoster(JELLYFIN_APP_ID);
   const entry = roster.find((e) => usernameKey(e.username) === usernameKey(username));
-  if (!entry) throw new Error(`'${username}' is not an InfraWeaver-managed Jellyfin account`);
+  if (!entry) throw new UnmanagedJellyfinAccountError(username);
 
   const provider = new JellyfinAccountProvider();
   await provider.ensureServiceAccount();
