@@ -25,7 +25,8 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { gitCommitFiles, gitReadFile } from "@/lib/git-provider";
 import { parseAllowedInternalUrlAsync } from "@/lib/internal-url-allowlist-server";
-import { evaluateFolderAcl } from "@/lib/nas/folder-acl";
+import { canWriteStorage, nasAccessDecision } from "@/lib/nas/authz";
+import { NasAmbiguousPathError, resolveCanonicalSubfolder } from "@/lib/nas/canonical";
 import { resolveNasSharePath, type NasFolderTarget } from "@/lib/nas/folders";
 import {
   deriveNasManifestPath,
@@ -42,7 +43,7 @@ import { normalizeSubfolder } from "@/lib/nas/paths";
 import { getResolvedNasProvider, resolveNasCredentials, resolveNasProviders } from "@/lib/nas/providers";
 import { nasCredsLogicalPath } from "@/lib/nas/store";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { getSessionEffectivePermissions, getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -117,11 +118,14 @@ export async function POST(req: NextRequest) {
   const actor = session?.user?.email ?? "unauthenticated";
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const rbac = await getSessionRBACContext(session, 60);
-  // `nas:write` governs the NAS side; patching a workload manifest and creating a
-  // PVC in a caller-chosen namespace is a catalog mutation, so also require
-  // `catalog:write`. Without both, a NAS-only group could inject a volume into
-  // ANY catalog Deployment in ANY namespace.
-  if (!hasSessionPermission(rbac, "nas:write") || !hasSessionPermission(rbac, "catalog:write")) {
+  // `nas:write` governs the NAS side and may be held on a `/nas/...` scope alone;
+  // the exact folder is checked against its own scope further down. Patching a
+  // workload manifest and creating a PVC in a caller-chosen namespace is a
+  // catalog mutation, so also require `catalog:write` — at the ROOT scope, since
+  // a storage grant says nothing about which Deployments you may edit. Without
+  // both, a NAS-only group could inject a volume into ANY catalog Deployment in
+  // ANY namespace.
+  if (!canWriteStorage(rbac) || !hasSessionPermission(rbac, "catalog:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (!checkRateLimit(rateLimitKey("nas-mount-workload", req), 10, 60_000)) {
@@ -163,17 +167,8 @@ export async function POST(req: NextRequest) {
     // Folder ACL, once per requested access mode — the same gate `/api/nas/assign`
     // applies, so the app-centric path can never grant what the user-centric one
     // would refuse.
-    const permissions = [...getSessionEffectivePermissions(rbac)];
     for (const access of new Set(body.targets.map((target) => target.access))) {
-      const decision = evaluateFolderAcl({
-        username: rbac.username || actor,
-        groups: rbac.groups,
-        permissions,
-        provider: body.provider,
-        share: body.share,
-        subfolder,
-        access,
-      });
+      const decision = nasAccessDecision(rbac, { provider: body.provider, share: body.share, subfolder, access });
       if (!decision.allowed) {
         return NextResponse.json({ error: `NAS folder ACL denied: ${decision.reason}` }, { status: 403 });
       }
@@ -185,6 +180,16 @@ export async function POST(req: NextRequest) {
     const folderTarget: NasFolderTarget = { kind: provider.kind, host: provider.host, port: provider.port, tlsFingerprint256: provider.tlsFingerprint256 };
     // NFS needs the export's absolute path; SMB does not, but resolving it also
     // proves the share exists before we write any manifest.
+    // Fail closed on a case-ambiguous path: `media` and `Media` collapse to one
+    // lowercase RBAC scope, so a grant on one would authorize mounting the other.
+    // See lib/nas/canonical.ts.
+    try {
+      await resolveCanonicalSubfolder(folderTarget, credentials, body.share, subfolder);
+    } catch (error) {
+      if (error instanceof NasAmbiguousPathError) return NextResponse.json({ error: error.message }, { status: 409 });
+      throw error;
+    }
+
     const sharePath = await resolveNasSharePath(folderTarget, credentials, body.share);
 
     // Ensure the scoped mount credentials exist before referencing them from an
@@ -307,7 +312,7 @@ export async function DELETE(req: NextRequest) {
   const actor = session?.user?.email ?? "unauthenticated";
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const rbac = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(rbac, "nas:write") || !hasSessionPermission(rbac, "catalog:write")) {
+  if (!canWriteStorage(rbac) || !hasSessionPermission(rbac, "catalog:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (!checkRateLimit(rateLimitKey("nas-unmount-workload", req), 10, 60_000)) {
@@ -334,10 +339,7 @@ export async function DELETE(req: NextRequest) {
 
     // Same authority as mounting: an unmount the ACL would have blocked as a
     // mount must not be reachable either.
-    const decision = evaluateFolderAcl({
-      username: rbac.username || actor,
-      groups: rbac.groups,
-      permissions: [...getSessionEffectivePermissions(rbac)],
+    const decision = nasAccessDecision(rbac, {
       provider: body.provider,
       share: body.share,
       subfolder,

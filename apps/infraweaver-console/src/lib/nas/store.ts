@@ -98,10 +98,15 @@ export const STORED_PROVIDER_SCHEMA = z.object({
 
 const PROVIDER_ID_SCHEMA = z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*$/);
 
+/** A `/nas/...` scope string, as produced by lib/nas/scope.ts. */
+const SYNCED_SCOPE_SCHEMA = z.string().min(5).max(256).regex(/^\/nas(\/[a-z0-9_-]+)+$/);
+
 const REGISTRY_SCHEMA = z.object({
   providers: z.array(STORED_PROVIDER_SCHEMA).default([]),
   // Ids of env-declared built-ins the operator has removed from the console.
   suppressedEnvIds: z.array(PROVIDER_ID_SCHEMA).default([]),
+  // Scopes whose Authentik access groups exist (see NasRegistry.syncedScopes).
+  syncedScopes: z.array(SYNCED_SCOPE_SCHEMA).default([]),
 });
 
 function vaultAuth(): { addr: string; token: string } {
@@ -142,7 +147,19 @@ async function vaultFetch(logicalPath: string, init: RequestInit): Promise<Respo
 interface NasRegistry {
   providers: StoredNasProvider[];
   suppressedEnvIds: string[];
+  /**
+   * Every `/nas/...` scope whose Authentik access groups we have materialized.
+   *
+   * A grant on a broad scope (`/nas`, `/nas/<provider>`, or `/`) covers many
+   * shares, and we cannot enumerate every appliance on a grant/revoke hot path.
+   * Without this list, REVOKING such a grant would reconcile nothing and leave
+   * the user in the groups a previous sync had put them in — i.e. still seeing
+   * the folder in Nextcloud. Revocation is a security control, so we remember
+   * exactly which scopes have groups to re-reconcile.
+   */
+  syncedScopes: string[];
 }
+
 
 /**
  * Read the whole registry object (providers + env suppression list). A missing
@@ -151,7 +168,7 @@ interface NasRegistry {
  */
 async function readRegistry(): Promise<NasRegistry> {
   const res = await vaultFetch(NAS_LOGICAL_PATH, { method: "GET" });
-  if (res.status === 404) return { providers: [], suppressedEnvIds: [] };
+  if (res.status === 404) return { providers: [], suppressedEnvIds: [], syncedScopes: [] };
   if (!res.ok) throw new Error(`OpenBao read nas providers failed: ${res.status}`);
   const body = (await res.json()) as { data?: { data?: unknown } };
   const data = body.data?.data ?? {};
@@ -170,7 +187,11 @@ async function readRegistry(): Promise<NasRegistry> {
   const suppressedEnvIds = Array.isArray(rawIds)
     ? rawIds.filter((x): x is string => PROVIDER_ID_SCHEMA.safeParse(x).success)
     : [];
-  return { providers, suppressedEnvIds };
+  const rawScopes = (data as { syncedScopes?: unknown[] }).syncedScopes;
+  const syncedScopes = Array.isArray(rawScopes)
+    ? rawScopes.filter((x): x is string => SYNCED_SCOPE_SCHEMA.safeParse(x).success)
+    : [];
+  return { providers, suppressedEnvIds, syncedScopes };
 }
 
 /** Write the whole registry object (KV v2 write replaces the whole secret). */
@@ -192,8 +213,24 @@ export async function readStoredNasProviders(): Promise<StoredNasProvider[]> {
  * secret (KV v2 replaces the whole secret, so it must be re-supplied).
  */
 export async function writeStoredNasProviders(providers: StoredNasProvider[]): Promise<void> {
-  const { suppressedEnvIds } = await readRegistry();
-  await writeRegistry({ providers, suppressedEnvIds });
+  const registry = await readRegistry();
+  await writeRegistry({ ...registry, providers });
+}
+
+/**
+ * The `/nas/...` scopes whose Authentik access groups exist. Used to reconcile
+ * them when a broad grant that covers them is granted or revoked.
+ */
+export async function readSyncedStorageScopes(): Promise<string[]> {
+  return (await readRegistry()).syncedScopes;
+}
+
+/** Remember that `scope` has materialized access groups. Idempotent. */
+export async function recordSyncedStorageScope(scope: string): Promise<void> {
+  if (!SYNCED_SCOPE_SCHEMA.safeParse(scope).success) return;
+  const registry = await readRegistry();
+  if (registry.syncedScopes.includes(scope)) return;
+  await writeRegistry({ ...registry, syncedScopes: [...registry.syncedScopes, scope] });
 }
 
 /**

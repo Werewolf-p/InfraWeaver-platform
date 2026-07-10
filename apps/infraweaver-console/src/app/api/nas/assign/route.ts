@@ -13,11 +13,12 @@ import {
 } from "@/lib/nas/manifest";
 import { resolveNasSharePath } from "@/lib/nas/folders";
 import { ensureProviderSmbCredentials } from "@/lib/nas/mount-credentials";
-import { evaluateFolderAcl } from "@/lib/nas/folder-acl";
+import { canWriteStorage, nasAccessDecision } from "@/lib/nas/authz";
+import { NasAmbiguousPathError, resolveCanonicalSubfolder } from "@/lib/nas/canonical";
 import { getResolvedNasProvider, resolveNasCredentials, resolveNasProviders } from "@/lib/nas/providers";
 import { nasCredsLogicalPath } from "@/lib/nas/store";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { getSessionEffectivePermissions, getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { loadUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest) {
   // a caller-chosen `pvc_namespace` is a catalog mutation, so also require
   // `catalog:write`. Without it, a bare `nas:write` holder could place a PVC in
   // any namespace (cross-namespace name collision / share hijack).
-  if (!hasSessionPermission(rbac, "nas:write") || !hasSessionPermission(rbac, "catalog:write")) {
+  if (!canWriteStorage(rbac) || !hasSessionPermission(rbac, "catalog:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (!checkRateLimit(rateLimitKey("nas-assign-post", req), 10, 60_000)) {
@@ -112,16 +113,7 @@ export async function POST(req: NextRequest) {
     // Folder-level ACL. Callers with `*` bypass; otherwise the requested
     // (provider, share, subfolder, access) must be granted to the caller's
     // groups (or their `@user:<name>` identity). Undeclared shares stay open.
-    const permissions = [...getSessionEffectivePermissions(rbac)];
-    const aclDecision = evaluateFolderAcl({
-      username: rbac.username || username,
-      groups: rbac.groups,
-      permissions,
-      provider,
-      share,
-      subfolder,
-      access: body.access,
-    });
+    const aclDecision = nasAccessDecision(rbac, { provider, share, subfolder, access: body.access });
     if (!aclDecision.allowed) {
       return NextResponse.json({ error: `NAS folder ACL denied: ${aclDecision.reason}` }, { status: 403 });
     }
@@ -142,6 +134,16 @@ export async function POST(req: NextRequest) {
     if (!credentials) return NextResponse.json({ error: `Provider '${provider}' has no stored credentials` }, { status: 400 });
 
     const folderTarget = { kind: providerCfg.kind, host, port: providerCfg.port, tlsFingerprint256: providerCfg.tlsFingerprint256 };
+    // Fail closed on a case-ambiguous path: `media` and `Media` collapse to one
+    // lowercase RBAC scope, so a grant on one would authorize mounting the other.
+    // See lib/nas/canonical.ts.
+    try {
+      await resolveCanonicalSubfolder(folderTarget, credentials, share, subfolder);
+    } catch (error) {
+      if (error instanceof NasAmbiguousPathError) return NextResponse.json({ error: error.message }, { status: 409 });
+      throw error;
+    }
+
     const sharePath = await resolveNasSharePath(folderTarget, credentials, share);
     // The scoped RO/RW mount accounts must exist before an ExternalSecret points
     // ESO at their OpenBao path, or the CSI mount never authenticates.
@@ -211,7 +213,7 @@ export async function DELETE(req: NextRequest) {
   const access = await getSessionRBACContext(session, 60);
   // Same authority as POST: deleting the assignment removes a StorageClass/PVC
   // manifest from `kubernetes/catalog/`, so require both permissions.
-  if (!hasSessionPermission(access, "nas:write") || !hasSessionPermission(access, "catalog:write")) {
+  if (!canWriteStorage(access) || !hasSessionPermission(access, "catalog:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (!checkRateLimit(rateLimitKey("nas-assign-delete", req), 10, 60_000)) {
@@ -243,16 +245,7 @@ export async function DELETE(req: NextRequest) {
     // Enforce the same folder ACL as POST, using the assignment's own access
     // mode. Without this, any catalog:write+nas:write holder could revoke a
     // share the ACL would have blocked them from ever assigning.
-    const permissions = [...getSessionEffectivePermissions(access)];
-    const aclDecision = evaluateFolderAcl({
-      username: access.username || username,
-      groups: access.groups,
-      permissions,
-      provider,
-      share,
-      subfolder,
-      access: matched.access,
-    });
+    const aclDecision = nasAccessDecision(access, { provider, share, subfolder, access: matched.access });
     if (!aclDecision.allowed) {
       return NextResponse.json({ error: `NAS folder ACL denied: ${aclDecision.reason}` }, { status: 403 });
     }

@@ -64,8 +64,9 @@ describe("nas store (OpenBao registry)", () => {
   });
 
   it("sends X-Vault-Token and posts the whole registry on write", async () => {
-    // Write reads the current registry first (to preserve suppressedEnvIds),
-    // then POSTs providers + suppressedEnvIds together in the one secret.
+    // Write reads the current registry first (to preserve suppressedEnvIds and
+    // syncedScopes), then POSTs the whole registry back in the one secret. KV v2
+    // replaces the entire secret, so anything not re-supplied is destroyed.
     const fetchMock = jest.fn().mockImplementation((_url: string, init: RequestInit) => {
       if ((init?.method ?? "GET") === "GET") {
         return Promise.resolve(vaultResponse({ data: { data: { providers: [], suppressedEnvIds: ["truenas"] } } }));
@@ -78,8 +79,11 @@ describe("nas store (OpenBao registry)", () => {
     const [url, init] = postCall;
     expect(String(url)).toContain("/v1/secret/data/platform/nas/providers");
     expect((init.headers as Record<string, string>)["X-Vault-Token"]).toBe("test-token");
-    // Existing suppression list is preserved through a providers write.
-    expect(JSON.parse(init.body as string)).toEqual({ data: { providers: [SYNO], suppressedEnvIds: ["truenas"] } });
+    // Existing suppression list is preserved through a providers write, and the
+    // synced-scope bookkeeping is round-tripped rather than dropped.
+    expect(JSON.parse(init.body as string)).toEqual({
+      data: { providers: [SYNO], suppressedEnvIds: ["truenas"], syncedScopes: [] },
+    });
   });
 
   it("upsert preserves stored credentials when the incoming entry omits them", async () => {
