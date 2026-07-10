@@ -11,6 +11,7 @@ export const queryKeys = {
   rbac: {
     all: () => ["rbac"] as const,
     myPermissions: () => ["rbac", "my-permissions"] as const,
+    subjects: () => ["rbac", "subjects"] as const,
   },
   pods: {
     all: () => ["pods"] as const,
