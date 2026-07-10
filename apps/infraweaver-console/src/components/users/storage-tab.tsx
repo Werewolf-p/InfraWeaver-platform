@@ -254,11 +254,12 @@ function AssignWizard({
   const assignMutation = useNasAssign();
 
   const { data: shares = [], isLoading: sharesLoading } = useNasShares(state.provider || null);
-  const { data: folders = [], isLoading: foldersLoading } = useNasFolders(
+  const { data: folderListing, isLoading: foldersLoading } = useNasFolders(
     state.provider || null,
     state.share || null,
     "",
   );
+  const folders = folderListing?.folders ?? [];
 
   // Host of the selected provider, resolved from the live registry (built-in or
   // dynamically added) — no hardcoded per-provider IPs.

@@ -44,10 +44,15 @@ export interface NasProviderInput {
   scopedUsername?: string;
 }
 
+/** The caller's own access on a NAS location, as resolved by the server's RBAC scopes. */
+export type NasAccessMode = "readonly" | "readwrite";
+
 export interface NasShare {
   name: string;
   desc?: string;
   path: string;
+  /** What the *caller* may do here. The server omits shares they cannot read. */
+  access?: NasAccessMode;
 }
 
 export interface NasFolder {
@@ -55,6 +60,16 @@ export interface NasFolder {
   name: string;
   /** Share-relative path, e.g. `media/movies` — what the mount flow consumes. */
   subfolder: string;
+  /** What the *caller* may do here. The server omits folders they cannot read. */
+  access?: NasAccessMode;
+}
+
+/** A folder listing plus the caller's access on the folder being listed. */
+export interface NasFolderListing {
+  folders: NasFolder[];
+  path: string;
+  /** Access on the CURRENT folder — gates "New folder" and read-write mounts. */
+  access: NasAccessMode;
 }
 
 export interface NasAssignment {
@@ -215,20 +230,23 @@ export function useNasShares(provider: string | null) {
   });
 }
 
-/** Directories directly beneath `share/path`. `path` of "" browses the share root. */
+/**
+ * Directories directly beneath `share/path`. `path` of "" browses the share root.
+ * The server hides entries the caller may not read and tags each survivor with
+ * the access they hold, so the tree can badge RO vs RW with no extra requests.
+ */
 export function useNasFolders(provider: string | null, share: string | null, path: string) {
-  return useQuery({
+  return useQuery<NasFolderListing>({
     queryKey: ["nas", "folders", provider, share, path],
     queryFn: async () => {
-      if (!provider || !share) return [];
+      if (!provider || !share) return { folders: [], path, access: "readonly" };
       const params = new URLSearchParams({ provider, share, path });
       const res = await fetch(`/api/nas/folders?${params}`, { signal: AbortSignal.timeout(15000) });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? "Failed to fetch folders");
       }
-      const data = await res.json() as { folders: NasFolder[] };
-      return data.folders;
+      return await res.json() as NasFolderListing;
     },
     enabled: Boolean(provider && share),
     staleTime: 30000,
