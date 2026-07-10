@@ -103,12 +103,19 @@ export async function GET(req: NextRequest) {
   if (!creds) return NextResponse.json({ folders: [], path, access: "readonly" });
 
   try {
-    const listed = await listNasFolders(toTarget(provider), creds, share, path);
+    // The scope `path` was just authorized against is lowercase, so `Media` and
+    // `media` authorize identically. Resolve the real on-disk casing and fail
+    // closed when the path is ambiguous — otherwise a grant on `media` would list
+    // `Media`, a directory nobody granted. Only once a path is unambiguous is
+    // lowercase-scope ↔ on-disk-folder a bijection, which is exactly what the
+    // traversal check above assumes. See lib/nas/canonical.ts.
+    const canonicalPath = await resolveCanonicalSubfolder(toTarget(provider), creds, share, path);
+    const listed = await listNasFolders(toTarget(provider), creds, share, canonicalPath);
     // Two siblings differing only by case collapse to ONE lowercase RBAC scope,
     // so no grant can distinguish them. Withhold both rather than let a grant on
     // one silently authorize the other. See lib/nas/canonical.ts.
     const { kept, ambiguous } = withoutAmbiguousEntries(listed);
-    const visible = visibleFolders(rbac, providerId, share, path, kept);
+    const visible = visibleFolders(rbac, providerId, share, canonicalPath, kept);
     return NextResponse.json({
       ...(ambiguous.length ? { ambiguous } : {}),
       folders: visible.map((folder) => ({
@@ -117,22 +124,23 @@ export async function GET(req: NextRequest) {
         access: canAccessNasFolder(rbac, {
           provider: providerId,
           share,
-          subfolder: path ? `${path.replace(/\/+$/, "")}/${folder.name}` : folder.name,
+          subfolder: canonicalPath ? `${canonicalPath.replace(/\/+$/, "")}/${folder.name}` : folder.name,
           access: "readwrite",
         })
           ? "readwrite"
           : "readonly",
       })),
-      path,
+      path: canonicalPath,
       // The caller's access on the folder they are currently looking at, which
       // decides whether "New folder" and read-write mounts are offered.
-      access: canAccessNasFolder(rbac, { provider: providerId, share, subfolder: path, access: "readwrite" })
+      access: canAccessNasFolder(rbac, { provider: providerId, share, subfolder: canonicalPath, access: "readwrite" })
         ? "readwrite"
         : "readonly",
     });
   } catch (error) {
     const challenge = certificateResponse(error, provider.id);
     if (challenge) return challenge;
+    if (error instanceof NasAmbiguousPathError) return NextResponse.json({ error: error.message }, { status: 409 });
     if (error instanceof NasShareNotFoundError) return NextResponse.json({ error: error.message }, { status: 404 });
     if (error instanceof NasFolderUnsupportedError) return NextResponse.json({ error: error.message }, { status: 501 });
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
@@ -194,25 +202,36 @@ export async function POST(req: NextRequest) {
     // distinct directories on a case-sensitive dataset collapsing to ONE lowercase
     // RBAC scope, so no grant could ever tell them apart. Also fails closed if an
     // ancestor is already ambiguous. See lib/nas/canonical.ts.
-    const segments = subfolder.split("/");
-    const leaf = segments[segments.length - 1];
-    const parent = segments.slice(0, -1).join("/");
+    //
+    // `canonical` re-spells every EXISTING ancestor the way it is on disk; only the
+    // leaf may be new. Creating the raw path instead would mkdir `movies` next to an
+    // existing `Movies` — manufacturing the very ambiguity this block exists to
+    // prevent, and permanently un-addressing both folders for RBAC.
+    let canonical: string;
     try {
-      await resolveCanonicalSubfolder(target, creds, share, subfolder, { mustExist: false });
-      const siblings = await listNasFolders(target, creds, share, parent);
-      const clash = collidesWithSibling(leaf, siblings.map((entry) => entry.name));
-      if (clash) {
-        return NextResponse.json(
-          { error: `'${leaf}' collides with the existing folder '${clash}', which differs only by case. Storage permissions are case-insensitive, so the two could never be told apart.` },
-          { status: 409 },
-        );
-      }
+      canonical = await resolveCanonicalSubfolder(target, creds, share, subfolder, { mustExist: false });
     } catch (error) {
       if (error instanceof NasAmbiguousPathError) return NextResponse.json({ error: error.message }, { status: 409 });
       throw error;
     }
 
-    const { created } = await createNasFolder(target, creds, share, subfolder);
+    // The collision check compares the RAW leaf the caller asked for against the
+    // canonical parent's children: asking for `Media` where `media` exists must
+    // still 409, not silently resolve to the existing folder.
+    const rawSegments = subfolder.split("/");
+    const leaf = rawSegments[rawSegments.length - 1];
+    const parent = canonical.split("/").slice(0, -1).join("/");
+    const siblings = await listNasFolders(target, creds, share, parent);
+    const clash = collidesWithSibling(leaf, siblings.map((entry) => entry.name));
+    if (clash) {
+      return NextResponse.json(
+        { error: `'${leaf}' collides with the existing folder '${clash}', which differs only by case. Storage permissions are case-insensitive, so the two could never be told apart.` },
+        { status: 409 },
+      );
+    }
+
+    const createPath = [...canonical.split("/").slice(0, -1), leaf].filter(Boolean).join("/");
+    const { created } = await createNasFolder(target, creds, share, createPath);
 
     // Mint (or reuse) the scoped SMB accounts and give them their ACLs. Without
     // this the folder exists but no mount can authenticate to it, and a later
@@ -226,7 +245,7 @@ export async function POST(req: NextRequest) {
         // Traversal on the share root first, else an SMB tree connect fails
         // before the folder's own ACE is ever evaluated.
         await grantTruenasTraversal(conn, sharePath, accounts);
-        await grantTruenasFolderAccess(conn, sharePath, subfolder, accounts);
+        await grantTruenasFolderAccess(conn, sharePath, createPath, accounts);
       }
       accountsGranted = true;
     }
@@ -234,9 +253,9 @@ export async function POST(req: NextRequest) {
     await auditLog(
       "nas:folder:create",
       actor,
-      `created ${providerId}/${share}/${subfolder} (${created.length} new segment${created.length === 1 ? "" : "s"})${accountsGranted ? " + scoped SMB ACLs" : ""}`,
+      `created ${providerId}/${share}/${createPath} (${created.length} new segment${created.length === 1 ? "" : "s"})${accountsGranted ? " + scoped SMB ACLs" : ""}`,
     );
-    return NextResponse.json({ ok: true, path: subfolder, created, accountsGranted });
+    return NextResponse.json({ ok: true, path: createPath, created, accountsGranted });
   } catch (error) {
     const challenge = certificateResponse(error, providerIdForError);
     if (challenge) return challenge;
