@@ -40,17 +40,6 @@ users:
         principalId: remon
         grantedBy: "remonhulst@gmail.com"
         grantedAt: '2026-01-01T00:00:00.000Z'
-  # ── Temporary E2E fixture — remove after the storage/Jellyfin panel test ──
-  storage-e2e:
-    name: Storage E2E Test
-    email: "storage-e2e@rlservers.com"
-    access_level: platform-user
-    authentik_groups:
-      - platform-users
-    argocd_role: readonly
-    openbao_policy: null
-    send_recovery_email: false
-    notes: Temporary fixture for verifying scoped storage + Jellyfin grants. No role assignments by design.
   # ── Example additional user (remove or replace) ──────────────────────────
   # example-user:
   #   name: Example User
