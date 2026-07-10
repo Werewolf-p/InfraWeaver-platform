@@ -50,6 +50,18 @@ class FakeProvider implements AppAccountProvider {
     const account = this.users.get(id);
     if (account) this.users.set(id, { ...account, disabled: false });
   }
+  passwordResets: string[] = [];
+  async resetPassword(id: string, _password: string): Promise<void> {
+    this.passwordResets.push(id);
+  }
+
+  /** Seed an account that exists in the app but was never rostered — the orphan a
+   *  half-finished provision leaves behind (createUser landed, addRosterEntry did not). */
+  seedOrphan(username: string, role: AppUserRole = "user"): AppUserAccount {
+    const account: AppUserAccount = { id: `orphan-${username}`, username, role, disabled: false };
+    this.users.set(account.id, account);
+    return account;
+  }
 }
 
 /** In-memory roster + credential store. */
@@ -312,6 +324,99 @@ describe("syncAppUsers", () => {
     const second = await syncAppUsers(provider, desired({ username: "alice" }), { store, notifier });
 
     expect(second.pendingHandoff).toEqual([]);
+  });
+
+  it("adopts an orphan that exists under a desired username but is missing from the roster, and makes it revocable", async () => {
+    // The residual orphan window from #152: `createUser` landed, `addRosterEntry` did
+    // not. The account is live but unmanaged, so no later sync could ever disable it.
+    const provider = new FakeProvider();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+    provider.seedOrphan("carol");
+
+    const summary = await syncAppUsers(provider, desired({ username: "carol" }), { store, notifier });
+
+    expect(summary.adopted).toEqual(["carol"]);
+    expect(summary.created).toEqual([]); // it already exists — never re-created
+    // Rostered (revocable again) and flagged as adopted...
+    const entry = store.roster.find((e) => e.username === "carol");
+    expect(entry?.adoptedAt).toBeTruthy();
+    expect(entry?.providerUserId).toBe("orphan-carol");
+    // ...but the credential is NOT silently reset: nothing written, nobody notified.
+    expect(store.credentials.has("carol")).toBe(false);
+    expect(notifier.sent).toHaveLength(0);
+    expect(provider.passwordResets).toEqual([]);
+
+    // The property that matters: the revoke now actually lands.
+    const revoked = await syncAppUsers(provider, desired(), { store, notifier });
+    expect(revoked.disabled).toEqual(["carol"]);
+    expect([...provider.users.values()].find((u) => u.username === "carol")?.disabled).toBe(true);
+  });
+
+  it("never adopts an unrostered account that RBAC does not authorize (a manual/app-native one)", async () => {
+    const provider = new FakeProvider();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+    provider.seedOrphan("dave"); // exists in the app, but nobody granted 'dave'
+
+    const summary = await syncAppUsers(provider, desired(), { store, notifier });
+
+    expect(summary.adopted).toEqual([]);
+    expect(store.roster).toHaveLength(0);
+    // And, being unmanaged, it is never disabled.
+    expect([...provider.users.values()].find((u) => u.username === "dave")?.disabled).toBe(false);
+  });
+
+  it("never adopts the service account even if it appears in the desired set", async () => {
+    const provider = new FakeProvider();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+
+    // The service account already exists (seeded in the ctor) and is protected.
+    const summary = await syncAppUsers(provider, desired({ username: "iw-service" }), { store, notifier });
+
+    expect(summary.adopted).toEqual([]);
+    expect(store.roster).toHaveLength(0);
+  });
+
+  it("keeps reporting an adopted account until its credential is explicitly reset, and never as a pending hand-off", async () => {
+    const provider = new FakeProvider();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+    provider.seedOrphan("carol");
+
+    const first = await syncAppUsers(provider, desired({ username: "carol" }), { store, notifier });
+    expect(first.adopted).toEqual(["carol"]);
+    // An adopted account has no revealable password, so it must NOT masquerade as a
+    // pending hand-off (which tells the panel "reveal it", and would 404).
+    expect(first.pendingHandoff).toEqual([]);
+
+    const second = await syncAppUsers(provider, desired({ username: "carol" }), { store, notifier });
+    expect(second.adopted).toEqual(["carol"]); // still, until a reset lands
+    expect(second.created).toEqual([]);
+    expect(second.pendingHandoff).toEqual([]);
+
+    // Simulate the explicit admin reset: a credential is written and the hand-off
+    // recorded (what resetJellyfinCredential does).
+    await store.writeCredential("fake", "carol", "pw", "carol@x.com");
+    await store.markNotified("fake", "carol", new Date().toISOString());
+
+    const third = await syncAppUsers(provider, desired({ username: "carol" }), { store, notifier });
+    expect(third.adopted).toEqual([]); // reset clears it
+    expect(third.pendingHandoff).toEqual([]);
+  });
+
+  it("stops reporting an adopted account once its grant is revoked", async () => {
+    const provider = new FakeProvider();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+    provider.seedOrphan("carol");
+
+    await syncAppUsers(provider, desired({ username: "carol" }), { store, notifier });
+    const revoked = await syncAppUsers(provider, desired(), { store, notifier });
+
+    expect(revoked.disabled).toEqual(["carol"]);
+    expect(revoked.adopted).toEqual([]); // no hand-off owed to a revoked user
   });
 
   it("surfaces users skipped for a missing email", async () => {

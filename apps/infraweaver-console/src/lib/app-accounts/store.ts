@@ -34,6 +34,7 @@ const ROSTER_ENTRY_SCHEMA = z.object({
   providerUserId: z.string().min(1).max(128),
   provisionedAt: z.string().min(1).max(40),
   notifiedAt: z.string().max(40).optional(),
+  adoptedAt: z.string().max(40).optional(),
 });
 const ROSTER_SCHEMA = z.object({ entries: z.array(ROSTER_ENTRY_SCHEMA).default([]) });
 

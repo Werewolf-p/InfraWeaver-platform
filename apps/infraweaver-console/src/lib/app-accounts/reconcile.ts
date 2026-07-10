@@ -17,6 +17,7 @@ import type {
   AccountNotifier,
   AppAccountProvider,
   AppAccountStore,
+  AppUserAccount,
   DesiredAppUser,
   DesiredAppUsers,
   RosterEntry,
@@ -48,6 +49,19 @@ export interface AppUserSyncSummary {
    * worse trade than surfacing this.
    */
   pendingHandoff: string[];
+  /**
+   * Accounts InfraWeaver ADOPTED — this pass or an earlier one — and has not yet had
+   * an admin reset the credential for. An adopted account is a residual orphan: it
+   * existed in the app under a still-authorized username but was missing from the
+   * roster (its `createUser` landed, its `addRosterEntry` did not), so no later sync
+   * could disable it. {@link syncAppUsers} rosters it here, restoring revocability;
+   * its original password was lost with the failed provision, so the credential stays
+   * unknown — and unrevealable — until an admin explicitly resets it. This list is the
+   * signal the access panel turns into that prompt. Never reset silently: rostering is
+   * automatic, the credential reset is an audited admin action. See
+   * {@link RosterEntry.adoptedAt}.
+   */
+  adopted: string[];
 }
 
 /**
@@ -67,11 +81,12 @@ export async function syncAppUsers(
   await provider.ensureServiceAccount();
 
   const [existing, roster] = await Promise.all([provider.listUsers(), deps.store.loadRoster(provider.appId)]);
+  const protectedUsernames = [provider.serviceAccountUsername, ...(deps.protectedUsernames ?? [])];
   const plan = buildAppUserSyncPlan({
     desired: desired.users,
     existing,
     managed: roster.map((entry) => entry.username),
-    protectedUsernames: [provider.serviceAccountUsername, ...(deps.protectedUsernames ?? [])],
+    protectedUsernames,
   });
 
   const summary: AppUserSyncSummary = {
@@ -83,7 +98,30 @@ export async function syncAppUsers(
     // From the roster as it was BEFORE this pass: anyone provisioned earlier whose
     // hand-off never completed. Accounts created below are appended if theirs fails.
     pendingHandoff: pendingHandoffFromRoster(roster, desired.users),
+    // Likewise from the pre-pass roster: orphans adopted on an earlier pass still
+    // awaiting their reset. Orphans adopted below are appended.
+    adopted: adoptedAwaitingResetFromRoster(roster, desired.users),
   };
+
+  // Adopt residual orphans before anything else. An account that already exists under
+  // a still-authorized username but is absent from the roster is a half-finished
+  // provision (`createUser` landed, `addRosterEntry` did not) that no later sync could
+  // disable — `plan.ts` disables only roster-managed accounts. Rostering it restores
+  // that revocability. We deliberately do NOT reset its password here: the original is
+  // gone, and a silent reset from a background reconcile is exactly the kind of
+  // unaudited credential change this engine avoids. It is reported through `adopted`
+  // for an operator to resolve with the explicit reset flow. Only names RBAC still
+  // authorizes are adopted, so a genuinely manual/app-native account is never claimed.
+  for (const orphan of orphansToAdopt({ existing, roster, desired: desired.users, protectedUsernames })) {
+    const now = new Date().toISOString();
+    await deps.store.addRosterEntry(provider.appId, {
+      username: orphan.username,
+      providerUserId: orphan.id,
+      provisionedAt: now,
+      adoptedAt: now,
+    });
+    summary.adopted.push(orphan.username);
+  }
 
   for (const action of plan.create) {
     const { notified } = await provisionAccount(provider, deps, action.username, action.email, action.role);
@@ -122,11 +160,55 @@ function key(username: string): string {
  * `markNotified` failed. That direction is the safe one to be wrong in — it asks a
  * human to confirm a delivery that already happened, rather than staying quiet
  * about one that never did.
+ *
+ * Adopted-but-unreset accounts are excluded (`adoptedAt` set): they too lack a
+ * `notifiedAt`, but their credential was never stored, so a "reveal it to them"
+ * prompt would 404. Those are surfaced through `adopted` instead, which prompts a
+ * reset rather than a reveal.
  */
 function pendingHandoffFromRoster(roster: RosterEntry[], desired: DesiredAppUser[]): string[] {
   const authorized = new Set(desired.map((user) => key(user.username)));
   return roster
-    .filter((entry) => !entry.notifiedAt && authorized.has(key(entry.username)))
+    .filter((entry) => !entry.notifiedAt && !entry.adoptedAt && authorized.has(key(entry.username)))
+    .map((entry) => entry.username)
+    .sort();
+}
+
+/**
+ * The residual orphans to adopt this pass: accounts that exist in the app under a
+ * username RBAC still authorizes, are not on the roster, and are not protected. Every
+ * other unrostered account — one with no matching grant — is a manual or app-native
+ * account we must never claim, so the desired-set membership is the guard that keeps
+ * adoption from ever disabling something InfraWeaver did not create.
+ */
+function orphansToAdopt(input: {
+  existing: AppUserAccount[];
+  roster: RosterEntry[];
+  desired: DesiredAppUser[];
+  protectedUsernames: string[];
+}): AppUserAccount[] {
+  const authorized = new Set(input.desired.map((user) => key(user.username)));
+  const managed = new Set(input.roster.map((entry) => key(entry.username)));
+  const isProtected = new Set(input.protectedUsernames.map(key));
+  return input.existing
+    .filter((account) => {
+      const k = key(account.username);
+      return authorized.has(k) && !managed.has(k) && !isProtected.has(k);
+    })
+    .sort((a, b) => a.username.localeCompare(b.username));
+}
+
+/**
+ * Orphans adopted on an earlier pass and still awaiting their explicit credential
+ * reset: `adoptedAt` set, no `notifiedAt` yet (the reset records itself as the
+ * hand-off), and still authorized. Seeding `adopted` from the pre-pass roster keeps
+ * the panel's reset prompt alive across reconciles until an admin actually resets —
+ * the same way `pendingHandoff` persists an un-notified account.
+ */
+function adoptedAwaitingResetFromRoster(roster: RosterEntry[], desired: DesiredAppUser[]): string[] {
+  const authorized = new Set(desired.map((user) => key(user.username)));
+  return roster
+    .filter((entry) => entry.adoptedAt && !entry.notifiedAt && authorized.has(key(entry.username)))
     .map((entry) => entry.username)
     .sort();
 }

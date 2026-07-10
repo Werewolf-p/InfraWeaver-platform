@@ -135,4 +135,8 @@ export class JellyfinAccountProvider implements AppAccountProvider {
   async enableUser(id: string): Promise<void> {
     await this.requireAuthed().patchUserPolicy(id, { IsDisabled: false });
   }
+
+  async resetPassword(id: string, password: string): Promise<void> {
+    await this.requireAuthed().setUserPassword(id, password);
+  }
 }
