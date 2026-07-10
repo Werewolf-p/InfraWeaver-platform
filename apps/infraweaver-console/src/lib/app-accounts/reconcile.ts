@@ -90,12 +90,18 @@ export async function syncAppUsers(
 }
 
 /**
- * Create one account end to end: generate a credential, create + role the account,
- * record it in the roster, persist the credential to the store, and deliver it once.
- * The roster entry is written right after the account exists so a crash before
- * `notifyProvisioned` can never re-create (the username now exists) — at-least-once
- * delivery, never a duplicate account. The plaintext password lives only in this
- * function's scope and in the store; it is never logged.
+ * Create one account end to end: generate a credential, create the account, record
+ * it in the roster, persist the credential, set the role, and deliver the credential
+ * once.
+ *
+ * Ordering is a safety property, not a style choice. The moment `createUser` returns,
+ * a live account exists that only the roster makes revocable (`plan.ts` disables
+ * nothing it does not manage) and only the store makes recoverable (a re-run sees the
+ * username and never re-creates, so this password is generated exactly once). Both
+ * durable writes therefore precede `setUserRole`, whose failure is the benign case:
+ * the account is simply left at the default role, and the next sync re-roles it.
+ * The plaintext password lives only in this function's scope and in the store; it is
+ * never logged.
  */
 async function provisionAccount(
   provider: AppAccountProvider,
@@ -106,10 +112,10 @@ async function provisionAccount(
 ): Promise<void> {
   const password = generateAppPassword();
   const account = await provider.createUser(username, password);
-  await provider.setUserRole(account.id, role);
   const provisionedAt = new Date().toISOString();
   await deps.store.addRosterEntry(provider.appId, { username, providerUserId: account.id, provisionedAt });
   await deps.store.writeCredential(provider.appId, username, password, email);
+  await provider.setUserRole(account.id, role);
   await deps.notifier.notifyProvisioned({
     appId: provider.appId,
     appLabel: provider.appLabel,

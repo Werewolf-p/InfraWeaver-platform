@@ -179,6 +179,66 @@ describe("syncAppUsers", () => {
     expect(svc?.disabled).toBe(false);
   });
 
+  it("leaves a created account revocable and recoverable when setUserRole fails mid-provision", async () => {
+    // The dangerous window: `createUser` has already minted a live account. If the
+    // roster write came after `setUserRole`, this failure would strand an account
+    // the plan can never disable and whose one-time password nobody can read back.
+    class RoleFailsOnce extends FakeProvider {
+      private failNext = true;
+      async setUserRole(id: string, role: AppUserRole): Promise<void> {
+        if (this.failNext) {
+          this.failNext = false;
+          throw new Error("jellyfin 500");
+        }
+        await super.setUserRole(id, role);
+      }
+    }
+    const provider = new RoleFailsOnce();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+
+    await expect(
+      syncAppUsers(provider, desired({ username: "alice", role: "admin" }), { store, notifier }),
+    ).rejects.toThrow("jellyfin 500");
+
+    // The account exists in the app, so it must already be both revocable...
+    expect([...provider.users.values()].some((u) => u.username === "alice")).toBe(true);
+    expect(store.roster.map((e) => e.username)).toEqual(["alice"]);
+    // ...and recoverable: a re-run never re-creates, so this password is the only one.
+    expect(store.credentials.get("alice")?.password).toHaveLength(20);
+
+    // Proof of the property that matters: the revoke now actually lands.
+    const summary = await syncAppUsers(provider, desired(), { store, notifier });
+    expect(summary.disabled).toEqual(["alice"]);
+    expect([...provider.users.values()].find((u) => u.username === "alice")?.disabled).toBe(true);
+  });
+
+  it("re-roles an account whose setUserRole failed during provisioning on the next pass", async () => {
+    class RoleFailsOnce extends FakeProvider {
+      private failNext = true;
+      async setUserRole(id: string, role: AppUserRole): Promise<void> {
+        if (this.failNext) {
+          this.failNext = false;
+          throw new Error("jellyfin 500");
+        }
+        await super.setUserRole(id, role);
+      }
+    }
+    const provider = new RoleFailsOnce();
+    const store = new FakeStore();
+    const notifier = new RecordingNotifier();
+
+    await expect(
+      syncAppUsers(provider, desired({ username: "alice", role: "admin" }), { store, notifier }),
+    ).rejects.toThrow("jellyfin 500");
+
+    const summary = await syncAppUsers(provider, desired({ username: "alice", role: "admin" }), { store, notifier });
+
+    expect(summary.created).toEqual([]); // never re-created, so never re-passworded
+    expect(summary.roleChanged).toEqual(["alice"]);
+    expect([...provider.users.values()].find((u) => u.username === "alice")?.role).toBe("admin");
+  });
+
   it("surfaces users skipped for a missing email", async () => {
     const provider = new FakeProvider();
     const store = new FakeStore();
