@@ -21,6 +21,9 @@
 import "server-only";
 
 const REQUEST_TIMEOUT_MS = Number(process.env.JELLYFIN_TIMEOUT_MS) || 10_000;
+/** How long to wait for Jellyfin to materialize the wizard's default first user. */
+const STARTUP_USER_TIMEOUT_MS = Number(process.env.JELLYFIN_STARTUP_TIMEOUT_MS) || 60_000;
+const STARTUP_USER_POLL_MS = 1_000;
 const CLIENT_ID = "InfraWeaver Console";
 const DEVICE_ID = "infraweaver-console";
 
@@ -119,8 +122,50 @@ export class JellyfinClient {
 
   // --- First-run wizard (service-account bootstrap) -------------------------
 
+  /**
+   * The wizard's default first user, once Jellyfin has created it. Returns null
+   * while the server is still initializing.
+   *
+   * `POST /Startup/User` renames that user and sets its password — it does not
+   * create one. Jellyfin answers 404 when it does not yet exist (and, confusingly,
+   * also 404 for a missing password: the startup controller uses 404 for several
+   * distinct errors), so there is no way to tell the two apart from the status.
+   */
+  private async startupUserName(): Promise<string | null> {
+    try {
+      const user = await this.request<{ Name?: string }>("GET", "/Startup/User");
+      return user?.Name ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Block until the wizard's default first user exists.
+   *
+   * Jellyfin creates it asynchronously a moment after the HTTP listener comes up,
+   * so a console reconcile that races a freshly-started server POSTs /Startup/User
+   * too early, gets a 404, and aborts the bootstrap. The next attempt then finds
+   * the wizard still incomplete and tries again — or, worse, finds it complete with
+   * no stored credential and demands a JELLYFIN_BOOTSTRAP_TOKEN. Observed against
+   * Jellyfin 10.11.11 on a fresh /config.
+   */
+  private async awaitStartupUser(): Promise<void> {
+    const deadline = Date.now() + STARTUP_USER_TIMEOUT_MS;
+    for (;;) {
+      if (await this.startupUserName()) return;
+      if (Date.now() >= deadline) {
+        throw new JellyfinError(
+          `Jellyfin did not create its startup user within ${STARTUP_USER_TIMEOUT_MS}ms; the server may still be initializing`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, STARTUP_USER_POLL_MS));
+    }
+  }
+
   /** Create the first admin via the startup wizard, then finish it. */
   async completeStartup(name: string, password: string): Promise<void> {
+    await this.awaitStartupUser();
     await this.request("POST", "/Startup/User", { Name: name, Password: password });
     await this.request("POST", "/Startup/Complete");
   }
