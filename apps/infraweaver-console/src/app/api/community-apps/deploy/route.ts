@@ -24,7 +24,7 @@ const DeployBody = z.object({
   namespace: z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/).optional(),
   pvcSizeGi: z.number().int().min(1).max(10000).optional(),
   storageClass: z.string().max(63).optional(),
-  ingressHost: z.string().max(253).optional(),
+  ingressHost: z.string().max(253).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/, "Invalid hostname").optional(),
   createIngress: z.boolean().optional(),
   userVariables: z.record(z.string(), z.string().max(4096)).optional(),
 }).refine((value) => Boolean(value.appName?.trim() || value.slug?.trim()), {

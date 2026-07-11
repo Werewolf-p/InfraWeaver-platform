@@ -50,14 +50,11 @@ export const GET = withAuth({ permission: "config:read" }, async () => {
       };
     });
     return NextResponse.json({ workflows: enriched });
-  } catch {
-    return NextResponse.json({
-      workflows: [
-        { id: 1, name: "CI — Lint & Type Check", path: ".github/workflows/ci.yaml", state: "active", lastRunId: 1001, lastRunStatus: "completed", lastRunConclusion: "success", lastRunAt: new Date(Date.now() - 3600_000).toISOString(), lastRunBranch: "main", durationSec: 124 },
-        { id: 2, name: "Deploy — ArgoCD Sync", path: ".github/workflows/deploy.yaml", state: "active", lastRunId: 1002, lastRunStatus: "completed", lastRunConclusion: "failure", lastRunAt: new Date(Date.now() - 7200_000).toISOString(), lastRunBranch: "main", durationSec: 45 },
-        { id: 3, name: "Nightly — Backup", path: ".github/workflows/backup.yaml", state: "active", lastRunId: 1003, lastRunStatus: "completed", lastRunConclusion: "success", lastRunAt: new Date(Date.now() - 86400_000).toISOString(), lastRunBranch: "main", durationSec: 312 },
-      ],
-    });
+  } catch (err) {
+    return NextResponse.json(
+      { workflows: [], available: false, error: safeError(err) },
+      { status: 502 },
+    );
   }
 });
 

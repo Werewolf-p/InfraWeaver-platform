@@ -17,6 +17,17 @@ const argoAppBodySchema = z.object({
 const k8sNameRe = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
 const k8sNamespaceRe = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$/;
 
+// Core/system namespaces a community-app operation must never target — deleting
+// or writing secrets into these would escape the community-apps scope entirely.
+const RESERVED_NAMESPACES = new Set([
+  'default', 'kube-system', 'kube-public', 'kube-node-lease', 'argocd',
+  'cert-manager', 'external-secrets', 'external-dns', 'monitoring', 'falco',
+  'longhorn-system', 'cilium-secrets', 'crds', 'bootstrap', 'dns-system',
+  'infraweaver', 'infraweaver-console', 'infraweaver-system',
+]);
+const isReservedNamespace = (name: string): boolean =>
+  RESERVED_NAMESPACES.has(name) || name.endsWith('-system') || name.startsWith('kube-');
+
 // C6: community-app secrets are created directly via the K8s API (NOT committed
 // to git). Values never touch the repo, so they cannot leak through git history.
 const secretsBodySchema = z.object({
@@ -91,6 +102,7 @@ communityAppsRoute.delete('/:slug', async (c) => {
   if (!hasPermission(user, 'catalog:delete')) return c.json({ error: 'Forbidden' }, 403);
   const { slug } = c.req.param();
   if (!slugRe.test(slug)) return c.json({ error: 'Invalid slug' }, 400);
+  if (isReservedNamespace(slug)) return c.json({ error: 'Refusing to delete a reserved namespace' }, 403);
 
   const argoAppName = `catalog-${slug}-manifests`;
   try {
@@ -195,6 +207,7 @@ communityAppsRoute.post('/:slug/secrets', async (c) => {
   const parsed = secretsBodySchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const { namespace, secrets } = parsed.data;
+  if (isReservedNamespace(namespace)) return c.json({ error: 'Refusing to write secrets into a reserved namespace' }, 403);
 
   try {
     const coreApi = await getCoreApiForCluster(user.clusterId);
@@ -224,6 +237,14 @@ communityAppsRoute.post('/:slug/secrets', async (c) => {
         await coreApi.createNamespacedSecret({ namespace, body: secretBody });
       } catch (e: unknown) {
         if (k8sStatusCode(e) !== 409) throw e;
+        // Only overwrite a pre-existing secret if it is itself community-apps-managed;
+        // never clobber a secret owned by another controller/operator.
+        const current = await coreApi.readNamespacedSecret({ name: s.name, namespace })
+          .then((sec) => (sec as { metadata?: { labels?: Record<string, string> } }).metadata)
+          .catch(() => undefined);
+        if (current?.labels?.['infraweaver.io/source'] !== 'community-apps') {
+          throw new Error(`Secret ${s.name} in ${namespace} already exists and is not community-apps managed`);
+        }
         await coreApi.replaceNamespacedSecret({ name: s.name, namespace, body: secretBody });
       }
     }

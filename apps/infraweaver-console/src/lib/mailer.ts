@@ -57,6 +57,26 @@ export function isMailerConfigured(): boolean {
   return resolveSmtpConfig() !== null;
 }
 
+// Transport is cached per resolved config (env is static for a pod's lifetime), so
+// repeated sends reuse the same nodemailer instance instead of paying a fresh
+// TCP+STARTTLS+AUTH setup each time. A config change (new key) rebuilds it.
+let cachedTransport: { key: string; transport: nodemailer.Transporter } | null = null;
+
+function getTransport(config: SmtpConfig): nodemailer.Transporter {
+  const key = JSON.stringify(config);
+  if (cachedTransport?.key === key) return cachedTransport.transport;
+  const transport = nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    // 587 is STARTTLS (secure:false + upgrade); 465 is implicit TLS.
+    secure: config.port === 465,
+    requireTLS: config.port !== 465,
+    auth: { user: config.user, pass: config.pass },
+  });
+  cachedTransport = { key, transport };
+  return transport;
+}
+
 /**
  * Send one email. Throws on any failure (unconfigured, connection, auth, or a 5xx
  * rejection such as O365's 550) — callers that must not fail their whole operation on
@@ -66,14 +86,7 @@ export async function sendMail(input: { to: string; subject: string; text: strin
   const config = resolveSmtpConfig();
   if (!config) throw new Error("SMTP is not configured (SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD)");
 
-  const transport = nodemailer.createTransport({
-    host: config.host,
-    port: config.port,
-    // 587 is STARTTLS (secure:false + upgrade); 465 is implicit TLS.
-    secure: config.port === 465,
-    requireTLS: config.port !== 465,
-    auth: { user: config.user, pass: config.pass },
-  });
+  const transport = getTransport(config);
 
   await transport.sendMail({
     from: config.from,

@@ -27,6 +27,9 @@ const CNP_GROUP = "cilium.io";
 const CNP_VERSION = "v2";
 const CNP_PLURAL = "ciliumnetworkpolicies";
 
+// Mirrors MAX_LEARN_WINDOW_MINUTES in the learn-mode route.
+const MAX_WINDOW_MINUTES = 24 * 60;
+
 interface PodDenies {
   namespace: string;
   pod: string;
@@ -59,7 +62,9 @@ export async function GET(req: NextRequest) {
   }
 
   const raw = Number(req.nextUrl.searchParams.get("window") ?? "10");
-  const windowMinutes = Number.isFinite(raw) ? raw : 10;
+  // Clamp both bounds: an unbounded window turns rate(hubble_drop_total[...])
+  // into a full-retention range query against Prometheus (DoS vector).
+  const windowMinutes = Math.min(Math.max(Number.isFinite(raw) ? raw : 10, 1), MAX_WINDOW_MINUTES);
 
   const [eg, ing, presence] = await Promise.all([
     promQuery(blockedFlowsQuery(windowMinutes)),

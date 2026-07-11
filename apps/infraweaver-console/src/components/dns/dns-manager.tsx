@@ -98,7 +98,6 @@ export function DnsManager() {
   const [pickedZoneId, setPickedZoneId] = useState<string>("");
   const fallbackZoneId = (defaultZoneId && zones.some((zone) => zone.id === defaultZoneId) ? defaultZoneId : zones[0]?.id) ?? "";
   const selectedZoneId = pickedZoneId && zones.some((zone) => zone.id === pickedZoneId) ? pickedZoneId : fallbackZoneId;
-  const setSelectedZoneId = setPickedZoneId;
 
   const isDefaultZone = !selectedZoneId || selectedZoneId === defaultZoneId;
   const zoneQuery = selectedZoneId ? `?zoneId=${encodeURIComponent(selectedZoneId)}` : "";
@@ -123,14 +122,20 @@ export function DnsManager() {
     window.localStorage.setItem(TAB_STORAGE_KEY, tab);
   }, [tab]);
 
+  // Single entry point for opening the create-record dialog; callers pass the
+  // defaults they want pre-filled. RBAC gating stays at the call sites.
+  function openAddDialog(defaults: DnsRecordDefaults) {
+    setEditingRecord(null);
+    setDialogDefaults(defaults);
+    setDialogOpen(true);
+  }
+
   // Mobile FAB "Add DNS Record" dispatches this event; it only has effect while
   // the DNS tab is mounted (i.e. when this manager is on screen).
   useEffect(() => {
     const handler = () => {
       if (!canWriteDns) return;
-      setEditingRecord(null);
-      setDialogDefaults({ internal: tab === "internal", type: "A" });
-      setDialogOpen(true);
+      openAddDialog({ internal: tab === "internal", type: "A" });
     };
     window.addEventListener("fab:dns:add", handler);
     return () => window.removeEventListener("fab:dns:add", handler);
@@ -196,23 +201,26 @@ export function DnsManager() {
   const wildcardRouteMap = useMemo(() => {
     const entries = new Map<string, TraefikRouteSummary[]>();
 
+    // Sort the full route list once; each per-record filter below preserves order.
+    const sortedRoutes = [...traefikRoutes].sort((left, right) => (
+      left.hostname.localeCompare(right.hostname)
+      || left.namespace.localeCompare(right.namespace)
+      || left.service.localeCompare(right.service)
+      || (left.pathPrefix ?? "").localeCompare(right.pathPrefix ?? "")
+    ));
+
     for (const record of records) {
       if (!record.shortName.startsWith("*")) continue;
-
-      const matches = traefikRoutes
-        .filter((route) => matchesWildcardHostname(record.name, route.hostname))
-        .sort((left, right) => (
-          left.hostname.localeCompare(right.hostname)
-          || left.namespace.localeCompare(right.namespace)
-          || left.service.localeCompare(right.service)
-          || (left.pathPrefix ?? "").localeCompare(right.pathPrefix ?? "")
-        ));
-
-      entries.set(record.id, matches);
+      entries.set(record.id, sortedRoutes.filter((route) => matchesWildcardHostname(record.name, route.hostname)));
     }
 
     return entries;
   }, [records, traefikRoutes]);
+
+  const { internalCount, publicCount } = useMemo(() => {
+    const internal = records.filter((record) => record.internal).length;
+    return { internalCount: internal, publicCount: records.length - internal };
+  }, [records]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -351,9 +359,7 @@ export function DnsManager() {
           <button
             onClick={() => {
               if (!canWriteDns) return;
-              setEditingRecord(null);
-              setDialogDefaults({ internal: tab === "internal", type: "A" });
-              setDialogOpen(true);
+              openAddDialog({ internal: tab === "internal", type: "A" });
             }}
             disabled={!canWriteDns}
             className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-700 dark:text-cyan-200 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
@@ -395,11 +401,7 @@ export function DnsManager() {
             {machineTargets.map((target) => (
               <button
                 key={target.value}
-                onClick={() => {
-                  setEditingRecord(null);
-                  setDialogDefaults({ value: target.value, type: "A", internal: true });
-                  setDialogOpen(true);
-                }}
+                onClick={() => openAddDialog({ value: target.value, type: "A", internal: true })}
                 className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-left text-xs text-cyan-700 dark:text-cyan-100 transition hover:bg-cyan-500/10"
                 title={target.description}
               >
@@ -429,7 +431,7 @@ export function DnsManager() {
             >
               <Shield className="h-4 w-4" />
               Internal
-              <span className="rounded-full bg-black/20 px-2 py-0.5 text-xs">{records.filter((record) => record.internal).length}</span>
+              <span className="rounded-full bg-black/20 px-2 py-0.5 text-xs">{internalCount}</span>
             </button>
             <button
               onClick={() => {
@@ -445,7 +447,7 @@ export function DnsManager() {
             >
               <Globe className="h-4 w-4" />
               Public
-              <span className="rounded-full bg-black/20 px-2 py-0.5 text-xs">{records.filter((record) => !record.internal).length}</span>
+              <span className="rounded-full bg-black/20 px-2 py-0.5 text-xs">{publicCount}</span>
             </button>
           </div>
 
@@ -457,7 +459,7 @@ export function DnsManager() {
                   selectSize="sm"
                   value={selectedZoneId}
                   onChange={(event) => {
-                    setSelectedZoneId(event.target.value);
+                    setPickedZoneId(event.target.value);
                     setPage(1);
                   }}
                   className="w-auto min-w-[180px]"
@@ -506,11 +508,7 @@ export function DnsManager() {
                 : "Create public hostnames that resolve through Cloudflare."}
               action={canWriteDns ? {
                 label: "Add first record",
-                onClick: () => {
-                  setEditingRecord(null);
-                  setDialogDefaults({ internal: tab === "internal", type: "A" });
-                  setDialogOpen(true);
-                },
+                onClick: () => openAddDialog({ internal: tab === "internal", type: "A" }),
               } : undefined}
             />
           ) : (
@@ -760,9 +758,7 @@ export function DnsManager() {
                 <button
                   onClick={() => {
                     if (!canWriteDns) return;
-                    setEditingRecord(null);
-                    setDialogDefaults({ name: server.label, value: server.value, type: "A", internal: true });
-                    setDialogOpen(true);
+                    openAddDialog({ name: server.label, value: server.value, type: "A", internal: true });
                   }}
                   disabled={!canWriteDns}
                   className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1.5 text-xs text-cyan-700 dark:text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"

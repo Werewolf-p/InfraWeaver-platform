@@ -1,3 +1,4 @@
+import { X509Certificate } from "node:crypto";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
@@ -20,26 +21,33 @@ export async function GET() {
       const s = item as { type?: string };
       return s.type === "kubernetes.io/tls";
     });
-    const secrets = tlsSecrets.map((item, i) => {
-      const s = item as { metadata?: { namespace?: string; name?: string } };
-      const daysLeft = 30 + i * 15;
-      const expiresAt = new Date(Date.now() + daysLeft * 86400000).toISOString();
+    const secrets = tlsSecrets.map((item) => {
+      const s = item as { metadata?: { namespace?: string; name?: string }; data?: Record<string, string> };
+      let expiresAt: string | null = null;
+      let daysLeft: number | null = null;
+      let expired = false;
+      const certB64 = s.data?.["tls.crt"];
+      if (certB64) {
+        try {
+          const cert = new X509Certificate(Buffer.from(certB64, "base64"));
+          const validTo = new Date(cert.validTo);
+          expiresAt = validTo.toISOString();
+          daysLeft = Math.floor((validTo.getTime() - Date.now()) / 86400000);
+          expired = validTo.getTime() <= Date.now();
+        } catch {
+          // Unparsable certificate payload — report unknown expiry rather than inventing one.
+        }
+      }
       return {
         namespace: s.metadata?.namespace ?? "",
         name: s.metadata?.name ?? "",
         expiresAt,
         daysLeft,
-        expired: daysLeft <= 0,
+        expired,
       };
     });
     return NextResponse.json({ secrets });
   } catch {
-    return NextResponse.json({
-      secrets: [
-        { namespace: "default", name: "app-tls", expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(), daysLeft: 7, expired: false },
-        { namespace: "ingress-nginx", name: "wildcard-tls", expiresAt: new Date(Date.now() + 45 * 86400000).toISOString(), daysLeft: 45, expired: false },
-        { namespace: "monitoring", name: "grafana-tls", expiresAt: new Date(Date.now() - 5 * 86400000).toISOString(), daysLeft: -5, expired: true },
-      ],
-    });
+    return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
 }

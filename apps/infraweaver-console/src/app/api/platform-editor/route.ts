@@ -22,7 +22,13 @@ const PlatformEditorChangeSchema = z.object({
 });
 const PlatformEditorPutSchema = z.object({
   changes: z.array(PlatformEditorChangeSchema).min(1).max(100),
-  commitMessage: z.string().max(256).optional(),
+  // Single line only — newlines/control chars could smuggle spoofed trailers
+  // (Signed-off-by etc.) into the GitOps audit trail.
+  commitMessage: z
+    .string()
+    .max(256)
+    .regex(/^[^\r\n\u0000-\u001f\u007f]*$/, "Commit message must be a single line without control characters")
+    .optional(),
 });
 
 type SettingType = "number" | "string" | "select";
@@ -391,7 +397,11 @@ export async function PUT(req: NextRequest) {
       return map;
     }, new Map());
 
-    const commitMessage = body.commitMessage?.trim() || buildCommitMessage(normalizedChanges.map((change) => change.definition));
+    // Single-line subject (schema-enforced) plus a fixed machine-generated
+    // trailer, so the GitOps history always attributes console edits.
+    const commitSubject = body.commitMessage?.trim() || buildCommitMessage(normalizedChanges.map((change) => change.definition));
+    const actor = (session.user?.email ?? session.user?.name ?? "unknown").replace(/[\r\n]+/g, " ");
+    const commitMessage = `${commitSubject}\n\nVia: InfraWeaver console platform-editor (${actor})`;
 
     await Promise.all(
       Array.from(changesByFile.entries()).map(async ([filePath, fileChanges]) => {

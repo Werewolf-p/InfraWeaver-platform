@@ -67,8 +67,8 @@ export async function GET(req: NextRequest) {
 
   const namespace = req.nextUrl.searchParams.get("namespace");
   const pods = (req.nextUrl.searchParams.get("pods") ?? "").split(",").filter(Boolean);
-  if (!namespace || pods.length === 0) {
-    return NextResponse.json({ error: "namespace and pods are required" }, { status: 400 });
+  if (!namespace || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(namespace) || pods.length === 0) {
+    return NextResponse.json({ error: "valid namespace and pods are required" }, { status: 400 });
   }
 
   const appLabel = appLabelFromPod(pods[0]);
@@ -106,8 +106,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
   const { namespace, pods, action } = body ?? {};
-  if (!namespace || !pods?.length || !["enable", "disable", "commit"].includes(action)) {
-    return NextResponse.json({ error: "namespace, pods and a valid action are required" }, { status: 400 });
+  if (!namespace || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(namespace) || !pods?.length || !["enable", "disable", "commit"].includes(action)) {
+    return NextResponse.json({ error: "a valid namespace, pods and action are required" }, { status: 400 });
   }
 
   const appLabel = appLabelFromPod(pods[0]);

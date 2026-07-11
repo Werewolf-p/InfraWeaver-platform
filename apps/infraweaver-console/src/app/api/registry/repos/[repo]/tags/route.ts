@@ -2,13 +2,23 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/with-auth";
 import { getRegistryConfig, listTags } from "@/lib/registry";
 
-const SAFE_REPO_RE = /^[a-z0-9][a-z0-9/_.-]*$/;
+// Each slash-separated segment must be a plain name — no '.'/'..' path
+// segments, so a crafted repo can never escape the configured project path.
+const SAFE_REPO_SEGMENT_RE = /^[a-z0-9][a-z0-9_.-]*$/;
+
+function isValidRepoName(repo: string): boolean {
+  const segments = repo.split("/");
+  return (
+    segments.length > 0 &&
+    segments.every((segment) => segment !== "." && segment !== ".." && SAFE_REPO_SEGMENT_RE.test(segment))
+  );
+}
 
 export const GET = withAuth<{ repo: string }>(
   { permission: "config:read" },
   async ({ params }) => {
     const repo = decodeURIComponent(params.repo);
-    if (!SAFE_REPO_RE.test(repo)) {
+    if (!isValidRepoName(repo)) {
       return NextResponse.json({ error: "Invalid repo name" }, { status: 400 });
     }
 

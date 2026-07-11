@@ -14,30 +14,40 @@ export interface ClusterConfig {
 
 export const ACTIVE_CLUSTER_COOKIE = "infraweaver-cluster";
 
-function getCookieSecret() {
-  return process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET ?? "infraweaver-cluster-secret";
+function getCookieSecret(): string | undefined {
+  return process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
 }
 
+// CLUSTER_CONTEXTS does not change during the process lifetime (same premise as
+// kubeConfigCache in kube-client.ts), so parse it once and reuse the result.
+let clusterConfigsCache: ClusterConfig[] | undefined;
+
 export function getClusterConfigs(): ClusterConfig[] {
+  if (clusterConfigsCache) return clusterConfigsCache;
+
   const raw = process.env.CLUSTER_CONTEXTS;
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as ClusterConfig[];
       if (Array.isArray(parsed) && parsed.length > 0) {
         const valid = parsed.filter((cluster): cluster is ClusterConfig => Boolean(cluster?.id && cluster?.displayName));
-        if (valid.length > 0) return valid;
+        if (valid.length > 0) {
+          clusterConfigsCache = valid;
+          return valid;
+        }
       }
     } catch {
       // Fall through to single-cluster defaults.
     }
   }
 
-  return [{
+  clusterConfigsCache = [{
     id: "default",
     displayName: process.env.CLUSTER_DISPLAY_NAME ?? "Production",
     argocdServer: process.env.ARGOCD_SERVER,
     argocdToken: process.env.ARGOCD_TOKEN,
   }];
+  return clusterConfigsCache;
 }
 
 export function getClusterConfig(id: string): ClusterConfig | undefined {
@@ -50,7 +60,11 @@ export function getDefaultClusterId() {
 }
 
 function signClusterId(clusterId: string) {
-  return createHmac("sha256", getCookieSecret()).update(clusterId).digest("hex");
+  const secret = getCookieSecret();
+  if (!secret) {
+    throw new Error("NEXTAUTH_SECRET or AUTH_SECRET must be set to sign the active-cluster cookie");
+  }
+  return createHmac("sha256", secret).update(clusterId).digest("hex");
 }
 
 export function serializeActiveClusterCookie(clusterId: string) {
@@ -59,6 +73,9 @@ export function serializeActiveClusterCookie(clusterId: string) {
 
 export function parseActiveClusterCookie(value?: string | null) {
   if (!value) return undefined;
+  // Fail closed: without a configured signing secret the cookie cannot be
+  // verified, so ignore it and fall back to the default cluster.
+  if (!getCookieSecret()) return undefined;
 
   const separatorIndex = value.lastIndexOf(".");
   if (separatorIndex <= 0 || separatorIndex === value.length - 1) return undefined;

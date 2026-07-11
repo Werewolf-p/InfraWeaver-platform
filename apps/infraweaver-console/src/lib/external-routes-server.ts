@@ -518,7 +518,12 @@ async function persistAndCommit(repoDir: string, manifests: ManifestFile[], mess
   return changed;
 }
 
-export async function loadExternalRoutes(repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver"): Promise<ExternalRoutesResponse> {
+/** Repo checkout the route manifests live in, overridable per call. */
+function defaultRepoDir(): string {
+  return process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver";
+}
+
+export async function loadExternalRoutes(repoDir = defaultRepoDir()): Promise<ExternalRoutesResponse> {
   const state = await loadState(repoDir);
   const routes = asArray(state.routeManifests)
     .flatMap((manifest) => asArray(manifest.blocks))
@@ -582,7 +587,7 @@ function withGateWarning(response: ExternalRoutesResponse, gateWarning: string |
   return gateWarning ? { ...response, gateWarning } : response;
 }
 
-export async function createExternalRoute(rawInput: ExternalRouteMutationInput, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
+export async function createExternalRoute(rawInput: ExternalRouteMutationInput, repoDir = defaultRepoDir()) {
   const input = applyTierDefaults(rawInput);
   const state = await loadState(repoDir);
   if (findRouteLocation(state.routeManifests, input.name)) {
@@ -610,7 +615,7 @@ export async function createExternalRoute(rawInput: ExternalRouteMutationInput, 
   return withGateWarning(await loadExternalRoutes(repoDir), gateWarning);
 }
 
-export async function updateExternalRoute(name: string, rawInput: ExternalRouteMutationInput, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
+export async function updateExternalRoute(name: string, rawInput: ExternalRouteMutationInput, repoDir = defaultRepoDir()) {
   const input = applyTierDefaults({ ...rawInput, name });
   const state = await loadState(repoDir);
   const location = findRouteLocation(state.routeManifests, name);
@@ -656,7 +661,7 @@ export async function updateExternalRoute(name: string, rawInput: ExternalRouteM
   return withGateWarning(await loadExternalRoutes(repoDir), gateWarning);
 }
 
-export async function deleteExternalRoute(name: string, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
+export async function deleteExternalRoute(name: string, repoDir = defaultRepoDir()) {
   const state = await loadState(repoDir);
   const location = findRouteLocation(state.routeManifests, name);
   if (!location) throw new Error(`Route ${name} not found`);

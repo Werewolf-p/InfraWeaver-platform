@@ -165,24 +165,25 @@ export function powerStateOf(app: ArgoApp): PowerState {
 /** Scale every Deployment + StatefulSet in a namespace to `replicas`. */
 async function scaleNamespace(clusterId: string | undefined, namespace: string, replicas: number): Promise<string[]> {
   const apps = appsApi(clusterId);
-  const touched: string[] = [];
-  const deps = await apps.listNamespacedDeployment({ namespace });
-  for (const d of deps.items) {
-    const n = d.metadata?.name;
-    if (!n) continue;
-    const scale = await apps.readNamespacedDeploymentScale({ name: n, namespace });
-    await apps.replaceNamespacedDeploymentScale({ name: n, namespace, body: { ...scale, spec: { ...(scale.spec ?? {}), replicas } } });
-    touched.push(`deploy/${n}`);
-  }
-  const sets = await apps.listNamespacedStatefulSet({ namespace });
-  for (const s of sets.items) {
-    const n = s.metadata?.name;
-    if (!n) continue;
-    const scale = await apps.readNamespacedStatefulSetScale({ name: n, namespace });
-    await apps.replaceNamespacedStatefulSetScale({ name: n, namespace, body: { ...scale, spec: { ...(scale.spec ?? {}), replicas } } });
-    touched.push(`statefulset/${n}`);
-  }
-  return touched;
+  const [deps, sets] = await Promise.all([
+    apps.listNamespacedDeployment({ namespace }),
+    apps.listNamespacedStatefulSet({ namespace }),
+  ]);
+  const depNames = deps.items.map((d) => d.metadata?.name).filter((n): n is string => Boolean(n));
+  const setNames = sets.items.map((s) => s.metadata?.name).filter((n): n is string => Boolean(n));
+  const [scaledDeps, scaledSets] = await Promise.all([
+    Promise.all(depNames.map(async (n) => {
+      const scale = await apps.readNamespacedDeploymentScale({ name: n, namespace });
+      await apps.replaceNamespacedDeploymentScale({ name: n, namespace, body: { ...scale, spec: { ...(scale.spec ?? {}), replicas } } });
+      return `deploy/${n}`;
+    })),
+    Promise.all(setNames.map(async (n) => {
+      const scale = await apps.readNamespacedStatefulSetScale({ name: n, namespace });
+      await apps.replaceNamespacedStatefulSetScale({ name: n, namespace, body: { ...scale, spec: { ...(scale.spec ?? {}), replicas } } });
+      return `statefulset/${n}`;
+    })),
+  ]);
+  return [...scaledDeps, ...scaledSets];
 }
 
 export interface PowerResult {

@@ -30,7 +30,8 @@ function pushToHistory(title: unknown, level: NotificationPushDetail["level"]) {
 
 // Re-export a toast object compatible with sonner's API that additionally
 // dispatches a bell-history event on every error/warning/success/info call.
-// We use a Proxy so all other methods (loading, custom, promise, etc.) pass through.
+// All other methods (loading, custom, promise, etc.) are copied over by spreading
+// sonner's toast object at import time; only the four leveled methods are wrapped.
 const _wrapped = {
   ..._toast,
   error(

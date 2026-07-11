@@ -19,7 +19,9 @@ interface MaintenanceEntry {
   enabledBy?: string;
 }
 
-const maintenance: MaintenanceEntry[] = [
+// NOTE: in-process state — per-replica and lost on restart. Persisting this in a
+// backing store is tracked separately; here we only keep updates immutable.
+let maintenance: MaintenanceEntry[] = [
   { id: "1", appName: "my-app", namespace: "default", active: false, message: "Scheduled maintenance" },
   { id: "2", appName: "api-server", namespace: "default", active: false, message: "Upgrade in progress" },
 ];
@@ -51,12 +53,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
   }
   const body = parsed.data;
-  const entry = maintenance.find(m => m.id === body.id);
-  if (!entry) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  entry.active = body.active ?? entry.active;
-  entry.message = body.message ?? entry.message;
-  entry.enabledAt = entry.active ? new Date().toISOString() : undefined;
-  entry.enabledBy = entry.active ? ((session.user as { name?: string }).name ?? "unknown") : undefined;
+  const existing = maintenance.find(m => m.id === body.id);
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const active = body.active ?? existing.active;
+  const entry: MaintenanceEntry = {
+    ...existing,
+    active,
+    message: body.message ?? existing.message,
+    enabledAt: active ? new Date().toISOString() : undefined,
+    enabledBy: active ? ((session.user as { name?: string }).name ?? "unknown") : undefined,
+  };
+  maintenance = maintenance.map(m => (m.id === body.id ? entry : m));
   return NextResponse.json({ entry });
 }
 
@@ -65,8 +72,7 @@ export async function DELETE(req: NextRequest) {
   if (session instanceof NextResponse) return session;
   const { searchParams } = req.nextUrl;
   const id = searchParams.get("id");
-  const idx = maintenance.findIndex(m => m.id === id);
-  if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  maintenance.splice(idx, 1);
+  if (!maintenance.some(m => m.id === id)) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  maintenance = maintenance.filter(m => m.id !== id);
   return NextResponse.json({ ok: true });
 }

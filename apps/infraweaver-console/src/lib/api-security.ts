@@ -1,4 +1,3 @@
-import type { Session } from "next-auth";
 import type { ZodSchema, ZodError } from "zod";
 
 export interface SecurityError {
@@ -32,35 +31,6 @@ export function validateInput<T>(
   };
 }
 
-/**
- * Throws (returns a structured error object) if session is null/unauthenticated.
- */
-export function requireAuth(
-  session: Session | null,
-): { error: SecurityError; status: 401 } | null {
-  if (!session) {
-    return { error: securityError("Unauthorized", "UNAUTHENTICATED"), status: 401 };
-  }
-  return null;
-}
-
-/**
- * Checks if session has the required permission, returns error shape if not.
- */
-export function requirePermission(
-  session: Session | null,
-  permission: string,
-  checkFn: (session: Session, permission: string) => boolean,
-): { error: SecurityError; status: 401 | 403 } | null {
-  if (!session) {
-    return { error: securityError("Unauthorized", "UNAUTHENTICATED"), status: 401 };
-  }
-  if (!checkFn(session, permission)) {
-    return { error: securityError(`Forbidden: requires ${permission}`, "FORBIDDEN"), status: 403 };
-  }
-  return null;
-}
-
 const DANGEROUS_CHARS_RE = /[<>"'`\x00-\x1F\x7F]/g;
 const MAX_SANITIZE_LENGTH = 1024;
 
@@ -87,7 +57,7 @@ export function validateK8sName(
   if (!K8S_NAME_RE.test(name)) {
     return {
       error: securityError(
-        "Invalid resource name: must match /^[a-z0-9][a-z0-9-.]{0,251}[a-z0-9]$/",
+        `Invalid resource name: must match /${K8S_NAME_RE.source}/`,
         "INVALID_K8S_NAME",
       ),
       status: 400,
@@ -106,7 +76,7 @@ export function validateK8sNamespace(
   if (!K8S_NAMESPACE_RE.test(namespace)) {
     return {
       error: securityError(
-        "Invalid namespace: must match /^[a-z0-9][a-z0-9-]{0,62}$/",
+        `Invalid namespace: must match /${K8S_NAMESPACE_RE.source}/`,
         "INVALID_K8S_NAMESPACE",
       ),
       status: 400,

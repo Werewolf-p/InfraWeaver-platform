@@ -35,9 +35,12 @@ export const GET = withAuth({ permission: "config:read" }, async () => {
     const overall24h = slaData.length > 0 ? Math.round(slaData.reduce((a, b) => a + b.uptime24h, 0) / slaData.length * 100) / 100 : 100;
     const overall7d = slaData.length > 0 ? Math.round(slaData.reduce((a, b) => a + b.uptime7d, 0) / slaData.length * 100) / 100 : 100;
     const overall30d = slaData.length > 0 ? Math.round(slaData.reduce((a, b) => a + b.uptime30d, 0) / slaData.length * 100) / 100 : 100;
-    return NextResponse.json({ sla: slaData, overall: { uptime24h: overall24h, uptime7d: overall7d, uptime30d: overall30d } });
+    return NextResponse.json({ sla: slaData, overall: { uptime24h: overall24h, uptime7d: overall7d, uptime30d: overall30d }, live: true });
   } catch {
+    // Mock fallback when Gatus is unreachable — flagged `live: false` (like
+    // /api/health/reliability) so consumers never mistake it for real SLA data.
     return NextResponse.json({
+      live: false,
       sla: [
         { name: "ArgoCD", uptime24h: 100, uptime7d: 99.8, uptime30d: 99.97 },
         { name: "Authentik SSO", uptime24h: 100, uptime7d: 100, uptime30d: 99.95 },

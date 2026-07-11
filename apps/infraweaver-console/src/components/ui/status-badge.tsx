@@ -45,6 +45,14 @@ export interface StatusBadgeProps {
   className?: string;
 }
 
+const TONE = {
+  positive: { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-400", dot: "bg-emerald-400" },
+  info: { bg: "bg-blue-500/10", border: "border-blue-500/30", text: "text-blue-400", dot: "bg-blue-400" },
+  warning: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400", dot: "bg-amber-400" },
+  danger: { bg: "bg-red-500/10", border: "border-red-500/30", text: "text-red-400", dot: "bg-red-400" },
+  neutral: { bg: "bg-slate-500/10", border: "border-slate-500/30", text: "text-slate-500 dark:text-slate-400", dot: "bg-slate-400" },
+} as const;
+
 const STATUS_CONFIG: Record<
   StatusType,
   {
@@ -56,91 +64,91 @@ const STATUS_CONFIG: Record<
 > = {
   running: {
     icon: Activity,
-    colors: { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-400", dot: "bg-emerald-400" },
+    colors: TONE.positive,
     label: "Running",
     pulse: true,
   },
   healthy: {
     icon: CheckCircle2,
-    colors: { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-400", dot: "bg-emerald-400" },
+    colors: TONE.positive,
     label: "Healthy",
     pulse: true,
   },
   online: {
     icon: CheckCircle2,
-    colors: { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-400", dot: "bg-emerald-400" },
+    colors: TONE.positive,
     label: "Online",
     pulse: true,
   },
   synced: {
     icon: GitBranch,
-    colors: { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-400", dot: "bg-emerald-400" },
+    colors: TONE.positive,
     label: "Synced",
     pulse: false,
   },
   pending: {
     icon: Clock,
-    colors: { bg: "bg-blue-500/10", border: "border-blue-500/30", text: "text-blue-400", dot: "bg-blue-400" },
+    colors: TONE.info,
     label: "Pending",
     pulse: true,
   },
   processing: {
     icon: RefreshCw,
-    colors: { bg: "bg-blue-500/10", border: "border-blue-500/30", text: "text-blue-400", dot: "bg-blue-400" },
+    colors: TONE.info,
     label: "Processing",
     pulse: true,
   },
   syncing: {
     icon: RefreshCw,
-    colors: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400", dot: "bg-amber-400" },
+    colors: TONE.warning,
     label: "Syncing",
     pulse: true,
   },
   degraded: {
     icon: AlertTriangle,
-    colors: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400", dot: "bg-amber-400" },
+    colors: TONE.warning,
     label: "Degraded",
     pulse: false,
   },
   warning: {
     icon: AlertTriangle,
-    colors: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400", dot: "bg-amber-400" },
+    colors: TONE.warning,
     label: "Warning",
     pulse: false,
   },
   progressing: {
     icon: RefreshCw,
-    colors: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400", dot: "bg-amber-400" },
+    colors: TONE.warning,
     label: "Progressing",
     pulse: true,
   },
   suspended: {
     icon: PauseCircle,
-    colors: { bg: "bg-slate-500/10", border: "border-slate-500/30", text: "text-slate-500 dark:text-slate-400", dot: "bg-slate-400" },
+    colors: TONE.neutral,
     label: "Suspended",
     pulse: false,
   },
   outOfSync: {
     icon: GitBranch,
-    colors: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400", dot: "bg-amber-400" },
+    colors: TONE.warning,
     label: "Out of Sync",
     pulse: false,
   },
   failed: {
     icon: XCircle,
-    colors: { bg: "bg-red-500/10", border: "border-red-500/30", text: "text-red-400", dot: "bg-red-400" },
+    colors: TONE.danger,
     label: "Failed",
     pulse: false,
   },
   offline: {
     icon: XCircle,
-    colors: { bg: "bg-red-500/10", border: "border-red-500/30", text: "text-red-400", dot: "bg-red-400" },
+    colors: TONE.danger,
     label: "Offline",
     pulse: false,
   },
   unknown: {
     icon: HelpCircle,
-    colors: { bg: "bg-slate-500/10", border: "border-slate-500/30", text: "text-slate-500 dark:text-slate-400", dot: "bg-slate-400" },
+    colors: TONE.neutral,
     label: "Unknown",
     pulse: false,
   },

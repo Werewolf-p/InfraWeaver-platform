@@ -161,6 +161,14 @@ export default auth(async (req) => {
       req.method === "POST" &&
       hasUpstreamFeedbackSignature(req)
     ) {
+      // Run the (method+path based) body-size guard BEFORE granting the HMAC
+      // bypass, otherwise a request merely carrying the signature headers reaches
+      // the handler unbounded — an unauthenticated memory-exhaustion vector.
+      const sizeViolation = getRequestSizeViolation(req, pathname);
+      if (sizeViolation) {
+        await auditUnauthorizedAccess("security:request-too-large", req, req.auth?.user?.email ?? "anonymous", `${req.method} ${pathname} — ${sizeViolation}`);
+        return withSecurityHeaders(NextResponse.json({ error: "Request body too large" }, { status: 413 }), nonce, requestId);
+      }
       return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
     }
 

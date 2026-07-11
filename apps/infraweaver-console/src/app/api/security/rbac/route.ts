@@ -48,15 +48,6 @@ export async function GET() {
     });
     return NextResponse.json({ serviceAccounts, bindings });
   } catch {
-    return NextResponse.json({
-      serviceAccounts: [
-        { name: "argocd-server", namespace: "argocd", bindings: ["argocd-server"], isClusterAdmin: false },
-        { name: "default", namespace: "kube-system", bindings: ["cluster-admin"], isClusterAdmin: true },
-      ],
-      bindings: [
-        { name: "cluster-admin", role: "cluster-admin", subjects: [{ kind: "ServiceAccount", name: "default", namespace: "kube-system" }], isClusterAdmin: true },
-        { name: "argocd-server", role: "argocd-server", subjects: [{ kind: "ServiceAccount", name: "argocd-server", namespace: "argocd" }], isClusterAdmin: false },
-      ],
-    });
+    return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
 }

@@ -9,6 +9,7 @@ import { withAuth } from "@/lib/with-auth";
 const METRICS_CACHE_TTL_MS = 20_000;
 
 type MetricsResponse = {
+  degraded?: boolean;
   metrics: Array<{ cpuMillicores: number; cpuPct: number; memKi: number; memPct: number; name: string }>;
   timestamp: string;
 };
@@ -57,14 +58,7 @@ async function loadMetrics(clusterId: string): Promise<MetricsResponse> {
       timestamp: new Date().toISOString(),
     };
   } catch {
-    return {
-      metrics: [
-        { name: "talos-prod-cp1", cpuPct: 32, memPct: 58, cpuMillicores: 1280, memKi: 4_718_592 },
-        { name: "talos-prod-cp2", cpuPct: 45, memPct: 71, cpuMillicores: 1800, memKi: 5_767_168 },
-        { name: "talos-prod-cp3", cpuPct: 18, memPct: 44, cpuMillicores: 720, memKi: 3_670_016 },
-      ],
-      timestamp: new Date().toISOString(),
-    };
+    return { degraded: true, metrics: [], timestamp: new Date().toISOString() };
   }
 }
 
@@ -77,6 +71,8 @@ export const GET = withAuth({ permission: "config:read" }, async ({ req }) => {
   }
 
   const response = await loadMetrics(clusterId);
-  apiCache.set(cacheKey, response, METRICS_CACHE_TTL_MS);
+  if (!response.degraded) {
+    apiCache.set(cacheKey, response, METRICS_CACHE_TTL_MS);
+  }
   return NextResponse.json(response, { headers: { "X-Cache": "MISS" } });
 });

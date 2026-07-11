@@ -4,6 +4,7 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 import { makeCoreApi, makeCustomApi } from "@/lib/kube-client";
 import { appLabelFromPod, type FlowDirection } from "@/lib/firewall/drops";
 import { flattenPolicyRules, policySelectsApp, policySelectsPod, removeRuleFromSpec, type CnpObject } from "@/lib/firewall/rules";
+import { safeError } from "@/lib/utils";
 
 const CNP_GROUP = "cilium.io";
 const CNP_VERSION = "v2";
@@ -67,7 +68,8 @@ export async function GET(req: NextRequest) {
     if (crdAbsent(msg)) {
       return NextResponse.json({ available: false, reason: "dataplane_not_ready", ingress: [], egress: [] });
     }
-    return NextResponse.json({ error: `Failed to list rules: ${msg}` }, { status: 500 });
+    console.error("pod-rules GET: failed to list rules:", msg);
+    return NextResponse.json({ error: `Failed to list rules: ${safeError(err)}` }, { status: 500 });
   }
 }
 
@@ -137,6 +139,7 @@ export async function DELETE(req: NextRequest) {
         { status: 503 },
       );
     }
-    return NextResponse.json({ error: `Failed to remove rule: ${msg}` }, { status: 500 });
+    console.error("pod-rules DELETE: failed to remove rule:", msg);
+    return NextResponse.json({ error: `Failed to remove rule: ${safeError(err)}` }, { status: 500 });
   }
 }

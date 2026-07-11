@@ -25,8 +25,9 @@ import { signHmac } from "@/lib/hmac";
  */
 const DISPATCH_URL = process.env.DISPATCH_URL;
 // Shared HMAC secret for signing outbound mutation POSTs (approve/validate/
-// publish). When unset we send unsigned, matching the dispatch fail-open
-// default (HMAC disabled until ops provisions the secret on both sides).
+// publish). FAIL-CLOSED: when unset, mutation POSTs are refused (reported as
+// `skipped`) rather than sent unsigned — an unsigned mutation channel would
+// let any in-cluster caller drive publish/deploy once dispatch trusts it.
 const DISPATCH_SECRET = process.env.DISPATCH_SECRET;
 // Quick calls (validated verdict, run listing) get a short timeout.
 const QUICK_TIMEOUT_MS = 10_000;
@@ -34,6 +35,7 @@ const QUICK_TIMEOUT_MS = 10_000;
 const LONG_TIMEOUT_MS = 25 * 60_000;
 
 const MISSING = "dispatch service not configured (DISPATCH_URL)";
+const MISSING_SECRET = "dispatch HMAC secret not configured (DISPATCH_SECRET); refusing to send unsigned mutation";
 
 export interface DispatchResult {
   ok: boolean;
@@ -83,6 +85,13 @@ async function postDispatch(
   { timeoutMs = QUICK_TIMEOUT_MS }: PostOptions = {},
 ): Promise<DispatchResult> {
   if (!DISPATCH_URL) return { ok: false, skipped: true, error: MISSING };
+  // Fail CLOSED: every postDispatch call is a mutation (/approve, /validate,
+  // /publish). Never send them unsigned — refuse (as `skipped`) until ops
+  // provisions the shared secret on both sides.
+  if (!DISPATCH_SECRET) {
+    console.warn(`[feedback-dispatch] ${MISSING_SECRET} (POST ${pathname} not sent)`);
+    return { ok: false, skipped: true, error: MISSING_SECRET };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -90,12 +99,12 @@ async function postDispatch(
     // Serialize the body ONCE — the exact string is both sent and signed so the
     // dispatch verifier's HMAC over the raw received bytes matches.
     const rawBody = JSON.stringify(body);
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (DISPATCH_SECRET) {
-      const timestamp = String(Date.now());
-      headers["X-IW-Timestamp"] = timestamp;
-      headers["X-IW-Signature"] = signHmac(`${timestamp}.${rawBody}`, DISPATCH_SECRET);
-    }
+    const timestamp = String(Date.now());
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-IW-Timestamp": timestamp,
+      "X-IW-Signature": signHmac(`${timestamp}.${rawBody}`, DISPATCH_SECRET),
+    };
     const res = await fetch(new URL(pathname, DISPATCH_URL), {
       method: "POST",
       headers,

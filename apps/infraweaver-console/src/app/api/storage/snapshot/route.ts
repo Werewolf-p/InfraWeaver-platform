@@ -3,7 +3,9 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { validateK8sName, validateK8sNamespace } from "@/lib/api-security";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { auditLog } from "@/lib/audit-log";
+import { safeError } from "@/lib/utils";
 import * as k8s from "@kubernetes/client-node";
 
 const snapshotBodySchema = z.object({
@@ -16,6 +18,9 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
   if (!hasSessionPermission(access, "cluster:admin")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!checkRateLimit(rateLimitKey("storage-snapshot", req), 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
   const rawBody = await req.json().catch(() => ({}));
   const parsed = snapshotBodySchema.safeParse(rawBody);
   if (!parsed.success) {
@@ -42,6 +47,6 @@ export async function POST(req: NextRequest) {
     await auditLog("storage:snapshot", session.user?.email ?? "unknown", `created snapshot ${namespace}/${snapshotName}`);
     return NextResponse.json({ ok: true, snapshotName });
   } catch (err) {
-    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
+    return NextResponse.json({ ok: false, error: safeError(err) }, { status: 502 });
   }
 }

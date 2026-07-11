@@ -38,7 +38,11 @@ const UpdatePolicySchema = z.object({
 });
 
 const PutBodySchema = z.object({
-  appName: z.string().min(1).max(64),
+  appName: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, "appName must be a lowercase DNS-style slug"),
   policy: UpdatePolicySchema,
 });
 

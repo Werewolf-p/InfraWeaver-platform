@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
+import { getRequestClusterId } from "@/lib/cluster-context";
+import { loadKubeConfig } from "@/lib/k8s";
 import { invalidateClusterCaches } from "@/lib/performance-cache";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
@@ -26,10 +28,12 @@ export async function POST(req: NextRequest) {
   if (!isValidNamespace(namespace) || !isValidK8sName(appName)) {
     return NextResponse.json({ error: "Invalid app name" }, { status: 400 });
   }
+  const clusterId = getRequestClusterId(req);
+  if (clusterId === "all") {
+    return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
+  }
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); } else { try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); } }
-    const appsApi = kc.makeApiClient(k8s.AppsV1Api);
+    const appsApi = loadKubeConfig(clusterId).makeApiClient(k8s.AppsV1Api);
     await appsApi.patchNamespacedDeployment({
       name: appName, namespace,
       body: { spec: { template: { metadata: { annotations: { "kubectl.kubernetes.io/restartedAt": new Date().toISOString() } } } } },

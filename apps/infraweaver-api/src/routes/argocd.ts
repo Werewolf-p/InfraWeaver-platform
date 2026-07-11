@@ -210,6 +210,13 @@ argocdRoute.post('/apps/bulk', async (c) => {
   if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
   const { action, apps } = parsed.data;
 
+  // BFLA guard: 'remove' issues a real ArgoCD DELETE, so it must require the same
+  // stronger permission as the dedicated DELETE /apps/:name route — apps:write
+  // alone (held by operators) must not be able to delete apps via the bulk path.
+  if (action === 'remove' && !hasPermission(user, 'apps:delete')) {
+    return c.json({ error: 'Forbidden: apps:delete required' }, 403);
+  }
+
   const { server, token } = await getArgoConfig(user.clusterId);
   if (!server || !token) return c.json({ ok: true, mock: true, results: apps.map((name) => ({ name, ok: true })) });
 

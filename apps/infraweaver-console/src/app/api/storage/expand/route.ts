@@ -47,9 +47,12 @@ export async function PATCH(request: NextRequest) {
       },
     });
   } catch (error) {
-    return NextResponse.json({
-      ok: false,
-      error: safeError(error),
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: safeError(error),
+      },
+      { status: 502 },
+    );
   }
 }

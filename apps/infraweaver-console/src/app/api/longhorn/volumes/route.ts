@@ -20,14 +20,17 @@ export const GET = withAuth({ permission: "config:read" }, async () => {
         numberOfReplicas: v.numberOfReplicas,
         state: v.state,
         kubernetesStatus: v.kubernetesStatus,
+        live: true,
       }))
     );
   } catch {
+    // Mock fallback when the Longhorn API is unreachable — flagged `live: false`
+    // (like backup-status and pvs) so consumers can tell it apart from real data.
     return NextResponse.json([
-      { name: "pvc-wiki-data", size: 10737418240, actualSize: 2147483648, robustness: "healthy", numberOfReplicas: 2, state: "attached" },
-      { name: "pvc-authentik-db", size: 5368709120, actualSize: 1073741824, robustness: "healthy", numberOfReplicas: 2, state: "attached" },
-      { name: "pvc-vaultwarden-data", size: 2147483648, actualSize: 536870912, robustness: "healthy", numberOfReplicas: 2, state: "attached" },
-      { name: "pvc-grafana-data", size: 2147483648, actualSize: 268435456, robustness: "degraded", numberOfReplicas: 1, state: "attached" },
+      { name: "pvc-wiki-data", size: 10737418240, actualSize: 2147483648, robustness: "healthy", numberOfReplicas: 2, state: "attached", live: false },
+      { name: "pvc-authentik-db", size: 5368709120, actualSize: 1073741824, robustness: "healthy", numberOfReplicas: 2, state: "attached", live: false },
+      { name: "pvc-vaultwarden-data", size: 2147483648, actualSize: 536870912, robustness: "healthy", numberOfReplicas: 2, state: "attached", live: false },
+      { name: "pvc-grafana-data", size: 2147483648, actualSize: 268435456, robustness: "degraded", numberOfReplicas: 1, state: "attached", live: false },
     ]);
   }
 });

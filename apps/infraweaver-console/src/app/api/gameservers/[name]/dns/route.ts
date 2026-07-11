@@ -7,9 +7,11 @@ import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac"
 import { safeError } from "@/lib/utils";
 import { internalHost, publicHost } from "@/lib/domain";
 
+const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
+
 const dnsPatchSchema = z.object({
-  targetIP: z.string().min(1),
-  internalIP: z.string().optional(),
+  targetIP: z.string().regex(IP_REGEX, "Must be a valid IP address"),
+  internalIP: z.string().regex(IP_REGEX, "Must be a valid IP address").optional(),
   publicDns: z.boolean(),
   internalDns: z.boolean(),
 });
