@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Shield, Plus, Trash2, Clock, Globe, Loader2, Undo2, Check, X } from "lucide-react";
+import { Shield, Plus, Trash2, Clock, Globe, Loader2, Undo2, Check, X, Pencil } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { buildScopes, scopeLabel, type RoleAssignment, type RoleDefinition } from "@/lib/rbac";
 import { cn, formatDate } from "@/lib/utils";
@@ -102,6 +102,10 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
   // Staged, unwritten edits. Revokes hold existing assignment ids; grants are new.
   const [pendingRevokes, setPendingRevokes] = useState<Set<string>>(new Set());
   const [pendingGrants, setPendingGrants] = useState<GrantDraft[]>([]);
+  // Id of the assignment whose role is being edited inline (null = none), plus
+  // the role picked in that inline editor.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editRoleId, setEditRoleId] = useState("");
   const qc = useQueryClient();
 
   const rolesQuery = useQuery<{ roles: RoleDefinition[] }>({
@@ -187,6 +191,34 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
 
   const unstageGrant = (index: number) => setPendingGrants((prev) => prev.filter((_, i) => i !== index));
 
+  const startRoleEdit = (assignment: RoleAssignment) => {
+    setEditingId(assignment.id);
+    setEditRoleId(assignment.roleId);
+  };
+
+  const cancelRoleEdit = () => {
+    setEditingId(null);
+    setEditRoleId("");
+  };
+
+  /**
+   * Swap an existing assignment's role at the SAME scope: stage a revoke of the
+   * old grant and a grant of the new role together, so the apply lands as one
+   * commit and a single "changed" email (see applyRoleAssignments). A no-op when
+   * the role is unchanged. Scope and expiry ride along untouched — only the role
+   * moves.
+   */
+  const confirmRoleEdit = (assignment: RoleAssignment) => {
+    if (editRoleId && editRoleId !== assignment.roleId) {
+      setPendingRevokes((prev) => new Set(prev).add(assignment.id));
+      setPendingGrants((prev) => [
+        ...prev,
+        { roleId: editRoleId, scope: assignment.scope, ...(assignment.expiresAt ? { expiresAt: assignment.expiresAt } : {}) },
+      ]);
+    }
+    cancelRoleEdit();
+  };
+
   return (
     <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 backdrop-blur-sm overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-white/10">
@@ -250,20 +282,62 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
                   </div>
                   <p className="text-xs text-slate-500">Granted by {assignment.grantedBy} on {formatDate(assignment.grantedAt)}</p>
                 </div>
-                {canManageAssignments && (
-                  <button
-                    onClick={() => toggleRevoke(assignment.id)}
-                    title={markedForRemoval ? "Keep this assignment" : "Mark for removal"}
-                    className={cn(
-                      "p-2 rounded-lg",
-                      markedForRemoval
-                        ? "text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10"
-                        : "text-slate-500 hover:text-red-400 hover:bg-red-500/10",
-                    )}
-                  >
-                    {markedForRemoval ? <Undo2 className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
-                  </button>
-                )}
+                {canManageAssignments &&
+                  (editingId === assignment.id ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <select
+                        aria-label="New role"
+                        value={editRoleId}
+                        onChange={(event) => setEditRoleId(event.target.value)}
+                        className="bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg px-2 py-1 text-xs text-gray-900 dark:text-white"
+                      >
+                        {roles.map((entry) => (
+                          <option key={entry.id} value={entry.id}>{entry.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => confirmRoleEdit(assignment)}
+                        aria-label="Confirm role change"
+                        title="Confirm role change"
+                        className="p-2 rounded-lg text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={cancelRoleEdit}
+                        aria-label="Cancel role change"
+                        title="Cancel role change"
+                        className="p-2 rounded-lg text-slate-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-500/10"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 shrink-0">
+                      {!markedForRemoval && (
+                        <button
+                          onClick={() => startRoleEdit(assignment)}
+                          aria-label={`Change role at ${scopeLabel(assignment.scope)}`}
+                          title="Change role"
+                          className="p-2 rounded-lg text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => toggleRevoke(assignment.id)}
+                        title={markedForRemoval ? "Keep this assignment" : "Mark for removal"}
+                        className={cn(
+                          "p-2 rounded-lg",
+                          markedForRemoval
+                            ? "text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10"
+                            : "text-slate-500 hover:text-red-400 hover:bg-red-500/10",
+                        )}
+                      >
+                        {markedForRemoval ? <Undo2 className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  ))}
               </div>
             );
           })}
