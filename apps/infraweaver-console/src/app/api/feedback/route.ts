@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import type { Permission } from "@/lib/rbac";
 import { apiError, apiSuccess, requireRoutePermissions, routeErrorResponse } from "@/lib/route-utils";
+import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import {
   createFeedback,
   listFeedback,
@@ -16,6 +17,11 @@ import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 
 // Any authenticated user may submit/list feedback context.
 const SUBMIT: Permission[] = ["apps:read", "cluster:read"];
+
+// Reconciliation on the read path issues outbound dispatch calls (a state
+// mutation), so it is gated to feedback managers — the same set every
+// feedback management route uses. Low-privilege readers get the list as-is.
+const MANAGE: Permission[] = ["rbac:admin", "cluster:admin"];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE ONE INTENTIONALLY-HARDCODED VALUE IN INFRAWEAVER.
@@ -82,8 +88,11 @@ export async function GET() {
     // finished dispatch runs and backfills their preview URLs without manual
     // intervention.
     if (isDispatchConfigured() && entries.some(needsReconcile)) {
-      await reconcileStaleEntries(entries);
-      entries = await listFeedback();
+      const access = await getSessionRBACContext(session, 60);
+      if (hasAnySessionPermission(access, MANAGE)) {
+        await reconcileStaleEntries(entries);
+        entries = await listFeedback();
+      }
     }
     return apiSuccess({ entries });
   } catch (error) {
