@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Shield, Plus, Trash2, Clock, Globe, Loader2 } from "lucide-react";
+import { Shield, Plus, Trash2, Clock, Globe, Loader2, Undo2, Check, X } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { buildScopes, scopeLabel, type RoleAssignment, type RoleDefinition } from "@/lib/rbac";
 import { cn, formatDate } from "@/lib/utils";
@@ -14,6 +14,13 @@ interface Props {
   isAdmin: boolean;
 }
 
+/** A staged grant that has not been written yet — no id until it is applied. */
+interface GrantDraft {
+  roleId: string;
+  scope: string;
+  expiresAt?: string;
+}
+
 function AddAssignmentModal({
   roles,
   gameServers,
@@ -23,7 +30,7 @@ function AddAssignmentModal({
   roles: RoleDefinition[];
   gameServers: string[];
   onClose: () => void;
-  onSave: (payload: { roleId: string; scope: string; principalType: "user"; expiresAt?: string }) => void;
+  onSave: (payload: GrantDraft) => void;
 }) {
   const [roleId, setRoleId] = useState(roles[0]?.id ?? "");
   const [scope, setScope] = useState("/");
@@ -71,14 +78,15 @@ function AddAssignmentModal({
               className="w-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white"
             />
           </div>
+          <p className="text-[11px] text-slate-500">Staged locally — nothing is written until you click <strong>Apply changes</strong>.</p>
         </div>
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-white/10">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white">Cancel</button>
           <button
-            onClick={() => onSave({ roleId, scope, principalType: "user", expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined })}
+            onClick={() => onSave({ roleId, scope, expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined })}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/30"
           >
-            <Plus className="w-4 h-4" /> Add Assignment
+            <Plus className="w-4 h-4" /> Stage assignment
           </button>
         </div>
       </div>
@@ -91,6 +99,9 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
   const canViewAssignments = canAny(["users:read", "users:write", "rbac:admin"]);
   const canManageAssignments = isAdmin && canAny(["users:write", "rbac:admin"]);
   const [modalOpen, setModalOpen] = useState(false);
+  // Staged, unwritten edits. Revokes hold existing assignment ids; grants are new.
+  const [pendingRevokes, setPendingRevokes] = useState<Set<string>>(new Set());
+  const [pendingGrants, setPendingGrants] = useState<GrantDraft[]>([]);
   const qc = useQueryClient();
 
   const rolesQuery = useQuery<{ roles: RoleDefinition[] }>({
@@ -124,47 +135,57 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
     staleTime: 60_000,
   });
 
-  const addMutation = useMutation({
-    mutationFn: async (payload: { roleId: string; scope: string; principalType: "user"; expiresAt?: string }) => {
-      const res = await fetch(`/api/users-config/${user?.username}/rbac`, {
-        method: "POST",
+  const discard = () => {
+    setPendingRevokes(new Set());
+    setPendingGrants([]);
+  };
+
+  const applyMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/rbac/assignments/apply", {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          principalType: "user",
+          username: user?.username,
+          grants: pendingGrants,
+          revokes: [...pendingRevokes],
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to add assignment");
+      if (!res.ok) throw new Error(data.error ?? "Failed to apply changes");
       return data;
     },
     onSuccess: () => {
-      toast.success("Assignment added");
-      setModalOpen(false);
+      toast.success("Changes applied");
+      discard();
       qc.invalidateQueries({ queryKey: ["users-config", user?.username, "rbac"] });
     },
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const removeMutation = useMutation({
-    mutationFn: async (assignmentId: string) => {
-      const res = await fetch(`/api/users-config/${user?.username}/rbac`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignmentId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to remove assignment");
-      return data;
-    },
-    onSuccess: () => {
-      toast.success("Assignment removed");
-      qc.invalidateQueries({ queryKey: ["users-config", user?.username, "rbac"] });
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
-
-  const roles = rolesQuery.data?.roles ?? [];
-  const roleMap = new Map(roles.map((role) => [role.id, role]));
+  const roles = useMemo(() => rolesQuery.data?.roles ?? [], [rolesQuery.data?.roles]);
+  const roleMap = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const assignments = assignmentsQuery.data?.role_assignments ?? [];
   const gameServers = (gameServersQuery.data?.servers ?? []).map((server) => server.name);
+
+  const dirtyCount = pendingRevokes.size + pendingGrants.length;
+  const roleName = (id: string) => roleMap.get(id)?.name ?? id;
+
+  const toggleRevoke = (id: string) =>
+    setPendingRevokes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const stageGrant = (draft: GrantDraft) => {
+    setPendingGrants((prev) => [...prev, draft]);
+    setModalOpen(false);
+  };
+
+  const unstageGrant = (index: number) => setPendingGrants((prev) => prev.filter((_, i) => i !== index));
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 backdrop-blur-sm overflow-hidden">
@@ -192,20 +213,30 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
         <div className="px-4 py-10 text-center text-sm text-slate-500">You do not have permission to view role assignments.</div>
       ) : assignmentsQuery.isLoading || rolesQuery.isLoading ? (
         <div className="px-4 py-10 flex items-center justify-center text-slate-500 dark:text-slate-400"><Loader2 className="w-4 h-4 animate-spin" /></div>
-      ) : assignments.length === 0 ? (
+      ) : assignments.length === 0 && pendingGrants.length === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-slate-500">No scoped assignments for this user.</div>
       ) : (
-        <div className="divide-y divide-white/5">
+        <div className="divide-y divide-gray-200 dark:divide-white/5">
           {assignments.map((assignment) => {
             const role = roleMap.get(assignment.roleId);
+            const markedForRemoval = pendingRevokes.has(assignment.id);
             return (
-              <div key={assignment.id} className="flex items-start justify-between gap-4 px-4 py-3">
+              <div
+                key={assignment.id}
+                className={cn("flex items-start justify-between gap-4 px-4 py-3", markedForRemoval && "bg-red-500/5")}
+              >
                 <div className="space-y-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={cn("text-xs px-2 py-0.5 rounded-full border", role ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-300" : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300")}>
+                    <span
+                      className={cn(
+                        "text-xs px-2 py-0.5 rounded-full border",
+                        markedForRemoval && "line-through opacity-60",
+                        role ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-300" : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 text-slate-700 dark:text-slate-300",
+                      )}
+                    >
                       {role?.name ?? assignment.roleId}
                     </span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-1">
+                    <span className={cn("text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-1", markedForRemoval && "line-through opacity-60")}>
                       <Globe className="w-3 h-3" /> {scopeLabel(assignment.scope)}
                     </span>
                     {assignment.expiresAt && (
@@ -213,21 +244,87 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
                         <Clock className="w-3 h-3" /> Expires {formatDate(assignment.expiresAt)}
                       </span>
                     )}
+                    {markedForRemoval && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-red-400">will remove</span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-500">Granted by {assignment.grantedBy} on {formatDate(assignment.grantedAt)}</p>
                 </div>
                 {canManageAssignments && (
                   <button
-                    onClick={() => removeMutation.mutate(assignment.id)}
-                    disabled={removeMutation.isPending}
-                    className="p-2 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10"
+                    onClick={() => toggleRevoke(assignment.id)}
+                    title={markedForRemoval ? "Keep this assignment" : "Mark for removal"}
+                    className={cn(
+                      "p-2 rounded-lg",
+                      markedForRemoval
+                        ? "text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10"
+                        : "text-slate-500 hover:text-red-400 hover:bg-red-500/10",
+                    )}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    {markedForRemoval ? <Undo2 className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
                   </button>
                 )}
               </div>
             );
           })}
+
+          {/* Staged additions, not yet written */}
+          {pendingGrants.map((draft, index) => (
+            <div key={`draft-${index}`} className="flex items-start justify-between gap-4 px-4 py-3 bg-emerald-500/5">
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs px-2 py-0.5 rounded-full border bg-emerald-500/10 border-emerald-500/20 text-emerald-300">
+                    {roleName(draft.roleId)}
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-1">
+                    <Globe className="w-3 h-3" /> {scopeLabel(draft.scope)}
+                  </span>
+                  {draft.expiresAt && (
+                    <span className="text-xs text-amber-300 inline-flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> Expires {formatDate(draft.expiresAt)}
+                    </span>
+                  )}
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-400">will add</span>
+                </div>
+              </div>
+              <button
+                onClick={() => unstageGrant(index)}
+                title="Discard this staged assignment"
+                className="p-2 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Apply bar — appears only when there are staged changes */}
+      {canManageAssignments && dirtyCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-indigo-500/20 bg-indigo-500/5">
+          <p className="text-xs text-slate-600 dark:text-slate-300">
+            {pendingGrants.length > 0 && <span>{pendingGrants.length} to add</span>}
+            {pendingGrants.length > 0 && pendingRevokes.size > 0 && <span> · </span>}
+            {pendingRevokes.size > 0 && <span>{pendingRevokes.size} to remove</span>}
+            <span className="text-slate-400"> — applied as one change{pendingGrants.length + pendingRevokes.size === 1 ? "" : "s"} (one commit, one email).</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={discard}
+              disabled={applyMutation.isPending}
+              className="px-3 py-1.5 text-sm rounded-lg text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white disabled:opacity-50"
+            >
+              Discard
+            </button>
+            <button
+              onClick={() => applyMutation.mutate()}
+              disabled={applyMutation.isPending}
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {applyMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              Apply {dirtyCount} change{dirtyCount === 1 ? "" : "s"}
+            </button>
+          </div>
         </div>
       )}
 
@@ -236,7 +333,7 @@ export function RoleAssignmentsPanel({ user, isAdmin }: Props) {
           roles={roles}
           gameServers={gameServers}
           onClose={() => setModalOpen(false)}
-          onSave={(payload) => addMutation.mutate(payload)}
+          onSave={stageGrant}
         />
       )}
     </div>

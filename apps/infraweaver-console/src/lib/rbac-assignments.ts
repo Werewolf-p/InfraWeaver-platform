@@ -281,6 +281,166 @@ export async function grantRoleAssignment(
   return { ok: true, assignment: newAssignment };
 }
 
+/** A single addition in a batch apply — a grant with no id yet (minted here). */
+export interface ApplyGrantDraft {
+  roleId: string;
+  scope: string;
+  expiresAt?: string;
+  effect?: "Allow" | "Deny";
+}
+
+/**
+ * A batch of role-assignment changes for ONE principal, applied atomically:
+ * every revoke and every grant lands in a SINGLE users.yaml load → ceiling
+ * check → save, and (for a user principal) fires ONE change notification.
+ *
+ * This is what turns a role SWAP — the UI models it as "delete the old grant,
+ * add the new one at the same scope" — into a single commit and a single
+ * "your access was changed from X to Y" email, instead of the paired
+ * revoke-then-grant that two separate calls produce (two commits, two emails).
+ */
+export interface ApplyAssignmentsInput {
+  principalType: "user" | "group";
+  /** Username (user principals) or Authentik group name (group principals). */
+  principal: string;
+  /** New assignments to add; each is minted with a fresh id. */
+  grants: ApplyGrantDraft[];
+  /** Ids of existing assignments on this principal to remove. */
+  revokes: string[];
+}
+
+export type ApplyAssignmentsResult =
+  | { ok: true; assignments: RoleAssignment[]; grantedCount: number; revokedCount: number }
+  | { ok: false; status: number; error: string };
+
+/** Two assignments describe the same grant for the batch dedup check. */
+function sameGrantKey(a: { roleId: string; scope: string; effect?: "Allow" | "Deny" }, b: ApplyGrantDraft): boolean {
+  return a.roleId === b.roleId && a.scope === b.scope && sameEffect(a.effect, b.effect);
+}
+
+/**
+ * Apply a batch of grants and revokes to a single principal in one write.
+ *
+ * Semantics are fail-closed and atomic: EVERY delta is validated up front
+ * (unknown role → 400, privilege ceiling on each grant AND each revoke → 403,
+ * a revoke id that isn't present → 404, a grant that duplicates what remains →
+ * 409) and NOTHING is persisted unless all deltas pass. The privilege ceiling
+ * is the same one `grantRoleAssignment`/`revokeRoleAssignment` enforce per call.
+ *
+ * The affected scopes are reconciled downstream (Authentik/Nextcloud/Jellyfin)
+ * exactly as the single-delta paths do, and a user principal's change notice is
+ * sent ONCE over the full before/after so a same-scope revoke+grant collapses
+ * into one "changed" email. Group principals are not mailed (they fan out to
+ * many members) — mirroring the single-delta paths.
+ */
+export async function applyRoleAssignments(
+  input: ApplyAssignmentsInput,
+  ctx: AssignmentActionContext,
+): Promise<ApplyAssignmentsResult> {
+  const isGroup = input.principalType === "group";
+
+  // Reject unknown roles before touching git (matches grantRoleAssignment).
+  for (const grant of input.grants) {
+    if (!isKnownRole(grant.roleId)) return { ok: false, status: 400, error: `Unknown role '${grant.roleId}'` };
+  }
+
+  // Privilege ceiling on every grant, before any load/write (fail-closed).
+  for (const grant of input.grants) {
+    if (assignmentExceedsGranter(ctx.granterPerms, grant.roleId)) {
+      await auditLog(
+        "rbac:assign:denied",
+        ctx.actor,
+        `Denied granting role '${grant.roleId}' to ${input.principalType} '${input.principal}': exceeds granter permissions`,
+      );
+      return { ok: false, status: 403, error: "Cannot grant a role that exceeds your own permissions" };
+    }
+  }
+
+  const file = await loadUsersConfig();
+
+  const group = isGroup ? file.groups[input.principal] : undefined;
+  const user = isGroup ? undefined : file.users[input.principal];
+  if (!isGroup && !user) return { ok: false, status: 404, error: "User not found" };
+
+  const before = isGroup
+    ? normalizeGroupRoleAssignments(input.principal, group?.role_assignments)
+    : normalizeRoleAssignments(input.principal, user!.role_assignments);
+
+  // Resolve every revoke id and apply the revoke ceiling before writing.
+  const revokeIds = new Set(input.revokes);
+  const removed: RoleAssignment[] = [];
+  for (const id of revokeIds) {
+    const target = before.find((a) => a.id === id);
+    if (!target) return { ok: false, status: 404, error: `Assignment '${id}' not found` };
+    if (assignmentExceedsGranter(ctx.granterPerms, target.roleId)) {
+      await auditLog(
+        "rbac:revoke:denied",
+        ctx.actor,
+        `Denied revoking assignment '${id}' (role '${target.roleId}') from ${input.principalType} '${input.principal}': exceeds revoker permissions`,
+      );
+      return { ok: false, status: 403, error: "Cannot revoke a role that exceeds your own permissions" };
+    }
+    removed.push(target);
+  }
+
+  const remaining = before.filter((a) => !revokeIds.has(a.id));
+
+  // Dedup grants against what survives the revokes AND against each other, so a
+  // batch can't add a duplicate or two identical grants at once.
+  const added: RoleAssignment[] = [];
+  for (const grant of input.grants) {
+    const clashesRemaining = remaining.some((a) => sameGrantKey(a, grant));
+    const clashesAdded = added.some((a) => sameGrantKey(a, grant));
+    if (clashesRemaining || clashesAdded) {
+      return { ok: false, status: 409, error: `Assignment for '${grant.roleId}' at '${grant.scope}' already exists` };
+    }
+    added.push({
+      id: randomUUID(),
+      roleId: grant.roleId,
+      scope: grant.scope,
+      principalType: input.principalType,
+      principalId: input.principal,
+      grantedBy: ctx.actor,
+      grantedAt: new Date().toISOString(),
+      ...(grant.expiresAt ? { expiresAt: grant.expiresAt } : {}),
+      ...(grant.effect ? { effect: grant.effect } : {}),
+    });
+  }
+
+  // Nothing to do: don't write an empty commit or send an empty notice.
+  if (removed.length === 0 && added.length === 0) {
+    return { ok: true, assignments: before, grantedCount: 0, revokedCount: 0 };
+  }
+
+  const after = [...remaining, ...added];
+  const summary = `${added.length} grant(s), ${removed.length} revoke(s)`;
+
+  if (isGroup) {
+    const nextGroups = { ...file.groups, [input.principal]: { ...(group ?? {}), role_assignments: after } };
+    await saveUsersConfig(file.users, file.sha, `rbac: apply ${summary} to group ${input.principal}`, nextGroups);
+  } else {
+    file.users[input.principal] = { ...user!, role_assignments: after };
+    await saveUsersConfig(file.users, file.sha, `rbac: apply ${summary} to ${input.principal}`, file.groups);
+  }
+
+  await auditLog(
+    "rbac:assign:batch",
+    ctx.actor,
+    `Applied ${summary} to ${input.principalType} '${input.principal}'`,
+  );
+
+  // Reconcile every scope a delta touched, exactly once each.
+  for (const scope of new Set([...added, ...removed].map((a) => a.scope))) {
+    syncAccessForScope(scope);
+  }
+
+  // One change notice over the full before/after: a same-scope revoke+grant
+  // reads as a single "changed" line, not a paired revoke + grant.
+  if (!isGroup) notifyRbacChange(input.principal, before, after);
+
+  return { ok: true, assignments: after, grantedCount: added.length, revokedCount: removed.length };
+}
+
 export interface RevokeAssignmentInput {
   assignmentId: string;
   principalType: "user" | "group";

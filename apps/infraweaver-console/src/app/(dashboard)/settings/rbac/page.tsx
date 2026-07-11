@@ -6,6 +6,7 @@ import {
   Shield, Plus, Trash2, ChevronRight, Loader2, X,
   User, Users, Lock, CheckCircle, AlertTriangle, Info,
   ShieldCheck, Gamepad2, HardDrive, Network, Package, BookOpen,
+  Undo2, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
@@ -21,6 +22,22 @@ interface Assignment extends RoleAssignment {
   userName: string;
 }
 interface PlatformUser { username: string; name?: string; email?: string }
+
+/** A grant staged in the editor, not written until "Apply changes". */
+interface StagedGrant {
+  key: number;
+  principalType: "user" | "group";
+  principal: string;
+  principalLabel: string;
+  roleId: string;
+  scope: string;
+}
+
+/** An existing assignment staged for removal, keyed by its id. */
+interface StagedRevoke {
+  principalType: "user" | "group";
+  principal: string;
+}
 
 // ─── Category icons ───────────────────────────────────────────────────────────
 const CATEGORY_ICON: Record<string, React.ElementType> = {
@@ -102,9 +119,8 @@ function PermBadge({ perm }: { perm: string }) {
 
 // ─── Add Assignment Modal ─────────────────────────────────────────────────────
 function AddAssignmentModal({
-  onClose, users, preselectedRoleId, gameServers,
-}: { onClose: () => void; users: PlatformUser[]; preselectedRoleId?: string; gameServers: string[] }) {
-  const qc = useQueryClient();
+  onClose, onStage, users, preselectedRoleId, gameServers,
+}: { onClose: () => void; onStage: (grant: Omit<StagedGrant, "key">) => void; users: PlatformUser[]; preselectedRoleId?: string; gameServers: string[] }) {
   const [principalType, setPrincipalType] = useState<"user" | "group">("user");
   const [username, setUsername] = useState("");
   const [groupName, setGroupName] = useState("");
@@ -123,26 +139,15 @@ function AddAssignmentModal({
     }
   };
 
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const body = principalType === "group"
-        ? { principalType, group: groupName.trim(), roleId, scope }
-        : { principalType, username, roleId, scope };
-      const res = await fetch("/api/rbac/assignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "Failed"); }
-      return res.json();
-    },
-    onSuccess: () => {
-      toast.success("Role assignment added");
-      qc.invalidateQueries({ queryKey: ["rbac", "assignments"] });
-      onClose();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
+  const stage = () => {
+    const principal = principalType === "group" ? groupName.trim() : username;
+    if (!principal || !roleId) return;
+    const principalLabel = principalType === "group"
+      ? principal
+      : (users.find((u) => u.username === principal)?.name ?? principal);
+    onStage({ principalType, principal, principalLabel, roleId, scope });
+    onClose();
+  };
 
   const selectedRole = builtInRoles.find((role) => role.id === roleId);
   const isPerServerRole = ["game-server-admin", "game-server-operator", "game-server-viewer", "game-hub-server-admin", "game-hub-server-editor", "game-hub-server-reader"].includes(roleId);
@@ -276,12 +281,12 @@ function AddAssignmentModal({
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d]">
           <button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2] transition-colors">Cancel</button>
           <button
-            onClick={() => mutation.mutate()}
-            disabled={(principalType === "user" ? !username : !groupName.trim()) || !roleId || mutation.isPending}
+            onClick={stage}
+            disabled={(principalType === "user" ? !username : !groupName.trim()) || !roleId}
             className="flex items-center gap-1.5 px-4 py-1.5 bg-[#0078D4] hover:bg-[#006cbd] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-xs font-medium text-white transition-colors"
           >
-            {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
-            Add assignment
+            <CheckCircle className="w-3.5 h-3.5" />
+            Stage assignment
           </button>
         </div>
       </motion.div>
@@ -327,19 +332,78 @@ export default function RBACPage() {
   });
   const gameServers = (gameServersData?.servers ?? []).map(s => s.name);
 
-  const revokeMutation = useMutation({
-    mutationFn: async ({ id, principal, principalType }: { id: string; principal: string; principalType: "user" | "group" }) => {
-      const body = principalType === "group" ? { id, group: principal, principalType } : { id, username: principal, principalType };
-      const res = await fetch("/api/rbac/assignments", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "Failed"); }
+  // Staged, unwritten edits. Revokes hold existing assignment ids (mapped to
+  // their principal so Apply can group them); grants are new drafts. Applying
+  // them groups by principal and issues ONE batch PUT per principal, so a
+  // role swap on one person is one commit and one "changed" email.
+  const [pendingRevokes, setPendingRevokes] = useState<Map<string, StagedRevoke>>(new Map());
+  const [pendingGrants, setPendingGrants] = useState<StagedGrant[]>([]);
+  const [grantSeq, setGrantSeq] = useState(0);
+
+  const discardAll = () => {
+    setPendingRevokes(new Map());
+    setPendingGrants([]);
+  };
+
+  const applyAllMutation = useMutation({
+    mutationFn: async () => {
+      // Group every staged delta by principal; one PUT per principal.
+      type Batch = { principalType: "user" | "group"; principal: string; grants: Array<{ roleId: string; scope: string }>; revokes: string[] };
+      const batches = new Map<string, Batch>();
+      const keyFor = (t: "user" | "group", p: string) => `${t}:${p}`;
+
+      for (const grant of pendingGrants) {
+        const k = keyFor(grant.principalType, grant.principal);
+        const batch = batches.get(k) ?? { principalType: grant.principalType, principal: grant.principal, grants: [], revokes: [] };
+        batch.grants.push({ roleId: grant.roleId, scope: grant.scope });
+        batches.set(k, batch);
+      }
+      for (const [id, meta] of pendingRevokes) {
+        const k = keyFor(meta.principalType, meta.principal);
+        const batch = batches.get(k) ?? { principalType: meta.principalType, principal: meta.principal, grants: [], revokes: [] };
+        batch.revokes.push(id);
+        batches.set(k, batch);
+      }
+
+      for (const batch of batches.values()) {
+        const body = batch.principalType === "group"
+          ? { principalType: "group" as const, group: batch.principal, grants: batch.grants, revokes: batch.revokes }
+          : { principalType: "user" as const, username: batch.principal, grants: batch.grants, revokes: batch.revokes };
+        const res = await fetch("/api/rbac/assignments/apply", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({}));
+          throw new Error(`${batch.principal}: ${e.error ?? "Failed to apply"}`);
+        }
+      }
     },
-    onSuccess: () => { toast.success("Assignment revoked"); qc.invalidateQueries({ queryKey: ["rbac", "assignments"] }); },
+    onSuccess: () => {
+      toast.success("Changes applied");
+      discardAll();
+      qc.invalidateQueries({ queryKey: ["rbac", "assignments"] });
+    },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const toggleRevoke = (a: Assignment) =>
+    setPendingRevokes((prev) => {
+      const next = new Map(prev);
+      if (next.has(a.id)) next.delete(a.id);
+      else next.set(a.id, { principalType: a.principalType, principal: a.username });
+      return next;
+    });
+
+  const stageGrant = (grant: Omit<StagedGrant, "key">) => {
+    setPendingGrants((prev) => [...prev, { ...grant, key: grantSeq }]);
+    setGrantSeq((n) => n + 1);
+  };
+
+  const unstageGrant = (key: number) => setPendingGrants((prev) => prev.filter((g) => g.key !== key));
+
+  const dirtyCount = pendingRevokes.size + pendingGrants.length;
 
   const assignments = assignmentsData?.assignments ?? [];
   const users = usersData?.users ?? [];
@@ -485,7 +549,7 @@ export default function RBACPage() {
 
             {assignmentsLoading ? (
               <div className="flex items-center justify-center h-24"><Loader2 className="w-4 h-4 animate-spin text-gray-400 dark:text-[#555]" /></div>
-            ) : visibleAssignments.length === 0 ? (
+            ) : visibleAssignments.length === 0 && pendingGrants.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-24 text-xs text-gray-400 dark:text-[#555] gap-2">
                 <AlertTriangle className="w-5 h-5 text-gray-700 dark:text-[#333]" />
                 No assignments found
@@ -501,8 +565,9 @@ export default function RBACPage() {
                 {visibleAssignments.map(a => {
                   const role = builtInRoles.find((entry) => entry.id === a.roleId);
                   const colors = role ? ROLE_COLOR_CLASSES[role.color ?? "gray"] : ROLE_COLOR_CLASSES.gray;
+                  const markedForRemoval = pendingRevokes.has(a.id);
                   return (
-                    <div key={a.id} className="grid grid-cols-[1fr_1fr_auto_auto] gap-3 px-4 py-3 items-center hover:bg-[#0d0d0d] transition-colors">
+                    <div key={a.id} className={cn("grid grid-cols-[1fr_1fr_auto_auto] gap-3 px-4 py-3 items-center transition-colors", markedForRemoval ? "bg-red-500/5" : "hover:bg-[#0d0d0d]")}>
                       {/* Principal */}
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="w-6 h-6 rounded-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] flex items-center justify-center flex-shrink-0">
@@ -516,25 +581,83 @@ export default function RBACPage() {
                         </div>
                       </div>
                       {/* Role badge */}
-                      <span className={cn("text-[10px] px-2 py-0.5 rounded border font-medium self-center truncate", colors.badge)}>
+                      <span className={cn("text-[10px] px-2 py-0.5 rounded border font-medium self-center truncate", colors.badge, markedForRemoval && "line-through opacity-60")}>
                         {role?.name ?? a.roleId}
                       </span>
                       {/* Scope */}
-                      <span className="text-[10px] text-gray-400 dark:text-[#666] font-mono self-center whitespace-nowrap">
+                      <span className={cn("text-[10px] text-gray-400 dark:text-[#666] font-mono self-center whitespace-nowrap", markedForRemoval && "line-through opacity-60")}>
                         {scopeLabel(a.scope)}
                       </span>
-                      {/* Revoke */}
+                      {/* Stage / unstage removal */}
                       <button
-                        onClick={() => revokeMutation.mutate({ id: a.id, principal: a.username, principalType: a.principalType })}
-                        disabled={revokeMutation.isPending}
-                        className="text-gray-400 dark:text-[#444] hover:text-red-400 transition-colors p-1 self-center"
-                        title="Revoke assignment"
+                        onClick={() => toggleRevoke(a)}
+                        className={cn("transition-colors p-1 self-center", markedForRemoval ? "text-indigo-400 hover:text-indigo-300" : "text-gray-400 dark:text-[#444] hover:text-red-400")}
+                        title={markedForRemoval ? "Keep this assignment" : "Mark for removal"}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        {markedForRemoval ? <Undo2 className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
                       </button>
                     </div>
                   );
                 })}
+                {/* Staged additions, not yet written */}
+                {pendingGrants.map((g) => {
+                  const role = builtInRoles.find((entry) => entry.id === g.roleId);
+                  return (
+                    <div key={`draft-${g.key}`} className="grid grid-cols-[1fr_1fr_auto_auto] gap-3 px-4 py-3 items-center bg-emerald-500/5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-6 h-6 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center flex-shrink-0">
+                          {g.principalType === "group" ? <Users className="w-3 h-3 text-emerald-400" /> : <User className="w-3 h-3 text-emerald-400" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs text-gray-900 dark:text-[#f2f2f2] truncate">{g.principalLabel}</p>
+                          <p className="text-[10px] text-emerald-500 truncate uppercase tracking-wide font-semibold">will add</p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded border font-medium self-center truncate bg-emerald-500/10 border-emerald-500/30 text-emerald-300">
+                        {role?.name ?? g.roleId}
+                      </span>
+                      <span className="text-[10px] text-gray-400 dark:text-[#666] font-mono self-center whitespace-nowrap">
+                        {scopeLabel(g.scope)}
+                      </span>
+                      <button
+                        onClick={() => unstageGrant(g.key)}
+                        className="text-gray-400 dark:text-[#444] hover:text-red-400 transition-colors p-1 self-center"
+                        title="Discard this staged assignment"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Apply bar — appears only when there are staged changes */}
+            {dirtyCount > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-[#0078D4]/30 bg-[#0078D4]/5">
+                <p className="text-[11px] text-gray-500 dark:text-[#888]">
+                  {pendingGrants.length > 0 && <span>{pendingGrants.length} to add</span>}
+                  {pendingGrants.length > 0 && pendingRevokes.size > 0 && <span> · </span>}
+                  {pendingRevokes.size > 0 && <span>{pendingRevokes.size} to remove</span>}
+                  <span className="text-gray-400 dark:text-[#555]"> — batched per person (one commit &amp; one email each).</span>
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={discardAll}
+                    disabled={applyAllMutation.isPending}
+                    className="px-3 py-1.5 text-xs text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2] disabled:opacity-50 transition-colors"
+                  >
+                    Discard
+                  </button>
+                  <button
+                    onClick={() => applyAllMutation.mutate()}
+                    disabled={applyAllMutation.isPending}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-[#0078D4] hover:bg-[#006cbd] disabled:opacity-50 rounded-lg text-xs font-medium text-white transition-colors"
+                  >
+                    {applyAllMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Apply {dirtyCount} change{dirtyCount === 1 ? "" : "s"}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -561,6 +684,7 @@ export default function RBACPage() {
         {showAddModal && (
           <AddAssignmentModal
             onClose={() => setShowAddModal(false)}
+            onStage={stageGrant}
             users={users}
             preselectedRoleId={addModalPreRole}
             gameServers={gameServers}
