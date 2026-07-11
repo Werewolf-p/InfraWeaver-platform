@@ -55,3 +55,16 @@ jobs:
       - name: Unit tests
         working-directory: apps/infraweaver-console
         run: npm test -- --ci
+
+      # Regression for the Jellyfin adopt -> reset recovery flow. Runs the real
+      # adapter chain (client -> provider -> reconcile -> OpenBao store ->
+      # access.ts) over HTTP against in-process fakes; uses no browser (no `page`
+      # fixture), so no `playwright install` is needed.
+      - name: E2E regression (Jellyfin adopt -> reset)
+        working-directory: apps/infraweaver-console
+        run: npm run test:e2e:jellyfin
+
+      # Fails the build if lib/jellyfin/access.ts drops below 80% coverage.
+      - name: Coverage gate — lib/jellyfin/access.ts >= 80%
+        working-directory: apps/infraweaver-console
+        run: npm run test:coverage:jellyfin-access -- --ci
