@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createMiddleware } from 'hono/factory';
 import { signHmac, verifyHmac } from '../lib/hmac.js';
 import { applyElevatedPermissions } from '../lib/rbac.js';
@@ -71,11 +71,14 @@ export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
   // Bind the target cluster into the signed message so a client cannot swap
   // x-cluster-id on a valid request to target a cluster it lacks access to.
   const clusterId = c.req.header('x-cluster-id') ?? 'local';
-  // The signed message binds the HTTP method (see console signer iw-api.ts) so a
-  // captured signature cannot be replayed under a different method (e.g. a GET's
-  // signature reused for a mutation). Path/body binding is a further hardening
-  // step that requires matched canonicalization and live integration testing.
-  const message = `${ts}:${c.req.method}:${userId}:${rolesHeader}:${clusterId}`;
+  // Full request binding (see console signer iw-api.ts): method + path + body hash
+  // so a captured signature cannot be replayed under a different method, path, or
+  // body. c.req.path is the full `/api/v1/...` pathname WITHOUT the query string,
+  // which the signer matches by stripping the query. Reading the body here is safe
+  // — Hono caches it, so downstream handlers still read it (empirically verified).
+  const rawBody = await c.req.text();
+  const bodyHash = createHash('sha256').update(rawBody).digest('hex');
+  const message = `${ts}:${c.req.method}:${c.req.path}:${bodyHash}:${userId}:${rolesHeader}:${clusterId}`;
   let validSecret: string | null = null;
   let keyUsed: 'current' | 'previous' = 'current';
 
