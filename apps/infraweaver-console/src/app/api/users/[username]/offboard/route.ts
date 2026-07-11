@@ -48,31 +48,50 @@ export async function POST(
     steps.push({ name: "Disable account", success: false, message: safeError(e) });
   }
 
-  // Step 2: Revoke tokens
+  // Step 2: Revoke tokens.
+  // The token list MUST be scoped by `user__username` — NOT `user=<username>`.
+  // Authentik silently IGNORES an unrecognized query filter and returns EVERY token
+  // in the system, so `?user=<username>` (a string where the ignored `user` filter
+  // wants a pk) once returned all tokens and this loop deleted the console's own
+  // admin token and the embedded outpost's API token — a self-inflicted outage.
+  // Defense in depth: even with the correct filter, only delete a token whose owner
+  // is actually this user, and count only deletes that succeeded.
   try {
-    const r = await authentikFetch(`/core/tokens/?user=${encodeURIComponent(username)}`);
+    const r = await authentikFetch(`/core/tokens/?user__username=${encodeURIComponent(username)}`);
+    if (!r.ok) throw new Error(`List tokens: HTTP ${r.status}`);
     const data = await r.json();
-    const tokens: Array<{ identifier: string }> = data.results ?? [];
+    const tokens: Array<{ identifier: string; user?: number }> = data.results ?? [];
+    let revoked = 0;
     for (const token of tokens) {
-      await authentikFetch(`/core/tokens/${token.identifier}/`, { method: "DELETE" });
+      if (token.user !== user.pk) continue; // never touch another principal's token
+      const del = await authentikFetch(`/core/tokens/${encodeURIComponent(token.identifier)}/`, { method: "DELETE" });
+      if (del.ok) revoked++;
     }
-    steps.push({ name: "Revoke tokens", success: true, message: `Revoked ${tokens.length} token(s)` });
+    steps.push({ name: "Revoke tokens", success: true, message: `Revoked ${revoked} token(s)` });
   } catch (e) {
     steps.push({ name: "Revoke tokens", success: false, message: safeError(e) });
   }
 
-  // Step 3: Remove from groups
+  // Step 3: Remove from groups.
+  // Use the user object's OWN `groups` (the authoritative pk array the user serializer
+  // already returned) rather than a `?member_by_username=` group query — that filter is
+  // likewise ignored by Authentik and returns an unrelated page of groups, so the old
+  // code removed the user from groups they were never in and never from the ones they
+  // were. `groups` was captured before Step 1 disabled the account; disabling does not
+  // change membership, so it is still accurate here.
   try {
-    const r = await authentikFetch(`/core/groups/?member_by_username=${encodeURIComponent(username)}`);
-    const data = await r.json();
-    const groups: Array<{ pk: string }> = data.results ?? [];
-    for (const group of groups) {
-      await authentikFetch(`/core/groups/${group.pk}/remove_user/`, {
+    const groupPks: string[] = Array.isArray(user.groups)
+      ? user.groups.filter((pk: unknown): pk is string => typeof pk === "string")
+      : [];
+    let removed = 0;
+    for (const groupPk of groupPks) {
+      const resp = await authentikFetch(`/core/groups/${encodeURIComponent(groupPk)}/remove_user/`, {
         method: "POST",
         body: JSON.stringify({ pk: user.pk }),
       });
+      if (resp.ok) removed++;
     }
-    steps.push({ name: "Remove from groups", success: true, message: `Removed from ${groups.length} group(s)` });
+    steps.push({ name: "Remove from groups", success: true, message: `Removed from ${removed} group(s)` });
   } catch (e) {
     steps.push({ name: "Remove from groups", success: false, message: safeError(e) });
   }

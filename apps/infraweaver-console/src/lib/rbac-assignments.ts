@@ -9,6 +9,16 @@ import {
   normalizeRoleAssignments,
   saveUsersConfig,
 } from "@/lib/users-config";
+import { notifyRoleAssignmentChangeByEmail } from "@/lib/rbac-change-email";
+
+/**
+ * Fire-and-forget: email the affected USER a plain-language diff of their access
+ * change. Group-principal changes are intentionally not mailed here (they fan out to
+ * many members). The notifier never throws and never blocks the RBAC write.
+ */
+function notifyRbacChange(username: string, before: RoleAssignment[], after: RoleAssignment[]): void {
+  void notifyRoleAssignmentChangeByEmail({ username, before, after });
+}
 
 /**
  * Shared grant/revoke logic for role assignments, used by both
@@ -267,6 +277,7 @@ export async function grantRoleAssignment(
   await saveUsersConfig(file.users, file.sha, `rbac: grant ${input.roleId} to ${username} at ${input.scope}`, file.groups);
   await auditLog("rbac:assign", ctx.actor, `Granted role '${input.roleId}' to '${username}' at scope '${input.scope}'`);
   syncAccessForScope(input.scope);
+  notifyRbacChange(username, existing, [...existing, newAssignment]);
   return { ok: true, assignment: newAssignment };
 }
 
@@ -331,5 +342,6 @@ export async function revokeRoleAssignment(input: RevokeAssignmentInput, ctx: As
   await saveUsersConfig(file.users, file.sha, `rbac: revoke assignment ${input.assignmentId} from ${input.principal}`, file.groups);
   await auditLog("rbac:revoke", ctx.actor, `Revoked assignment '${input.assignmentId}' from '${input.principal}'`);
   syncAccessForScope(removed.scope);
+  notifyRbacChange(input.principal, before, after);
   return { ok: true };
 }

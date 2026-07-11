@@ -6,6 +6,7 @@ import { auditLog } from "@/lib/audit-log";
 import { gameHubScope, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { normalizeRoleAssignments, loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
 import { getLegacyRoleId, resolveRoleDefinition, type RoleAssignment } from "@/lib/rbac";
+import { notifyRoleAssignmentChangeByEmail } from "@/lib/rbac-change-email";
 import { safeError } from "@/lib/utils";
 
 const SAFE_USERNAME_RE = /^[\w.@+-]{1,150}$/;
@@ -155,6 +156,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     user.role_assignments = [...assignments, assignment];
     await saveUsersConfig(file.users, file.sha, `rbac: grant ${assignment.roleId} to ${result.data.username} at ${scope}`);
     await auditLog("rbac:assign", session.user?.email ?? "unknown", `Granted ${assignment.roleId} to ${result.data.username} at ${scope}`);
+    void notifyRoleAssignmentChangeByEmail({ username: result.data.username, before: assignments, after: [...assignments, assignment] });
     return NextResponse.json({ ok: true, assignment });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
@@ -201,6 +203,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
     user.role_assignments = nextAssignments;
     await saveUsersConfig(file.users, file.sha, `rbac: revoke ${roleResult.data} from ${username} at ${scope}`);
     await auditLog("rbac:revoke", session.user?.email ?? "unknown", `Revoked ${roleResult.data} from ${username} at ${scope}`);
+    void notifyRoleAssignmentChangeByEmail({ username, before: assignments, after: nextAssignments });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
