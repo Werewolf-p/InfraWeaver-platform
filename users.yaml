@@ -40,6 +40,16 @@ users:
         principalId: remon
         grantedBy: "remonhulst@gmail.com"
         grantedAt: '2026-01-01T00:00:00.000Z'
+  offboardtest:
+    name: Offboard Test
+    email: "offboardtest@rlservers.com"
+    access_level: platform-user
+    authentik_groups:
+      - platform-users
+    argocd_role: readonly
+    openbao_policy: null
+    send_recovery_email: false
+    notes: THROWAWAY — offboard e2e test user, safe to delete
   # ── Example additional user (remove or replace) ──────────────────────────
   # example-user:
   #   name: Example User
