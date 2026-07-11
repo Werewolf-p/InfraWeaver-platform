@@ -14,6 +14,8 @@ import {
   BUILT_IN_ROLES, buildScopes, scopeLabel, ROLE_COLOR_CLASSES,
   type RoleDefinition, type RoleAssignment,
 } from "@/lib/rbac";
+import { computeEffectivePreview } from "@/lib/rbac-effective-preview";
+import { EffectiveAccessPreview } from "@/components/rbac/effective-access-preview";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Assignment extends RoleAssignment {
@@ -408,6 +410,21 @@ export default function RBACPage() {
   const assignments = assignmentsData?.assignments ?? [];
   const users = usersData?.users ?? [];
 
+  // Live "what will they be able to do after Apply" read-out for every principal
+  // a staged edit touches. Pure — folds each principal's other existing grants in
+  // and honors Deny + expiry the same way the enforcing resolver does.
+  const preview = computeEffectivePreview({
+    assignments: assignments.map((a) => ({ ...a, principal: a.username, principalLabel: a.userName || a.username })),
+    pendingGrants: pendingGrants.map((g) => ({
+      principalType: g.principalType,
+      principal: g.principal,
+      principalLabel: g.principalLabel,
+      roleId: g.roleId,
+      scope: g.scope,
+    })),
+    revokedIds: [...pendingRevokes.keys()],
+  });
+
   // Count per role
   const countByRole: Record<string, number> = {};
   for (const a of assignments) countByRole[a.roleId] = (countByRole[a.roleId] ?? 0) + 1;
@@ -661,6 +678,11 @@ export default function RBACPage() {
               </div>
             )}
           </div>
+
+          {/* Effective access preview — live, appears only with staged edits */}
+          <AnimatePresence>
+            {preview.length > 0 && <EffectiveAccessPreview previews={preview} />}
+          </AnimatePresence>
 
           {/* Legend */}
           <div className="rounded-xl border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-4">

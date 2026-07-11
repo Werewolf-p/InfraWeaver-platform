@@ -130,6 +130,32 @@ describe("applyRoleAssignments — role swap", () => {
   });
 });
 
+describe("applyRoleAssignments — one commit + one notice per call", () => {
+  // notifyRbacChange is a thin, private wrapper over notifyRoleAssignmentChangeByEmail
+  // (1:1), so counting the mailer proves how many change notices the call fired.
+  it("collapses every delta in a single call into ONE saveUsersConfig and ONE notifyRbacChange", async () => {
+    loadUsersConfig.mockResolvedValue(fileWithUser([assignment({ id: "old", roleId: "jellyfin-user", scope: "/jellyfin" })]));
+
+    const result = await applyRoleAssignments(
+      {
+        principalType: "user",
+        principal: "alice",
+        revokes: ["old"],
+        // Two grants at distinct scopes + one revoke — three deltas, one call.
+        grants: [
+          { roleId: "jellyfin-admin", scope: "/jellyfin" },
+          { roleId: "jellyfin-user", scope: "/media/jellyfin" },
+        ],
+      },
+      { granterPerms: permsForRole("platform-owner"), actor: "owner@x" },
+    );
+
+    expect(result).toMatchObject({ ok: true, grantedCount: 2, revokedCount: 1 });
+    expect(saveUsersConfig).toHaveBeenCalledTimes(1);
+    expect(notifyRoleAssignmentChangeByEmail).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("applyRoleAssignments — atomic + fail-closed", () => {
   it("rejects the WHOLE batch when any grant exceeds the granter's ceiling (no write, no email)", async () => {
     loadUsersConfig.mockResolvedValue(fileWithUser([assignment({ id: "old", roleId: "jellyfin-user" })]));
