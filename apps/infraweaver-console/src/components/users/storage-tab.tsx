@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Server, Database, HardDrive, Plus, Trash2, ChevronRight,
@@ -623,8 +623,12 @@ export function StorageTab({ users, isAdmin }: StorageTabProps) {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ username: string; assignment: NasAssignment } | null>(null);
 
-  const flatAssignments = assignments.flatMap(ua =>
-    ua.nas_shares.map(s => ({ ...s, username: ua.username, name: ua.name }))
+  const flatAssignments = useMemo(
+    () =>
+      assignments.flatMap(ua =>
+        ua.nas_shares.map(s => ({ ...s, username: ua.username, name: ua.name }))
+      ),
+    [assignments]
   );
 
   const handleRevoke = async () => {

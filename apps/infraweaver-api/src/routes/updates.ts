@@ -153,9 +153,24 @@ function getLastSync(liveApp: ArgoApplication | undefined) {
     ?? null;
 }
 
-function matchLiveApp(manifest: ApplicationManifest, apps: ArgoApplication[]) {
-  return apps.find((app) => app.metadata?.name === manifest.appName)
+function buildLiveAppsByName(apps: ArgoApplication[]) {
+  const byName = new Map<string, ArgoApplication>();
+  for (const app of apps) {
+    const name = app.metadata?.name;
+    if (name && !byName.has(name)) {
+      byName.set(name, app);
+    }
+  }
+  return byName;
+}
+
+function matchLiveApp(manifest: ApplicationManifest, apps: ArgoApplication[], appsByName: Map<string, ArgoApplication>) {
+  return appsByName.get(manifest.appName)
     ?? apps.find((app) => (app.metadata?.name ?? '').includes(manifest.appName));
+}
+
+function findManifest(manifests: ApplicationManifest[], appNameOrId: string) {
+  return manifests.find((item) => item.appName === appNameOrId || item.id === appNameOrId);
 }
 
 // Version reported by the running image for apps that have no GitOps manifest
@@ -531,9 +546,10 @@ updatesRoute.get('/', async (c) => {
   // don't list them twice. matchLiveApp resolves a manifest -> live app; we record the
   // live app names it claims here to perform the reverse exclusion below.
   const representedLiveNames = new Set<string>();
+  const liveAppsByName = buildLiveAppsByName(liveApps);
 
   const payload: ApplicationEntry[] = manifests.map((manifest) => {
-    const liveApp = matchLiveApp(manifest, liveApps);
+    const liveApp = matchLiveApp(manifest, liveApps, liveAppsByName);
     if (liveApp?.metadata?.name) {
       representedLiveNames.add(liveApp.metadata.name);
     }
@@ -604,7 +620,7 @@ updatesRoute.get('/:appName/versions', async (c) => {
   }
 
   const manifests = await collectApplicationManifests();
-  const manifest = manifests.find((item) => item.appName === parsed.data.appName || item.id === parsed.data.appName);
+  const manifest = findManifest(manifests, parsed.data.appName);
   // Look up by short appName first (e.g. 'n8n'), then by full id (e.g. 'platform-n8n'), then fall back to manifest
   const versionSource = VERSION_SOURCES[manifest?.appName ?? ''] ?? VERSION_SOURCES[parsed.data.appName] ?? getFallbackSource(manifest);
 
@@ -629,7 +645,7 @@ updatesRoute.post('/:appName', async (c) => {
   }
 
   const manifests = await collectApplicationManifests();
-  const manifest = manifests.find((item) => item.appName === parsedName.data.appName || item.id === parsedName.data.appName);
+  const manifest = findManifest(manifests, parsedName.data.appName);
   if (!manifest) {
     return c.json({ error: 'Application manifest not found' }, 404);
   }

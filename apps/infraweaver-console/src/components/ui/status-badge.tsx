@@ -191,7 +191,7 @@ export function StatusBadge({
   className,
 }: StatusBadgeProps) {
   const normalizedStatus = normalizeStatus(status);
-  const config = STATUS_CONFIG[normalizedStatus] ?? STATUS_CONFIG.unknown;
+  const config = STATUS_CONFIG[normalizedStatus];
   const sz = SIZE_CONFIG[size];
   const displayLabel = label ?? config.label;
   const Icon = config.icon;
