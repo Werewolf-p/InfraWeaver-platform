@@ -5,6 +5,8 @@ import { findUserByUsername, authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
+import { offboardJellyfinUser } from "@/lib/jellyfin/access";
+import { deprovisionNextcloudUser } from "@/lib/nextcloud/deprovision";
 
 interface OffboardStep {
   name: string;
@@ -75,7 +77,29 @@ export async function POST(
     steps.push({ name: "Remove from groups", success: false, message: safeError(e) });
   }
 
-  // Step 4: Remove from users.yaml
+  // Step 4: Delete the Jellyfin local account + its OpenBao app-account record.
+  // A reconcile only disables a revoked account; offboard deletes it outright and
+  // clears the roster row + stored credential so no orphaned login or revealable
+  // password outlives the user. Idempotent — no account is a clean no-op.
+  try {
+    const result = await offboardJellyfinUser(username);
+    steps.push({ name: "Delete Jellyfin account", success: true, message: result.message });
+  } catch (e) {
+    steps.push({ name: "Delete Jellyfin account", success: false, message: safeError(e) });
+  }
+
+  // Step 5: Delete the residual Nextcloud user row. Access is already revoked by the
+  // Authentik disable + group-strip above (Nextcloud is SSO/group-driven); this removes
+  // the leftover DB record via the OCS API. It never touches /Media (an external
+  // TrueNAS mount, not the user's home).
+  try {
+    const result = await deprovisionNextcloudUser(username);
+    steps.push({ name: "Delete Nextcloud user", success: true, message: result.message });
+  } catch (e) {
+    steps.push({ name: "Delete Nextcloud user", success: false, message: safeError(e) });
+  }
+
+  // Step 6: Remove from users.yaml
   try {
     const { users, sha } = await loadUsersConfig();
     if (users[username]) {

@@ -79,6 +79,12 @@ export interface AppAccountProvider {
   /** Re-enable a previously-disabled account — the re-grant action. */
   enableUser(id: string): Promise<void>;
   /**
+   * Permanently delete an account. The reconcile engine never calls this — a revoke
+   * disables, it does not delete — but offboard does: a departing user's local login
+   * must be removed outright, not merely disabled. See {@link deprovisionAppUser}.
+   */
+  deleteUser(id: string): Promise<void>;
+  /**
    * Reset an account's password to `password` as admin (no current password needed).
    * The reconcile engine never calls this — a sync must never silently rewrite a
    * credential — but an ADOPTED account's password is unknown until an explicit admin

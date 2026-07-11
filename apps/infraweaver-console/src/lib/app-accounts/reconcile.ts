@@ -144,6 +144,54 @@ export async function syncAppUsers(
   return summary;
 }
 
+/** The outcome of a {@link deprovisionAppUser} call, for an offboard step report. */
+export interface DeprovisionResult {
+  /** True if a local account was found and deleted (false = nothing to delete). */
+  deleted: boolean;
+  /** Human-readable summary for the offboard `steps[]` report. */
+  message: string;
+}
+
+/**
+ * Fully remove one user from an app — the offboard counterpart to {@link syncAppUsers}.
+ *
+ * A reconcile only ever DISABLES a revoked account (retained, auditable); offboarding a
+ * departing person instead DELETES it outright, then clears the durable state the sync
+ * kept for it — the roster row (so nothing lingers as "managed") and the stored
+ * credential (so a revealable password does not outlive the account). Idempotent: a
+ * username with no matching local account is a no-op success, so a partial earlier
+ * offboard converges on a re-run.
+ *
+ * The service account is never a valid target — deleting the reconcile's own hands would
+ * brick every future sync — so an attempt to offboard it is refused rather than executed.
+ */
+export async function deprovisionAppUser(
+  provider: AppAccountProvider,
+  username: string,
+  store: AppAccountStore,
+): Promise<DeprovisionResult> {
+  if (key(username) === key(provider.serviceAccountUsername)) {
+    return { deleted: false, message: `Refused: '${username}' is the ${provider.appLabel} service account` };
+  }
+
+  await provider.ensureServiceAccount();
+  const existing = await provider.listUsers();
+  const account = existing.find((a) => key(a.username) === key(username));
+
+  if (account) {
+    await provider.deleteUser(account.id);
+  }
+  // Clear durable state regardless of whether the account existed: a roster row or
+  // stored credential can outlive the app account (a half-finished earlier offboard),
+  // and leaving either behind is exactly the orphan this step exists to remove.
+  await store.removeRosterEntry(provider.appId, username);
+  await store.deleteCredential(provider.appId, username);
+
+  return account
+    ? { deleted: true, message: `Deleted ${provider.appLabel} account '${username}' and cleared its record` }
+    : { deleted: false, message: `No ${provider.appLabel} account for '${username}' (cleared any stale record)` };
+}
+
 /** App usernames compare case-insensitively, matching `plan.ts`. */
 function key(username: string): string {
   return username.trim().toLowerCase();

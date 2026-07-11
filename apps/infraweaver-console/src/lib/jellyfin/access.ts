@@ -19,7 +19,7 @@ import { loadUsersConfig } from "@/lib/users-config";
 import type { Permission } from "@/lib/rbac";
 import { computeDesiredAppUsers } from "@/lib/app-accounts/policy";
 import { generateAppPassword } from "@/lib/app-accounts/password";
-import { syncAppUsers, type AppUserSyncSummary } from "@/lib/app-accounts/reconcile";
+import { syncAppUsers, deprovisionAppUser, type AppUserSyncSummary, type DeprovisionResult } from "@/lib/app-accounts/reconcile";
 import { openBaoAppAccountStore } from "@/lib/app-accounts/store";
 import { consoleAccountNotifier } from "@/lib/app-accounts/notify";
 import type { AppPermissionPair } from "@/lib/app-accounts/types";
@@ -67,6 +67,17 @@ export async function syncJellyfinUsers(): Promise<AppUserSyncSummary> {
     store: openBaoAppAccountStore,
     notifier: consoleAccountNotifier,
   });
+}
+
+/**
+ * Offboard one user from Jellyfin: delete the local account and clear its roster row +
+ * stored credential. The offboard-time counterpart to {@link syncJellyfinUsers}, which
+ * only ever disables a revoked account. Idempotent — a user with no Jellyfin account is
+ * a no-op success. Delegates to the generic engine so the Jellyfin specifics stay in the
+ * adapter.
+ */
+export async function offboardJellyfinUser(username: string): Promise<DeprovisionResult> {
+  return deprovisionAppUser(new JellyfinAccountProvider(), username, openBaoAppAccountStore);
 }
 
 /** Case-insensitive username key, matching the reconcile engine and Jellyfin itself. */

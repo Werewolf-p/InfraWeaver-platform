@@ -5,6 +5,8 @@ import { authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
 import { z } from "zod";
 import { publicHost } from "@/lib/domain";
+import { sendInviteEmail } from "@/lib/mailer";
+import { safeError } from "@/lib/utils";
 
 const InviteBody = z.object({
   email: z.string().email().max(254),
@@ -82,9 +84,28 @@ export async function POST(req: NextRequest) {
 
   const inv = await r.json();
   const token = inv.pk ?? inv.invite_uuid ?? "";
-  await auditLog("users:invite", session.user?.email ?? "unknown", `Invited ${email}`);
   const authentikBaseUrl = process.env.AUTHENTIK_PUBLIC_URL ?? `https://${publicHost("auth")}`;
-  return NextResponse.json({
-    url: `${authentikBaseUrl}/if/flow/${INVITATION_FLOW_SLUG}/?itoken=${token}`,
-  });
+  const url = `${authentikBaseUrl}/if/flow/${INVITATION_FLOW_SLUG}/?itoken=${token}`;
+
+  // Deliver the link by email — the whole point of an invite. A bounce (SMTP down,
+  // O365 rejecting the From, mail not yet wired) must NOT fail the invite: the token
+  // is already minted, so we still return `url` for a manual hand-off and surface the
+  // delivery outcome via `emailed`/`emailError` for the caller to act on.
+  let emailed = false;
+  let emailError: string | undefined;
+  try {
+    await sendInviteEmail(email, url);
+    emailed = true;
+  } catch (e) {
+    emailError = safeError(e);
+    console.error(`[users:invite] enrollment email to ${email} failed; the link is still returned for manual hand-off:`, emailError);
+  }
+
+  await auditLog(
+    "users:invite",
+    session.user?.email ?? "unknown",
+    `Invited ${email}${emailed ? " (emailed)" : ` (email failed: ${emailError})`}`,
+    { result: emailed ? "success" : "failure" },
+  );
+  return NextResponse.json({ url, emailed, ...(emailError ? { emailError } : {}) });
 }
