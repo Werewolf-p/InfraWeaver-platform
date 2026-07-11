@@ -1,4 +1,4 @@
-import type { Permission } from "@/lib/rbac";
+import { isGroupAllowedPermission, type Permission } from "@/lib/rbac";
 
 /**
  * Azure-style access management + Privileged Identity Management (PIM) data model.
@@ -223,7 +223,13 @@ export function computeExtraPermissions(
       );
     if (isMember) {
       groupIds.add(group.id);
-      for (const permission of group.permissions) perms.add(permission);
+      // Enforce the custom-group deny-list at computation time, not only at
+      // authoring time: a directly-edited access-control ConfigMap must not be
+      // able to smuggle "*" or a platform-escalation permission (rbac:admin,
+      // cluster:admin/drain/scale, users:write, …) into a user's effective set.
+      for (const permission of group.permissions) {
+        if (isGroupAllowedPermission(permission)) perms.add(permission);
+      }
     }
   }
 

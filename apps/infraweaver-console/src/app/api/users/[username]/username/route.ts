@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
 import { findUserByUsername, authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
@@ -18,7 +18,10 @@ export async function PATCH(
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["users:invite", "users:write", "rbac:admin"])) {
+  // C3: renaming rewrites the users.yaml key that role assignments and session
+  // identity are keyed on — a privileged lifecycle mutation. Require the higher
+  // users:write / rbac:admin gate, not the low-privilege users:invite.
+  if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -32,6 +35,13 @@ export async function PATCH(
 
   const user = await findUserByUsername(username);
   if (!user) return NextResponse.json({ error: "User not found in Authentik" }, { status: 404 });
+
+  // C3: privilege-ceiling — a non-rbac:admin operator must not be able to rename
+  // a superuser/admin account and disrupt its identity-to-RBAC mapping.
+  const targetIsSuperuser = (user as { is_superuser?: boolean }).is_superuser === true;
+  if (targetIsSuperuser && !hasSessionPermission(access, "rbac:admin")) {
+    return NextResponse.json({ error: "Forbidden: target account requires rbac:admin" }, { status: 403 });
+  }
 
   const selfEmail = (session.user as { email?: string }).email ?? "";
   if (user.email === selfEmail) {

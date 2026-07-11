@@ -1,5 +1,6 @@
 import type { Session } from "next-auth";
 import {
+  explainPermission,
   getEffectivePermissions,
   hasAssignedPermissionForScope,
   hasPermission,
@@ -55,6 +56,15 @@ export function hasSessionPermission(
   permission: Permission,
   scope = "/",
 ) {
+  // An explicit Deny covering this scope wins over EVERYTHING — including
+  // custom-group / PIM extraPermissions. Without this, extraPermissions
+  // short-circuit true below and a scoped Deny can never subtract them.
+  if (
+    explainPermission(context.groups, context.username, context.roleAssignments, permission, scope)
+      .effect === "Deny"
+  ) {
+    return false;
+  }
   if (context.extraPermissions.includes("*") || context.extraPermissions.includes(permission)) {
     return true;
   }

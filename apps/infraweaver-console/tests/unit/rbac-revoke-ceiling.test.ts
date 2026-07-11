@@ -82,7 +82,7 @@ describe("revokeRoleAssignment — privilege ceiling (user principal)", () => {
 
     const result = await revokeRoleAssignment(
       { assignmentId: "own-1", principalType: "user", principal: "victim" },
-      { granterPerms, actor: "admin@x" },
+      { granterPermsAt: () => granterPerms, actor: "admin@x" },
     );
 
     expect(result).toEqual({ ok: false, status: 403, error: expect.stringContaining("exceeds your own permissions") });
@@ -100,7 +100,7 @@ describe("revokeRoleAssignment — privilege ceiling (user principal)", () => {
 
     const result = await revokeRoleAssignment(
       { assignmentId: "deny-1", principalType: "user", principal: "victim" },
-      { granterPerms, actor: "admin@x" },
+      { granterPermsAt: () => granterPerms, actor: "admin@x" },
     );
 
     expect(result.ok).toBe(false);
@@ -113,7 +113,7 @@ describe("revokeRoleAssignment — privilege ceiling (user principal)", () => {
 
     const result = await revokeRoleAssignment(
       { assignmentId: "own-1", principalType: "user", principal: "victim" },
-      { granterPerms, actor: "owner@x" },
+      { granterPermsAt: () => granterPerms, actor: "owner@x" },
     );
 
     expect(result).toEqual({ ok: true });
@@ -127,7 +127,7 @@ describe("revokeRoleAssignment — privilege ceiling (user principal)", () => {
 
     const result = await revokeRoleAssignment(
       { assignmentId: "view-1", principalType: "user", principal: "victim" },
-      { granterPerms, actor: "admin@x" },
+      { granterPermsAt: () => granterPerms, actor: "admin@x" },
     );
 
     expect(result).toEqual({ ok: true });
@@ -140,7 +140,7 @@ describe("revokeRoleAssignment — privilege ceiling (user principal)", () => {
 
     const result = await revokeRoleAssignment(
       { assignmentId: "does-not-exist", principalType: "user", principal: "victim" },
-      { granterPerms, actor: "admin@x" },
+      { granterPermsAt: () => granterPerms, actor: "admin@x" },
     );
 
     expect(result).toEqual({ ok: false, status: 404, error: "Assignment not found" });
@@ -155,7 +155,7 @@ describe("revokeRoleAssignment — privilege ceiling (group principal)", () => {
 
     const result = await revokeRoleAssignment(
       { assignmentId: "gown-1", principalType: "group", principal: "platform-users" },
-      { granterPerms, actor: "admin@x" },
+      { granterPermsAt: () => granterPerms, actor: "admin@x" },
     );
 
     expect(result.ok).toBe(false);
@@ -169,7 +169,7 @@ describe("revokeRoleAssignment — privilege ceiling (group principal)", () => {
 
     const result = await revokeRoleAssignment(
       { assignmentId: "gown-1", principalType: "group", principal: "platform-users" },
-      { granterPerms, actor: "owner@x" },
+      { granterPermsAt: () => granterPerms, actor: "owner@x" },
     );
 
     expect(result).toEqual({ ok: true });

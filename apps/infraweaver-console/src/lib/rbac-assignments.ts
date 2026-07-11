@@ -41,8 +41,14 @@ export interface GrantAssignmentInput {
 }
 
 export interface AssignmentActionContext {
-  /** The granter's full effective permission set at "/" (for the privilege ceiling). */
-  granterPerms: Set<Permission>;
+  /**
+   * Resolves the granter's full effective permission set AT a given scope, for
+   * the scope-aware privilege ceiling. Evaluating at the assignment's own scope
+   * (not a fixed "/") ensures a Deny scoped to a subtree correctly lowers the
+   * ceiling there — so a granter who is Denied at /wordpress cannot grant back
+   * wordpress permissions at /wordpress that their own Deny withholds.
+   */
+  granterPermsAt: (scope: string) => Set<Permission>;
   /** Actor identity recorded in git commit + audit log. */
   actor: string;
 }
@@ -225,8 +231,9 @@ export async function grantRoleAssignment(
 ): Promise<AssignmentActionResult> {
   if (!isKnownRole(input.roleId)) return { ok: false, status: 400, error: "Unknown role" };
 
-  // Privilege ceiling: never grant a role conferring permissions the granter lacks.
-  if (assignmentExceedsGranter(ctx.granterPerms, input.roleId)) {
+  // Privilege ceiling: never grant a role conferring permissions the granter lacks
+  // AT THE GRANT'S SCOPE (so a subtree Deny lowers the ceiling there).
+  if (assignmentExceedsGranter(ctx.granterPermsAt(input.scope), input.roleId)) {
     await auditLog(
       "rbac:assign:denied",
       ctx.actor,
@@ -346,7 +353,7 @@ export async function applyRoleAssignments(
 
   // Privilege ceiling on every grant, before any load/write (fail-closed).
   for (const grant of input.grants) {
-    if (assignmentExceedsGranter(ctx.granterPerms, grant.roleId)) {
+    if (assignmentExceedsGranter(ctx.granterPermsAt(grant.scope), grant.roleId)) {
       await auditLog(
         "rbac:assign:denied",
         ctx.actor,
@@ -372,7 +379,7 @@ export async function applyRoleAssignments(
   for (const id of revokeIds) {
     const target = before.find((a) => a.id === id);
     if (!target) return { ok: false, status: 404, error: `Assignment '${id}' not found` };
-    if (assignmentExceedsGranter(ctx.granterPerms, target.roleId)) {
+    if (assignmentExceedsGranter(ctx.granterPermsAt(target.scope), target.roleId)) {
       await auditLog(
         "rbac:revoke:denied",
         ctx.actor,
@@ -461,7 +468,7 @@ async function revokeExceedsCeiling(
   input: RevokeAssignmentInput,
   ctx: AssignmentActionContext,
 ): Promise<boolean> {
-  if (!assignmentExceedsGranter(ctx.granterPerms, removed.roleId)) return false;
+  if (!assignmentExceedsGranter(ctx.granterPermsAt(removed.scope), removed.roleId)) return false;
   await auditLog(
     "rbac:revoke:denied",
     ctx.actor,

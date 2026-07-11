@@ -9,6 +9,21 @@ const podTargetSchema = z.object({
   name: z.string().regex(/^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/, 'Invalid pod name'),
 });
 
+// Logs from core/system namespaces (kube-system, authentik, external-secrets,
+// openbao, …) routinely contain tokens, session identifiers and PII — reading
+// them is effectively a security-read operation, so it is gated like the
+// secrets route (security:read / cluster:admin). The namespace list mirrors
+// RESERVED_NAMESPACES in routes/community-apps.ts plus the auth/secrets stack.
+const SENSITIVE_LOG_NAMESPACES = new Set([
+  'default', 'kube-system', 'kube-public', 'kube-node-lease', 'argocd',
+  'cert-manager', 'external-secrets', 'external-dns', 'monitoring', 'falco',
+  'longhorn-system', 'cilium-secrets', 'crds', 'bootstrap', 'dns-system',
+  'infraweaver', 'infraweaver-console', 'infraweaver-system',
+  'authentik', 'openbao',
+]);
+const isSensitiveLogNamespace = (name: string): boolean =>
+  SENSITIVE_LOG_NAMESPACES.has(name) || name.endsWith('-system') || name.startsWith('kube-');
+
 export const podsRoute = new Hono<AppBindings>();
 
 podsRoute.get('/', async (c) => {
@@ -68,13 +83,27 @@ podsRoute.get('/', async (c) => {
 
 podsRoute.get('/:namespace/:name/logs', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'apps:read')) {
+  // Log reads are gated at cluster:read (matching the pod list endpoint above —
+  // a caller who cannot enumerate pods must not be able to read their logs).
+  // Every built-in role holding apps:read also holds cluster:read, so this only
+  // tightens weaker custom/scoped grants.
+  if (!hasPermission(user, 'cluster:read')) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
   const parsed = podTargetSchema.safeParse(c.req.param());
   if (!parsed.success) {
     return c.json({ error: 'Invalid pod target' }, 400);
+  }
+
+  // System/infra namespaces require the security-read tier (same gate as the
+  // secrets route): their logs are as sensitive as secret material.
+  if (
+    isSensitiveLogNamespace(parsed.data.namespace)
+    && !hasPermission(user, 'security:read')
+    && !hasPermission(user, 'cluster:admin')
+  ) {
+    return c.json({ error: 'Forbidden' }, 403);
   }
 
   const tailLines = Math.min(Math.max(Number.parseInt(c.req.query('lines') ?? '500', 10) || 500, 1), 1000);

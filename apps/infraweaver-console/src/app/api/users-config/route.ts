@@ -58,6 +58,23 @@ export const POST = withAuth(
       acc[username as string] = preservePrivilegedFields(rest, storedUsers[username as string] as Record<string, unknown> | undefined);
       return acc;
     }, {});
+    // Bulk POST replaces the whole user set, so it must honor the same invariants
+    // the single-user DELETE enforces: never remove the caller's own account, and
+    // never leave zero admins. Omitting a user from the body deletes them.
+    const resultUsernames = new Set(Object.keys(usersObj));
+    const selfUsername = Object.entries(storedUsers).find(
+      ([, u]) => (u as { email?: string }).email === session.user?.email,
+    )?.[0];
+    if (selfUsername && !resultUsernames.has(selfUsername)) {
+      return NextResponse.json({ error: "Cannot remove your own account" }, { status: 400 });
+    }
+    const storedAdmins = Object.entries(storedUsers)
+      .filter(([, u]) => (u as { access_level?: string }).access_level === "admin")
+      .map(([name]) => name);
+    if (storedAdmins.length > 0 && !storedAdmins.some((name) => resultUsernames.has(name))) {
+      return NextResponse.json({ error: "Cannot remove the last admin account" }, { status: 400 });
+    }
+
     const commitMessage = body.commitMessage ?? "chore: update users.yaml via InfraWeaver Console";
     await saveUsersConfig(usersObj, sha, commitMessage);
     await auditLog(

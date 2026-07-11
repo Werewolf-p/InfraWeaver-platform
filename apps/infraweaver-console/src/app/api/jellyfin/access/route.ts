@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
     // stores its generated password.
     const outcome = await grantRoleAssignment(
       { ...parsed.data, scope: JELLYFIN_SCOPE },
-      { granterPerms: getSessionEffectivePermissions(rbac, "/"), actor: session.user?.email ?? "unknown" },
+      { granterPermsAt: (scope: string) => getSessionEffectivePermissions(rbac, scope), actor: session.user?.email ?? "unknown" },
     );
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
     return NextResponse.json({ ok: true, assignment: outcome.assignment });
@@ -142,7 +142,7 @@ export async function DELETE(req: NextRequest) {
 
   try {
     const outcome = await revokeRoleAssignment(parsed.data, {
-      granterPerms: getSessionEffectivePermissions(rbac, "/"),
+      granterPermsAt: (scope: string) => getSessionEffectivePermissions(rbac, scope),
       actor: session.user?.email ?? "unknown",
     });
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });

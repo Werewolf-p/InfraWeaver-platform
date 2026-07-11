@@ -73,12 +73,12 @@ export async function POST(req: NextRequest) {
   if (!principal) return NextResponse.json({ error: "Missing principal (username or group)" }, { status: 400 });
   if (principalType === "group" && !SAFE_GROUP_RE.test(principal)) return NextResponse.json({ error: "Invalid group name" }, { status: 400 });
 
-  const granterPerms = getSessionEffectivePermissions(access, "/");
+  const granterPermsAt = (scope: string) => getSessionEffectivePermissions(access, scope);
   const actor = session.user?.email ?? "unknown";
   try {
     const outcome = await grantRoleAssignment(
       { roleId: body.roleId, scope: body.scope, principalType, principal, expiresAt: body.expiresAt, effect: body.effect },
-      { granterPerms, actor },
+      { granterPermsAt, actor },
     );
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
     return NextResponse.json({ ok: true, assignment: { ...outcome.assignment, username: principal } });
@@ -103,11 +103,11 @@ export async function DELETE(req: NextRequest) {
   const principal = principalType === "group" ? (group ?? username) : username;
   if (!principal) return NextResponse.json({ error: "Missing principal (username or group)" }, { status: 400 });
 
-  const granterPerms = getSessionEffectivePermissions(access, "/");
+  const granterPermsAt = (scope: string) => getSessionEffectivePermissions(access, scope);
   try {
     const outcome = await revokeRoleAssignment(
       { assignmentId: id, principalType, principal },
-      { granterPerms, actor: session.user?.email ?? "unknown" },
+      { granterPermsAt, actor: session.user?.email ?? "unknown" },
     );
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
     return NextResponse.json({ ok: true });

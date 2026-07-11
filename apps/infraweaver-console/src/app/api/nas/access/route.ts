@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
     // share's Authentik groups so Nextcloud's view converges.
     const outcome = await grantRoleAssignment(
       { roleId, scope, principalType, principal, expiresAt },
-      { granterPerms: getSessionEffectivePermissions(rbac, "/"), actor: session.user?.email ?? "unknown" },
+      { granterPermsAt: (scope: string) => getSessionEffectivePermissions(rbac, scope), actor: session.user?.email ?? "unknown" },
     );
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
     return NextResponse.json({ ok: true, assignment: outcome.assignment, scope });
@@ -202,7 +202,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const outcome = await revokeRoleAssignment(
       { assignmentId: parsed.data.assignmentId, principalType: parsed.data.principalType, principal: parsed.data.principal },
-      { granterPerms: getSessionEffectivePermissions(rbac, "/"), actor: session.user?.email ?? "unknown" },
+      { granterPermsAt: (scope: string) => getSessionEffectivePermissions(rbac, scope), actor: session.user?.email ?? "unknown" },
     );
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
     return NextResponse.json({ ok: true });

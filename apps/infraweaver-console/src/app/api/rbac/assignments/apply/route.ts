@@ -60,12 +60,12 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "No changes to apply" }, { status: 400 });
   }
 
-  const granterPerms = getSessionEffectivePermissions(access, "/");
+  const granterPermsAt = (scope: string) => getSessionEffectivePermissions(access, scope);
   const actor = session.user?.email ?? "unknown";
   try {
     const outcome = await applyRoleAssignments(
       { principalType, principal, grants: body.grants, revokes: body.revokes },
-      { granterPerms, actor },
+      { granterPermsAt, actor },
     );
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
     return NextResponse.json({

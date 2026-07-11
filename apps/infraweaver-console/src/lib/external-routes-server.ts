@@ -264,7 +264,14 @@ function applyTierDefaults(input: ExternalRouteMutationInput): ExternalRouteMuta
   return { ...input, host: normalizeHost(input.host), enableAuth: Boolean(input.enableAuth) };
 }
 
+// Strict DNS hostname — no backticks, parens, spaces or Traefik rule metacharacters,
+// so `input.host` cannot break out of the Host(`…`) match rule (rule injection).
+const ROUTE_HOST_RE = /^[a-z0-9]([a-z0-9-]{0,62})?(\.[a-z0-9]([a-z0-9-]{0,62})?)+$/;
+
 function buildRouteDocument(input: ExternalRouteMutationInput, backendServiceName: string): ManifestResource {
+  if (!ROUTE_HOST_RE.test(input.host)) {
+    throw new Error(`Invalid route host: ${input.host}`);
+  }
   const scheme = input.scheme === "https" ? "https" : "http";
   const skipTlsVerify = Boolean(input.skipTlsVerify && scheme === "https");
   const routeService = {

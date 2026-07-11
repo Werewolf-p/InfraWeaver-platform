@@ -80,6 +80,11 @@ export const GROUP_DENIED_PERMISSIONS = [
   "rbac:admin",
   "platform:update",
   "cluster:admin",
+  // cluster:drain / cluster:scale are PIM-time-boxed cluster operations (pim.ts
+  // cluster-admin role); a custom group must not carry them or a 60-minute
+  // elevation could mint itself permanent cluster-operation rights.
+  "cluster:drain",
+  "cluster:scale",
   "security:write",
 ] as const satisfies readonly Permission[];
 
@@ -890,7 +895,12 @@ export function getBuiltInRoles(): RoleDefinition[] {
 
 export function isAssignmentExpired(assignment: RoleAssignment): boolean {
   if (!assignment.expiresAt) return false;
-  return new Date(assignment.expiresAt) < new Date();
+  const expiry = new Date(assignment.expiresAt).getTime();
+  // Fail closed: an unparseable expiry must be treated as EXPIRED, never as a
+  // permanent grant (NaN < now is false, which would silently make the grant
+  // never expire).
+  if (Number.isNaN(expiry)) return true;
+  return expiry < Date.now();
 }
 
 export const STATIC_SCOPES = [
