@@ -71,7 +71,11 @@ export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
   // Bind the target cluster into the signed message so a client cannot swap
   // x-cluster-id on a valid request to target a cluster it lacks access to.
   const clusterId = c.req.header('x-cluster-id') ?? 'local';
-  const message = `${ts}:${userId}:${rolesHeader}:${clusterId}`;
+  // The signed message binds the HTTP method (see console signer iw-api.ts) so a
+  // captured signature cannot be replayed under a different method (e.g. a GET's
+  // signature reused for a mutation). Path/body binding is a further hardening
+  // step that requires matched canonicalization and live integration testing.
+  const message = `${ts}:${c.req.method}:${userId}:${rolesHeader}:${clusterId}`;
   let validSecret: string | null = null;
   let keyUsed: 'current' | 'previous' = 'current';
 

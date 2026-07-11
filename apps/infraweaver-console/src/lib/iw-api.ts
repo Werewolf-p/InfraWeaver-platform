@@ -21,10 +21,13 @@ export function iwApiFetch(
   const userId = user?.email ?? 'anonymous';
   const roles = (user?.groups ?? []).join(',');
   const ts = Date.now().toString();
+  // Bind the HTTP method into the signature so a captured signature (e.g. from a
+  // GET) cannot be replayed as a different-method request such as a mutation.
+  const method = (init.method ?? 'GET').toUpperCase();
 
   const headers = new Headers(init.headers);
   if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
-  headers.set('x-console-sig', sign(`${ts}:${userId}:${roles}:${clusterId}`, secret));
+  headers.set('x-console-sig', sign(`${ts}:${method}:${userId}:${roles}:${clusterId}`, secret));
   headers.set('x-console-ts', ts);
   headers.set('x-user-id', userId);
   headers.set('x-user-roles', roles);
