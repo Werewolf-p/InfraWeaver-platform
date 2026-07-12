@@ -15,11 +15,6 @@ export const DEFAULT_ENABLED_ADDONS: string[] = ADDON_MANIFESTS
  */
 export const ADDONS: Addon[] = ADDON_MANIFESTS.map((m) => manifestToAddon(m, false));
 
-function withEnabledState(enabledIds: readonly string[]): Addon[] {
-  const enabledSet = new Set(enabledIds);
-  return ADDONS.map((addon) => ({ ...addon, enabled: enabledSet.has(addon.id) }));
-}
-
 export function parseEnabledAddons(raw?: string): string[] {
   if (!raw) return [...DEFAULT_ENABLED_ADDONS];
   try {
@@ -33,8 +28,10 @@ export function parseEnabledAddons(raw?: string): string[] {
   return raw.split(",").map((v) => v.trim()).filter(Boolean);
 }
 
+/** ADDONS with live enabled state applied from the stored ids. */
 export function buildAddonList(enabledIds: readonly string[]): Addon[] {
-  return withEnabledState(enabledIds);
+  const enabledSet = new Set(enabledIds);
+  return ADDONS.map((addon) => ({ ...addon, enabled: enabledSet.has(addon.id) }));
 }
 
 export function filterNavGroupsByAddons<T extends { items: Array<{ href: string }> }>(

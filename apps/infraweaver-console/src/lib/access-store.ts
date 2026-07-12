@@ -1,13 +1,12 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { makeCoreApi } from "@/lib/kube-client";
+import { createConfigMapJsonStore } from "@/lib/configmap-store";
 import {
   type AccessControlState,
   type CustomGroup,
   type PimActivation,
   type PimEligibility,
   type ResourceAssignment,
-  EMPTY_ACCESS_STATE,
   PIM_ROLES,
   effectiveMaxDuration,
   eligibleRolesFor,
@@ -22,110 +21,52 @@ import {
  * State lives in a single ConfigMap (`infraweaver-access-control`) in the console
  * namespace. Each top-level slice of {@link AccessControlState} is serialized as a
  * JSON string under its own key so the data is human-inspectable via kubectl.
+ * Persistence (404 → empty, create-or-replace, one conflict retry) is delegated
+ * to the shared ConfigMap JSON store.
  */
 
-const CONSOLE_NAMESPACE = process.env.CONSOLE_NAMESPACE ?? process.env.POD_NAMESPACE ?? "infraweaver-console";
 const CONFIGMAP_NAME = process.env.ACCESS_CONFIGMAP_NAME ?? "infraweaver-access-control";
 
-interface AccessConfigMap {
-  metadata?: { resourceVersion?: string };
-  data?: Record<string, string | undefined>;
+const store = createConfigMapJsonStore<AccessControlState>({
+  name: CONFIGMAP_NAME,
+  keys: ["groups", "assignments", "eligibility", "activations"],
+  labels: { "infraweaver.io/component": "access-control" },
+});
+
+function asArray<T>(value: T[] | undefined): T[] {
+  return Array.isArray(value) ? value : [];
 }
 
-interface LoadedAccessState extends AccessControlState {
-  resourceVersion?: string;
-}
-
-function isNotFoundError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return /404|not\s*found/i.test(message);
-}
-
-function safeParseArray<T>(value: string | undefined): T[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? (parsed as T[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function readConfigMap(): Promise<AccessConfigMap | null> {
-  const coreApi = makeCoreApi();
-  try {
-    return (await coreApi.readNamespacedConfigMap({
-      name: CONFIGMAP_NAME,
-      namespace: CONSOLE_NAMESPACE,
-    })) as AccessConfigMap;
-  } catch (error) {
-    if (isNotFoundError(error)) return null;
-    throw error;
-  }
-}
-
-export async function loadAccessState(): Promise<LoadedAccessState> {
-  const configMap = await readConfigMap();
-  if (!configMap) return { ...EMPTY_ACCESS_STATE };
+/** Normalize a (possibly partial/missing) stored value into a full state object. */
+function toState(current: Partial<AccessControlState> | null): AccessControlState {
   return {
-    groups: safeParseArray<CustomGroup>(configMap.data?.groups),
-    assignments: safeParseArray<ResourceAssignment>(configMap.data?.assignments),
-    eligibility: safeParseArray<PimEligibility>(configMap.data?.eligibility),
-    activations: safeParseArray<PimActivation>(configMap.data?.activations),
-    resourceVersion: configMap.metadata?.resourceVersion,
+    groups: asArray(current?.groups),
+    assignments: asArray(current?.assignments),
+    eligibility: asArray(current?.eligibility),
+    activations: asArray(current?.activations),
   };
 }
 
-/** Public read used by RBAC layers — returns plain state without resourceVersion. */
+export async function loadAccessState(): Promise<AccessControlState> {
+  return toState(await store.load());
+}
+
+/** Public read used by RBAC layers. */
 export async function getAccessState(): Promise<AccessControlState> {
-  const { groups, assignments, eligibility, activations } = await loadAccessState();
-  return { groups, assignments, eligibility, activations };
-}
-
-async function writeAccessState(state: LoadedAccessState): Promise<void> {
-  const coreApi = makeCoreApi();
-  const body = {
-    apiVersion: "v1",
-    kind: "ConfigMap",
-    metadata: {
-      name: CONFIGMAP_NAME,
-      namespace: CONSOLE_NAMESPACE,
-      labels: { "app.kubernetes.io/managed-by": "infraweaver-console", "infraweaver.io/component": "access-control" },
-      ...(state.resourceVersion ? { resourceVersion: state.resourceVersion } : {}),
-    },
-    data: {
-      groups: JSON.stringify(state.groups),
-      assignments: JSON.stringify(state.assignments),
-      eligibility: JSON.stringify(state.eligibility),
-      activations: JSON.stringify(state.activations),
-      updatedAt: new Date().toISOString(),
-    },
-  };
-
-  if (state.resourceVersion) {
-    await coreApi.replaceNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: CONSOLE_NAMESPACE, body });
-  } else {
-    await coreApi.createNamespacedConfigMap({ namespace: CONSOLE_NAMESPACE, body });
-  }
+  return loadAccessState();
 }
 
 /**
  * Read-modify-write with a single optimistic-concurrency retry on conflict.
  */
-async function mutate<T>(mutator: (state: LoadedAccessState) => T): Promise<{ state: AccessControlState; result: T }> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const state = await loadAccessState();
-    const result = mutator(state);
-    try {
-      await writeAccessState(state);
-      return { state: { groups: state.groups, assignments: state.assignments, eligibility: state.eligibility, activations: state.activations }, result };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const conflict = /409|conflict/i.test(message);
-      if (!conflict || attempt === 1) throw error;
-    }
-  }
-  throw new Error("Failed to persist access state");
+async function mutate<T>(mutator: (state: AccessControlState) => T): Promise<{ state: AccessControlState; result: T }> {
+  let result!: T;
+  const state = await store.mutate((current) => {
+    const next = toState(current);
+    result = mutator(next);
+    return next;
+  });
+  return { state, result };
 }
 
 // ── Custom groups ────────────────────────────────────────────────────────────

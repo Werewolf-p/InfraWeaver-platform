@@ -1,6 +1,9 @@
 // Server-only: uses @kubernetes/client-node via kube-client. Never import from client components.
 import { ADDONS, buildAddonList, parseEnabledAddons } from "@/lib/addons";
 import type { Addon } from "@/lib/addons";
+import { createConfigMapJsonStore, isK8sNotFound } from "@/lib/configmap-store";
+import { makeCoreApi } from "@/lib/kube-client";
+import { errorMessage } from "@/lib/utils";
 
 interface AddonConfigMap {
   metadata?: { resourceVersion?: string };
@@ -11,18 +14,21 @@ const CONSOLE_NAMESPACE = process.env.CONSOLE_NAMESPACE ?? process.env.POD_NAMES
 const ADDON_CONFIGMAP_NAME = "infraweaver-addon-config";
 const ENABLED_ADDONS_KEY = "enabledAddons";
 
-function isNotFoundError(error: unknown) {
-  const msg = error instanceof Error ? error.message : String(error);
-  return /404|not\s*found/i.test(msg);
-}
+const store = createConfigMapJsonStore<{ enabledAddons: string[] }>({
+  name: ADDON_CONFIGMAP_NAME,
+  namespace: CONSOLE_NAMESPACE,
+  keys: [ENABLED_ADDONS_KEY],
+});
 
 function isForbiddenError(error: unknown) {
-  const msg = error instanceof Error ? error.message : String(error);
-  return /403|forbidden/i.test(msg);
+  return /403|forbidden/i.test(errorMessage(error));
 }
 
+/**
+ * Raw ConfigMap read (not the JSON store): enabled ids may be stored as a
+ * comma-separated legacy string, which parseEnabledAddons handles.
+ */
 async function readAddonConfigMap(): Promise<AddonConfigMap | null> {
-  const { makeCoreApi } = await import("@/lib/kube-client");
   const coreApi = makeCoreApi();
   try {
     return (await coreApi.readNamespacedConfigMap({
@@ -30,17 +36,18 @@ async function readAddonConfigMap(): Promise<AddonConfigMap | null> {
       namespace: CONSOLE_NAMESPACE,
     })) as AddonConfigMap;
   } catch (error) {
-    if (isNotFoundError(error) || isForbiddenError(error)) return null;
+    if (isK8sNotFound(error) || isForbiddenError(error)) return null;
     throw error;
   }
 }
 
+/** Enabled addon ids from the ConfigMap, honoring the legacy `enabled` data key. */
+function readEnabledIds(configMap: AddonConfigMap | null): string[] {
+  return parseEnabledAddons(configMap?.data?.[ENABLED_ADDONS_KEY] ?? configMap?.data?.enabled);
+}
+
 export async function getEnabledAddons(): Promise<Addon[]> {
-  const configMap = await readAddonConfigMap();
-  const enabledIds = parseEnabledAddons(
-    configMap?.data?.[ENABLED_ADDONS_KEY] ?? configMap?.data?.enabled
-  );
-  return buildAddonList(enabledIds);
+  return buildAddonList(readEnabledIds(await readAddonConfigMap()));
 }
 
 export async function isAddonEnabled(id: string): Promise<boolean> {
@@ -53,13 +60,7 @@ export async function setAddonEnabled(id: string, enabled: boolean): Promise<Add
     throw new Error(`Unknown addon: ${id}`);
   }
 
-  const { makeCoreApi } = await import("@/lib/kube-client");
-  const coreApi = makeCoreApi();
-  const current = await readAddonConfigMap();
-  const enabledIds = new Set(
-    parseEnabledAddons(current?.data?.[ENABLED_ADDONS_KEY] ?? current?.data?.enabled)
-  );
-
+  const enabledIds = new Set(readEnabledIds(await readAddonConfigMap()));
   if (enabled) {
     enabledIds.add(id);
   } else {
@@ -67,31 +68,6 @@ export async function setAddonEnabled(id: string, enabled: boolean): Promise<Add
   }
 
   const nextEnabled = [...enabledIds].sort();
-  const body = {
-    apiVersion: "v1",
-    kind: "ConfigMap",
-    metadata: {
-      name: ADDON_CONFIGMAP_NAME,
-      namespace: CONSOLE_NAMESPACE,
-      ...(current?.metadata?.resourceVersion
-        ? { resourceVersion: current.metadata.resourceVersion }
-        : {}),
-    },
-    data: {
-      [ENABLED_ADDONS_KEY]: JSON.stringify(nextEnabled),
-      updatedAt: new Date().toISOString(),
-    },
-  };
-
-  if (current) {
-    await coreApi.replaceNamespacedConfigMap({
-      name: ADDON_CONFIGMAP_NAME,
-      namespace: CONSOLE_NAMESPACE,
-      body,
-    });
-  } else {
-    await coreApi.createNamespacedConfigMap({ namespace: CONSOLE_NAMESPACE, body });
-  }
-
+  await store.save({ enabledAddons: nextEnabled });
   return buildAddonList(nextEnabled);
 }

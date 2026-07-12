@@ -1,6 +1,12 @@
 import "server-only";
 import type { FeedbackEntry } from "@/lib/feedback-store";
-import { signHmac } from "@/lib/hmac";
+import {
+  DISPATCH_LONG_TIMEOUT_MS,
+  DISPATCH_QUICK_TIMEOUT_MS,
+  dispatchGet,
+  dispatchMutate,
+  type DispatchMutationResult,
+} from "@/lib/dispatch-client";
 
 /**
  * Direct client for the InfraWeaver dispatch service (no n8n).
@@ -11,9 +17,9 @@ import { signHmac } from "@/lib/hmac";
  * image in-cluster (BuildKit → Zot), and deploys an ephemeral preview. /validate
  * records the reviewer verdict; /publish merges staging → main and releases.
  *
- * Trigger is env-driven and FAIL-SAFE: if DISPATCH_URL is not configured the
- * console status change still succeeds and we report `skipped` instead of
- * throwing, so triage is never blocked by integration wiring.
+ * Transport, fail-safe (missing DISPATCH_URL → `skipped`), fail-closed
+ * (missing DISPATCH_SECRET → mutations refused) and HMAC signing all live in
+ * `@/lib/dispatch-client`; triage is never blocked by integration wiring.
  *
  *   DISPATCH_URL  e.g. http://10.10.0.92:9876  (cluster/runner-internal only)
  *
@@ -24,18 +30,6 @@ import { signHmac } from "@/lib/hmac";
  * callers do not block the HTTP response on them.
  */
 const DISPATCH_URL = process.env.DISPATCH_URL;
-// Shared HMAC secret for signing outbound mutation POSTs (approve/validate/
-// publish). FAIL-CLOSED: when unset, mutation POSTs are refused (reported as
-// `skipped`) rather than sent unsigned — an unsigned mutation channel would
-// let any in-cluster caller drive publish/deploy once dispatch trusts it.
-const DISPATCH_SECRET = process.env.DISPATCH_SECRET;
-// Quick calls (validated verdict, run listing) get a short timeout.
-const QUICK_TIMEOUT_MS = 10_000;
-// Long calls (approve / not_fixed / publish) — the dispatch run can take ~20 min.
-const LONG_TIMEOUT_MS = 25 * 60_000;
-
-const MISSING = "dispatch service not configured (DISPATCH_URL)";
-const MISSING_SECRET = "dispatch HMAC secret not configured (DISPATCH_SECRET); refusing to send unsigned mutation";
 
 export interface DispatchResult {
   ok: boolean;
@@ -71,54 +65,10 @@ export interface DispatchRun {
   error?: string;
 }
 
-interface PostOptions {
-  timeoutMs?: number;
-}
-
-/**
- * Fail-safe POST to the dispatch service. When DISPATCH_URL is unset we report
- * `skipped` instead of throwing, so triage is never blocked by wiring.
- */
-async function postDispatch(
-  pathname: string,
-  body: Record<string, unknown>,
-  { timeoutMs = QUICK_TIMEOUT_MS }: PostOptions = {},
-): Promise<DispatchResult> {
-  if (!DISPATCH_URL) return { ok: false, skipped: true, error: MISSING };
-  // Fail CLOSED: every postDispatch call is a mutation (/approve, /validate,
-  // /publish). Never send them unsigned — refuse (as `skipped`) until ops
-  // provisions the shared secret on both sides.
-  if (!DISPATCH_SECRET) {
-    console.warn(`[feedback-dispatch] ${MISSING_SECRET} (POST ${pathname} not sent)`);
-    return { ok: false, skipped: true, error: MISSING_SECRET };
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    // Serialize the body ONCE — the exact string is both sent and signed so the
-    // dispatch verifier's HMAC over the raw received bytes matches.
-    const rawBody = JSON.stringify(body);
-    const timestamp = String(Date.now());
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "X-IW-Timestamp": timestamp,
-      "X-IW-Signature": signHmac(`${timestamp}.${rawBody}`, DISPATCH_SECRET),
-    };
-    const res = await fetch(new URL(pathname, DISPATCH_URL), {
-      method: "POST",
-      headers,
-      body: rawBody,
-      signal: controller.signal,
-    });
-    const payload = (await res.json().catch(() => ({}))) as Partial<DispatchResult> & { error?: string };
-    if (!res.ok) return { ok: false, error: payload.error ?? `dispatch responded ${res.status}` };
-    return { ok: payload.ok !== false, ...payload };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "dispatch call failed" };
-  } finally {
-    clearTimeout(timer);
-  }
+/** Flatten a dispatch-client mutation result back into the flat DispatchResult shape. */
+function toDispatchResult(result: DispatchMutationResult<Partial<DispatchResult>>): DispatchResult {
+  const { data, ...rest } = result;
+  return { ...rest, ...data };
 }
 
 /**
@@ -126,16 +76,18 @@ async function postDispatch(
  * LONG-running: callers fire this in the background and stream progress.
  */
 export async function dispatchApprovedFeedback(entry: FeedbackEntry, note?: string): Promise<DispatchResult> {
-  return postDispatch(
-    "/approve",
-    {
-      feedbackId: entry.id,
-      description: entry.description,
-      pagePath: entry.pagePath,
-      type: entry.type,
-      ...(note ? { note } : {}),
-    },
-    { timeoutMs: LONG_TIMEOUT_MS },
+  return toDispatchResult(
+    await dispatchMutate<Partial<DispatchResult>>(
+      "/approve",
+      {
+        feedbackId: entry.id,
+        description: entry.description,
+        pagePath: entry.pagePath,
+        type: entry.type,
+        ...(note ? { note } : {}),
+      },
+      { timeoutMs: DISPATCH_LONG_TIMEOUT_MS },
+    ),
   );
 }
 
@@ -149,17 +101,19 @@ export async function validateFeedback(
   action: ValidationAction,
   note?: string,
 ): Promise<DispatchResult> {
-  return postDispatch(
-    "/validate",
-    {
-      feedbackId: entry.id,
-      action,
-      note: note ?? "",
-      description: entry.description,
-      pagePath: entry.pagePath,
-      type: entry.type,
-    },
-    { timeoutMs: action === "not_fixed" ? LONG_TIMEOUT_MS : QUICK_TIMEOUT_MS },
+  return toDispatchResult(
+    await dispatchMutate<Partial<DispatchResult>>(
+      "/validate",
+      {
+        feedbackId: entry.id,
+        action,
+        note: note ?? "",
+        description: entry.description,
+        pagePath: entry.pagePath,
+        type: entry.type,
+      },
+      { timeoutMs: action === "not_fixed" ? DISPATCH_LONG_TIMEOUT_MS : DISPATCH_QUICK_TIMEOUT_MS },
+    ),
   );
 }
 
@@ -168,44 +122,20 @@ export async function validateFeedback(
  * + release image, bump prod image pin). LONG-running.
  */
 export async function publishAllFeedback(): Promise<DispatchResult> {
-  return postDispatch("/publish", {}, { timeoutMs: LONG_TIMEOUT_MS });
+  return toDispatchResult(
+    await dispatchMutate<Partial<DispatchResult>>("/publish", {}, { timeoutMs: DISPATCH_LONG_TIMEOUT_MS }),
+  );
 }
 
 /** List dispatch run records for an entry (newest first). Read-only / quick. */
 export async function listFeedbackRuns(feedbackId: string): Promise<DispatchRun[]> {
-  if (!DISPATCH_URL) return [];
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), QUICK_TIMEOUT_MS);
-  try {
-    const url = new URL("/runs", DISPATCH_URL);
-    url.searchParams.set("feedbackId", feedbackId);
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return [];
-    const payload = (await res.json()) as { runs?: DispatchRun[] };
-    return Array.isArray(payload.runs) ? payload.runs : [];
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
+  const payload = await dispatchGet<{ runs?: DispatchRun[] }>(`/runs?feedbackId=${encodeURIComponent(feedbackId)}`);
+  return Array.isArray(payload?.runs) ? payload.runs : [];
 }
 
 /** Fetch one run's full transcript. Read-only / quick. */
 export async function getFeedbackRunLog(runId: string): Promise<{ run: DispatchRun; log: string } | null> {
-  if (!DISPATCH_URL) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), QUICK_TIMEOUT_MS);
-  try {
-    const res = await fetch(new URL(`/runs/${encodeURIComponent(runId)}/log`, DISPATCH_URL), {
-      signal: controller.signal,
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as { run: DispatchRun; log: string };
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  return dispatchGet<{ run: DispatchRun; log: string }>(`/runs/${encodeURIComponent(runId)}/log`);
 }
 
 /**
@@ -226,6 +156,4 @@ export async function openFeedbackRunStream(runId: string): Promise<Response | n
   }
 }
 
-export function isDispatchConfigured(): boolean {
-  return Boolean(DISPATCH_URL);
-}
+export { isDispatchConfigured } from "@/lib/dispatch-client";

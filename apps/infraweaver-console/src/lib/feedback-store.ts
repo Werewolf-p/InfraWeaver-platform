@@ -1,18 +1,18 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { makeCoreApi } from "@/lib/kube-client";
+import { createConfigMapJsonStore } from "@/lib/configmap-store";
 
 /**
  * Server-side persistence for in-console developer feedback ("report button").
  *
  * State lives in a single ConfigMap (`infraweaver-feedback`) in the console
- * namespace, mirroring the ConfigMap-backed pattern used by access-store.ts.
- * Entries are serialized as a JSON string under the `entries` key so the data
- * is human-inspectable via kubectl. Nothing here auto-executes: entries are
- * captured, then a human approves them before any downstream automation runs.
+ * namespace, using the shared ConfigMap-backed JSON store (same pattern as
+ * access-store.ts). Entries are serialized as a JSON string under the
+ * `entries` key so the data is human-inspectable via kubectl. Nothing here
+ * auto-executes: entries are captured, then a human approves them before any
+ * downstream automation runs.
  */
 
-const CONSOLE_NAMESPACE = process.env.CONSOLE_NAMESPACE ?? process.env.POD_NAMESPACE ?? "infraweaver-console";
 const CONFIGMAP_NAME = process.env.FEEDBACK_CONFIGMAP_NAME ?? "infraweaver-feedback";
 
 export type FeedbackType = "bug" | "feature-request" | "note";
@@ -66,51 +66,23 @@ export const FEEDBACK_TYPES: FeedbackType[] = ["bug", "feature-request", "note"]
 export const FEEDBACK_SEVERITIES: FeedbackSeverity[] = ["low", "medium", "high", "critical"];
 export const FEEDBACK_STATUSES: FeedbackStatus[] = ["new", "approved", "dispatched", "accepted", "done", "rejected"];
 
-interface FeedbackConfigMap {
-  metadata?: { resourceVersion?: string };
-  data?: Record<string, string | undefined>;
-}
-
-interface LoadedFeedbackState {
+interface FeedbackState {
   entries: FeedbackEntry[];
-  resourceVersion?: string;
 }
 
-function isNotFoundError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return /404|not\s*found/i.test(message);
+const store = createConfigMapJsonStore<FeedbackState>({
+  name: CONFIGMAP_NAME,
+  keys: ["entries"],
+  labels: { "infraweaver.io/component": "feedback" },
+});
+
+/** Normalize a (possibly missing/corrupt) stored value into a full state object. */
+function toState(current: Partial<FeedbackState> | null): FeedbackState {
+  return { entries: Array.isArray(current?.entries) ? current.entries : [] };
 }
 
-function safeParseArray<T>(value: string | undefined): T[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? (parsed as T[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function readConfigMap(): Promise<FeedbackConfigMap | null> {
-  const coreApi = makeCoreApi();
-  try {
-    return (await coreApi.readNamespacedConfigMap({
-      name: CONFIGMAP_NAME,
-      namespace: CONSOLE_NAMESPACE,
-    })) as FeedbackConfigMap;
-  } catch (error) {
-    if (isNotFoundError(error)) return null;
-    throw error;
-  }
-}
-
-async function loadFeedbackState(): Promise<LoadedFeedbackState> {
-  const configMap = await readConfigMap();
-  if (!configMap) return { entries: [] };
-  return {
-    entries: safeParseArray<FeedbackEntry>(configMap.data?.entries),
-    resourceVersion: configMap.metadata?.resourceVersion,
-  };
+async function loadFeedbackState(): Promise<FeedbackState> {
+  return toState(await store.load());
 }
 
 export async function listFeedback(): Promise<FeedbackEntry[]> {
@@ -118,48 +90,15 @@ export async function listFeedback(): Promise<FeedbackEntry[]> {
   return [...entries].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
-async function writeFeedbackState(state: LoadedFeedbackState): Promise<void> {
-  const coreApi = makeCoreApi();
-  const body = {
-    apiVersion: "v1",
-    kind: "ConfigMap",
-    metadata: {
-      name: CONFIGMAP_NAME,
-      namespace: CONSOLE_NAMESPACE,
-      labels: {
-        "app.kubernetes.io/managed-by": "infraweaver-console",
-        "infraweaver.io/component": "feedback",
-      },
-      ...(state.resourceVersion ? { resourceVersion: state.resourceVersion } : {}),
-    },
-    data: {
-      entries: JSON.stringify(state.entries),
-      updatedAt: new Date().toISOString(),
-    },
-  };
-
-  if (state.resourceVersion) {
-    await coreApi.replaceNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: CONSOLE_NAMESPACE, body });
-  } else {
-    await coreApi.createNamespacedConfigMap({ namespace: CONSOLE_NAMESPACE, body });
-  }
-}
-
 /** Read-modify-write with a single optimistic-concurrency retry on conflict. */
-async function mutate<T>(mutator: (state: LoadedFeedbackState) => T): Promise<T> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const state = await loadFeedbackState();
-    const result = mutator(state);
-    try {
-      await writeFeedbackState(state);
-      return result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const conflict = /409|conflict/i.test(message);
-      if (!conflict || attempt === 1) throw error;
-    }
-  }
-  throw new Error("Failed to persist feedback state");
+async function mutate<T>(mutator: (state: FeedbackState) => T): Promise<T> {
+  let result!: T;
+  await store.mutate((current) => {
+    const state = toState(current);
+    result = mutator(state);
+    return state;
+  });
+  return result;
 }
 
 export interface FeedbackInput {

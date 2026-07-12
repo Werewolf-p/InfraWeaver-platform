@@ -1,5 +1,5 @@
 import "server-only";
-import { signHmac } from "@/lib/hmac";
+import { dispatchGet, dispatchMutate } from "@/lib/dispatch-client";
 import type {
   AutomationCatalog,
   Pipeline,
@@ -21,16 +21,11 @@ import type {
  *   POST /specialists/refresh refresh the library from a public GitHub repo
  *   GET  /catalog             the option catalogs (agents/tools/models/mcp)
  *
- * Like feedback-dispatch.ts this is env-driven and FAIL-SAFE: when DISPATCH_URL is
- * unset the read helpers return null and the mutating helpers report `skipped`, so
- * the editor degrades to read-only instead of throwing.
+ * Transport, HMAC signing of mutations, and the FAIL-SAFE posture live in
+ * `@/lib/dispatch-client`: when DISPATCH_URL is unset the read helpers return
+ * null and the mutating helpers report `skipped`, so the editor degrades to
+ * read-only instead of throwing.
  */
-const DISPATCH_URL = process.env.DISPATCH_URL;
-const DISPATCH_SECRET = process.env.DISPATCH_SECRET;
-const MISSING = "dispatch service not configured (DISPATCH_URL)";
-// Mutation routes on the dispatch service require an HMAC signature (see hmac.ts
-// for the canonical scheme). Sign these the same way feedback-dispatch.ts does.
-const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 // Quick config reads; the GitHub-backed library refresh is allowed longer.
 const QUICK_TIMEOUT_MS = 15_000;
 const REFRESH_TIMEOUT_MS = 60_000;
@@ -52,137 +47,47 @@ export interface AutomationResult<T> {
   data?: T;
 }
 
-interface DispatchCall {
-  ok: boolean;
-  status: number;
-  payload: unknown;
-}
-
-async function call(
-  pathname: string,
-  init: RequestInit,
-  timeoutMs: number,
-): Promise<DispatchCall> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const method = (init.method ?? "GET").toUpperCase();
-    const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
-    // Sign mutation requests over the EXACT body bytes we send (empty string when
-    // there is no body, matching the dispatch verifier's raw-body handling).
-    if (DISPATCH_SECRET && MUTATION_METHODS.has(method)) {
-      const rawBody = typeof init.body === "string" ? init.body : "";
-      const timestamp = String(Date.now());
-      headers["X-IW-Timestamp"] = timestamp;
-      headers["X-IW-Signature"] = signHmac(`${timestamp}.${rawBody}`, DISPATCH_SECRET);
-    }
-    const res = await fetch(new URL(pathname, DISPATCH_URL), {
-      ...init,
-      headers,
-      signal: controller.signal,
-    });
-    const payload = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, payload };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function message(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
-
 /** True when the dispatch service is configured (editor is writable). */
-export function isAutomationConfigured(): boolean {
-  return Boolean(DISPATCH_URL);
-}
+export { isDispatchConfigured as isAutomationConfigured } from "@/lib/dispatch-client";
 
 export async function getPipeline(): Promise<Pipeline | null> {
-  if (!DISPATCH_URL) return null;
-  try {
-    const { ok, payload } = await call("/pipeline", { method: "GET" }, QUICK_TIMEOUT_MS);
-    return ok && payload ? (payload as Pipeline) : null;
-  } catch {
-    return null;
-  }
+  return dispatchGet<Pipeline>("/pipeline", { timeoutMs: QUICK_TIMEOUT_MS });
 }
 
 export async function savePipeline(pipeline: unknown): Promise<AutomationResult<Pipeline>> {
-  if (!DISPATCH_URL) return { ok: false, skipped: true, error: MISSING };
-  try {
-    const { ok, payload } = await call(
-      "/pipeline",
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pipeline),
-      },
-      QUICK_TIMEOUT_MS,
-    );
-    const body = payload as { ok?: boolean; pipeline?: Pipeline; error?: string } | null;
-    if (!ok || !body?.ok) {
-      return { ok: false, error: body?.error ?? "Failed to save pipeline" };
-    }
-    return { ok: true, data: body.pipeline };
-  } catch (error) {
-    return { ok: false, error: message(error, "Failed to save pipeline") };
-  }
+  const result = await dispatchMutate<{ pipeline?: Pipeline }>(
+    "/pipeline",
+    pipeline as Record<string, unknown>,
+    { method: "PUT", timeoutMs: QUICK_TIMEOUT_MS },
+  );
+  if (!result.ok) return { ok: false, skipped: result.skipped, error: result.error ?? "Failed to save pipeline" };
+  return { ok: true, data: result.data?.pipeline };
 }
 
 export async function resetPipeline(): Promise<AutomationResult<Pipeline>> {
-  if (!DISPATCH_URL) return { ok: false, skipped: true, error: MISSING };
-  try {
-    const { ok, payload } = await call("/pipeline/reset", { method: "POST" }, QUICK_TIMEOUT_MS);
-    const body = payload as { ok?: boolean; pipeline?: Pipeline } | null;
-    if (!ok || !body?.ok) return { ok: false, error: "Failed to reset pipeline" };
-    return { ok: true, data: body.pipeline };
-  } catch (error) {
-    return { ok: false, error: message(error, "Failed to reset pipeline") };
-  }
+  const result = await dispatchMutate<{ pipeline?: Pipeline }>("/pipeline/reset", {}, { timeoutMs: QUICK_TIMEOUT_MS });
+  if (!result.ok) return { ok: false, skipped: result.skipped, error: result.error ?? "Failed to reset pipeline" };
+  return { ok: true, data: result.data?.pipeline };
 }
 
 export async function getSpecialists(): Promise<SpecialistLibrary | null> {
-  if (!DISPATCH_URL) return null;
-  try {
-    const { ok, payload } = await call("/specialists", { method: "GET" }, QUICK_TIMEOUT_MS);
-    return ok && payload ? (payload as SpecialistLibrary) : null;
-  } catch {
-    return null;
-  }
+  return dispatchGet<SpecialistLibrary>("/specialists", { timeoutMs: QUICK_TIMEOUT_MS });
 }
 
 export async function refreshSpecialists(
   repo?: string,
 ): Promise<AutomationResult<SpecialistLibrary>> {
-  if (!DISPATCH_URL) return { ok: false, skipped: true, error: MISSING };
-  try {
-    const { payload } = await call(
-      "/specialists/refresh",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(repo ? { repo } : {}),
-      },
-      REFRESH_TIMEOUT_MS,
-    );
-    const body = payload as
-      | { ok?: boolean; error?: string; cache?: SpecialistLibrary }
-      | null;
-    if (!body?.ok) {
-      return { ok: false, error: body?.error ?? "Refresh failed", data: body?.cache };
-    }
-    return { ok: true, data: body.cache };
-  } catch (error) {
-    return { ok: false, error: message(error, "Refresh failed") };
+  const result = await dispatchMutate<{ cache?: SpecialistLibrary }>(
+    "/specialists/refresh",
+    repo ? { repo } : {},
+    { timeoutMs: REFRESH_TIMEOUT_MS },
+  );
+  if (!result.ok) {
+    return { ok: false, skipped: result.skipped, error: result.error ?? "Refresh failed", data: result.data?.cache };
   }
+  return { ok: true, data: result.data?.cache };
 }
 
 export async function getCatalog(): Promise<AutomationCatalog | null> {
-  if (!DISPATCH_URL) return null;
-  try {
-    const { ok, payload } = await call("/catalog", { method: "GET" }, QUICK_TIMEOUT_MS);
-    return ok && payload ? (payload as AutomationCatalog) : null;
-  } catch {
-    return null;
-  }
+  return dispatchGet<AutomationCatalog>("/catalog", { timeoutMs: QUICK_TIMEOUT_MS });
 }
