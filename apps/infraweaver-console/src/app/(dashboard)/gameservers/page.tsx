@@ -2,9 +2,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Plus, X, ChevronRight, ChevronLeft, Gamepad2,
   Trash2, RefreshCw, Check, AlertTriangle, Copy,
@@ -13,19 +12,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { INTERNAL_DNS_DOMAIN, ROOT_DNS_DOMAIN } from "@/lib/dns";
+import { BodyPortal } from "@/components/ui/body-portal";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "@/lib/notify";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
+import { useApiQuery, useApiMutation } from "@/hooks/use-api-query";
+import { useConfirm } from "@/hooks/use-confirm";
 import { useRBAC } from "@/hooks/use-rbac";
-
-/** Renders children at document.body via a portal, bypassing overflow:hidden ancestors (iOS Safari fix). */
-function BodyPortal({ children }: { children: React.ReactNode }) {
-  const [mounted, setMounted] = useState(false);
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
-  useEffect(() => { setMounted(true); }, []);
-  if (!mounted) return null;
-  return createPortal(children, document.body);
-}
 
 const GAME_TYPES = [
   { id: "minecraft", icon: "⛏", label: "Minecraft", color: "green", defaultPorts: [{ port: 25565, protocol: "TCP" as const, name: "game" }] },
@@ -52,6 +45,19 @@ interface GameHubServerSummary {
   description?: string;
 }
 
+interface CreateGameServerBody {
+  name: string;
+  displayName: string;
+  gameType: string;
+  targetIP: string;
+  internalIP?: string;
+  ports: Port[];
+  backendType: "external" | "in-cluster";
+  publicDns: boolean;
+  internalDns: boolean;
+  description: string;
+}
+
 function ProtocolBadge({ protocol }: { protocol: string }) {
   return (
     <span className={cn(
@@ -64,12 +70,9 @@ function ProtocolBadge({ protocol }: { protocol: string }) {
 }
 
 function StatusIndicator({ server }: { server: GameServer }) {
-  const { data } = useQuery({
+  const { data } = useApiQuery<{ online: boolean; latencyMs: number }>({
     queryKey: ["gameserver-status", server.name],
-    queryFn: async () => {
-      const res = await fetch(`/api/gameservers/${server.name}/status`);
-      return res.json() as Promise<{ online: boolean; latencyMs: number }>;
-    },
+    path: `/api/gameservers/${server.name}/status`,
     staleTime: 30000,
     refetchInterval: 60000,
     enabled: !!server.targetIP,
@@ -100,12 +103,9 @@ function StatusIndicator({ server }: { server: GameServer }) {
 function DnsStatusCell({ name, targetIP, internalIP, publicDns, internalDns }: {
   name: string; targetIP: string; internalIP?: string; publicDns: boolean; internalDns: boolean;
 }) {
-  const { data } = useQuery({
+  const { data } = useApiQuery<{ public: { exists: boolean; ip?: string }; internal: { exists: boolean; ip?: string } }>({
     queryKey: ["gameserver-dns", name],
-    queryFn: async () => {
-      const res = await fetch(`/api/gameservers/${name}/dns`);
-      return res.json() as Promise<{ public: { exists: boolean; ip?: string }; internal: { exists: boolean; ip?: string } }>;
-    },
+    path: `/api/gameservers/${name}/dns`,
     enabled: publicDns || internalDns,
     staleTime: 60000,
   });
@@ -314,15 +314,11 @@ function AddServerDrawer({
   const [internalIP, setInternalIP] = useState("");
   const [publicDns, setPublicDns] = useState(true);
   const [internalDns, setInternalDns] = useState(true);
-  const [creating, setCreating] = useState(false);
   const [detectingIP, setDetectingIP] = useState(false);
 
-  const { data: portsData } = useQuery({
+  const { data: portsData } = useApiQuery<{ servers: Array<{ name: string; targetIP: string; ports: Port[] }>; conflicts: Array<{ ip: string; port: number; protocol: string; servers: string[] }> }>({
     queryKey: ["gameserver-ports"],
-    queryFn: async () => {
-      const res = await fetch("/api/gameservers/ports");
-      return res.json() as Promise<{ servers: Array<{ name: string; targetIP: string; ports: Port[] }>; conflicts: Array<{ ip: string; port: number; protocol: string; servers: string[] }> }>;
-    },
+    path: "/api/gameservers/ports",
     enabled: open,
   });
 
@@ -339,10 +335,6 @@ function AddServerDrawer({
     portsData?.conflicts?.some(c => c.ip === targetIP && c.port === port && c.protocol === protocol) ?? false;
 
   const detectMyIP = async () => {
-    if (!canReadServers) {
-      toast.error("You do not have permission to view game-hub network details");
-      return;
-    }
     setDetectingIP(true);
     try {
       const res = await fetch("/api/gameservers/detect-ip");
@@ -355,41 +347,29 @@ function AddServerDrawer({
     }
   };
 
-  const handleCreate = async () => {
-    if (!canManageServers) {
-      toast.error("You do not have permission to create game servers");
-      return;
-    }
-    setCreating(true);
-    // In simple mode, apply defaults
-    const finalPorts = ports.length > 0 ? ports : (selectedType?.defaultPorts ?? []);
-    const finalBackendType = simpleMode ? "external" : backendType;
-    const finalPublicDns = simpleMode ? true : publicDns;
-    const finalInternalDns = simpleMode ? true : internalDns;
-    try {
-      const res = await fetch("/api/gameservers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name, displayName, gameType, targetIP,
-          internalIP: internalIP || undefined,
-          ports: finalPorts,
-          backendType: finalBackendType,
-          publicDns: finalPublicDns,
-          internalDns: finalInternalDns,
-          description,
-        }),
-      });
-      const data = await res.json() as { success: boolean; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Failed");
-      toast.success(`Game server "${displayName}" created!`);
+  const createServer = useApiMutation<{ success: boolean }, CreateGameServerBody>({
+    path: "/api/gameservers",
+    successMessage: (_data, body) => `Game server "${body.displayName}" created!`,
+    errorMessage: (error) => String(error),
+    onSuccess: () => {
       onCreated();
       onClose();
-    } catch (e) {
-      toast.error(String(e));
-    } finally {
-      setCreating(false);
-    }
+    },
+  });
+  const creating = createServer.isPending;
+
+  const handleCreate = () => {
+    // In simple mode, apply defaults
+    const finalPorts = ports.length > 0 ? ports : (selectedType?.defaultPorts ?? []);
+    createServer.mutate({
+      name, displayName, gameType, targetIP,
+      internalIP: internalIP || undefined,
+      ports: finalPorts,
+      backendType: simpleMode ? "external" : backendType,
+      publicDns: simpleMode ? true : publicDns,
+      internalDns: simpleMode ? true : internalDns,
+      description,
+    });
   };
 
   const resetForm = () => {
@@ -952,100 +932,54 @@ function AddServerDrawer({
   );
 }
 
-function DeleteConfirmDialog({ server, onClose, onDeleted }: { server: GameServer; onClose: () => void; onDeleted: () => void }) {
-  const { can } = useRBAC();
-  const canManageServers = can("game-hub:write");
-  const [input, setInput] = useState("");
-  const [deleting, setDeleting] = useState(false);
-
-  const handleDelete = async () => {
-    if (input !== server.name) return;
-    if (!canManageServers) {
-      toast.error("You do not have permission to delete game servers");
-      return;
-    }
-    setDeleting(true);
-    try {
-      await fetch(`/api/gameservers/${server.name}`, { method: "DELETE" });
-      toast.success(`Game server "${server.displayName}" deleted`);
-      onDeleted();
-      onClose();
-    } catch {
-      toast.error("Failed to delete server");
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="bg-slate-100 dark:bg-slate-900 border border-red-500/30 rounded-2xl p-6 w-full max-w-md shadow-2xl"
-      >
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Delete Game Server</h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">This will delete the ConfigMap, K8s Service (if in-cluster), and DNS records for <strong className="text-gray-900 dark:text-white">{server.displayName}</strong>.</p>
-        <p className="text-xs text-slate-500 mb-2">Type <strong className="font-mono text-gray-900 dark:text-white">{server.name}</strong> to confirm</p>
-        <input
-          value={input} onChange={e => setInput(e.target.value)}
-          className="w-full bg-slate-100 dark:bg-slate-800 border border-gray-200 dark:border-white/10 rounded-lg px-3 py-2 text-gray-900 dark:text-white text-sm font-mono focus:outline-none focus:border-red-500 mb-4"
-        />
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white text-sm transition-colors">Cancel</button>
-          <button
-            onClick={handleDelete} disabled={input !== server.name || deleting || !canManageServers}
-            className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
-          >
-            {deleting ? "Deleting..." : "Delete Server"}
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
 export default function GameServersPage() {
   const { can } = useRBAC();
   const canManageServers = can("game-hub:write");
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
+  const { confirm, confirmDialog } = useConfirm();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<GameServer | null>(null);
   const [expandedServer, setExpandedServer] = useState<string | null>(null);
   const targetParam = searchParams.get("target") ?? "";
   const requestedPort = Number.parseInt(searchParams.get("port") ?? "", 10) || null;
 
-  const { data: servers, isLoading, refetch } = useQuery({
+  const { data: servers, isLoading, refetch } = useApiQuery<GameServer[]>({
     queryKey: ["gameservers"],
-    queryFn: async () => {
-      const res = await fetch("/api/gameservers");
-      if (!res.ok) throw new Error("Failed to fetch game servers");
-      return res.json() as Promise<GameServer[]>;
-    },
+    path: "/api/gameservers",
     staleTime: 30000,
     refetchInterval: 60000,
   });
 
-  const { data: gameHubServers } = useQuery({
+  const { data: gameHubServers } = useApiQuery<{ servers: Array<{ name: string }> }, Array<{ name: string }>>({
     queryKey: ["game-hub-route-targets"],
-    queryFn: async () => {
-      const res = await fetch("/api/game-hub/servers");
-      if (!res.ok) throw new Error("Failed to fetch Game Hub servers");
-      const data = await res.json() as { servers: Array<{ name: string }> };
-      return data.servers;
-    },
+    path: "/api/game-hub/servers",
     staleTime: 30000,
+    select: (data) => data.servers,
   });
-  const { data: linkedGameHubServer } = useQuery({
+  const { data: linkedGameHubServer } = useApiQuery<GameHubServerSummary>({
     queryKey: ["game-hub-route-target", targetParam],
-    queryFn: async () => {
-      const res = await fetch(`/api/game-hub/servers/${encodeURIComponent(targetParam)}`);
-      if (!res.ok) throw new Error("Failed to fetch target Game Hub server");
-      return res.json() as Promise<{ name: string; gameType?: string; nodeIp?: string | null; nodePort?: number | null; description?: string }>;
-    },
+    path: `/api/game-hub/servers/${encodeURIComponent(targetParam)}`,
     enabled: drawerOpen && Boolean(targetParam),
     staleTime: 30000,
   });
+
+  const deleteServer = useApiMutation<{ success: boolean }, GameServer>({
+    path: (server) => `/api/gameservers/${server.name}`,
+    method: "DELETE",
+    invalidateQueryKeys: [["gameservers"]],
+    successMessage: (_data, server) => `Game server "${server.displayName}" deleted`,
+  });
+
+  const requestDelete = async (server: GameServer) => {
+    const confirmed = await confirm({
+      title: "Delete Game Server",
+      description: `This will delete the ConfigMap, K8s Service (if in-cluster), and DNS records for ${server.displayName}.`,
+      confirmText: "Delete Server",
+      danger: true,
+      requireTyping: server.name,
+    });
+    if (confirmed) deleteServer.mutate(server);
+  };
 
   useEffect(() => {
     if (searchParams.get("new") === "1") {
@@ -1213,7 +1147,7 @@ export default function GameServersPage() {
                       </td>
                       <td className="px-4 py-3">
                         <button
-                          onClick={e => { e.stopPropagation(); setDeleteTarget(server); }}
+                          onClick={e => { e.stopPropagation(); void requestDelete(server); }}
                           disabled={!canManageServers}
                           className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                         >
@@ -1273,7 +1207,7 @@ export default function GameServersPage() {
       <RouterConfigTable servers={servers ?? []} />
 
       <AddServerDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onCreated={() => queryClient.invalidateQueries({ queryKey: ["gameservers"] })} prefill={routePrefill} />
-      {deleteTarget && <DeleteConfirmDialog server={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={() => queryClient.invalidateQueries({ queryKey: ["gameservers"] })} />}
+      {confirmDialog}
     </div>
   );
 }

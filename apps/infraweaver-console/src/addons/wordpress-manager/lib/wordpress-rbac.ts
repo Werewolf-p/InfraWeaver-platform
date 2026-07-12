@@ -50,17 +50,22 @@ export function hasWordpressPermission(
 /**
  * Sites a user has any non-expired scoped grant on, parsed from their role
  * assignments. Expired grants are ignored so a revoked, time-boxed grant can no
- * longer enumerate sites (mirrors the expiry check in the core engine).
+ * longer enumerate sites (mirrors the expiry check in the core engine). Explicit
+ * Deny assignments subtract the site (deny-wins, matching the core engine's
+ * semantics) so an explicitly-denied user cannot enumerate sites.
  */
 export function getScopedWordpressSites(roleAssignments: RoleAssignment[]): string[] {
   const now = new Date();
-  const scoped = new Set<string>();
+  const allowed = new Set<string>();
+  const denied = new Set<string>();
   for (const assignment of roleAssignments) {
     if (assignment.expiresAt && new Date(assignment.expiresAt) < now) continue;
     const match = assignment.scope.match(/^\/wordpress\/sites\/([a-z0-9][a-z0-9-]*[a-z0-9])$/);
-    if (match) scoped.add(match[1]);
+    if (!match) continue;
+    if (assignment.effect === "Deny") denied.add(match[1]);
+    else allowed.add(match[1]);
   }
-  return [...scoped];
+  return [...allowed].filter((site) => !denied.has(site));
 }
 
 /**
@@ -75,6 +80,9 @@ export function hasAllWordpressAccess(roleAssignments: RoleAssignment[]): boolea
   const now = new Date();
   for (const assignment of roleAssignments) {
     if (assignment.expiresAt && new Date(assignment.expiresAt) < now) continue;
+    // Deny assignments never grant access (deny-wins in the core engine); a
+    // denied principal must not fall through to the full site list here.
+    if (assignment.effect === "Deny") continue;
     if (!WORDPRESS_ALL_SITES_SCOPES.has(assignment.scope)) continue;
     const role = resolveRoleDefinition(assignment.roleId);
     if (!role) continue;

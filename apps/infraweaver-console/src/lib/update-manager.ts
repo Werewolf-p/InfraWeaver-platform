@@ -110,15 +110,16 @@ export async function listArgoApplications(limit = 500): Promise<ArgoApplication
     console.warn(`ArgoCD REST API error, falling back to Kubernetes API:`, err);
   }
 
-  // Fallback: fetch applications directly from Kubernetes API
+  // Fallback: fetch applications via the console's cached ArgoCD apps route
+  // (returns a bare array; prefers the ArgoCD API and falls back to CRDs).
   try {
-    const response = await fetch("/api/argocd/applications", {
+    const response = await fetch("/api/argocd/apps", {
       cache: "no-store",
       signal: AbortSignal.timeout(10_000),
     });
     if (response.ok) {
-      const data = await response.json() as { items?: ArgoApplication[] };
-      return data.items ?? [];
+      const data = await response.json() as ArgoApplication[];
+      return Array.isArray(data) ? data : [];
     }
   } catch {
     // Fallback also failed

@@ -1,7 +1,3 @@
-import { NextRequest } from "next/server";
-import { handlePowerAction } from "../power-action";
+import { makePowerActionRoute } from "../power-action";
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const { name } = await params;
-  return handlePowerAction(req, name, "stop");
-}
+export const POST = makePowerActionRoute("stop");

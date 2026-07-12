@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { withRoute } from "@/lib/route-utils";
 import fs from "node:fs";
 
 interface AuthEvent {
@@ -73,14 +72,7 @@ function readAuditLog(): AuthEvent[] {
   }
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["security:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withRoute("security:read", async () => {
   const authentikEvents = await fetchAuthentikEvents();
   if (authentikEvents && authentikEvents.length > 0) {
     return NextResponse.json({ events: authentikEvents, source: "authentik" }, {
@@ -92,4 +84,4 @@ export async function GET() {
   return NextResponse.json({ events: logEvents, source: logEvents.length ? "audit-log" : "unavailable" }, {
     headers: { "Cache-Control": "no-store" },
   });
-}
+});

@@ -1,10 +1,10 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "@/lib/notify";
 import { Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
 
 interface Pod {
@@ -28,13 +28,9 @@ export default function NamespaceCleanupPage() {
   const [preview, setPreview] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const { data: podsData, isLoading } = useQuery({
+  const { data: podsData, isLoading } = useApiQuery<Pod[]>({
     queryKey: ["pods"],
-    queryFn: async () => {
-      const res = await fetch("/api/pods");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<Pod[]>;
-    },
+    path: "/api/pods",
   });
 
   const pods = podsData ?? [];

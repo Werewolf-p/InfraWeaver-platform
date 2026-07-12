@@ -95,6 +95,18 @@ function describe(a: RoleAssignment): string {
   return parts.join(" ");
 }
 
+/** Escape a value for interpolation into the HTML email body. Names, scopes and
+ * expiry strings come from admin-editable config (users.yaml) and must never be
+ * emitted as live markup in a security-notification email. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** Pick the subject verb from the shape of the change. */
 function subjectFor(diff: RoleAssignmentDiff): string {
   const onlyGranted = diff.revoked.length === 0 && diff.changed.length === 0;
@@ -114,27 +126,27 @@ export function buildRbacChangeEmail(displayName: string, diff: RoleAssignmentDi
     textLines.push("Granted:");
     for (const a of diff.granted) textLines.push(`  • ${describe(a)}`);
     textLines.push("");
-    htmlSections.push(section("Granted", diff.granted.map(describe), "#16a34a"));
+    htmlSections.push(section("Granted", diff.granted.map((a) => escapeHtml(describe(a))), "#16a34a"));
   }
   if (diff.revoked.length) {
     textLines.push("Revoked:");
     for (const a of diff.revoked) textLines.push(`  • ${describe(a)}`);
     textLines.push("");
-    htmlSections.push(section("Revoked", diff.revoked.map(describe), "#dc2626"));
+    htmlSections.push(section("Revoked", diff.revoked.map((a) => escapeHtml(describe(a))), "#dc2626"));
   }
   if (diff.changed.length) {
     textLines.push("Changed:");
     for (const c of diff.changed) textLines.push(`  • At ${scopeLabel(c.scope)}: ${roleName(c.from.roleId)} → ${roleName(c.to.roleId)}`);
     textLines.push("");
     htmlSections.push(
-      section("Changed", diff.changed.map((c) => `At ${scopeLabel(c.scope)}: <strong>${roleName(c.from.roleId)}</strong> → <strong>${roleName(c.to.roleId)}</strong>`), "#d97706"),
+      section("Changed", diff.changed.map((c) => `At ${escapeHtml(scopeLabel(c.scope))}: <strong>${escapeHtml(roleName(c.from.roleId))}</strong> → <strong>${escapeHtml(roleName(c.to.roleId))}</strong>`), "#d97706"),
     );
   }
 
   textLines.push("If you did not expect this change, contact your platform administrator.");
   const html = [
     `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#0f172a">`,
-    `<p>Hi ${displayName},</p>`,
+    `<p>Hi ${escapeHtml(displayName)},</p>`,
     `<p>Your access on <strong>InfraWeaver</strong> was updated:</p>`,
     htmlSections.join(""),
     `<p style="font-size:12px;color:#94a3b8">If you did not expect this change, contact your platform administrator.</p>`,
@@ -144,6 +156,7 @@ export function buildRbacChangeEmail(displayName: string, diff: RoleAssignmentDi
   return { subject, text: textLines.join("\n"), html };
 }
 
+/** `items` must already be escaped/trusted HTML fragments (see buildRbacChangeEmail). */
 function section(title: string, items: string[], color: string): string {
   const lis = items.map((i) => `<li>${i}</li>`).join("");
   return `<p style="margin:0 0 4px"><strong style="color:${color}">${title}</strong></p><ul style="margin:0 0 12px">${lis}</ul>`;

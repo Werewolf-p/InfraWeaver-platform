@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { withRoute } from "@/lib/route-utils";
 import { safeError } from "@/lib/utils";
 import { loadUsersConfig, normalizeGroupRoleAssignments, normalizeRoleAssignments, type UsersConfigUser } from "@/lib/users-config";
 import {
@@ -85,14 +84,7 @@ interface GroupAccumulator {
   assignments: Array<RoleAssignment>;
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["security:read", "users:read", "rbac:admin"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withRoute(["security:read", "users:read", "rbac:admin"], async () => {
   try {
     const file = await loadUsersConfig(60);
     const users: PlatformSubject[] = [];
@@ -165,4 +157,4 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

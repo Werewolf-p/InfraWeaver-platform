@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, HardDrive, RefreshCw, ShieldAlert } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { EmptyState, PageScaffold } from "@/components/ui";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn } from "@/lib/utils";
 
@@ -58,19 +58,15 @@ function healthBadge(health: string | null) {
 }
 
 export function PvBrowserView() {
-  const queryClient = useQueryClient();
   const { can } = useRBAC();
   const canManageStorage = can("cluster:admin");
   const [activeTab, setActiveTab] = useState<"pv" | "pvc">("pv");
   const [sizeDrafts, setSizeDrafts] = useState<Record<string, string>>({});
 
-  const { data, isLoading, isFetching, refetch, isError, error } = useQuery<StorageResponse>({
+  const { data, isLoading, isFetching, refetch, isError, error } = useApiQuery<StorageResponse>({
     queryKey: ["storage", "pvs", "browser"],
-    queryFn: async () => {
-      const response = await fetch("/api/storage/pvs", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to load persistent volumes");
-      return response.json();
-    },
+    path: "/api/storage/pvs",
+    request: { cache: "no-store" },
     staleTime: 30_000,
     refetchInterval: 60_000,
     enabled: canManageStorage,
@@ -79,25 +75,13 @@ export function PvBrowserView() {
   const pvs = data?.pvs ?? [];
   const pvcs = data?.pvcs ?? [];
 
-  const expandMutation = useMutation({
-    mutationFn: async ({ namespace, name, newSize }: { namespace: string; name: string; newSize: string }) => {
-      const response = await fetch("/api/storage/expand", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ namespace, name, newSize }),
-      });
-      const payload = await response.json() as { error?: string; simulated?: boolean };
-      if (!response.ok) throw new Error(payload.error ?? "Failed to expand PVC");
-      return payload;
-    },
-    onSuccess: async (payload, variables) => {
-      toast.success(payload.simulated ? `Expanded ${variables.name} (simulated)` : `Requested ${variables.newSize} for ${variables.name}`);
-      await queryClient.invalidateQueries({ queryKey: ["storage", "pvs"] });
-      await queryClient.invalidateQueries({ queryKey: ["storage", "pvs", "browser"] });
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to expand PVC");
-    },
+  const expandMutation = useApiMutation<{ error?: string; simulated?: boolean }, { namespace: string; name: string; newSize: string }>({
+    method: "PATCH",
+    path: "/api/storage/expand",
+    successMessage: (payload, variables) =>
+      payload.simulated ? `Expanded ${variables.name} (simulated)` : `Requested ${variables.newSize} for ${variables.name}`,
+    errorMessage: (error) => (error instanceof Error ? error.message : "Failed to expand PVC"),
+    invalidateQueryKeys: [["storage", "pvs"], ["storage", "pvs", "browser"]],
   });
 
   function handleExpand(pvc: PVC) {

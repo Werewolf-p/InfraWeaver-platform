@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { GET as getGameHubServers } from "@/app/api/game-hub/servers/route";
 import { createARecord, deleteARecord, resolveZoneIdForHost } from "@/lib/cloudflare";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { makeCoreApi } from "@/lib/kube-client";
 import { safeError } from "@/lib/utils";
 import { internalHost, publicHost } from "@/lib/domain";
 
@@ -30,10 +31,7 @@ export async function GET(req: NextRequest) {
   if (!hasSessionPermission(access, "game-hub:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = new k8s.KubeConfig();
-    kc.loadFromDefault();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi();
 
     const cmList = await coreApi.listNamespacedConfigMap({ namespace: "game-servers" });
     const configMaps = (cmList.items ?? []).filter((cm: { metadata?: { labels?: Record<string, string> } }) =>
@@ -100,10 +98,7 @@ export async function POST(req: NextRequest) {
   const { name, displayName, gameType, targetIP, internalIP, ports, backendType, publicDns, internalDns, description } = parsedBody.data;
 
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = new k8s.KubeConfig();
-    kc.loadFromDefault();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi();
 
     // Create ConfigMap (primary data store)
     const cm = {

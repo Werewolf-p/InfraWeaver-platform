@@ -1,10 +1,10 @@
 "use client";
-import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { TrendingUp, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Clock, Activity } from "lucide-react";
+import { RefreshCw, CheckCircle2, XCircle, AlertTriangle, Clock, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { publicHost } from "@/lib/domain";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface GatusResult {
   success: boolean;
@@ -61,13 +61,9 @@ function SkeletonRow() {
 }
 
 export function UptimeView() {
-  const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useQuery<HealthResponse>({
+  const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useApiQuery<HealthResponse>({
     queryKey: ["uptime-history"],
-    queryFn: async () => {
-      const res = await fetch("/api/health");
-      if (!res.ok) throw new Error("Failed to fetch health data");
-      return res.json();
-    },
+    path: "/api/health",
     refetchInterval: 60000,
     staleTime: 30000,
   });
@@ -84,39 +80,29 @@ export function UptimeView() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      <PageHeader icon={Activity} title="Uptime" subtitle="Service uptime monitoring" />
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between"
-      >
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <TrendingUp className="w-6 h-6 text-emerald-400" />
-            Uptime History
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Last {endpoints[0]?.results.length ?? 0} checks per endpoint · via Gatus
-          </p>
-          <span className="inline-flex items-center gap-1 text-xs text-amber-400/70 mt-1">
-            <AlertTriangle className="w-3 h-3" /> Simulated data — connect Gatus for live results
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          {lastUpdated && (
-            <span className="text-xs text-slate-500 flex items-center gap-1.5">
-              <Clock className="w-3 h-3" /> {lastUpdated}
-            </span>
-          )}
-          <button
-            onClick={() => refetch()}
-            className="p-2 rounded-lg border border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
-          >
-            <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
-          </button>
-        </div>
-      </motion.div>
+      <PageHeader
+        icon={Activity}
+        title="Uptime"
+        subtitle={`Last ${endpoints[0]?.results.length ?? 0} checks per endpoint · via Gatus`}
+        actions={
+          <>
+            {lastUpdated && (
+              <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                <Clock className="w-3 h-3" /> {lastUpdated}
+              </span>
+            )}
+            <button
+              onClick={() => refetch()}
+              className="p-2 rounded-lg border border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+            >
+              <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
+            </button>
+          </>
+        }
+      />
+      <span className="inline-flex items-center gap-1 text-xs text-amber-400/70">
+        <AlertTriangle className="w-3 h-3" /> Simulated data — connect Gatus for live results
+      </span>
 
       {/* Overall summary */}
       <motion.div

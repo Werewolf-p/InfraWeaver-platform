@@ -1,23 +1,11 @@
 import { NextRequest } from "next/server";
-import type { Permission } from "@/lib/rbac";
-import {
-  apiError,
-  apiSuccess,
-  parseJsonBody,
-  requireRoutePermissions,
-  routeErrorResponse,
-} from "@/lib/route-utils";
+import { apiError, apiSuccess, parseJsonBody, routeErrorResponse } from "@/lib/route-utils";
 import { getPipeline, savePipeline } from "@/lib/feedback-automation";
-import { isFeedbackHost } from "@/lib/feedback-host";
-
-const MANAGE: Permission[] = ["rbac:admin", "cluster:admin"];
+import { requireFeedbackManager } from "@/lib/feedback-host";
 
 // GET /api/feedback/automation/pipeline — current auto-fix pipeline definition.
 export async function GET(request: NextRequest) {
-  if (!isFeedbackHost(request.headers)) {
-    return apiError("Agent Studio is only available on the canonical console host", { status: 403 });
-  }
-  const session = await requireRoutePermissions({ any: MANAGE });
+  const session = await requireFeedbackManager(request, "Agent Studio is only available on the canonical console host");
   if (session instanceof Response) return session;
 
   try {
@@ -30,10 +18,7 @@ export async function GET(request: NextRequest) {
 
 // PUT /api/feedback/automation/pipeline — save an edited pipeline.
 export async function PUT(request: NextRequest) {
-  if (!isFeedbackHost(request.headers)) {
-    return apiError("Agent Studio is only available on the canonical console host", { status: 403 });
-  }
-  const session = await requireRoutePermissions({ any: MANAGE });
+  const session = await requireFeedbackManager(request, "Agent Studio is only available on the canonical console host");
   if (session instanceof Response) return session;
 
   try {

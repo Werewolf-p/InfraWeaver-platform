@@ -1,11 +1,11 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
-import { Activity, Search, X, Download, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Cpu} from "lucide-react";
+import { Search, X, Download, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Cpu} from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface ContainerMetric {
   name: string;
@@ -61,12 +61,9 @@ export default function NodeTopPage() {
   const [sortKey, setSortKey] = useState<SortKey>("cpu_m");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const { data, isLoading, refetch, dataUpdatedAt } = useQuery<{ pods: PodMetric[] }>({
+  const { data, isLoading, refetch, dataUpdatedAt } = useApiQuery<{ pods: PodMetric[] }>({
     queryKey: ["cluster", "pod-metrics"],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/pod-metrics");
-      return res.json();
-    },
+    path: "/api/cluster/pod-metrics",
     refetchInterval: 10_000,
     staleTime: 8_000,
   });
@@ -111,18 +108,12 @@ export default function NodeTopPage() {
 
   return (
     <div>
-      <PageHeader icon={Cpu} title="Node Metrics" />
-      <div className="relative rounded-xl overflow-hidden mb-6">
-        <div className="absolute inset-0 page-gradient-cluster pointer-events-none" />
-        <div className="relative flex items-start justify-between p-5 gap-4 flex-wrap">
-          <div>
-            <h2 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent flex items-center gap-2">
-              <Activity className="w-5 h-5 text-emerald-400" />
-              Node Top — Pod Resource Usage
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Live pod CPU & memory from metrics-server · auto-refreshes every 10s · last: {lastUpdated}</p>
-          </div>
-          <div className="flex items-center gap-2">
+      <PageHeader
+        icon={Cpu}
+        title="Node Metrics"
+        subtitle={`Live pod CPU & memory from metrics-server · auto-refreshes every 10s · last: ${lastUpdated}`}
+        actions={
+          <>
             <Link href="/cluster" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
               ← Cluster
             </Link>
@@ -134,9 +125,9 @@ export default function NodeTopPage() {
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className="relative mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />

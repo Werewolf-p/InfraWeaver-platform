@@ -1,10 +1,10 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Network } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface ArgoApp {
   metadata: { name: string };
@@ -26,13 +26,9 @@ function healthColor(status: string) {
 export default function AppGraphPage() {
   const [selected, setSelected] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useApiQuery<ArgoApp[]>({
     queryKey: ["argocd", "apps"],
-    queryFn: async () => {
-      const res = await fetch("/api/argocd/apps");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<ArgoApp[]>;
-    },
+    path: "/api/argocd/apps",
   });
 
   const apps = data ?? [];

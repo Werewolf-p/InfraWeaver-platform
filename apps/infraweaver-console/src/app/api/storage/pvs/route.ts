@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as k8s from "@kubernetes/client-node";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { requireRoutePermissions } from "@/lib/route-utils";
-import { loadKubeConfig } from "@/lib/k8s";
+import { makeCoreApi } from "@/lib/kube-client";
 
 const LONGHORN_API = process.env.LONGHORN_API ?? "http://longhorn-frontend.longhorn-system.svc.cluster.local:80";
 
@@ -55,7 +54,7 @@ export async function GET(request: NextRequest) {
   if (session instanceof NextResponse) return session;
 
   try {
-    const coreApi = loadKubeConfig(getRequestClusterId(request)).makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi(getRequestClusterId(request));
     const [{ volumes: longhornVolumes, live }, pvsRes, pvcsRes] = await Promise.all([
       loadLonghornVolumes(),
       coreApi.listPersistentVolume(),

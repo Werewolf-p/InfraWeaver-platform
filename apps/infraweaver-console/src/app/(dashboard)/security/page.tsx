@@ -1,7 +1,8 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useApiQuery, useApiMutation } from "@/hooks/use-api-query";
 import {
   Shield, ShieldCheck, AlertTriangle, CheckCircle2, RefreshCw, Lock, Users, Loader2,
   KeyRound, Network, FileWarning, Server, Box, Activity, Database,
@@ -27,6 +28,8 @@ interface CertInfo {
   valid: boolean;
   expiry: string | null;
   daysLeft: number | null;
+  /** `Kind/name` of the cert-manager issuer, as reported by /api/security/certs. */
+  issuerRef?: string | null;
 }
 
 interface RbacInfo {
@@ -223,12 +226,12 @@ function OverviewCard({ card, delay }: { card: StatCard; delay: number }) {
 export default function SecurityPage() {
   const { isAdmin } = useRBAC();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [expandedViolation, setExpandedViolation] = useState<number | null>(null);
   const [expandedKyverno, setExpandedKyverno] = useState<number | null>(null);
   const [kyvernoSevFilter, setKyvernoSevFilter] = useState("all");
   const [authTimeFilter, setAuthTimeFilter] = useState<"24h" | "7d" | "30d">("7d");
   const [expandedNs, setExpandedNs] = useState<Set<string>>(new Set());
-  const [renewingCert, setRenewingCert] = useState<string | null>(null);
   const [currentTimestamp, setCurrentTimestamp] = useState(() => Date.now());
 
   useEffect(() => {
@@ -240,79 +243,49 @@ export default function SecurityPage() {
     return () => window.clearInterval(interval);
   }, []);
 
-  const { data: pods, isLoading: podsLoading, refetch: refetchPods } = useQuery<Array<{
-    name: string; namespace: string; status: string;
-    securityContext?: { privileged?: boolean; runAsNonRoot?: boolean; runAsUser?: number };
-    hostNetwork?: boolean;
-    containers?: Array<{ resources?: { limits?: Record<string, string> }; securityContext?: { privileged?: boolean; runAsNonRoot?: boolean } }>;
-  }>>({
-    queryKey: ["pods", "security"],
-    queryFn: async () => { const r = await fetch("/api/pods"); return r.json(); },
-    staleTime: 30000,
-  });
-
-  const { data: certsData, isLoading: certsLoading, refetch: refetchCerts } = useQuery<{ certs: CertInfo[] }>({
+  const { data: certsData, isLoading: certsLoading } = useApiQuery<{ certs: CertInfo[] }>({
     queryKey: ["security", "certs"],
-    queryFn: async () => { const r = await fetch("/api/security/certs"); return r.json(); },
+    path: "/api/security/certs",
     staleTime: 60000,
   });
 
-  const { data: rbacData, isLoading: rbacLoading, refetch: refetchRbac } = useQuery<RbacInfo>({
+  const { data: rbacData, isLoading: rbacLoading } = useApiQuery<RbacInfo>({
     queryKey: ["security", "rbac"],
-    queryFn: async () => { const r = await fetch("/api/security/rbac"); return r.json(); },
+    path: "/api/security/rbac",
     staleTime: 60000,
   });
 
-  const { data: enhanced, isLoading: enhancedLoading, refetch: refetchEnhanced } = useQuery<EnhancedData>({
+  const { data: enhanced, isLoading: enhancedLoading } = useApiQuery<EnhancedData>({
     queryKey: ["security", "enhanced"],
-    queryFn: async () => { const r = await fetch("/api/security/enhanced"); return r.json(); },
+    path: "/api/security/enhanced",
     staleTime: 60000,
   });
 
-  const { data: authEvents, isLoading: authEventsLoading, refetch: refetchAuthEvents } = useQuery<AuthEventsData>({
+  const { data: authEvents, isLoading: authEventsLoading } = useApiQuery<AuthEventsData>({
     queryKey: ["security", "auth-events"],
-    queryFn: async () => { const r = await fetch("/api/security/auth-events"); return r.json(); },
+    path: "/api/security/auth-events",
     staleTime: 30000,
   });
 
-  const { data: postureData, isLoading: postureLoading, refetch: refetchPosture } = useQuery<PostureData>({
+  const { data: postureData, isLoading: postureLoading } = useApiQuery<PostureData>({
     queryKey: ["security", "posture"],
-    queryFn: async () => { const r = await fetch("/api/security/posture"); return r.json(); },
+    path: "/api/security/posture",
     staleTime: 60000,
   });
 
-  const { data: kyvernoData, isLoading: kyvernoLoading, refetch: refetchKyverno } = useQuery<{ violations: KyvernoViolation[] }>({
+  const { data: kyvernoData, isLoading: kyvernoLoading } = useApiQuery<{ violations: KyvernoViolation[] }>({
     queryKey: ["security", "kyverno"],
-    queryFn: async () => { const r = await fetch("/api/security/kyverno"); return r.json(); },
+    path: "/api/security/kyverno",
     staleTime: 60000,
   });
 
   const { data: auditLogData, isLoading: auditLogLoading } = useAuditLog();
 
-  const podIssues = useMemo<Array<{ pod: string; namespace: string; severity: "Critical" | "Warning" | "Info"; issue: string }>>(() => {
-    const issues: Array<{ pod: string; namespace: string; severity: "Critical" | "Warning" | "Info"; issue: string }> = [];
-    (pods ?? []).forEach(pod => {
-      if (pod.hostNetwork) {
-        issues.push({ pod: pod.name, namespace: pod.namespace, severity: "Critical", issue: "Uses hostNetwork: true" });
-      }
-      (pod.containers ?? []).forEach(c => {
-        if (c.securityContext?.privileged) issues.push({ pod: pod.name, namespace: pod.namespace, severity: "Critical", issue: "Privileged container" });
-        if (!c.resources?.limits) issues.push({ pod: pod.name, namespace: pod.namespace, severity: "Warning", issue: "Missing resource limits" });
-        if (c.securityContext?.runAsNonRoot === false) issues.push({ pod: pod.name, namespace: pod.namespace, severity: "Warning", issue: "Container runs as root" });
-      });
-      if (!pod.containers || pod.containers.length === 0) {
-        issues.push({ pod: pod.name, namespace: pod.namespace, severity: "Warning", issue: "Missing resource limits" });
-      }
-    });
-    return issues;
-  }, [pods]);
-
-  const isLoading = podsLoading || certsLoading || rbacLoading || enhancedLoading;
+  const isLoading = certsLoading || rbacLoading || enhancedLoading;
 
   const handleRescan = useCallback(() => {
-    refetchPods(); refetchCerts(); refetchRbac(); refetchEnhanced(); refetchAuthEvents();
-    refetchPosture(); refetchKyverno();
-  }, [refetchPods, refetchCerts, refetchRbac, refetchEnhanced, refetchAuthEvents, refetchPosture, refetchKyverno]);
+    void queryClient.invalidateQueries({ queryKey: ["security"] });
+  }, [queryClient]);
 
   useEffect(() => {
     const handleFabScan = () => handleRescan();
@@ -379,29 +352,31 @@ export default function SecurityPage() {
 
   // Severity counts for pod security
   const sevCounts = useMemo(() => {
-    const issues = enhanced?.podSecurityIssues ?? podIssues.map(i => ({ ...i, issues: [i.issue] }));
+    const issues = enhanced?.podSecurityIssues ?? [];
     return {
       critical: issues.filter(i => i.severity.toLowerCase() === "critical").length,
       high: issues.filter(i => i.severity.toLowerCase() === "high").length,
       medium: issues.filter(i => ["medium", "warning"].includes(i.severity.toLowerCase())).length,
       low: issues.filter(i => ["low", "info"].includes(i.severity.toLowerCase())).length,
     };
-  }, [enhanced, podIssues]);
+  }, [enhanced]);
 
-  const handleRenewCert = async (cert: CertInfo) => {
-    const key = `${cert.namespace}/${cert.name}`;
-    setRenewingCert(key);
-    try {
-      await fetch("/api/security/certs/renew", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ namespace: cert.namespace, name: cert.name, issuerName: "letsencrypt-prod" }),
-      });
-    } finally {
-      setRenewingCert(null);
-      void refetchCerts();
-    }
-  };
+  const renewCertMutation = useApiMutation<unknown, CertInfo>({
+    path: "/api/security/certs/renew",
+    request: (cert) => ({
+      json: {
+        namespace: cert.namespace,
+        name: cert.name,
+        issuerName: cert.issuerRef?.split("/").pop() || "letsencrypt-prod",
+      },
+    }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["security", "certs"] });
+    },
+  });
+  const renewingCert = renewCertMutation.isPending && renewCertMutation.variables
+    ? `${renewCertMutation.variables.namespace}/${renewCertMutation.variables.name}`
+    : null;
 
   if (!isAdmin) return null;
 
@@ -547,7 +522,7 @@ export default function SecurityPage() {
                     </div>
                     <CertCountdown daysLeft={cert.daysLeft} />
                     <button
-                      onClick={() => handleRenewCert(cert)}
+                      onClick={() => renewCertMutation.mutate(cert)}
                       disabled={isRenewing}
                       className="flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-xs text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors disabled:opacity-50 flex-shrink-0"
                     >
@@ -781,13 +756,13 @@ export default function SecurityPage() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.35 }}>
           <CollapsibleSection
             title="Pod Security Audit"
-            count={enhanced?.podSecurityIssues?.length ?? podIssues.length}
+            count={enhanced?.podSecurityIssues?.length}
             storageKey="sec-pod-security"
             badge={<AlertTriangle className="w-4 h-4 text-orange-400 flex-shrink-0" />}
           >
-            {(podsLoading || enhancedLoading) ? <Shimmer rows={4} /> : (() => {
+            {enhancedLoading ? <Shimmer rows={4} /> : (() => {
               const issues = enhanced?.podSecurityIssues ?? [];
-              const totalIssues = issues.length || podIssues.length;
+              const totalIssues = issues.length;
               return totalIssues === 0 ? (
                 <div className="text-center py-8">
                   <CheckCircle2 className="w-10 h-10 text-green-400 mx-auto mb-2" />
@@ -814,8 +789,7 @@ export default function SecurityPage() {
                   </div>
                   
                   {/* Grouped by namespace */}
-                  {issues.length > 0 ? (
-                    Array.from(issuesByNs.entries()).map(([ns, nsIssues]) => (
+                  {Array.from(issuesByNs.entries()).map(([ns, nsIssues]) => (
                       <div key={ns}>
                         <button
                           onClick={() => toggleNs(ns)}
@@ -847,20 +821,7 @@ export default function SecurityPage() {
                           </div>
                         )}
                       </div>
-                    ))
-                  ) : (
-                    podIssues.map((issue, i) => (
-                      <motion.div key={`basic-${i}`} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
-                        className="flex items-start gap-3 p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/5"
-                      >
-                        <SeverityBadge severity={issue.severity} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-900 dark:text-white font-medium truncate">{issue.pod}</p>
-                          <p className="text-xs text-slate-500">{issue.namespace} · {issue.issue}</p>
-                        </div>
-                      </motion.div>
-                    ))
-                  )}
+                  ))}
                 </div>
               );
             })()}

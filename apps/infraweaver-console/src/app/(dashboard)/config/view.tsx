@@ -1,15 +1,19 @@
 "use client";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRBAC } from "@/hooks/use-rbac";
 import { toast } from "@/lib/notify";
 import { Save, Code, ToggleLeft, ToggleRight, GitCommit, Loader2, CheckCircle2, XCircle, Lock, Cog } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import * as jsYaml from "js-yaml";
 
-
+interface PlatformConfigResponse {
+  raw?: string;
+  catalog?: { enabled?: string[] };
+  groups?: Record<string, { enabled?: boolean }>;
+}
 
 interface CatalogApp {
   name: string;
@@ -36,22 +40,14 @@ export function ConfigEditorView() {
   const [parsedConfig, setParsedConfig] = useState<ParsedConfig | null>(null);
   const [groupsYamlPending, setGroupsYamlPending] = useState(false);
 
-  const { data: platformConfig } = useQuery({
+  const { data: platformConfig } = useApiQuery<PlatformConfigResponse>({
     queryKey: ["config", "platform"],
-    queryFn: async () => {
-      const res = await fetch("/api/config/platform");
-      if (!res.ok) throw new Error("Failed to load config");
-      return res.json();
-    },
+    path: "/api/config/platform",
   });
 
-  const { data: catalogApps, isLoading: catalogLoading } = useQuery<CatalogApp[]>({
+  const { data: catalogApps, isLoading: catalogLoading } = useApiQuery<CatalogApp[]>({
     queryKey: ["config", "catalog-apps"],
-    queryFn: async () => {
-      const res = await fetch("/api/config/catalog-apps");
-      if (!res.ok) throw new Error("Failed to load catalog");
-      return res.json();
-    },
+    path: "/api/config/catalog-apps",
   });
 
   useEffect(() => {
@@ -68,42 +64,30 @@ export function ConfigEditorView() {
     }
   }, [platformConfig]);
 
-  const commitMutation = useMutation({
-    mutationFn: async (message: string) => {
-      const res = await fetch("/api/config/platform", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changes: pendingChanges, commitMessage: message }),
-      });
-      if (!res.ok) throw new Error("Commit failed");
-      return res.json();
-    },
+  const commitMutation = useApiMutation<unknown, string>({
+    path: "/api/config/platform",
+    method: "PUT",
+    request: (message) => ({ json: { changes: pendingChanges, commitMessage: message } }),
+    successMessage: "Changes committed to git! ArgoCD will sync shortly.",
+    errorMessage: "Failed to commit changes",
     onSuccess: () => {
-      toast.success("Changes committed to git! ArgoCD will sync shortly.");
       setPendingChanges([]);
       setShowCommitDialog(false);
     },
-    onError: () => toast.error("Failed to commit changes"),
   });
 
-  const yamlCommitMutation = useMutation({
-    mutationFn: async (content?: string) => {
-      const res = await fetch("/api/config/platform", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          yamlContent: content ?? yamlContent,
-          commitMessage: "chore: update platform.yaml via InfraWeaver Console",
-        }),
-      });
-      if (!res.ok) throw new Error("YAML commit failed");
-      return res.json();
-    },
-    onSuccess: () => {
-      toast.success("platform.yaml saved & committed to git!");
-      setGroupsYamlPending(false);
-    },
-    onError: () => toast.error("Failed to save YAML"),
+  const yamlCommitMutation = useApiMutation<unknown, string | undefined>({
+    path: "/api/config/platform",
+    method: "PUT",
+    request: (content) => ({
+      json: {
+        yamlContent: content ?? yamlContent,
+        commitMessage: "chore: update platform.yaml via InfraWeaver Console",
+      },
+    }),
+    successMessage: "platform.yaml saved & committed to git!",
+    errorMessage: "Failed to save YAML",
+    onSuccess: () => setGroupsYamlPending(false),
   });
 
   const toggleApp = (appName: string) => {
@@ -195,34 +179,34 @@ export function ConfigEditorView() {
 
   return (
     <div>
-      <PageHeader icon={Cog} title="Config Editor" subtitle="Kubernetes ConfigMaps and Secrets" />
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Platform Config</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Manage catalog apps, groups, and platform settings</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {(groupsYamlPending || pendingChanges.some(c => c.startsWith("Set replicas catalog:"))) && can("catalog:write") && (
-            <button
-              onClick={saveGroupsAndCatalog}
-              disabled={yamlCommitMutation.isPending}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
-            >
-              {yamlCommitMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Save Changes
-            </button>
-          )}
-          {pendingChanges.filter(c => !c.startsWith("Set replicas")).length > 0 && can("catalog:write") && (
-            <button
-              onClick={() => setShowCommitDialog(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors"
-            >
-              <GitCommit className="w-4 h-4" />
-              Commit {pendingChanges.filter(c => !c.startsWith("Set replicas")).length} change{pendingChanges.filter(c => !c.startsWith("Set replicas")).length !== 1 ? "s" : ""}
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        icon={Cog}
+        title="Config Editor"
+        subtitle="Manage catalog apps, groups, and platform settings"
+        actions={
+          <>
+            {(groupsYamlPending || pendingChanges.some(c => c.startsWith("Set replicas catalog:"))) && can("catalog:write") && (
+              <button
+                onClick={saveGroupsAndCatalog}
+                disabled={yamlCommitMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
+              >
+                {yamlCommitMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Save Changes
+              </button>
+            )}
+            {pendingChanges.filter(c => !c.startsWith("Set replicas")).length > 0 && can("catalog:write") && (
+              <button
+                onClick={() => setShowCommitDialog(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors"
+              >
+                <GitCommit className="w-4 h-4" />
+                Commit {pendingChanges.filter(c => !c.startsWith("Set replicas")).length} change{pendingChanges.filter(c => !c.startsWith("Set replicas")).length !== 1 ? "s" : ""}
+              </button>
+            )}
+          </>
+        }
+      />
 
       <div className="flex gap-1 bg-gray-100 dark:bg-white/5 rounded-lg p-1 mb-6 w-fit overflow-x-auto max-w-full scrollbar-none">
         {tabs.map(tab => (

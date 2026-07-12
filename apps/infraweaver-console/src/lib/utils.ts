@@ -17,10 +17,10 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.min(Math.max(Math.floor(Math.log(bytes) / Math.log(k)), 0), sizes.length - 1);
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
@@ -97,6 +97,15 @@ export class UserError extends Error {
     super(message);
     this.name = "UserError";
   }
+}
+
+/**
+ * Raw error → message string for logs and internal error plumbing. Unlike
+ * safeError() below, this performs NO redaction or allowlisting — never send
+ * its output to end users; use safeError() for anything user-facing.
+ */
+export function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 function redactErrorMessage(message: string) {

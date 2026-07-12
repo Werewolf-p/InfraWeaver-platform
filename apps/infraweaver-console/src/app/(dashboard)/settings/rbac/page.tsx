@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, Plus, Trash2, ChevronRight, Loader2, X,
@@ -63,6 +64,16 @@ const CATEGORY_LABEL: Record<string, string> = {
   catalog: "Catalog",
 };
 const builtInRoles = Object.values(BUILT_IN_ROLES);
+
+/**
+ * Roles that only make sense scoped to a single game server. Covers the
+ * built-in ids selectable in the role picker plus the legacy aliases the RBAC
+ * layer still resolves — previously two divergent hardcoded arrays.
+ */
+const PER_SERVER_ROLE_IDS = new Set([
+  "game-server-admin", "game-server-operator", "game-server-viewer",
+  "game-hub-server-admin", "game-hub-server-editor", "game-hub-server-reader",
+]);
 
 // ─── Role Card ────────────────────────────────────────────────────────────────
 function RoleCard({
@@ -134,7 +145,7 @@ function AddAssignmentModal({
   // Auto-set scope to game-hub when a per-server role is chosen
   const handleRoleChange = (id: string) => {
     setRoleId(id);
-    if (["game-hub-server-admin","game-hub-server-editor","game-hub-server-reader"].includes(id)) {
+    if (PER_SERVER_ROLE_IDS.has(id)) {
       // If only one game server exists, pre-select it
       if (gameServers.length === 1) setScope(`/game-hub/servers/${gameServers[0]}`);
       else if (!scope.startsWith("/game-hub/servers/")) setScope("/game-hub/servers/");
@@ -152,7 +163,7 @@ function AddAssignmentModal({
   };
 
   const selectedRole = builtInRoles.find((role) => role.id === roleId);
-  const isPerServerRole = ["game-server-admin", "game-server-operator", "game-server-viewer", "game-hub-server-admin", "game-hub-server-editor", "game-hub-server-reader"].includes(roleId);
+  const isPerServerRole = PER_SERVER_ROLE_IDS.has(roleId);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75">
@@ -304,32 +315,20 @@ export default function RBACPage() {
   const [addModalPreRole, setAddModalPreRole] = useState<string | undefined>();
   const [filterUser, setFilterUser] = useState("");
 
-  const { data: assignmentsData, isLoading: assignmentsLoading } = useQuery<{ assignments: Assignment[] }>({
+  const { data: assignmentsData, isLoading: assignmentsLoading } = useApiQuery<{ assignments: Assignment[] }>({
     queryKey: ["rbac", "assignments"],
-    queryFn: async () => {
-      const r = await fetch("/api/rbac/assignments");
-      if (!r.ok) throw new Error("Failed");
-      return r.json();
-    },
+    path: "/api/rbac/assignments",
   });
 
-  const { data: usersData } = useQuery<{ users: PlatformUser[] }>({
+  const { data: usersData } = useApiQuery<{ users: PlatformUser[] }>({
     queryKey: ["users-config"],
-    queryFn: async () => {
-      const r = await fetch("/api/users-config");
-      if (!r.ok) throw new Error("Failed");
-      return r.json();
-    },
+    path: "/api/users-config",
   });
 
   // Load deployed game servers for scope selector
-  const { data: gameServersData } = useQuery<{ servers: Array<{ name: string }> }>({
+  const { data: gameServersData } = useApiQuery<{ servers: Array<{ name: string }> }>({
     queryKey: ["game-hub", "servers"],
-    queryFn: async () => {
-      const r = await fetch("/api/game-hub/servers");
-      if (!r.ok) return { servers: [] };
-      return r.json();
-    },
+    path: "/api/game-hub/servers",
     staleTime: 60_000,
   });
   const gameServers = (gameServersData?.servers ?? []).map(s => s.name);

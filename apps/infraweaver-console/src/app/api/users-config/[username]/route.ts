@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withAuth } from "@/lib/with-auth";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
+import { sessionActor } from "@/lib/user-guards";
 import { findPrivilegedFields } from "@/lib/users-config-guard";
 
 const userPutSchema = z.record(z.string(), z.unknown());
@@ -49,13 +50,12 @@ export const PUT = withAuth<{ username: string }>(
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    const currentUser = session.user as { email?: string; name?: string };
     const rest = { ...(body as { username?: string } & Record<string, unknown>) };
     delete rest.username;
     rawUsers[username] = { ...rawUsers[username], ...rest };
 
     await saveUsersConfig(rawUsers, sha, `chore: update user ${username} via InfraWeaver Console`);
-    await auditLog("users-config:update", currentUser.email ?? "unknown", `Updated user ${username}`);
+    await auditLog("users-config:update", sessionActor(session), `Updated user ${username}`);
 
     return NextResponse.json({ ok: true });
   },
@@ -102,7 +102,7 @@ export const DELETE = withAuth<{ username: string }>(
 
     delete rawUsers[username];
     await saveUsersConfig(rawUsers, sha, `chore: delete user ${username} via InfraWeaver Console`);
-    await auditLog("users-config:delete", currentUser.email ?? "unknown", `Deleted user ${username}`);
+    await auditLog("users-config:delete", sessionActor(session), `Deleted user ${username}`);
 
     return NextResponse.json({ ok: true });
   },

@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 import { auditLog } from "@/lib/audit-log";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
+import { makeAppsApi } from "@/lib/kube-client";
 import { invalidateClusterCaches } from "@/lib/performance-cache";
+import { requireSingleCluster } from "@/lib/route-utils";
+import { safeError } from "@/lib/utils";
 import { isValidK8sName, isValidNamespace } from "@/lib/validate";
 import { withAuth } from "@/lib/with-auth";
 import { z } from "zod";
-import * as k8s from "@kubernetes/client-node";
-
-function makeKc(clusterId: string) {
-  return loadKubeConfig(clusterId);
-}
 
 export const PATCH = withAuth(
   { permission: "cluster:admin", rateLimit: { name: "cluster-scale", limit: 20, windowMs: 60_000 } },
@@ -26,12 +23,10 @@ export const PATCH = withAuth(
     if (!isValidNamespace(namespace) || !isValidK8sName(deployment)) {
       return NextResponse.json({ error: "Invalid deployment name" }, { status: 400 });
     }
-    const clusterId = getRequestClusterId(req);
-    if (clusterId === "all") {
-      return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
-    }
+    const cluster = requireSingleCluster(req);
+    if (cluster instanceof NextResponse) return cluster;
     try {
-      const appsApi = makeKc(clusterId).makeApiClient(k8s.AppsV1Api);
+      const appsApi = makeAppsApi(cluster.clusterId);
       const scale = await appsApi.readNamespacedDeploymentScale({ name: deployment, namespace });
       await appsApi.replaceNamespacedDeploymentScale({
         name: deployment,
@@ -42,7 +37,7 @@ export const PATCH = withAuth(
       invalidateClusterCaches();
       return NextResponse.json({ ok: true, replicas });
     } catch (err) {
-      return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
+      return NextResponse.json({ ok: false, error: safeError(err) }, { status: 502 });
     }
   },
 );
@@ -58,8 +53,7 @@ export const GET = withAuth(
     }
 
     try {
-      const appsApi = makeKc(getRequestClusterId(req)).makeApiClient(k8s.AppsV1Api);
-      const dep = await appsApi.readNamespacedDeployment({ name: deployment, namespace });
+      const dep = await makeAppsApi(getRequestClusterId(req)).readNamespacedDeployment({ name: deployment, namespace });
       return NextResponse.json({ replicas: dep.spec?.replicas ?? 1 });
     } catch {
       return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });

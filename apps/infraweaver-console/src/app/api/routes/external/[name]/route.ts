@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { deleteExternalRoute, updateExternalRoute } from "@/lib/external-routes-server";
 import type { ExternalRouteMutationInput } from "@/lib/external-routes";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
-import { safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 
 const routeSchema = z.object({
   host: z.string().min(1).max(253),
@@ -32,16 +30,6 @@ const routeSchema = z.object({
   }
 });
 
-async function requireWriteAccess() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["infra:write"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  return session;
-}
-
 function normalizePayload(input: z.infer<typeof routeSchema>, name: string): ExternalRouteMutationInput {
   return {
     name,
@@ -59,32 +47,14 @@ function normalizePayload(input: z.infer<typeof routeSchema>, name: string): Ext
   };
 }
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await requireWriteAccess();
-  if (session instanceof NextResponse) return session;
+export const PUT = withAuth<{ name: string }, z.infer<typeof routeSchema>>(
+  { permission: "infra:write", bodySchema: routeSchema },
+  async ({ params, body }) => {
+    const { name } = params;
+    return NextResponse.json(await updateExternalRoute(name, normalizePayload(body!, name)));
+  },
+);
 
-  try {
-    const { name } = await params;
-    const rawBody = await req.json().catch(() => null);
-    const parsed = routeSchema.safeParse(rawBody);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
-    }
-
-    return NextResponse.json(await updateExternalRoute(name, normalizePayload(parsed.data, name)));
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
-
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await requireWriteAccess();
-  if (session instanceof NextResponse) return session;
-
-  try {
-    const { name } = await params;
-    return NextResponse.json(await deleteExternalRoute(name));
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+export const DELETE = withAuth<{ name: string }>({ permission: "infra:write" }, async ({ params }) => {
+  return NextResponse.json(await deleteExternalRoute(params.name));
+});

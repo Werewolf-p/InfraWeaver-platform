@@ -16,6 +16,12 @@ import {
 
 const MANAGE: Permission[] = ["rbac:admin", "cluster:admin"];
 
+// Persisted principal ids must stay short and printable — they flow into
+// eligibility matching, UI rendering, and notification emails.
+const PRINCIPAL_ID_RE = /^[\w .@+-]+$/;
+const PRINCIPAL_ID_MAX_LENGTH = 100;
+const MAX_ELIGIBILITY_DURATION_MINUTES = 1440;
+
 function identitiesFor(session: Session | null, username: string): string[] {
   const email = session?.user?.email ?? "";
   const explicit = (session?.user as { username?: string } | undefined)?.username ?? "";
@@ -65,7 +71,19 @@ export async function POST(request: NextRequest) {
       return apiError("Invalid principal type", { status: 400 });
     }
     if (!principalId) return apiError("principalId is required", { status: 400 });
+    if (principalId.length > PRINCIPAL_ID_MAX_LENGTH || !PRINCIPAL_ID_RE.test(principalId)) {
+      return apiError("Invalid principalId", { status: 400 });
+    }
     if (!isPimRoleId(body.role)) return apiError("Invalid PIM role", { status: 400 });
+    if (
+      body.maxDurationMinutes !== undefined &&
+      (typeof body.maxDurationMinutes !== "number" ||
+        !Number.isFinite(body.maxDurationMinutes) ||
+        body.maxDurationMinutes < 1 ||
+        body.maxDurationMinutes > MAX_ELIGIBILITY_DURATION_MINUTES)
+    ) {
+      return apiError("Invalid maxDurationMinutes", { status: 400 });
+    }
 
     // Privilege ceiling: the granter may only make a principal eligible for a PIM
     // role whose permissions the granter themselves holds. Stops a narrow

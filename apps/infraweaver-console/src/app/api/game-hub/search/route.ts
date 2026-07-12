@@ -1,16 +1,8 @@
 import { NextResponse } from "next/server";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { getDeploymentGameType, makeGameHubClients } from "@/lib/game-hub-server";
+import { getDeploymentGameType, makeGameHubClients, serverStatus } from "@/lib/game-hub-server";
 import { withAuth } from "@/lib/with-auth";
 import { safeError } from "@/lib/utils";
-
-function serverStatus(deployment: { metadata?: { annotations?: Record<string, string> }; spec?: { replicas?: number }; status?: { readyReplicas?: number; replicas?: number } }) {
-  if (deployment.metadata?.annotations?.["infraweaver/maintenance"] === "true") return "maintenance";
-  if ((deployment.spec?.replicas ?? 0) === 0) return "stopped";
-  if ((deployment.status?.readyReplicas ?? 0) > 0) return "running";
-  if ((deployment.status?.replicas ?? 0) > 0) return "starting";
-  return "stopped";
-}
 
 export const GET = withAuth(
   {

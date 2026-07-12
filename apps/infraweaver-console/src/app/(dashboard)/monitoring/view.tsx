@@ -2,12 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
   Clock3,
-  Download,
   HeartPulse,
   RefreshCw,
   Server,
@@ -31,9 +29,12 @@ import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
 import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
 import { ExportButton } from "@/components/ui/export-button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PillTabs } from "@/components/ui/pill-tabs";
 import { SegmentedBar } from "@/components/ui/segmented-bar";
 import { Tooltip } from "@/components/ui/tooltip";
 import { CopyButton } from "@/components/ui/copy-button";
+import { useApiQuery } from "@/hooks/use-api-query";
+import { serializeRows } from "@/lib/export-serializers";
 import { cn, timeAgo } from "@/lib/utils";
 
 interface EndpointResult {
@@ -190,57 +191,40 @@ export function MonitoringView() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const healthQuery = useQuery({
+  const healthQuery = useApiQuery<{ endpoints: Endpoint[] }>({
     queryKey: ["monitoring", "health"],
-    queryFn: async () => {
-      const response = await fetch("/api/health");
-      if (!response.ok) throw new Error("Failed to load endpoint health");
-      return response.json() as Promise<{ endpoints: Endpoint[] }>;
-    },
+    path: "/api/health",
     refetchInterval: refreshInterval || false,
     staleTime: 15000,
   });
 
-  const slaQuery = useQuery({
+  const slaQuery = useApiQuery<SLAData>({
     queryKey: ["monitoring", "sla"],
-    queryFn: async () => {
-      const response = await fetch("/api/health/sla");
-      if (!response.ok) throw new Error("Failed to load SLA data");
-      return response.json() as Promise<SLAData>;
-    },
+    path: "/api/health/sla",
     refetchInterval: refreshInterval || false,
     staleTime: 30000,
   });
 
-  const timelineQuery = useQuery({
+  const timelineQuery = useApiQuery<{ data: TimelinePoint[] }>({
     queryKey: ["monitoring", "timeline"],
-    queryFn: async () => {
-      const response = await fetch("/api/health/timeline");
-      if (!response.ok) throw new Error("Failed to load timeline data");
-      return response.json() as Promise<{ data: TimelinePoint[] }>;
-    },
+    path: "/api/health/timeline",
+    // The timeline payload is `{ available, data }` — keep the envelope instead
+    // of letting apiClient unwrap its `data` key.
+    request: { unwrap: false },
     refetchInterval: refreshInterval || false,
     staleTime: 15000,
   });
 
-  const statusQuery = useQuery({
+  const statusQuery = useApiQuery<PlatformStatus>({
     queryKey: ["monitoring", "platform-status"],
-    queryFn: async () => {
-      const response = await fetch("/api/platform/status");
-      if (!response.ok) throw new Error("Failed to load platform status");
-      return response.json() as Promise<PlatformStatus>;
-    },
+    path: "/api/platform/status",
     refetchInterval: refreshInterval || false,
     staleTime: 15000,
   });
 
-  const eventsQuery = useQuery({
+  const eventsQuery = useApiQuery<{ events: K8sEvent[] }>({
     queryKey: ["monitoring", "events"],
-    queryFn: async () => {
-      const response = await fetch("/api/events");
-      if (!response.ok) throw new Error("Failed to load recent events");
-      return response.json() as Promise<{ events: K8sEvent[] }>;
-    },
+    path: "/api/cluster/events",
     refetchInterval: refreshInterval || false,
     staleTime: 15000,
   });
@@ -326,22 +310,7 @@ export function MonitoringView() {
       );
     }
 
-    const header = ["name", "status", "currentLatencyMs", "uptimeRecent", "uptime24h", "uptime7d", "uptime30d"];
-    const csv = [
-      header.join(","),
-      ...rows.map((row) => header.map((key) => JSON.stringify(row[key as keyof typeof row] ?? "")).join(",")),
-    ].join("\n");
-
-    if (format === "yaml") {
-      return rows
-        .map(
-          (row) =>
-            `- name: ${row.name}\n  status: ${row.status}\n  currentLatencyMs: ${row.currentLatencyMs}\n  uptimeRecent: ${row.uptimeRecent}\n  uptime24h: ${row.uptime24h ?? ""}\n  uptime7d: ${row.uptime7d ?? ""}\n  uptime30d: ${row.uptime30d ?? ""}`,
-        )
-        .join("\n");
-    }
-
-    return csv;
+    return serializeRows(rows, format);
   };
 
   return (
@@ -438,22 +407,12 @@ export function MonitoringView() {
               Only issues
             </button>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {(["1h", "6h", "24h"] as TimeRange[]).map((option) => (
-              <button
-                key={option}
-                onClick={() => setTimeRange(option)}
-                className={cn(
-                  "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                  timeRange === option
-                    ? "border-[#0078D4]/40 bg-[rgba(0,120,212,0.15)] text-[#9dcbff]"
-                    : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-[#f2f2f2]"
-                )}
-              >
-                {TIME_RANGE_LABELS[option]}
-              </button>
-            ))}
-          </div>
+          <PillTabs
+            tabs={(["1h", "6h", "24h"] as TimeRange[]).map((option) => ({ value: option, label: TIME_RANGE_LABELS[option] }))}
+            active={timeRange}
+            onChange={setTimeRange}
+            label="Time range"
+          />
         </div>
       </DashboardPanel>
 
@@ -647,8 +606,7 @@ export function MonitoringView() {
         )}
       </DashboardPanel>
 
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-        <DashboardPanel title="Platform status" description="Cross-check the monitoring layer against live control plane status." icon={Server}>
+      <DashboardPanel title="Platform status" description="Cross-check the monitoring layer against live control plane status." icon={Server}>
           {statusQuery.isLoading ? (
             <div className="space-y-3">
               {[0, 1, 2].map((index) => (
@@ -701,33 +659,7 @@ export function MonitoringView() {
               </div>
             </div>
           ) : null}
-        </DashboardPanel>
-
-        <DashboardPanel title="Operational notes" description="Investigation helpers and operator cues collected from the current state of the dashboard." icon={Download}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-              <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Keyboard flow</p>
-              <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-[#b8b8b8]">
-                <li>
-                  <span className="font-medium text-gray-900 dark:text-white">/</span> focuses service search.
-                </li>
-                <li>
-                  <span className="font-medium text-gray-900 dark:text-white">Esc</span> clears search and issue filters.
-                </li>
-                <li>Use the export menu to hand off filtered watchlists.</li>
-              </ul>
-            </div>
-            <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-              <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">What changed</p>
-              <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-[#b8b8b8]">
-                <li>Alert summary now sits above the fold.</li>
-                <li>Time-range selection keeps charts understandable.</li>
-                <li>Latency, SLA, and warnings can be cross-referenced in one screen.</li>
-              </ul>
-            </div>
-          </div>
-        </DashboardPanel>
-      </div>
+      </DashboardPanel>
     </div>
   );
 }

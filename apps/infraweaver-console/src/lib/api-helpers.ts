@@ -88,12 +88,29 @@ export function getRequestBodyLimit(pathname: string) {
   return override?.bytes ?? DEFAULT_API_BODY_LIMIT
 }
 
+// Only invoked for mutating requests (see proxy.ts) — so it fails CLOSED:
+// a body whose size cannot be established from Content-Length is rejected.
+// A missing Content-Length is only benign when the request carries no body
+// at all (e.g. a bare DELETE), which also means no Transfer-Encoding: with
+// HTTP/1.1 framing a body cannot arrive without one of the two headers, and
+// `Transfer-Encoding: chunked` was exactly the bypass that skipped this guard
+// (unbounded chunked POST → memory-exhaustion DoS, including on the
+// unauthenticated signed-feedback path).
 export function getRequestSizeViolation(req: Pick<Request, "headers">, pathname: string) {
   const rawLength = req.headers.get("content-length")
-  if (!rawLength) return null
+  if (!rawLength) {
+    if (req.headers.get("transfer-encoding")) {
+      return "Request body too large (missing Content-Length with Transfer-Encoding present — body size cannot be verified)"
+    }
+    // No Content-Length and no Transfer-Encoding: no body is framed.
+    return null
+  }
 
   const contentLength = Number(rawLength)
-  if (!Number.isFinite(contentLength) || contentLength < 0) return null
+  if (!Number.isFinite(contentLength) || contentLength < 0) {
+    // Unparseable Content-Length on a size-guarded request: fail closed.
+    return `Request body too large (unparseable Content-Length ${JSON.stringify(rawLength)})`
+  }
 
   const limit = getRequestBodyLimit(pathname)
   if (contentLength <= limit) return null

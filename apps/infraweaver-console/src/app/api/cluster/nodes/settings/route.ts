@@ -51,14 +51,14 @@ interface ClusterYaml {
 
 const GIT_TOKEN = getGitAccessToken();
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "your-org/your-repo";
+const GITHUB_REPO = process.env.GITHUB_REPO ?? "";
 const CLUSTER_YAML_PATH = "envs/productie/cluster.yaml";
 
 // Workflow file that handles the rolling node update via Terraform + kubectl drain/uncordon
 const NODE_UPDATE_WORKFLOW = "node-rolling-update.yml";
 
 async function dispatchWorkflow(workflowFile: string, inputs: Record<string, string>) {
-  if (!GITHUB_TOKEN) throw new Error("Missing GITHUB_TOKEN for workflow dispatch");
+  if (!GITHUB_TOKEN || !GITHUB_REPO) throw new Error("Missing GITHUB_TOKEN/GITHUB_REPO for workflow dispatch");
   const res = await fetch(
     `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${workflowFile}/dispatches`,
     {
@@ -73,8 +73,11 @@ async function dispatchWorkflow(workflowFile: string, inputs: Record<string, str
     },
   );
   if (!res.ok) {
+    // Log the raw GitHub response server-side only; the thrown message flows
+    // back to the client via safeError and must stay generic.
     const body = await res.text();
-    throw new Error(`Workflow dispatch failed: ${res.status} — ${body}`);
+    console.error(`[nodes/settings] workflow dispatch failed: ${res.status} — ${body}`);
+    throw new Error(`Workflow dispatch failed (HTTP ${res.status})`);
   }
 }
 
@@ -112,6 +115,11 @@ export const GET = withAuth({ permission: "config:read" }, async () => {
 
 export const PUT = withRoute("config:write", async (req: NextRequest) => {
   if (!GIT_TOKEN) return NextResponse.json({ error: "Missing git provider token" }, { status: 503 });
+  // Fail fast before committing anything: a commit whose rolling-update workflow
+  // can never dispatch would leave cluster.yaml changed but unapplied.
+  if (!GITHUB_TOKEN || !GITHUB_REPO) {
+    return NextResponse.json({ error: "Workflow dispatch not configured (GITHUB_TOKEN/GITHUB_REPO)" }, { status: 503 });
+  }
 
   try {
     const parseResult = NodesSettingsPutSchema.safeParse(await req.json().catch(() => null));
@@ -119,28 +127,11 @@ export const PUT = withRoute("config:write", async (req: NextRequest) => {
       return NextResponse.json({ error: parseResult.error.flatten() }, { status: 400 });
     }
     const body = parseResult.data;
-    if (!Array.isArray(body.changes) || body.changes.length === 0) {
-      return NextResponse.json({ error: "No changes provided" }, { status: 400 });
-    }
 
-    // Validate changes
+    // Schema enforces presence/ranges; only the 512 MB alignment needs a manual pass.
     for (const change of body.changes) {
-      if (!change.name?.trim()) {
-        return NextResponse.json({ error: "Each change must have a node name" }, { status: 400 });
-      }
-      if (change.cpu !== undefined) {
-        if (!Number.isInteger(change.cpu) || change.cpu < 1 || change.cpu > 64) {
-          return NextResponse.json({ error: `cpu for ${change.name} must be 1–64` }, { status: 400 });
-        }
-      }
-      if (change.memory_mb !== undefined) {
-        if (!Number.isInteger(change.memory_mb) || change.memory_mb < 512 || change.memory_mb > 131072) {
-          return NextResponse.json({ error: `memory_mb for ${change.name} must be 512–131072` }, { status: 400 });
-        }
-        // Enforce 512 MB alignment
-        if (change.memory_mb % 512 !== 0) {
-          return NextResponse.json({ error: `memory_mb for ${change.name} must be a multiple of 512` }, { status: 400 });
-        }
+      if (change.memory_mb !== undefined && change.memory_mb % 512 !== 0) {
+        return NextResponse.json({ error: `memory_mb for ${change.name} must be a multiple of 512` }, { status: 400 });
       }
     }
 

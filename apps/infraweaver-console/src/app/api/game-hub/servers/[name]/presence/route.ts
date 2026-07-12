@@ -1,8 +1,5 @@
 import { EventEmitter } from "node:events";
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { validateK8sName } from "@/lib/api-security";
+import { withGameHubAuth } from "@/lib/game-hub-server";
 
 const viewersByServer = new Map<string, Set<string>>();
 const presenceEmitter = new EventEmitter();
@@ -31,19 +28,7 @@ function broadcast(serverName: string) {
   presenceEmitter.emit(serverName, buildPayload(serverName));
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { name } = await params;
-  const nameErr = validateK8sName(name);
-  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
-
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withGameHubAuth({ permission: "game-hub:read" }, async ({ req, session, name }) => {
   const fallbackName = session.user?.name ?? session.user?.email ?? "viewer";
   const sessionId =
     req.nextUrl.searchParams.get("sessionId")?.trim() ||
@@ -120,4 +105,4 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
       },
     },
   );
-}
+});

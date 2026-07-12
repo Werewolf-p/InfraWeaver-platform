@@ -4,12 +4,15 @@ import { auth } from "@/lib/auth";
 import { getARecord, createARecord, deleteARecord, resolveZoneIdForHost } from "@/lib/cloudflare";
 import { validateK8sName } from "@/lib/api-security";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { makeCoreApi } from "@/lib/kube-client";
 import { safeError } from "@/lib/utils";
 import { internalHost, publicHost } from "@/lib/domain";
 
+const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
+
 const dnsPatchSchema = z.object({
-  targetIP: z.string().min(1),
-  internalIP: z.string().optional(),
+  targetIP: z.string().regex(IP_REGEX, "Must be a valid IP address"),
+  internalIP: z.string().regex(IP_REGEX, "Must be a valid IP address").optional(),
   publicDns: z.boolean(),
   internalDns: z.boolean(),
 });
@@ -27,10 +30,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   let targetIP = "";
   let internalIP = "";
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = new k8s.KubeConfig();
-    kc.loadFromDefault();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi();
     const cm = await coreApi.readNamespacedConfigMap({ name, namespace: "game-servers" });
     targetIP = cm.data?.["target-ip"] ?? "";
     internalIP = cm.data?.["internal-ip"] ?? "";

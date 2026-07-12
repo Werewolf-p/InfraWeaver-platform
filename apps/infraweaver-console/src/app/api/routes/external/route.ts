@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { createExternalRoute, loadExternalRoutes } from "@/lib/external-routes-server";
 import type { ExternalRouteMutationInput } from "@/lib/external-routes";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
-import { safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 
 const routeSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/),
@@ -33,16 +31,6 @@ const routeSchema = z.object({
   }
 });
 
-async function requireWriteAccess() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["infra:write"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  return session;
-}
-
 function normalizePayload(input: z.infer<typeof routeSchema>): ExternalRouteMutationInput {
   return {
     name: input.name.trim().toLowerCase(),
@@ -60,33 +48,16 @@ function normalizePayload(input: z.infer<typeof routeSchema>): ExternalRouteMuta
   };
 }
 
-export async function GET() {
-  const session = await requireWriteAccess();
-  if (session instanceof NextResponse) return session;
+export const GET = withAuth({ permission: "infra:write" }, async () => {
+  return NextResponse.json(await loadExternalRoutes(), {
+    headers: { "Cache-Control": "no-store" },
+  });
+});
 
-  try {
-    return NextResponse.json(await loadExternalRoutes(), {
-      headers: { "Cache-Control": "no-store" },
-    });
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
-
-export async function POST(req: NextRequest) {
-  const session = await requireWriteAccess();
-  if (session instanceof NextResponse) return session;
-
-  try {
-    const rawBody = await req.json().catch(() => null);
-    const parsed = routeSchema.safeParse(rawBody);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
-    }
-
-    const payload = normalizePayload(parsed.data);
+export const POST = withAuth(
+  { permission: "infra:write", bodySchema: routeSchema },
+  async ({ body }) => {
+    const payload = normalizePayload(body!);
     return NextResponse.json(await createExternalRoute(payload));
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+  },
+);

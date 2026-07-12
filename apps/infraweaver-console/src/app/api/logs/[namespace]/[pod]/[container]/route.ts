@@ -1,51 +1,30 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/logs-access";
-import { loadKubeConfig } from "@/lib/k8s";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { clampIntParam, fetchPodLogText } from "@/lib/logs-access";
+import { kubeUnavailableLogsResponse, requireLogsTargetAccess } from "@/lib/logs-route-helpers";
+import { makeCoreApi } from "@/lib/kube-client";
 import { isValidContainerName, isValidK8sName, isValidNamespace } from "@/lib/validate";
+import { withAuth } from "@/lib/with-auth";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ namespace: string; pod: string; container: string }> }
-) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "apps:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  if (!checkRateLimit(rateLimitKey("logs-read", req), 30, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
+export const GET = withAuth<{ namespace: string; pod: string; container: string }>(
+  { permission: "apps:read", rateLimit: { name: "logs-read", limit: 30, windowMs: 60_000 } },
+  async ({ req, session, params }) => {
+    const { namespace, pod, container } = params;
+    if (!isValidNamespace(namespace) || !isValidK8sName(pod) || !isValidContainerName(container)) {
+      return NextResponse.json({ error: "Invalid name: only lowercase alphanumeric and dashes allowed" }, { status: 400 });
+    }
 
-  const { namespace, pod, container } = await params;
-  if (!isValidNamespace(namespace) || !isValidK8sName(pod) || !isValidContainerName(container)) {
-    return NextResponse.json({ error: "Invalid name: only lowercase alphanumeric and dashes allowed" }, { status: 400 });
-  }
+    const access = await requireLogsTargetAccess(session, namespace, pod);
+    if (access instanceof NextResponse) return access;
 
-  const gameHubAccess = await getGameHubAccessContext(session, 60);
-  if (!canAccessLogsTarget(gameHubAccess.groups, gameHubAccess.username, gameHubAccess.roleAssignments, namespace, pod)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+    const lines = clampIntParam(req.nextUrl.searchParams.get("lines"), 500, 1, 1000);
 
-  const lines = Math.min(Math.max(parseInt(req.nextUrl.searchParams.get("lines") ?? "500", 10) || 500, 1), 1000);
-
-  try {
-    const k8s = await import("@kubernetes/client-node");
-    const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
-    const logRes = await coreApi.readNamespacedPodLog({
-      name: pod,
-      namespace,
-      container,
-      tailLines: lines,
-      timestamps: true,
-    });
-    return new NextResponse(logRes as string, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
-  } catch {
-    return new NextResponse("Kubernetes unavailable — cannot retrieve logs", {
-      status: 503,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
-  }
-}
+    try {
+      const coreApi = makeCoreApi(getRequestClusterId(req));
+      const logText = await fetchPodLogText(coreApi, { namespace, pod, container, tailLines: lines, timestamps: true });
+      return new NextResponse(logText, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    } catch {
+      return kubeUnavailableLogsResponse();
+    }
+  },
+);

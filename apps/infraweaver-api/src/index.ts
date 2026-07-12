@@ -65,10 +65,20 @@ app.get('/api/version', (c) => {
 const api = new Hono<AppBindings>();
 api.use('*', authMiddleware);
 api.use('*', modeGuard);
+// Resources whose GET payloads carry secret material or full cluster
+// configuration (ConfigMap `data`, Secret inventories, exec output,
+// community-app manifests). These must never be written to a browser's disk
+// cache, so they get `no-store` instead of the default `private, max-age=30`.
+// securityHeaders separately forces no-store for clusters|rbac|agents.
+const NO_STORE_RESOURCE_SEGMENTS = /(?:^|\/)(?:config-maps|secrets|community-apps|exec)(?:\/|$)/;
 api.use('*', async (c, next) => {
   await next();
   if (c.req.method === 'GET' && !c.res.headers.has('Cache-Control')) {
-    c.header('Cache-Control', 'private, max-age=30');
+    if (NO_STORE_RESOURCE_SEGMENTS.test(c.req.path)) {
+      c.header('Cache-Control', 'no-store');
+    } else {
+      c.header('Cache-Control', 'private, max-age=30');
+    }
   }
 });
 api.route('/clusters', clustersRoute);

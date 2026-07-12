@@ -1,7 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { execShell, getPrimaryContainerName, getServerPod, makeGameHubClients } from "@/lib/game-hub-server";
+import { NextResponse } from "next/server";
+import { execShell, getPrimaryContainerName, getServerPod, makeGameHubClients, withGameHubAuth } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 
 function parsePsAux(output: string) {
@@ -24,16 +22,7 @@ function parsePsAux(output: string) {
     .slice(0, 30);
 }
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { name } = await params;
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withGameHubAuth({ permission: "game-hub:read" }, async ({ name }) => {
   try {
     const clients = makeGameHubClients();
     const pod = await getServerPod(clients.coreApi, name, true);
@@ -44,4 +33,4 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
     console.error("process list failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

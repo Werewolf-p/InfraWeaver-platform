@@ -1,4 +1,4 @@
-import { execShell, getPrimaryContainerName, getServerDeployment, getServerPod, makeGameHubClients, readServerEgg } from "@/lib/game-hub-server";
+import { execShell, GAME_HUB_NS, getPrimaryContainerName, getServerDeployment, getServerPod, makeGameHubClients, readServerEgg } from "@/lib/game-hub-server";
 import { resolveServerDataRoot } from "./data-root";
 
 type Clients = ReturnType<typeof makeGameHubClients>;
@@ -6,7 +6,7 @@ type Clients = ReturnType<typeof makeGameHubClients>;
 // The offline file pod self-deletes after this window even if a handler crashes
 // before its cleanup runs — a safety net against leaked pods.
 const OFFLINE_POD_TTL_SECONDS = 300;
-const GAME_HUB_NS = "game-hub";
+
 
 // Whether the operation only reads the volume or also writes to it. Reads mount
 // the PVC read-only so a read-only user never spins a writable pod over the save

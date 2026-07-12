@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { deleteARecord, resolveZoneIdForHost } from "@/lib/cloudflare";
 import { validateK8sName } from "@/lib/api-security";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { makeCoreApi } from "@/lib/kube-client";
 import { safeError } from "@/lib/utils";
 import { internalHost, publicHost } from "@/lib/domain";
 
@@ -16,10 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
 
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = new k8s.KubeConfig();
-    kc.loadFromDefault();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi();
 
     const cm = await coreApi.readNamespacedConfigMap({ name, namespace: "game-servers" });
     const data = cm.data ?? {};
@@ -67,10 +65,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (nameErr2) return NextResponse.json(nameErr2.error, { status: nameErr2.status });
 
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = new k8s.KubeConfig();
-    kc.loadFromDefault();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi();
 
     // Read ConfigMap to know what to clean up
     let publicDns = false, internalDns = false, backendType = "external";

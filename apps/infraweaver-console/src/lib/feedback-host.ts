@@ -1,6 +1,10 @@
 import "server-only";
 
+import type { NextRequest, NextResponse } from "next/server";
+import type { Session } from "next-auth";
+import type { Permission } from "@/lib/rbac";
 import { internalHost } from "@/lib/domain";
+import { apiError, requireRoutePermissions } from "@/lib/route-utils";
 
 /**
  * Domain gate for the feedback REVIEW dashboard.
@@ -42,4 +46,30 @@ export function isFeedbackHost(source: Headers | string | null | undefined): boo
     host = source.get("x-forwarded-host") ?? source.get("host");
   }
   return normalizeHost(host) === canonical;
+}
+
+/**
+ * Feedback management permission set — approving / dispatching / resolving /
+ * publishing feedback is an admin-gated action. Human-in-the-loop: nothing
+ * downstream runs until a holder of one of these moves an entry along. This
+ * mirrors the cluster:admin gate used by agent approval.
+ */
+export const FEEDBACK_MANAGE_PERMISSIONS: Permission[] = ["rbac:admin", "cluster:admin"];
+
+/**
+ * Shared guard for the feedback review surface: the canonical-host gate
+ * (403 with the route's message) followed by the manager RBAC check.
+ * Returns the session on success, or the error Response to bubble up:
+ *
+ *   const session = await requireFeedbackManager(request, "… canonical console host");
+ *   if (session instanceof Response) return session;
+ */
+export async function requireFeedbackManager(
+  request: NextRequest,
+  hostGateMessage: string,
+): Promise<Session | NextResponse> {
+  if (!isFeedbackHost(request.headers)) {
+    return apiError(hostGateMessage, { status: 403 });
+  }
+  return requireRoutePermissions({ any: FEEDBACK_MANAGE_PERMISSIONS });
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getCluster } from '../lib/cluster-registry.js';
 import { getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { forbidden, badRequest, invalidBody, notFound } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 const appNameSchema = z.object({
@@ -124,7 +125,7 @@ export const argocdRoute = new Hono<AppBindings>();
 argocdRoute.get('/apps', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'apps:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   return c.json(await fetchApps(user.clusterId));
@@ -133,12 +134,12 @@ argocdRoute.get('/apps', async (c) => {
 argocdRoute.get('/apps/:name', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'apps:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const parsed = appNameSchema.safeParse(c.req.param());
   if (!parsed.success) {
-    return c.json({ error: 'Invalid app name' }, 400);
+    return badRequest(c, 'Invalid app name');
   }
 
   const apps = await fetchApps(user.clusterId);
@@ -148,7 +149,7 @@ argocdRoute.get('/apps/:name', async (c) => {
   });
 
   if (!app) {
-    return c.json({ error: 'App not found' }, 404);
+    return notFound(c, 'App not found');
   }
 
   return c.json(app);
@@ -157,18 +158,18 @@ argocdRoute.get('/apps/:name', async (c) => {
 argocdRoute.post('/apps/:name/sync', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'apps:sync')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const parsedName = appNameSchema.safeParse(c.req.param());
   if (!parsedName.success) {
-    return c.json({ error: 'Invalid app name' }, 400);
+    return badRequest(c, 'Invalid app name');
   }
 
   const body = await c.req.json().catch(() => ({}));
   const parsedBody = syncBodySchema.safeParse(body);
   if (!parsedBody.success) {
-    return c.json({ error: 'Invalid request body' }, 400);
+    return badRequest(c, 'Invalid request body');
   }
 
   const { server, token } = await getArgoConfig(user.clusterId);
@@ -203,12 +204,19 @@ argocdRoute.post('/apps/:name/sync', async (c) => {
 
 argocdRoute.post('/apps/bulk', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'apps:write')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'apps:write')) return forbidden(c);
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = bulkBodySchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!parsed.success) return invalidBody(c, parsed.error);
   const { action, apps } = parsed.data;
+
+  // BFLA guard: 'remove' issues a real ArgoCD DELETE, so it must require the same
+  // stronger permission as the dedicated DELETE /apps/:name route — apps:write
+  // alone (held by operators) must not be able to delete apps via the bulk path.
+  if (action === 'remove' && !hasPermission(user, 'apps:delete')) {
+    return forbidden(c, 'Forbidden: apps:delete required');
+  }
 
   const { server, token } = await getArgoConfig(user.clusterId);
   if (!server || !token) return c.json({ ok: true, mock: true, results: apps.map((name) => ({ name, ok: true })) });
@@ -236,12 +244,12 @@ argocdRoute.post('/apps/bulk', async (c) => {
 argocdRoute.delete('/apps/:name', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'apps:delete')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const parsed = appNameSchema.safeParse(c.req.param());
   if (!parsed.success) {
-    return c.json({ error: 'Invalid app name' }, 400);
+    return badRequest(c, 'Invalid app name');
   }
 
   const { server, token } = await getArgoConfig(user.clusterId);

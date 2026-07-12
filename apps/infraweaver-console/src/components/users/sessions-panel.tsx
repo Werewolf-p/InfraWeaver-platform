@@ -44,11 +44,14 @@ export function SessionsPanel({ username, open, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, username]);
 
+  function ensureCanManageSessions(): boolean {
+    if (canManageSessions) return true;
+    toast.error("You do not have permission to manage user sessions");
+    return false;
+  }
+
   async function revokeSession(tokenId: string) {
-    if (!canManageSessions) {
-      toast.error("You do not have permission to manage user sessions");
-      return;
-    }
+    if (!ensureCanManageSessions()) return;
     try {
       await fetch(`/api/users/${username}/sessions/${tokenId}`, { method: "DELETE" });
       setSessions((prev) => prev.filter((s) => s.identifier !== tokenId));
@@ -59,16 +62,13 @@ export function SessionsPanel({ username, open, onClose }: Props) {
   }
 
   async function revokeAll() {
-    if (!canManageSessions) {
-      toast.error("You do not have permission to manage user sessions");
-      return;
-    }
+    if (!ensureCanManageSessions()) return;
     if (revoking) return; // guard against double-clicks firing duplicate DELETEs
     setRevoking(true);
     try {
-      for (const s of sessions) {
-        await revokeSession(s.identifier);
-      }
+      // Independent DELETEs per token; each revokeSession handles its own
+      // error toast and immutable state update, so run them in parallel.
+      await Promise.allSettled(sessions.map((s) => revokeSession(s.identifier)));
     } finally {
       setRevoking(false);
     }

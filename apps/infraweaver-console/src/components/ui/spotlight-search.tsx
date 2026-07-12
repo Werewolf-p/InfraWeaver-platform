@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, X, Clock, Box, Server } from "lucide-react";
@@ -54,9 +54,14 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  const navResults = ALL_NAV_ITEMS.filter(item =>
-    query.trim() && item.label.toLowerCase().includes(query.toLowerCase())
-  ).slice(0, 5);
+  const normalizedQuery = query.trim().toLowerCase();
+  const navResults = useMemo(
+    () =>
+      normalizedQuery
+        ? ALL_NAV_ITEMS.filter(item => item.label.toLowerCase().includes(normalizedQuery)).slice(0, 5)
+        : [],
+    [normalizedQuery],
+  );
 
   const handleNavigate = (href: string) => {
     if (query.trim()) saveRecent(query.trim());

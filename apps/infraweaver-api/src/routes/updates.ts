@@ -2,12 +2,14 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { VERSION_SOURCES, type VersionSource, type VersionSourceType } from '../config/version-sources.js';
 import { getCluster } from '../lib/cluster-registry.js';
+import { errMessage } from '../lib/errors.js';
 import {
   githubGetFile, githubGetTree, githubPutFile,
   isOnedev, onedevGetFile, onedevGetTreeAndFiles, onedevPutFile,
 } from '../lib/git-provider.js';
 import { getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { badRequest, forbidden, notFound } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 interface ApplicationManifest {
@@ -153,9 +155,24 @@ function getLastSync(liveApp: ArgoApplication | undefined) {
     ?? null;
 }
 
-function matchLiveApp(manifest: ApplicationManifest, apps: ArgoApplication[]) {
-  return apps.find((app) => app.metadata?.name === manifest.appName)
+function buildLiveAppsByName(apps: ArgoApplication[]) {
+  const byName = new Map<string, ArgoApplication>();
+  for (const app of apps) {
+    const name = app.metadata?.name;
+    if (name && !byName.has(name)) {
+      byName.set(name, app);
+    }
+  }
+  return byName;
+}
+
+function matchLiveApp(manifest: ApplicationManifest, apps: ArgoApplication[], appsByName: Map<string, ArgoApplication>) {
+  return appsByName.get(manifest.appName)
     ?? apps.find((app) => (app.metadata?.name ?? '').includes(manifest.appName));
+}
+
+function findManifest(manifests: ApplicationManifest[], appNameOrId: string) {
+  return manifests.find((item) => item.appName === appNameOrId || item.id === appNameOrId);
 }
 
 // Version reported by the running image for apps that have no GitOps manifest
@@ -519,7 +536,7 @@ export const updatesRoute = new Hono<AppBindings>();
 updatesRoute.get('/', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'apps:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const [manifests, liveApps] = await Promise.all([
@@ -531,9 +548,10 @@ updatesRoute.get('/', async (c) => {
   // don't list them twice. matchLiveApp resolves a manifest -> live app; we record the
   // live app names it claims here to perform the reverse exclusion below.
   const representedLiveNames = new Set<string>();
+  const liveAppsByName = buildLiveAppsByName(liveApps);
 
   const payload: ApplicationEntry[] = manifests.map((manifest) => {
-    const liveApp = matchLiveApp(manifest, liveApps);
+    const liveApp = matchLiveApp(manifest, liveApps, liveAppsByName);
     if (liveApp?.metadata?.name) {
       representedLiveNames.add(liveApp.metadata.name);
     }
@@ -595,16 +613,16 @@ updatesRoute.get('/', async (c) => {
 updatesRoute.get('/:appName/versions', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'apps:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const parsed = appNameSchema.safeParse(c.req.param());
   if (!parsed.success) {
-    return c.json({ error: 'Invalid app name' }, 400);
+    return badRequest(c, 'Invalid app name');
   }
 
   const manifests = await collectApplicationManifests();
-  const manifest = manifests.find((item) => item.appName === parsed.data.appName || item.id === parsed.data.appName);
+  const manifest = findManifest(manifests, parsed.data.appName);
   // Look up by short appName first (e.g. 'n8n'), then by full id (e.g. 'platform-n8n'), then fall back to manifest
   const versionSource = VERSION_SOURCES[manifest?.appName ?? ''] ?? VERSION_SOURCES[parsed.data.appName] ?? getFallbackSource(manifest);
 
@@ -614,24 +632,24 @@ updatesRoute.get('/:appName/versions', async (c) => {
 updatesRoute.post('/:appName', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'platform:update')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const parsedName = appNameSchema.safeParse(c.req.param());
   if (!parsedName.success) {
-    return c.json({ error: 'Invalid app name' }, 400);
+    return badRequest(c, 'Invalid app name');
   }
 
   const body = await c.req.json().catch(() => ({}));
   const parsedBody = updateBodySchema.safeParse(body);
   if (!parsedBody.success) {
-    return c.json({ error: 'Invalid request body' }, 400);
+    return badRequest(c, 'Invalid request body');
   }
 
   const manifests = await collectApplicationManifests();
-  const manifest = manifests.find((item) => item.appName === parsedName.data.appName || item.id === parsedName.data.appName);
+  const manifest = findManifest(manifests, parsedName.data.appName);
   if (!manifest) {
-    return c.json({ error: 'Application manifest not found' }, 404);
+    return notFound(c, 'Application manifest not found');
   }
 
   try {
@@ -642,7 +660,7 @@ updatesRoute.post('/:appName', async (c) => {
       message: `Updated ${manifest.appName} to ${parsedBody.data.version}`,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to update manifest';
+    const message = errMessage(error, 'Unable to update manifest');
     if (message === 'Version already set in GitOps manifest') {
       return c.json({ error: message }, 409);
     }

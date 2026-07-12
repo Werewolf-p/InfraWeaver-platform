@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handlers } from "@/lib/auth";
+import { auditAuthFailure } from "@/lib/audit-log";
 import { checkRateLimit, LOGIN_RATE_LIMIT, rateLimitKey } from "@/lib/rate-limit";
 
 // Auth.js v5: the route handler handles all /api/auth/* endpoints.
@@ -11,6 +12,7 @@ export const GET = handlers.GET;
 export async function POST(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith("/api/auth/signin")) {
     if (!checkRateLimit(rateLimitKey("login", req), LOGIN_RATE_LIMIT.max, LOGIN_RATE_LIMIT.windowMs)) {
+      await auditAuthFailure(`Rate limited login attempt for ${req.nextUrl.pathname}`, req);
       return NextResponse.json({ error: "Too many login attempts" }, {
         status: 429,
         headers: { "Retry-After": "60" },

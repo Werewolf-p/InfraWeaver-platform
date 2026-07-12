@@ -6,7 +6,7 @@ import {
   getClusterConfig,
   serializeActiveClusterCookie,
 } from "@/lib/cluster-context";
-import { withRoute } from "@/lib/route-utils";
+import { parseBody, withRoute } from "@/lib/route-utils";
 
 const postBodySchema = z.object({
   clusterId: z.string().min(1),
@@ -19,12 +19,9 @@ export const GET = withRoute(null, async (request: NextRequest) => {
 });
 
 export const POST = withRoute(null, async (request: NextRequest) => {
-  const rawBody = await request.json().catch(() => null);
-  const parsed = postBodySchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
-  }
-  const clusterId = parsed.data.clusterId;
+  const parsed = await parseBody(request, postBodySchema);
+  if (parsed instanceof NextResponse) return parsed;
+  const clusterId = parsed.clusterId;
   if (!getClusterConfig(clusterId)) {
     return NextResponse.json({ error: "Unknown cluster" }, { status: 400 });
   }

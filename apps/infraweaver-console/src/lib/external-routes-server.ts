@@ -211,7 +211,7 @@ function routeServiceRefs(route: ManifestResource) {
   })));
 }
 
-function countRoutesUsingBackend(routeManifests: ManifestFile[], backendServiceName: string, excludingRouteName?: string) {
+function isBackendUsedByOtherRoutes(routeManifests: ManifestFile[], backendServiceName: string, excludingRouteName?: string) {
   return asArray(routeManifests).flatMap((manifest) => asArray(manifest.blocks))
     .filter((block) => block.kind === "IngressRoute" && block.data)
     .filter((block) => block.name !== excludingRouteName)
@@ -264,7 +264,14 @@ function applyTierDefaults(input: ExternalRouteMutationInput): ExternalRouteMuta
   return { ...input, host: normalizeHost(input.host), enableAuth: Boolean(input.enableAuth) };
 }
 
+// Strict DNS hostname — no backticks, parens, spaces or Traefik rule metacharacters,
+// so `input.host` cannot break out of the Host(`…`) match rule (rule injection).
+const ROUTE_HOST_RE = /^[a-z0-9]([a-z0-9-]{0,62})?(\.[a-z0-9]([a-z0-9-]{0,62})?)+$/;
+
 function buildRouteDocument(input: ExternalRouteMutationInput, backendServiceName: string): ManifestResource {
+  if (!ROUTE_HOST_RE.test(input.host)) {
+    throw new Error(`Invalid route host: ${input.host}`);
+  }
   const scheme = input.scheme === "https" ? "https" : "http";
   const skipTlsVerify = Boolean(input.skipTlsVerify && scheme === "https");
   const routeService = {
@@ -371,6 +378,22 @@ function replaceBlock(manifest: ManifestFile, kind: string, namespace: string, n
 function removeBlock(manifest: ManifestFile, kind: string, namespace: string, name: string) {
   const key = resourceKey(kind, namespace, name);
   manifest.blocks = manifest.blocks.filter((block) => block.key !== key);
+}
+
+/**
+ * Write the backend Service/Endpoints documents for a route and remove any
+ * leftover blocks of the opposite target type under the same backend name.
+ */
+function upsertBackendBlocks(state: { clusterBackends: ManifestFile; baremetalBackends: ManifestFile }, input: ExternalRouteMutationInput, backendServiceName: string) {
+  if (input.targetType === "baremetal") {
+    replaceBlock(state.baremetalBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName, buildBaremetalServiceDocument(backendServiceName, input));
+    replaceBlock(state.baremetalBackends, "Endpoints", TRAEFIK_NAMESPACE, backendServiceName, buildBaremetalEndpointsDocument(backendServiceName, input));
+    removeBlock(state.clusterBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName);
+  } else {
+    replaceBlock(state.clusterBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName, buildClusterBackendDocument(backendServiceName, input));
+    removeBlock(state.baremetalBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName);
+    removeBlock(state.baremetalBackends, "Endpoints", TRAEFIK_NAMESPACE, backendServiceName);
+  }
 }
 
 function parseRouteItem(routeBlock: ParsedBlock, index: BackendIndex): ExternalRouteItem | null {
@@ -518,7 +541,12 @@ async function persistAndCommit(repoDir: string, manifests: ManifestFile[], mess
   return changed;
 }
 
-export async function loadExternalRoutes(repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver"): Promise<ExternalRoutesResponse> {
+/** Repo checkout the route manifests live in, overridable per call. */
+function defaultRepoDir(): string {
+  return process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver";
+}
+
+export async function loadExternalRoutes(repoDir = defaultRepoDir()): Promise<ExternalRoutesResponse> {
   const state = await loadState(repoDir);
   const routes = asArray(state.routeManifests)
     .flatMap((manifest) => asArray(manifest.blocks))
@@ -582,7 +610,7 @@ function withGateWarning(response: ExternalRoutesResponse, gateWarning: string |
   return gateWarning ? { ...response, gateWarning } : response;
 }
 
-export async function createExternalRoute(rawInput: ExternalRouteMutationInput, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
+export async function createExternalRoute(rawInput: ExternalRouteMutationInput, repoDir = defaultRepoDir()) {
   const input = applyTierDefaults(rawInput);
   const state = await loadState(repoDir);
   if (findRouteLocation(state.routeManifests, input.name)) {
@@ -596,12 +624,7 @@ export async function createExternalRoute(rawInput: ExternalRouteMutationInput, 
   const routeDocument = buildRouteDocument(input, backendServiceName);
   targetManifest.blocks.push(parseManifestDocument(stringifyDocument(routeDocument), targetManifest.file));
 
-  if (input.targetType === "baremetal") {
-    replaceBlock(state.baremetalBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName, buildBaremetalServiceDocument(backendServiceName, input));
-    replaceBlock(state.baremetalBackends, "Endpoints", TRAEFIK_NAMESPACE, backendServiceName, buildBaremetalEndpointsDocument(backendServiceName, input));
-  } else {
-    replaceBlock(state.clusterBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName, buildClusterBackendDocument(backendServiceName, input));
-  }
+  upsertBackendBlocks(state, input, backendServiceName);
 
   await persistAndCommit(repoDir, [targetManifest, state.clusterBackends, state.baremetalBackends], `add ${input.name} external route`);
   // Save also ensures the Authentik gate exists for auth-gated routes, so a new
@@ -610,7 +633,7 @@ export async function createExternalRoute(rawInput: ExternalRouteMutationInput, 
   return withGateWarning(await loadExternalRoutes(repoDir), gateWarning);
 }
 
-export async function updateExternalRoute(name: string, rawInput: ExternalRouteMutationInput, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
+export async function updateExternalRoute(name: string, rawInput: ExternalRouteMutationInput, repoDir = defaultRepoDir()) {
   const input = applyTierDefaults({ ...rawInput, name });
   const state = await loadState(repoDir);
   const location = findRouteLocation(state.routeManifests, name);
@@ -619,7 +642,7 @@ export async function updateExternalRoute(name: string, rawInput: ExternalRouteM
   const current = parseRouteItem(location.block, state.backendIndex);
   if (!current) throw new Error(`Route ${name} could not be parsed`);
 
-  if (current.backendServiceName && countRoutesUsingBackend(state.routeManifests, current.backendServiceName, name)) {
+  if (current.backendServiceName && isBackendUsedByOtherRoutes(state.routeManifests, current.backendServiceName, name)) {
     const backendChanged = current.targetType !== input.targetType
       || current.targetService !== (input.targetService?.trim() || current.targetService)
       || current.targetNamespace !== (input.targetNamespace?.trim() || current.targetNamespace)
@@ -638,15 +661,8 @@ export async function updateExternalRoute(name: string, rawInput: ExternalRouteM
   location.manifest.blocks = location.manifest.blocks.filter((block) => block !== location.block);
   destinationManifest.blocks.push(parseManifestDocument(stringifyDocument(routeDocument), destinationManifest.file));
 
-  if (input.targetType === "baremetal") {
-    replaceBlock(state.baremetalBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName, buildBaremetalServiceDocument(backendServiceName, { ...input, name }));
-    replaceBlock(state.baremetalBackends, "Endpoints", TRAEFIK_NAMESPACE, backendServiceName, buildBaremetalEndpointsDocument(backendServiceName, { ...input, name }));
-    removeBlock(state.clusterBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName);
-  } else {
-    replaceBlock(state.clusterBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName, buildClusterBackendDocument(backendServiceName, { ...input, name }));
-    removeBlock(state.baremetalBackends, "Service", TRAEFIK_NAMESPACE, backendServiceName);
-    removeBlock(state.baremetalBackends, "Endpoints", TRAEFIK_NAMESPACE, backendServiceName);
-  }
+  // `input.name` is already `name` (set before applyTierDefaults above).
+  upsertBackendBlocks(state, input, backendServiceName);
 
   await persistAndCommit(repoDir, [location.manifest, destinationManifest, state.clusterBackends, state.baremetalBackends], `update ${name} external route`);
   // Re-saving an existing route re-ensures its gate even when the manifest is
@@ -656,7 +672,7 @@ export async function updateExternalRoute(name: string, rawInput: ExternalRouteM
   return withGateWarning(await loadExternalRoutes(repoDir), gateWarning);
 }
 
-export async function deleteExternalRoute(name: string, repoDir = process.env.REPO_DIR || process.env.IW_REPO_DIR || "/opt/infraweaver") {
+export async function deleteExternalRoute(name: string, repoDir = defaultRepoDir()) {
   const state = await loadState(repoDir);
   const location = findRouteLocation(state.routeManifests, name);
   if (!location) throw new Error(`Route ${name} not found`);
@@ -664,7 +680,7 @@ export async function deleteExternalRoute(name: string, repoDir = process.env.RE
   const current = parseRouteItem(location.block, state.backendIndex);
   location.manifest.blocks = location.manifest.blocks.filter((block) => block !== location.block);
 
-  if (current && !countRoutesUsingBackend(state.routeManifests, current.backendServiceName, name)) {
+  if (current && !isBackendUsedByOtherRoutes(state.routeManifests, current.backendServiceName, name)) {
     removeBlock(state.clusterBackends, "Service", TRAEFIK_NAMESPACE, current.backendServiceName);
     removeBlock(state.baremetalBackends, "Service", TRAEFIK_NAMESPACE, current.backendServiceName);
     removeBlock(state.baremetalBackends, "Endpoints", TRAEFIK_NAMESPACE, current.backendServiceName);

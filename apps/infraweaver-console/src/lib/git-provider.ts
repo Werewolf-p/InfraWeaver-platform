@@ -1,91 +1,9 @@
-import * as fs from "node:fs";
-import { promises as fsPromises } from "node:fs";
-import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createGithubContentsClient, type GithubContentsClient } from "@/lib/github-contents-client";
+import { errorMessage } from "@/lib/utils";
 
 const DEFAULT_GITHUB_API_URL = "https://api.github.com";
 const DEFAULT_GITHUB_REPO = "your-org/your-repo";
-const DEFAULT_ONEDEV_URL = "http://onedev.onedev.svc.cluster.local";
-const DEFAULT_ONEDEV_BRANCH = "main";
-const DEFAULT_GIT_WORKTREE_ROOT = "/git-cache";
 const COMMIT_AUTHOR = { name: "InfraWeaver Console", email: "console@infraweaver.internal" };
-
-// Persistent base clone: kept at /git-cache/console-base, refreshed every 30 s.
-// All read operations use this clone; write operations still use an ephemeral worktree.
-const CONSOLE_BASE_CLONE_DIR = path.join(
-  process.env.GIT_WORKTREE_ROOT ?? DEFAULT_GIT_WORKTREE_ROOT,
-  "console-base",
-);
-const BASE_REFRESH_INTERVAL_MS = 30_000;
-let _baseClonePromise: Promise<string> | null = null;
-let _baseLastRefresh = 0;
-
-async function initOrRefreshConsoleBaseClone(): Promise<string> {
-  const { branch, token, username } = getOneDevConfig();
-  const repoUrl = await getGitRepoUrl();
-  const { git, http } = await loadIsomorphicGit();
-  const dotGit = path.join(CONSOLE_BASE_CLONE_DIR, ".git");
-
-  const tryFetchCheckout = async () => {
-    await fsPromises.access(dotGit);
-    await git.fetch({
-      fs,
-      http,
-      dir: CONSOLE_BASE_CLONE_DIR,
-      remote: "origin",
-      ref: branch,
-      depth: 1,
-      singleBranch: true,
-      tags: false,
-      onAuth: () => ({ username, password: token }),
-    });
-    const remoteRef = await git.resolveRef({
-      fs,
-      dir: CONSOLE_BASE_CLONE_DIR,
-      ref: `refs/remotes/origin/${branch}`,
-    });
-    await git.writeRef({ fs, dir: CONSOLE_BASE_CLONE_DIR, ref: `refs/heads/${branch}`, value: remoteRef, force: true });
-    await git.checkout({ fs, dir: CONSOLE_BASE_CLONE_DIR, ref: branch, force: true });
-  };
-
-  const doFreshClone = async () => {
-    await fsPromises.rm(CONSOLE_BASE_CLONE_DIR, { recursive: true, force: true });
-    await fsPromises.mkdir(CONSOLE_BASE_CLONE_DIR, { recursive: true });
-    await git.clone({
-      fs,
-      http,
-      dir: CONSOLE_BASE_CLONE_DIR,
-      url: repoUrl,
-      singleBranch: true,
-      depth: 1,
-      ref: branch,
-      onAuth: () => ({ username, password: token }),
-    });
-  };
-
-  try {
-    await tryFetchCheckout();
-  } catch {
-    await doFreshClone();
-  }
-  return CONSOLE_BASE_CLONE_DIR;
-}
-
-function acquireConsoleBaseClone(): Promise<string> {
-  const now = Date.now();
-  if (_baseClonePromise !== null) return _baseClonePromise;
-  if (_baseLastRefresh > 0 && now - _baseLastRefresh < BASE_REFRESH_INTERVAL_MS) {
-    return Promise.resolve(CONSOLE_BASE_CLONE_DIR);
-  }
-  _baseClonePromise = initOrRefreshConsoleBaseClone()
-    .then((dir) => { _baseLastRefresh = Date.now(); return dir; })
-    .finally(() => { _baseClonePromise = null; });
-  return _baseClonePromise;
-}
-
-function invalidateConsoleBaseClone(): void {
-  _baseLastRefresh = 0;
-}
 
 export type GitProviderName = "github" | "onedev";
 
@@ -109,13 +27,6 @@ export interface GitCommitOptions {
   message: string;
   addOrUpdateFiles?: GitCommitFile[];
   deleteFiles?: string[];
-}
-
-interface GitHubContentResponse {
-  content: string;
-  sha: string;
-  type?: string;
-  path?: string;
 }
 
 function normalizePath(filePath: string): string {
@@ -161,6 +72,17 @@ function getGitHubConfig() {
   };
 }
 
+// Built per call so env changes (tests, hot config) are always honored, exactly
+// like the previous per-call getGitHubConfig() reads.
+function client(): GithubContentsClient {
+  const { apiUrl, repo, token } = getGitHubConfig();
+  return createGithubContentsClient({ apiUrl, repo, token, committer: COMMIT_AUTHOR });
+}
+
+export async function getGitRepoUrl(): Promise<string> {
+  return `https://github.com/${getGitOpsRepo()}.git`;
+}
+
 function githubHeaders(token: string, includeJson = false): HeadersInit {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github.v3+json",
@@ -171,123 +93,11 @@ function githubHeaders(token: string, includeJson = false): HeadersInit {
   return headers;
 }
 
-function getOneDevConfig() {
-  const url = (process.env.ONEDEV_URL ?? DEFAULT_ONEDEV_URL).replace(/\/$/, "");
-  const token = process.env.ONEDEV_TOKEN ?? "";
-  const projectId = process.env.ONEDEV_PROJECT_ID ?? "";
-  const projectPath = normalizePath(process.env.ONEDEV_PROJECT_PATH ?? "").replace(/\.git$/, "");
-  const branch = process.env.ONEDEV_BRANCH ?? DEFAULT_ONEDEV_BRANCH;
-  const username = process.env.ONEDEV_USERNAME ?? "admin";
-  const worktreeRoot = process.env.GIT_WORKTREE_ROOT ?? DEFAULT_GIT_WORKTREE_ROOT;
-  return { url, token, projectId, projectPath, branch, username, worktreeRoot };
-}
-
-function onedevHeaders(username: string, token: string): HeadersInit {
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (token) headers.Authorization = `Basic ${Buffer.from(`${username}:${token}`).toString("base64")}`;
-  return headers;
-}
-
-let cachedOneDevProjectPath: string | null = null;
-
-async function loadIsomorphicGit() {
-  const [{ default: http }, git] = await Promise.all([
-    import("isomorphic-git/http/node"),
-    import("isomorphic-git"),
-  ]);
-  return { http, git };
-}
-
-async function getOneDevProjectPath(): Promise<string> {
-  if (cachedOneDevProjectPath) return cachedOneDevProjectPath;
-  const { url, token, projectId, projectPath: configuredProjectPath, username } = getOneDevConfig();
-  if (configuredProjectPath.trim()) {
-    cachedOneDevProjectPath = configuredProjectPath;
-    return configuredProjectPath;
-  }
-  if (!token.trim() || !projectId.trim()) {
-    throw new Error("OneDev is not configured. Set ONEDEV_TOKEN and ONEDEV_PROJECT_ID.");
-  }
-  const response = await fetch(`${url}/~api/projects/${projectId}`, {
-    headers: onedevHeaders(username, token),
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    throw new Error(`OneDev project lookup failed: ${response.status} — ${await response.text()}`);
-  }
-  const data = await response.json() as { path?: string; name?: string };
-  const projectPath = data.path ?? data.name;
-  if (!projectPath) throw new Error("OneDev project path is missing");
-  cachedOneDevProjectPath = projectPath;
-  return projectPath;
-}
-
-export async function getGitRepoUrl(): Promise<string> {
-  if (getGitProviderName() === "github") {
-    const { repo } = getGitHubConfig();
-    return `https://github.com/${repo}.git`;
-  }
-  const { url } = getOneDevConfig();
-  const projectPath = await getOneDevProjectPath();
-  return `${url}/${projectPath}.git`;
-}
-
-async function githubReadFile(filePath: string, revalidateSeconds = 0): Promise<GitFileResult | null> {
-  const { repoApi, token } = getGitHubConfig();
-  const normalizedPath = normalizePath(filePath);
-  const response = await fetch(`${repoApi}/contents/${normalizedPath}`,
-    revalidateSeconds > 0
-      ? { headers: githubHeaders(token), next: { revalidate: revalidateSeconds } }
-      : { headers: githubHeaders(token), cache: "no-store" }
-  );
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`GitHub GET ${normalizedPath}: ${response.status}`);
-  const data = await response.json() as GitHubContentResponse;
-  return {
-    content: Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf-8"),
-    sha: data.sha,
-  };
-}
-
-async function githubListDir(dirPath: string): Promise<GitTreeEntry[]> {
-  const { repoApi, token } = getGitHubConfig();
-  const normalizedPath = normalizePath(dirPath);
-  const response = await fetch(`${repoApi}/contents/${normalizedPath}`, {
-    headers: githubHeaders(token),
-    cache: "no-store",
-  });
-  if (response.status === 404) return [];
-  if (!response.ok) throw new Error(`GitHub list ${normalizedPath}: ${response.status}`);
-  const data = await response.json() as Array<{ path: string; type: string; sha?: string }>;
-  return data.map((entry) => ({
-    path: entry.path,
-    type: entry.type === "dir" ? "dir" : "file",
-    sha: entry.sha,
-  }));
-}
-
-async function githubWriteFile(filePath: string, content: string, message: string, sha?: string): Promise<void> {
-  const { repoApi, token } = getGitHubConfig();
-  const normalizedPath = normalizePath(filePath);
-  const response = await fetch(`${repoApi}/contents/${normalizedPath}`, {
-    method: "PUT",
-    headers: githubHeaders(token, true),
-    body: JSON.stringify({
-      message,
-      content: Buffer.from(content, "utf8").toString("base64"),
-      ...(sha ? { sha } : {}),
-      committer: COMMIT_AUTHOR,
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`GitHub PUT ${normalizedPath}: ${response.status} — ${await response.text()}`);
-  }
-}
-
+// The contents client has no delete operation, so DELETE stays hand-rolled here.
 async function githubDeleteFile(filePath: string, message: string, sha?: string): Promise<void> {
   const { repoApi, token } = getGitHubConfig();
   const normalizedPath = normalizePath(filePath);
-  const resolvedSha = sha ?? (await githubReadFile(normalizedPath))?.sha;
+  const resolvedSha = sha ?? (await client().readFile(normalizedPath))?.sha;
   if (!resolvedSha) return;
   const response = await fetch(`${repoApi}/contents/${normalizedPath}`, {
     method: "DELETE",
@@ -303,235 +113,52 @@ async function githubDeleteFile(filePath: string, message: string, sha?: string)
   }
 }
 
-async function githubCommitFiles({ message, addOrUpdateFiles = [], deleteFiles = [] }: GitCommitOptions): Promise<void> {
+export async function gitReadFile(filePath: string, revalidateSeconds = 0): Promise<GitFileResult | null> {
+  return client().readFile(filePath, revalidateSeconds);
+}
+
+export async function gitListDir(dirPath: string): Promise<GitTreeEntry[]> {
+  return client().listDir(dirPath);
+}
+
+export async function gitWriteFile(filePath: string, content: string, message: string, sha?: string): Promise<void> {
+  await client().writeFile(filePath, content, message, sha);
+}
+
+export async function gitDeleteFile(filePath: string, message: string, sha?: string): Promise<void> {
+  await githubDeleteFile(filePath, message, sha);
+}
+
+export async function gitCommitFiles({ message, addOrUpdateFiles = [], deleteFiles = [] }: GitCommitOptions): Promise<void> {
+  const repoClient = client();
   for (const entry of addOrUpdateFiles) {
-    const existing = await githubReadFile(entry.path);
-    await githubWriteFile(entry.path, entry.content, message, existing?.sha);
+    // writeFile resolves the existing blob sha with a read first — the same
+    // read-then-put sequence the previous inline implementation performed.
+    await repoClient.writeFile(entry.path, entry.content, message);
   }
   for (const filePath of deleteFiles) {
     await githubDeleteFile(filePath, message);
   }
 }
 
-function isPushRejection(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
-  return /non-fast-forward|fetch first|push rejected|failed to push/i.test(text);
-}
-
-async function withOneDevWorktree<T>(worker: (dir: string, gitClient: Awaited<ReturnType<typeof loadIsomorphicGit>>["git"]) => Promise<T>): Promise<T> {
-  const { branch, token, username, worktreeRoot } = getOneDevConfig();
-  if (!token.trim()) throw new Error("OneDev token is not configured");
-  const { git, http } = await loadIsomorphicGit();
-  const repoUrl = await getGitRepoUrl();
-  const dir = path.join(worktreeRoot, randomUUID());
-  await fsPromises.mkdir(dir, { recursive: true });
-  try {
-    await git.clone({
-      fs,
-      http,
-      dir,
-      url: repoUrl,
-      singleBranch: true,
-      depth: 1,
-      ref: branch,
-      onAuth: () => ({ username, password: token }),
-    });
-    return await worker(dir, git);
-  } finally {
-    await fsPromises.rm(dir, { recursive: true, force: true });
-  }
-}
-
-async function onedevReadFile(filePath: string): Promise<GitFileResult | null> {
-  const normalizedPath = normalizePath(filePath);
-  const dir = await acquireConsoleBaseClone();
-  const { git } = await loadIsomorphicGit();
-  const fullPath = path.join(dir, normalizedPath);
-  try {
-    const content = await fsPromises.readFile(fullPath, "utf8");
-    const sha = await git.resolveRef({ fs, dir, ref: "HEAD" });
-    return { content, sha };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-async function onedevListDir(dirPath: string): Promise<GitTreeEntry[]> {
-  const normalizedPath = normalizePath(dirPath);
-  const dir = await acquireConsoleBaseClone();
-  const fullPath = path.join(dir, normalizedPath);
-  try {
-    const entries = await fsPromises.readdir(fullPath, { withFileTypes: true });
-    return entries.map((entry) => ({
-      path: path.posix.join(normalizedPath, entry.name),
-      type: entry.isDirectory() ? "dir" : "file",
-    }));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
-  }
-}
-
-async function onedevCommitFiles({ message, addOrUpdateFiles = [], deleteFiles = [] }: GitCommitOptions): Promise<void> {
-  const { branch, token, username } = getOneDevConfig();
-  const normalizedDeletes = deleteFiles.map(normalizePath);
-  const normalizedWrites = addOrUpdateFiles.map((entry) => ({ ...entry, path: normalizePath(entry.path) }));
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const { http } = await loadIsomorphicGit();
-      await withOneDevWorktree(async (dir, gitClient) => {
-        for (const entry of normalizedWrites) {
-          const fullPath = path.join(dir, entry.path);
-          await fsPromises.mkdir(path.dirname(fullPath), { recursive: true });
-          await fsPromises.writeFile(fullPath, entry.content, "utf8");
-          await gitClient.add({ fs, dir, filepath: entry.path });
-        }
-
-        for (const entry of normalizedDeletes) {
-          const fullPath = path.join(dir, entry);
-          if (!fs.existsSync(fullPath)) continue;
-          await fsPromises.rm(fullPath, { recursive: true, force: true });
-          await gitClient.remove({ fs, dir, filepath: entry }).catch(() => undefined);
-        }
-
-        try {
-          await gitClient.commit({
-            fs,
-            dir,
-            message,
-            author: COMMIT_AUTHOR,
-          });
-        } catch (error) {
-          if (/No changes/.test(error instanceof Error ? error.message : String(error))) {
-            return;
-          }
-          throw error;
-        }
-
-        await gitClient.push({
-          fs,
-          http,
-          dir,
-          remote: "origin",
-          ref: branch,
-          onAuth: () => ({ username, password: token }),
-        });
-        invalidateConsoleBaseClone();
-      });
-      return;
-    } catch (error) {
-      if (attempt < 2 && isPushRejection(error)) continue;
-      throw error;
-    }
-  }
-}
-
-export async function gitReadFile(filePath: string, revalidateSeconds = 0): Promise<GitFileResult | null> {
-  return getGitProviderName() === "onedev"
-    ? onedevReadFile(filePath)
-    : githubReadFile(filePath, revalidateSeconds);
-}
-
-export async function gitListDir(dirPath: string): Promise<GitTreeEntry[]> {
-  return getGitProviderName() === "onedev"
-    ? onedevListDir(dirPath)
-    : githubListDir(dirPath);
-}
-
-export async function gitWriteFile(filePath: string, content: string, message: string, sha?: string): Promise<void> {
-  if (getGitProviderName() === "onedev") {
-    await onedevCommitFiles({ message, addOrUpdateFiles: [{ path: filePath, content }] });
-    return;
-  }
-  await githubWriteFile(filePath, content, message, sha);
-}
-
-export async function gitDeleteFile(filePath: string, message: string, sha?: string): Promise<void> {
-  if (getGitProviderName() === "onedev") {
-    await onedevCommitFiles({ message, deleteFiles: [filePath] });
-    return;
-  }
-  await githubDeleteFile(filePath, message, sha);
-}
-
-export async function gitCommitFiles(options: GitCommitOptions): Promise<void> {
-  if (getGitProviderName() === "onedev") {
-    await onedevCommitFiles(options);
-    return;
-  }
-  await githubCommitFiles(options);
-}
-
-async function collectFilePaths(baseDir: string, gitOrFsDir: string): Promise<string[]> {
-  const results: string[] = [];
-  const walk = async (dir: string) => {
-    const entries = await fsPromises.readdir(path.join(gitOrFsDir, dir), { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      const entryPath = path.posix.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(entryPath);
-      } else {
-        results.push(entryPath);
-      }
-    }
-  };
-  await walk(normalizePath(baseDir));
-  return results;
-}
-
 export async function gitDeleteDir(dirPath: string, message: string): Promise<{ deleted: string[]; errors: string[] }> {
-  if (getGitProviderName() === "onedev") {
-    const errors: string[] = [];
-    let deleted: string[] = [];
-
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        const { http } = await loadIsomorphicGit();
-        await withOneDevWorktree(async (dir, gitClient) => {
-          const { branch, token, username } = getOneDevConfig();
-          const filePaths = await collectFilePaths(dirPath, dir);
-          if (filePaths.length === 0) return;
-
-          for (const filePath of filePaths) {
-            const fullPath = path.join(dir, filePath);
-            await fsPromises.rm(fullPath, { force: true });
-            await gitClient.remove({ fs, dir, filepath: filePath }).catch(() => undefined);
-          }
-
-          await gitClient.commit({ fs, dir, message, author: COMMIT_AUTHOR });
-          await gitClient.push({ fs, http, dir, remote: "origin", ref: branch, onAuth: () => ({ username, password: token }) });
-          invalidateConsoleBaseClone();
-          deleted = filePaths;
-        });
-        break;
-      } catch (error) {
-        if (attempt < 2 && isPushRejection(error)) continue;
-        errors.push(error instanceof Error ? error.message : String(error));
-        break;
-      }
-    }
-    return { deleted, errors };
-  }
-
-  // GitHub: collect all paths first, then delete in one commit batch
+  // Collect all file paths first, then delete in one commit batch.
   const allFiles: string[] = [];
-  const collectGithub = async (dir: string) => {
+  const collect = async (dir: string) => {
     const entries = await gitListDir(dir);
     for (const entry of entries) {
       if (entry.type === "file") allFiles.push(entry.path);
-      else await collectGithub(entry.path);
+      else await collect(entry.path);
     }
   };
-  await collectGithub(dirPath);
+  await collect(dirPath);
 
   if (allFiles.length === 0) return { deleted: [], errors: [] };
 
   try {
-    await githubCommitFiles({ message, deleteFiles: allFiles });
+    await gitCommitFiles({ message, deleteFiles: allFiles });
     return { deleted: allFiles, errors: [] };
   } catch (error) {
-    return { deleted: [], errors: [error instanceof Error ? error.message : String(error)] };
+    return { deleted: [], errors: [errorMessage(error)] };
   }
 }

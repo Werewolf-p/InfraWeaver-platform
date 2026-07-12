@@ -87,15 +87,16 @@ const TableRow = React.memo(function TableRow<TData>({
   );
 }) as <TData>(props: TableRowProps<TData>) => React.ReactElement;
 
-// Pagination footer is pure given the same table state; memoised separately so
-// sorting/filter changes above the fold don't re-render it needlessly.
+// Pagination footer reads mutable pagination state through the stable `table`
+// instance, so it must NOT be memoised on props: React.memo would bail out on
+// page changes (props stay referentially equal) and freeze the footer.
 interface PaginationFooterProps<TData> {
   table: Table<TData>;
   pageSizeOptions: number[];
   filteredRowCount: number;
 }
 
-const PaginationFooter = React.memo(function PaginationFooter<TData>({
+function PaginationFooter<TData>({
   table,
   pageSizeOptions,
   filteredRowCount,
@@ -150,7 +151,7 @@ const PaginationFooter = React.memo(function PaginationFooter<TData>({
       </div>
     </div>
   );
-}) as <TData>(props: PaginationFooterProps<TData>) => React.ReactElement;
+}
 
 // Column-visibility toggle menu is pure given its own column list.
 interface ColumnMenuProps<TData> {
@@ -210,6 +211,8 @@ const ColumnMenu = React.memo(function ColumnMenu<TData>({
 
 // ---------------------------------------------------------------------------
 
+const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
 interface DataTableProps<TData> {
   columns: ColumnDef<TData, unknown>[];
   data: TData[];
@@ -260,7 +263,7 @@ export function DataTable<TData>({
   className,
   filterColumn,
   filterPlaceholder = "Filter rows…",
-  pageSizeOptions = [10, 25, 50, 100],
+  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   initialPageSize = 10,
   enableRowSelection = true,
   bulkActions,

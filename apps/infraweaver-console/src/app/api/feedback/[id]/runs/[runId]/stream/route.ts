@@ -1,10 +1,7 @@
 import { NextRequest } from "next/server";
-import type { Permission } from "@/lib/rbac";
-import { apiError, requireRoutePermissions } from "@/lib/route-utils";
+import { apiError } from "@/lib/route-utils";
 import { openFeedbackRunStream } from "@/lib/feedback-dispatch";
-import { isFeedbackHost } from "@/lib/feedback-host";
-
-const MANAGE: Permission[] = ["rbac:admin", "cluster:admin"];
+import { requireFeedbackManager } from "@/lib/feedback-host";
 
 // The proxied stream stays open for the life of the run — never cache/prerender.
 export const dynamic = "force-dynamic";
@@ -17,10 +14,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; runId: string }> },
 ) {
-  if (!isFeedbackHost(request.headers)) {
-    return apiError("Run streams are only available on the canonical console host", { status: 403 });
-  }
-  const session = await requireRoutePermissions({ any: MANAGE });
+  const session = await requireFeedbackManager(request, "Run streams are only available on the canonical console host");
   if (session instanceof Response) return session;
 
   const { runId } = await params;

@@ -1,5 +1,5 @@
 import { X509Certificate } from "crypto";
-import { makeBatchApi, makeCoreApi, makeCustomApi } from "@/lib/kube-client";
+import { listItems, makeBatchApi, makeCoreApi, makeCustomApi } from "@/lib/kube-client";
 import { nextCronRun } from "@/lib/cron-utils";
 import { detectAccessTier, type AccessTier } from "@/lib/access-tier";
 import { apiCache } from "@/lib/api-cache";
@@ -22,6 +22,26 @@ const EVENTS_CACHE_TTL_MS = 8_000;
 const CERTS_CACHE_TTL_MS = 30_000;
 const CRONJOBS_CACHE_TTL_MS = 15_000;
 const INGRESS_CACHE_TTL_MS = 30_000;
+
+/** Short-lived cache + request de-dup around a cluster-wide loader. Values for
+ * which `shouldCache` returns false (e.g. `live: false` fallbacks) are never
+ * cached so they retry immediately. */
+function cachedLoader<T>(
+  key: string,
+  ttlMs: number,
+  load: () => Promise<T>,
+  shouldCache: (value: T) => boolean = () => true,
+): () => Promise<T> {
+  return async () => {
+    const cached = apiCache.get<T>(key);
+    if (cached) return cached;
+    return requestDedup.dedupe(key, async () => {
+      const value = await load();
+      if (shouldCache(value)) apiCache.set(key, value, ttlMs);
+      return value;
+    }, ttlMs);
+  };
+}
 
 export interface ClusterEventItem {
   id: string;
@@ -254,7 +274,7 @@ function buildIngressSummary(routes: IngressRouteItem[]) {
 async function fetchAllClusterEvents(): Promise<ClusterEventItem[]> {
   const coreApi = makeCoreApi();
   const response = await coreApi.listEventForAllNamespaces();
-  return ((response as { items?: unknown[] }).items ?? [])
+  return listItems(response)
     .map((item) => {
       const event = item as {
         metadata?: { uid?: string; name?: string; namespace?: string; creationTimestamp?: string | Date };
@@ -291,15 +311,7 @@ async function fetchAllClusterEvents(): Promise<ClusterEventItem[]> {
     .sort((left, right) => compareTimestampDesc(left.lastSeen, right.lastSeen));
 }
 
-async function getClusterEventsCached(): Promise<ClusterEventItem[]> {
-  const cached = apiCache.get<ClusterEventItem[]>(OPS_CACHE_KEYS.events);
-  if (cached) return cached;
-  return requestDedup.dedupe(OPS_CACHE_KEYS.events, async () => {
-    const all = await fetchAllClusterEvents();
-    apiCache.set(OPS_CACHE_KEYS.events, all, EVENTS_CACHE_TTL_MS);
-    return all;
-  }, EVENTS_CACHE_TTL_MS);
-}
+const getClusterEventsCached = cachedLoader(OPS_CACHE_KEYS.events, EVENTS_CACHE_TTL_MS, fetchAllClusterEvents);
 
 export async function loadClusterEvents(limit = 250): Promise<ClusterEventPayload> {
   try {
@@ -310,38 +322,50 @@ export async function loadClusterEvents(limit = 250): Promise<ClusterEventPayloa
   }
 }
 
+type TlsSecretShape = {
+  metadata?: { name?: string; namespace?: string; annotations?: Record<string, string> };
+  data?: Record<string, string>;
+};
+
+/** Not-ready CertificateItem defaults for a TLS secret; call sites override the fields they know. */
+function baseSecretCert(secret: TlsSecretShape): CertificateItem {
+  return {
+    id: `${secret.metadata?.namespace ?? "default"}/${secret.metadata?.name ?? "unknown"}`,
+    name: secret.metadata?.name ?? "unknown",
+    namespace: secret.metadata?.namespace ?? "default",
+    secretName: secret.metadata?.name ?? null,
+    commonName: null,
+    dnsNames: [],
+    issuerRef: null,
+    ready: false,
+    valid: false,
+    status: "Pending",
+    reason: null,
+    notAfter: null,
+    renewalTime: null,
+    daysLeft: null,
+    revision: null,
+    source: "tls-secret",
+  };
+}
+
 async function loadSecretBackedCertificates(): Promise<CertificateItem[]> {
   const coreApi = makeCoreApi();
   // Filter server-side to TLS secrets only. Listing every secret in the cluster and
   // filtering client-side transfers and deserializes large amounts of unrelated secret
   // data on each call; the field selector pushes the filter down to the API server.
   const response = await coreApi.listSecretForAllNamespaces({ fieldSelector: "type=kubernetes.io/tls" });
-  const items = ((response as { items?: unknown[] }).items ?? [])
+  const items = listItems(response)
     .filter((item) => (item as { type?: string }).type === "kubernetes.io/tls")
     .map((item) => {
-      const secret = item as {
-        metadata?: { name?: string; namespace?: string; annotations?: Record<string, string> };
-        data?: Record<string, string>;
-      };
+      const secret = item as TlsSecretShape;
       const crt = secret.data?.["tls.crt"];
       if (!crt) {
         return {
-          id: `${secret.metadata?.namespace ?? "default"}/${secret.metadata?.name ?? "unknown"}`,
-          name: secret.metadata?.name ?? "unknown",
-          namespace: secret.metadata?.namespace ?? "default",
-          secretName: secret.metadata?.name ?? null,
-          commonName: null,
-          dnsNames: [],
+          ...baseSecretCert(secret),
           issuerRef: secret.metadata?.annotations?.["cert-manager.io/issuer"] ?? secret.metadata?.annotations?.["cert-manager.io/cluster-issuer"] ?? null,
-          ready: false,
-          valid: false,
           status: "Missing certificate data",
           reason: "tls.crt missing",
-          notAfter: null,
-          renewalTime: null,
-          daysLeft: null,
-          revision: null,
-          source: "tls-secret",
         } satisfies CertificateItem;
       }
 
@@ -351,10 +375,8 @@ async function loadSecretBackedCertificates(): Promise<CertificateItem[]> {
         const dnsNames = extractDnsNames(cert.subjectAltName);
         const commonName = extractSubjectValue(cert.subject, "CN") ?? dnsNames[0] ?? null;
         return {
-          id: `${secret.metadata?.namespace ?? "default"}/${secret.metadata?.name ?? "unknown"}`,
+          ...baseSecretCert(secret),
           name: secret.metadata?.annotations?.["cert-manager.io/certificate-name"] ?? secret.metadata?.name ?? "unknown",
-          namespace: secret.metadata?.namespace ?? "default",
-          secretName: secret.metadata?.name ?? null,
           commonName,
           dnsNames,
           issuerRef: secret.metadata?.annotations?.["cert-manager.io/issuer-kind"] && secret.metadata?.annotations?.["cert-manager.io/issuer-name"]
@@ -367,31 +389,14 @@ async function loadSecretBackedCertificates(): Promise<CertificateItem[]> {
           ready: true,
           valid: true,
           status: daysUntil(notAfter) !== null && (daysUntil(notAfter) ?? 999) <= 14 ? "Expiring Soon" : "Ready",
-          reason: null,
           notAfter,
-          renewalTime: null,
           daysLeft: daysUntil(notAfter),
-          revision: null,
-          source: "tls-secret",
         } satisfies CertificateItem;
       } catch {
         return {
-          id: `${secret.metadata?.namespace ?? "default"}/${secret.metadata?.name ?? "unknown"}`,
-          name: secret.metadata?.name ?? "unknown",
-          namespace: secret.metadata?.namespace ?? "default",
-          secretName: secret.metadata?.name ?? null,
-          commonName: null,
-          dnsNames: [],
-          issuerRef: null,
-          ready: false,
-          valid: false,
+          ...baseSecretCert(secret),
           status: "Unreadable certificate",
           reason: "Unable to parse tls.crt",
-          notAfter: null,
-          renewalTime: null,
-          daysLeft: null,
-          revision: null,
-          source: "tls-secret",
         } satisfies CertificateItem;
       }
     });
@@ -407,7 +412,7 @@ async function loadCertificatesUncached(): Promise<CertificatePayload> {
       version: "v1",
       plural: "certificates",
     });
-    const items = ((response as { items?: unknown[] }).items ?? []).map((item) => {
+    const items = listItems(response).map((item) => {
       const cert = item as {
         metadata?: { name?: string; namespace?: string; uid?: string };
         spec?: {
@@ -493,7 +498,7 @@ async function loadCronJobsUncached(): Promise<CronJobPayload> {
     ]);
 
     const jobsByCron = new Map<string, CronJobRunItem[]>();
-    for (const item of ((jobResponse as { items?: unknown[] }).items ?? [])) {
+    for (const item of listItems(jobResponse)) {
       const job = item as {
         metadata?: {
           name?: string;
@@ -535,7 +540,7 @@ async function loadCronJobsUncached(): Promise<CronJobPayload> {
       jobsByCron.set(key, current);
     }
 
-    const cronjobs = ((cronResponse as { items?: unknown[] }).items ?? []).map((item) => {
+    const cronjobs = listItems(cronResponse).map((item) => {
       const cronjob = item as {
         metadata?: { name?: string; namespace?: string; uid?: string };
         spec?: {
@@ -589,7 +594,7 @@ async function loadIngressRoutesUncached(): Promise<IngressRoutePayload> {
       version: "v1alpha1",
       plural: "ingressroutes",
     });
-    const ingressRoutes = ((response as { items?: unknown[] }).items ?? []).map((item) => {
+    const ingressRoutes = listItems(response).map((item) => {
       const ingressRoute = item as {
         metadata?: {
           name?: string;
@@ -638,32 +643,8 @@ async function loadIngressRoutesUncached(): Promise<IngressRoutePayload> {
   }
 }
 
-export async function loadCertificates(): Promise<CertificatePayload> {
-  const cached = apiCache.get<CertificatePayload>(OPS_CACHE_KEYS.certs);
-  if (cached) return cached;
-  return requestDedup.dedupe(OPS_CACHE_KEYS.certs, async () => {
-    const payload = await loadCertificatesUncached();
-    if (payload.live) apiCache.set(OPS_CACHE_KEYS.certs, payload, CERTS_CACHE_TTL_MS);
-    return payload;
-  }, CERTS_CACHE_TTL_MS);
-}
+export const loadCertificates = cachedLoader(OPS_CACHE_KEYS.certs, CERTS_CACHE_TTL_MS, loadCertificatesUncached, (payload) => payload.live);
 
-export async function loadCronJobs(): Promise<CronJobPayload> {
-  const cached = apiCache.get<CronJobPayload>(OPS_CACHE_KEYS.cronjobs);
-  if (cached) return cached;
-  return requestDedup.dedupe(OPS_CACHE_KEYS.cronjobs, async () => {
-    const payload = await loadCronJobsUncached();
-    if (payload.live) apiCache.set(OPS_CACHE_KEYS.cronjobs, payload, CRONJOBS_CACHE_TTL_MS);
-    return payload;
-  }, CRONJOBS_CACHE_TTL_MS);
-}
+export const loadCronJobs = cachedLoader(OPS_CACHE_KEYS.cronjobs, CRONJOBS_CACHE_TTL_MS, loadCronJobsUncached, (payload) => payload.live);
 
-export async function loadIngressRoutes(): Promise<IngressRoutePayload> {
-  const cached = apiCache.get<IngressRoutePayload>(OPS_CACHE_KEYS.ingressRoutes);
-  if (cached) return cached;
-  return requestDedup.dedupe(OPS_CACHE_KEYS.ingressRoutes, async () => {
-    const payload = await loadIngressRoutesUncached();
-    if (payload.live) apiCache.set(OPS_CACHE_KEYS.ingressRoutes, payload, INGRESS_CACHE_TTL_MS);
-    return payload;
-  }, INGRESS_CACHE_TTL_MS);
-}
+export const loadIngressRoutes = cachedLoader(OPS_CACHE_KEYS.ingressRoutes, INGRESS_CACHE_TTL_MS, loadIngressRoutesUncached, (payload) => payload.live);

@@ -1,18 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Lock, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, BookOpen, Star, LayoutGrid, Rows3, MoreVertical, Copy, Folder, FolderOpen, Upload } from "lucide-react";
+import { Plus, Lock, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, Star, LayoutGrid, Rows3, MoreVertical, Copy, Folder, FolderOpen, Upload } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { useRBAC } from "@/hooks/use-rbac";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useDebounce } from "@/hooks/use-debounce";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
+import { fetchJson } from "@/lib/fetch-json";
 import { toast } from "@/lib/notify";
 import Link from "next/link";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { HorizontalScrollHint } from "@/components/ui/horizontal-scroll-hint";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ServerActionButtons, type ServerPowerAction } from "@/components/game-hub/server-actions";
 
 interface GameServer {
   name: string;
@@ -72,168 +78,8 @@ const STATUS_COLORS: Record<string, string> = {
   crashed: "bg-red-500/20 text-red-300 border-red-500/30",
 };
 
-const FEATURE_ROADMAP: Array<{ category: string; items: Array<{ name: string; status: "Shipped" | "Planned" | "Coming Soon" }> }> = [
-  {
-    category: "Server Management",
-    items: [
-      { name: "Start/Stop/Restart", status: "Shipped" },
-      { name: "Env vars editor", status: "Shipped" },
-      { name: "Static replicas", status: "Shipped" },
-      { name: "HPA auto-scale", status: "Shipped" },
-      { name: "Server delete", status: "Shipped" },
-      { name: "Server clone", status: "Shipped" },
-      { name: "Templates library", status: "Shipped" },
-      { name: "Bulk start/stop", status: "Shipped" },
-      { name: "Scheduled on/off", status: "Shipped" },
-      { name: "Maintenance mode", status: "Shipped" },
-    ],
-  },
-  {
-    category: "Monitoring",
-    items: [
-      { name: "Status indicator", status: "Shipped" },
-      { name: "Uptime counter", status: "Shipped" },
-      { name: "CPU/RAM graphs", status: "Shipped" },
-      { name: "Network traffic", status: "Shipped" },
-      { name: "Player count timeline", status: "Shipped" },
-      { name: "Server tick metrics", status: "Coming Soon" },
-      { name: "Disk usage chart", status: "Shipped" },
-      { name: "Event timeline", status: "Shipped" },
-      { name: "Alert thresholds", status: "Shipped" },
-      { name: "Performance score", status: "Shipped" },
-    ],
-  },
-  {
-    category: "Console",
-    items: [
-      { name: "Interactive console", status: "Shipped" },
-      { name: "Command execution", status: "Shipped" },
-      { name: "Command history", status: "Shipped" },
-      { name: "Command templates", status: "Shipped" },
-      { name: "Broadcast button", status: "Shipped" },
-      { name: "Player kick/ban", status: "Shipped" },
-      { name: "Whitelist editor", status: "Shipped" },
-      { name: "Quick commands panel", status: "Shipped" },
-      { name: "Console search", status: "Shipped" },
-      { name: "Console export", status: "Shipped" },
-    ],
-  },
-  {
-    category: "File Management",
-    items: [
-      { name: "File browser", status: "Shipped" },
-      { name: "Inline text editor", status: "Shipped" },
-      { name: "File delete", status: "Shipped" },
-      { name: "File upload", status: "Shipped" },
-      { name: "File download", status: "Shipped" },
-      { name: "Directory create", status: "Shipped" },
-      { name: "File rename", status: "Shipped" },
-      { name: "Permissions viewer", status: "Shipped" },
-      { name: "Binary file viewer", status: "Shipped" },
-      { name: "File diff", status: "Shipped" },
-    ],
-  },
-  {
-    category: "Backup & Recovery",
-    items: [
-      { name: "Manual world backup", status: "Shipped" },
-      { name: "Scheduled backups", status: "Shipped" },
-      { name: "Backup retention", status: "Shipped" },
-      { name: "Restore from backup", status: "Shipped" },
-      { name: "Cross-server transfer", status: "Coming Soon" },
-      { name: "Backup size tracking", status: "Shipped" },
-      { name: "Backup verification", status: "Coming Soon" },
-      { name: "TrueNAS target", status: "Shipped" },
-      { name: "S3 target", status: "Coming Soon" },
-      { name: "Incremental backup", status: "Coming Soon" },
-    ],
-  },
-  {
-    category: "Networking",
-    items: [
-      { name: "Connection info", status: "Shipped" },
-      { name: "Multi-port display", status: "Shipped" },
-      { name: "Custom domain", status: "Planned" },
-      { name: "DNS auto-register", status: "Coming Soon" },
-      { name: "Player capacity", status: "Planned" },
-      { name: "Bandwidth metering", status: "Coming Soon" },
-      { name: "Firewall rules", status: "Coming Soon" },
-      { name: "BungeeCord proxy", status: "Coming Soon" },
-      { name: "Cloudflare tunnel", status: "Coming Soon" },
-      { name: "Server ping", status: "Shipped" },
-    ],
-  },
-  {
-    category: "Player Management",
-    items: [
-      { name: "Online player list", status: "Shipped" },
-      { name: "Whitelist editor", status: "Shipped" },
-      { name: "Op management", status: "Shipped" },
-      { name: "Ban list", status: "Shipped" },
-      { name: "Player stats", status: "Shipped" },
-      { name: "Discord webhooks", status: "Shipped" },
-      { name: "GeoIP map", status: "Shipped" },
-      { name: "Chat viewer", status: "Shipped" },
-      { name: "Player history", status: "Shipped" },
-      { name: "Player groups", status: "Shipped" },
-    ],
-  },
-  {
-    category: "Mods & Plugins",
-    items: [
-      { name: "Mod list viewer", status: "Shipped" },
-      { name: "Plugin list", status: "Shipped" },
-      { name: "Modrinth install", status: "Shipped" },
-      { name: "Mod updater", status: "Coming Soon" },
-      { name: "Mod conflicts", status: "Coming Soon" },
-      { name: "Plugin config editor", status: "Shipped" },
-      { name: "Mod packs", status: "Coming Soon" },
-      { name: "Workshop integration", status: "Coming Soon" },
-      { name: "Custom eggs", status: "Shipped" },
-      { name: "Docker image picker", status: "Shipped" },
-    ],
-  },
-  {
-    category: "Storage",
-    items: [
-      { name: "Longhorn backend", status: "Shipped" },
-      { name: "TrueNAS backend", status: "Shipped" },
-      { name: "Synology backend", status: "Shipped" },
-      { name: "ZFS snapshots", status: "Coming Soon" },
-      { name: "PVC expansion", status: "Shipped" },
-      { name: "Data migration", status: "Coming Soon" },
-      { name: "IO benchmark", status: "Coming Soon" },
-      { name: "Storage analytics", status: "Shipped" },
-      { name: "Quota enforcement", status: "Coming Soon" },
-      { name: "Tiered storage", status: "Coming Soon" },
-    ],
-  },
-  {
-    category: "RBAC & Security",
-    items: [
-      { name: "Platform RBAC", status: "Shipped" },
-      { name: "Per-server roles", status: "Shipped" },
-      { name: "IaC user assignments", status: "Shipped" },
-      { name: "Audit log", status: "Shipped" },
-      { name: "Command ACL", status: "Shipped" },
-      { name: "File access control", status: "Shipped" },
-      { name: "Two-factor auth", status: "Coming Soon" },
-      { name: "API tokens", status: "Shipped" },
-      { name: "Session management", status: "Shipped" },
-      { name: "Security alerts", status: "Shipped" },
-    ],
-  },
-];
-
-const ROADMAP_STATUS_STYLES: Record<"Shipped" | "Planned" | "Coming Soon", string> = {
-  Shipped: "bg-green-500/15 text-green-300 border-green-500/30",
-  Planned: "bg-[#0078D4]/15 text-[#4db3ff] border-[#0078D4]/30",
-  "Coming Soon": "bg-gray-50 dark:bg-[#252525] text-gray-500 dark:text-[#999] border-gray-200 dark:border-[#333]",
-};
-
 function PVCCleanupModal({ onClose }: { onClose: () => void }) {
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [deleting, setDeleting] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["pvc-cleanup"],
@@ -262,25 +108,27 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
     });
   }
 
-  async function doCleanup() {
-    const toDelete = unused.filter((pvc) => checked.has(`${pvc.namespace}/${pvc.name}`));
-    if (toDelete.length === 0) return;
-    setDeleting(true);
-    try {
+  const cleanup = useMutation({
+    mutationFn: async (toDelete: UnusedPVC[]) => {
       const results = await Promise.all(toDelete.map(async (pvc) => {
         const res = await fetch(`/api/game-hub/pvcs/${encodeURIComponent(pvc.name)}`, { method: "DELETE" });
-        return { ok: res.ok, pvc };
+        return res.ok;
       }));
-      const deleted = results.filter((result) => result.ok).length;
-      const failed = results.length - deleted;
+      const deleted = results.filter(Boolean).length;
+      return { deleted, failed: results.length - deleted };
+    },
+    onSuccess: ({ deleted, failed }) => {
       if (failed > 0) toast.error(`${failed} PVC(s) failed to delete`);
       if (deleted > 0) toast.success(`${deleted} PVC(s) deleted`);
       onClose();
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setDeleting(false);
-    }
+    },
+    onError: (error) => toast.error(String(error)),
+  });
+
+  function doCleanup() {
+    const toDelete = unused.filter((pvc) => checked.has(`${pvc.namespace}/${pvc.name}`));
+    if (toDelete.length === 0) return;
+    cleanup.mutate(toDelete);
   }
 
   return (
@@ -295,8 +143,8 @@ function PVCCleanupModal({ onClose }: { onClose: () => void }) {
           <p className="text-sm text-gray-500 dark:text-[#888]">{checked.size} of {unused.length} selected</p>
           <div className="grid grid-cols-1 gap-3 sm:flex sm:gap-2">
             <button onClick={onClose} className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">Cancel</button>
-            <button onClick={doCleanup} disabled={checked.size === 0 || deleting} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-red-500/20 px-4 text-sm font-semibold text-red-200 transition-colors hover:bg-red-500/30 disabled:cursor-not-allowed disabled:opacity-50">
-              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete {checked.size > 0 ? `${checked.size} PVC${checked.size !== 1 ? "s" : ""}` : "selected PVCs"}
+            <button onClick={doCleanup} disabled={checked.size === 0 || cleanup.isPending} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-red-500/20 px-4 text-sm font-semibold text-red-200 transition-colors hover:bg-red-500/30 disabled:cursor-not-allowed disabled:opacity-50">
+              {cleanup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete {checked.size > 0 ? `${checked.size} PVC${checked.size !== 1 ? "s" : ""}` : "selected PVCs"}
             </button>
           </div>
         </div>
@@ -623,63 +471,29 @@ function ServerActionSheet({
 
 export default function GameHubPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { can } = useRBAC();
   const canManageGameHub = can("game-hub:admin", "/game-hub/");
-  const [actionLoading, setActionLoading] = useState<Record<string, string>>({});
   const [showPVCCleanup, setShowPVCCleanup] = useState(false);
   const [search, setSearch] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
-  const [showRoadmap, setShowRoadmap] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [compareMode, setCompareMode] = useState(false);
   const [compareSet, setCompareSet] = useState<Set<string>>(new Set());
   const [filterTag, setFilterTag] = useState("");
   const [filterGroup, setFilterGroup] = useState("");
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      return new Set(JSON.parse(localStorage.getItem(SERVER_FAVORITES_KEY) ?? "[]") as string[]);
-    } catch {
-      return new Set();
-    }
-  });
-  const [viewMode, setViewMode] = useState<ServerViewMode>(() => {
-    if (typeof window === "undefined") return "detailed";
-    try {
-      return localStorage.getItem(SERVER_VIEW_KEY) === "compact" ? "compact" : "detailed";
-    } catch {
-      return "detailed";
-    }
-  });
-  const [collapsedServers, setCollapsedServers] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      return new Set(JSON.parse(localStorage.getItem(SERVER_COLLAPSED_KEY) ?? "[]") as string[]);
-    } catch {
-      return new Set();
-    }
-  });
-  const [sortKey, setSortKey] = useState<ServerSortKey>(() => {
-    if (typeof window === "undefined") return "health";
-    try {
-      return (JSON.parse(localStorage.getItem(SERVER_SORT_KEY) ?? "{}")?.sortKey as ServerSortKey) ?? "health";
-    } catch {
-      return "health";
-    }
-  });
-  const [sortDir, setSortDir] = useState<"asc" | "desc">(() => {
-    if (typeof window === "undefined") return "desc";
-    try {
-      return JSON.parse(localStorage.getItem(SERVER_SORT_KEY) ?? "{}")?.sortDir === "asc" ? "asc" : "desc";
-    } catch {
-      return "desc";
-    }
-  });
+  const [favoriteList, setFavoriteList] = useLocalStorage<string[]>(SERVER_FAVORITES_KEY, []);
+  const [viewMode, setViewMode] = useLocalStorage<ServerViewMode>(SERVER_VIEW_KEY, "detailed");
+  const [collapsedList, setCollapsedList] = useLocalStorage<string[]>(SERVER_COLLAPSED_KEY, []);
+  const [sortPref, setSortPref] = useLocalStorage<{ sortKey?: ServerSortKey; sortDir?: "asc" | "desc" }>(SERVER_SORT_KEY, {});
+  const favorites = useMemo(() => new Set(Array.isArray(favoriteList) ? favoriteList : []), [favoriteList]);
+  const collapsedServers = useMemo(() => new Set(Array.isArray(collapsedList) ? collapsedList : []), [collapsedList]);
+  const sortKey: ServerSortKey = sortPref.sortKey ?? "health";
+  const sortDir: "asc" | "desc" = sortPref.sortDir === "asc" ? "asc" : "desc";
+  const debouncedSearch = useDebounce(search.trim(), 300);
+  const { copy } = useCopyToClipboard();
   const [now, setNow] = useState(0);
   const [activeActionServerName, setActiveActionServerName] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; name: string }>({ open: false, name: "" });
@@ -687,7 +501,6 @@ export default function GameHubPage() {
   const [hoveredTagServer, setHoveredTagServer] = useState<string | null>(null);
   const [editingTagServer, setEditingTagServer] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
-  const [tagSavingServer, setTagSavingServer] = useState<string | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const importRef = useRef<HTMLInputElement>(null);
@@ -719,43 +532,6 @@ export default function GameHubPage() {
       setActiveActionServerName(name);
     }, 450);
   }
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
-    return () => window.clearTimeout(timer);
-  }, [search]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SERVER_SORT_KEY, JSON.stringify({ sortKey, sortDir }));
-    } catch {
-      // ignore
-    }
-  }, [sortDir, sortKey]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SERVER_FAVORITES_KEY, JSON.stringify([...favorites]));
-    } catch {
-      // ignore
-    }
-  }, [favorites]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SERVER_VIEW_KEY, viewMode);
-    } catch {
-      // ignore
-    }
-  }, [viewMode]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SERVER_COLLAPSED_KEY, JSON.stringify([...collapsedServers]));
-    } catch {
-      // ignore
-    }
-  }, [collapsedServers]);
 
   useEffect(() => () => clearLongPress(), []);
 
@@ -842,49 +618,41 @@ export default function GameHubPage() {
     });
   }, [allGroups, hasGroupedServers]);
 
+  const serverAction = useMutationWithToast<unknown, { name: string; action: string }>({
+    mutationFn: ({ name, action }) =>
+      action === "delete"
+        ? fetchJson(`/api/game-hub/servers/${name}`, { method: "DELETE" })
+        : fetchJson(`/api/game-hub/servers/${name}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action }),
+          }),
+    successMessage: (_data, { name, action }) =>
+      action === "delete" ? `${name} deleted` : action === "sync-to-git" ? `${name} synced to git` : `${name} ${action} successful`,
+    invalidateKeys: [["game-hub", "servers"]],
+  });
+  const pendingServerAction = serverAction.isPending ? serverAction.variables : undefined;
+  const actionLoadingFor = (name: string) => (pendingServerAction?.name === name ? pendingServerAction.action : undefined);
+
+  const cloneMutation = useMutationWithToast<unknown, { source: string; newName: string }>({
+    mutationFn: ({ source, newName }) =>
+      fetchJson("/api/game-hub/servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clone", source, newName }),
+      }),
+    successMessage: "Clone started",
+    invalidateKeys: [["game-hub", "servers"]],
+  });
+
   async function doAction(name: string, action: string) {
-    setActionLoading((prev) => ({ ...prev, [name]: action }));
-    try {
-      if (action === "delete") {
-        const res = await fetch(`/api/game-hub/servers/${name}`, { method: "DELETE" });
-        if (!res.ok) throw new Error("Delete failed");
-        toast.success(`${name} deleted`);
-      } else {
-        const res = await fetch(`/api/game-hub/servers/${name}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
-        });
-        if (!res.ok) throw new Error(`${action} failed`);
-        toast.success(action === "sync-to-git" ? `${name} synced to git` : `${name} ${action} successful`);
-      }
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setActionLoading((prev) => {
-        const next = { ...prev };
-        delete next[name];
-        return next;
-      });
-    }
+    await serverAction.mutateAsync({ name, action }).catch(() => undefined);
   }
 
   async function cloneServer(source: string) {
     const newName = prompt("Clone server as", `${source}-copy`);
     if (!newName) return;
-    try {
-      const res = await fetch("/api/game-hub/servers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "clone", source, newName }),
-      });
-      if (!res.ok) throw new Error("Clone failed");
-      toast.success("Clone started");
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-    } catch (error) {
-      toast.error(String(error));
-    }
+    await cloneMutation.mutateAsync({ source, newName }).catch(() => undefined);
   }
 
   function triggerImportConfig() {
@@ -917,58 +685,53 @@ export default function GameHubPage() {
     reader.readAsText(file);
   }
 
-  async function doBulkAction(action: "start" | "stop" | "restart") {
-    if (selected.size === 0) return;
-    try {
-      const res = await fetch("/api/game-hub/servers/bulk", {
+  const bulkMutation = useMutationWithToast<unknown, { action: "start" | "stop" | "restart"; names: string[] }>({
+    mutationFn: ({ action, names }) =>
+      fetchJson("/api/game-hub/servers/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, names: [...selected] }),
-      });
-      if (!res.ok) throw new Error(`${action} failed`);
-      toast.success(`${action} requested for ${selected.size} server${selected.size === 1 ? "" : "s"}`);
-      setSelected(new Set());
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-    } catch (error) {
-      toast.error(String(error));
-    }
+        body: JSON.stringify({ action, names }),
+      }),
+    successMessage: (_data, { action, names }) => `${action} requested for ${names.length} server${names.length === 1 ? "" : "s"}`,
+    invalidateKeys: [["game-hub", "servers"]],
+    onSuccess: () => setSelected(new Set()),
+  });
+
+  function doBulkAction(action: "start" | "stop" | "restart") {
+    if (selected.size === 0) return;
+    bulkMutation.mutate({ action, names: [...selected] });
   }
 
-  async function copyConnection(event: MouseEvent, server: GameServer) {
+  function copyConnection(event: MouseEvent, server: GameServer) {
     event.stopPropagation();
     const connectionString = getConnectionString(server);
     if (!connectionString) return;
-    try {
-      await navigator.clipboard.writeText(connectionString);
-      toast.success("Copied!");
-    } catch (error) {
-      toast.error(String(error));
-    }
+    void copy(connectionString, { successMessage: "Copied!" });
   }
 
-  async function saveInlineTag(server: GameServer) {
-    const nextTag = tagDraft.trim();
-    if (!nextTag) return;
-    setTagSavingServer(server.name);
-    try {
-      const res = await fetch(`/api/game-hub/servers/${server.name}`, {
+  const tagMutation = useMutationWithToast<unknown, { server: GameServer; tag: string }>({
+    mutationFn: ({ server, tag }) =>
+      fetchJson(`/api/game-hub/servers/${server.name}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "update-tags",
-          tags: [...new Set([...(server.tags ?? []), nextTag])],
+          tags: [...new Set([...(server.tags ?? []), tag])],
         }),
-      });
-      if (!res.ok) throw new Error("Failed to update tags");
+      }),
+    successMessage: "Tag added",
+    invalidateKeys: [["game-hub", "servers"]],
+    onSuccess: () => {
       setEditingTagServer(null);
       setTagDraft("");
-      await queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-      toast.success("Tag added");
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setTagSavingServer(null);
-    }
+    },
+  });
+  const tagSavingServer = tagMutation.isPending ? tagMutation.variables?.server.name ?? null : null;
+
+  function saveInlineTag(server: GameServer) {
+    const nextTag = tagDraft.trim();
+    if (!nextTag) return;
+    tagMutation.mutate({ server, tag: nextTag });
   }
 
   function toggleSelected(name: string) {
@@ -997,28 +760,18 @@ export default function GameHubPage() {
 
   function setSort(nextKey: ServerSortKey) {
     if (sortKey === nextKey) {
-      setSortDir((current) => current === "asc" ? "desc" : "asc");
+      setSortPref({ sortKey, sortDir: sortDir === "asc" ? "desc" : "asc" });
       return;
     }
-    setSortKey(nextKey);
-    setSortDir(["health", "cpu", "players", "started"].includes(nextKey) ? "desc" : "asc");
+    setSortPref({ sortKey: nextKey, sortDir: ["health", "cpu", "players", "started"].includes(nextKey) ? "desc" : "asc" });
   }
 
   function toggleFavorite(name: string) {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
+    setFavoriteList(favorites.has(name) ? [...favorites].filter((item) => item !== name) : [...favorites, name]);
   }
 
   function toggleExpanded(name: string) {
-    setCollapsedServers((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name); else next.add(name);
-      return next;
-    });
+    setCollapsedList(collapsedServers.has(name) ? [...collapsedServers].filter((item) => item !== name) : [...collapsedServers, name]);
   }
 
   function openServerActions(name: string) {
@@ -1028,7 +781,6 @@ export default function GameHubPage() {
 
   function resetFilters() {
     setSearch("");
-    setDebouncedSearch("");
     setFilterType("");
     setFilterStatus("all");
     setFilterTag("");
@@ -1151,22 +903,22 @@ export default function GameHubPage() {
           <div className="hidden flex-shrink-0 items-center gap-1 sm:flex" onClick={(e) => e.stopPropagation()}>
             {server.status === "stopped" ? (
               server.permissions?.canStart ? (
-                <button onClick={() => void doAction(server.name, "start")} disabled={!!actionLoading[server.name]} title="Start server" className="flex min-h-[44px] items-center gap-2 rounded-xl border border-green-500/30 bg-green-500/15 px-3 text-sm font-medium text-green-300 transition-colors hover:bg-green-500/25 disabled:opacity-50">
-                  {actionLoading[server.name] === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                <button onClick={() => void doAction(server.name, "start")} disabled={!!actionLoadingFor(server.name)} title="Start server" className="flex min-h-[44px] items-center gap-2 rounded-xl border border-green-500/30 bg-green-500/15 px-3 text-sm font-medium text-green-300 transition-colors hover:bg-green-500/25 disabled:opacity-50">
+                  {actionLoadingFor(server.name) === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                   <span>Start</span>
                 </button>
               ) : null
             ) : (
               <>
                 {server.permissions?.canAdmin ? (
-                  <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} title="Restart" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-700 dark:hover:text-[#bbb] disabled:opacity-50">
-                    {actionLoading[server.name] === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                  <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoadingFor(server.name)} title="Restart" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-700 dark:hover:text-[#bbb] disabled:opacity-50">
+                    {actionLoadingFor(server.name) === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                     <span>Restart</span>
                   </button>
                 ) : null}
                 {server.permissions?.canStop ? (
-                  <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} title="Stop" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50">
-                    {actionLoading[server.name] === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                  <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoadingFor(server.name)} title="Stop" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50">
+                    {actionLoadingFor(server.name) === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
                     <span>Stop</span>
                   </button>
                 ) : null}
@@ -1226,35 +978,19 @@ export default function GameHubPage() {
           </button>
         </div>
         <div className="hidden items-center gap-2 flex-wrap sm:flex" onClick={(event) => event.stopPropagation()}>
-          {server.status === "stopped" ? (
-            server.permissions?.canStart ? (
-              <button onClick={() => void doAction(server.name, "start")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-green-500/20 px-4 text-sm font-medium text-green-300 transition-colors hover:bg-green-500/30 disabled:opacity-50">
-                {actionLoading[server.name] === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Start
-              </button>
-            ) : null
-          ) : (
-            <>
-              {server.permissions?.canStop ? (
-                <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] disabled:opacity-50">
-                  {actionLoading[server.name] === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />} Stop
-                </button>
-              ) : null}
-              {server.permissions?.canAdmin ? (
-                <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoading[server.name]} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] disabled:opacity-50">
-                  {actionLoading[server.name] === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Restart
-                </button>
-              ) : null}
-            </>
-          )}
-          {server.permissions?.canAdmin ? (
-            <button onClick={() => void cloneServer(server.name)} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a]">Clone</button>
-          ) : null}
+          <ServerActionButtons
+            status={server.status}
+            loadingAction={(actionLoadingFor(server.name) as ServerPowerAction | undefined) ?? null}
+            onAction={(action) => (action === "clone" ? cloneServer(server.name) : doAction(server.name, action))}
+            permissions={{ canStart: !!server.permissions?.canStart, canStop: !!server.permissions?.canStop, canAdmin: !!server.permissions?.canAdmin }}
+            showDelete={false}
+          />
           <Link href={`/game-hub/${server.name}`} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-medium text-[#0078D4] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
             <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "View"}
           </Link>
           {server.permissions?.canAdmin ? (
-            <button onClick={() => setDeleteConfirm({ open: true, name: server.name })} disabled={!!actionLoading[server.name]} className="ml-auto flex min-h-[44px] items-center gap-2 rounded-xl bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50">
-              {actionLoading[server.name] === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete
+            <button onClick={() => setDeleteConfirm({ open: true, name: server.name })} disabled={!!actionLoadingFor(server.name)} className="ml-auto flex min-h-[44px] items-center gap-2 rounded-xl bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50">
+              {actionLoadingFor(server.name) === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete
             </button>
           ) : null}
         </div>
@@ -1272,7 +1008,7 @@ export default function GameHubPage() {
         server={activeActionServer}
         open={Boolean(activeActionServer)}
         onClose={() => setActiveActionServerName(null)}
-        actionLoading={activeActionServer ? actionLoading[activeActionServer.name] : undefined}
+        actionLoading={activeActionServer ? actionLoadingFor(activeActionServer.name) : undefined}
         onAction={handleActionFromSheet}
         onClone={async () => {
           if (!activeActionServer) return;
@@ -1614,46 +1350,6 @@ export default function GameHubPage() {
         </div>
       )}
 
-      <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
-        <button onClick={() => setShowRoadmap((prev) => !prev)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-gray-200 dark:border-[#1e1e1e]">
-          <div className="flex items-start gap-3">
-            <BookOpen className="w-4 h-4 text-[#4db3ff] mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Feature Roadmap</p>
-              <p className="text-xs text-gray-400 dark:text-[#666] mt-0.5">100 ideas across 10 categories, with shipped game hub features highlighted.</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-gray-400 dark:text-[#666]">
-            <span className="text-[10px] px-2 py-0.5 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d]">{FEATURE_ROADMAP.reduce((sum, category) => sum + category.items.length, 0)} items</span>
-            {showRoadmap ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </div>
-        </button>
-        {showRoadmap && (
-          <div className="p-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {FEATURE_ROADMAP.map((category) => (
-              <div key={category.category} className="rounded-xl border border-gray-200 dark:border-[#1e1e1e] bg-[#0b0b0b] p-3 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-medium text-gray-900 dark:text-[#f2f2f2] uppercase tracking-wide">{category.category}</p>
-                  <span className="text-[10px] text-gray-400 dark:text-[#444]">{category.items.length}/10</span>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {category.items.map((feature) => (
-                    <div key={feature.name} className="rounded-lg border border-[#1d1d1d] bg-white dark:bg-[#111] px-2.5 py-2">
-                      <div className="flex items-start gap-2">
-                        <span className={cn("mt-0.5 text-[11px] leading-none", feature.status === "Shipped" ? "text-green-400" : "text-gray-700 dark:text-[#333]")}>{feature.status === "Shipped" ? "✓" : "•"}</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] text-gray-700 dark:text-[#d4d4d4] leading-snug">{feature.name}</p>
-                          <span className={cn("inline-flex mt-1 text-[9px] px-1.5 py-0.5 rounded-full border", ROADMAP_STATUS_STYLES[feature.status])}>{feature.status}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
 
     <ConfirmDialog

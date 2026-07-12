@@ -1,9 +1,9 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Shield, Activity, Search } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { useState, useCallback } from "react";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { HealthTimeline } from "@/components/ui/health-timeline";
@@ -206,36 +206,28 @@ function SLASection({ data }: { data: SLAData }) {
 export function HealthView() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "up" | "down">("all");
-  const { data: health, isLoading, refetch, dataUpdatedAt } = useQuery({
+  const { data: health, isLoading, refetch, dataUpdatedAt } = useApiQuery<{ endpoints?: Endpoint[] }>({
     queryKey: ["health"],
-    queryFn: async () => {
-      const res = await fetch("/api/health");
-      if (!res.ok) throw new Error("Failed to fetch health");
-      return res.json() as Promise<{ endpoints?: Endpoint[] }>;
-    },
+    path: "/api/health",
     refetchInterval: 30000,
   });
 
   const [pullRefreshing, setPullRefreshing] = useState(false);
   const [pullY, setPullY] = useState(0);
 
-  const { data: slaData } = useQuery<SLAData>({
+  const { data: slaData } = useApiQuery<SLAData>({
     queryKey: ["health", "sla"],
-    queryFn: async () => {
-      const res = await fetch("/api/health/sla");
-      return res.json();
-    },
+    path: "/api/health/sla",
     staleTime: 60000,
     refetchInterval: 120000,
   });
 
-  const { data: timelineData } = useQuery({
+  // The timeline payload nests its points under a `data` key, so opt out of the
+  // apiClient `{ data }` envelope unwrapping to keep the original shape.
+  const { data: timelineData } = useApiQuery<{ data: { timestamp: string; status: string; latencyMs: number }[] }>({
     queryKey: ["health", "timeline"],
-    queryFn: async () => {
-      const res = await fetch("/api/health/timeline");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<{ data: { timestamp: string; status: string; latencyMs: number }[] }>;
-    },
+    path: "/api/health/timeline",
+    request: { unwrap: false },
     staleTime: 60000,
   });
 

@@ -3,6 +3,7 @@ import { argocdFetch } from "@/lib/argocd-apps";
 import { validateK8sName } from "@/lib/api-security";
 import { auditLog } from "@/lib/audit-log";
 import { invalidateArgocdCaches } from "@/lib/performance-cache";
+import { safeError } from "@/lib/utils";
 import { withAuth } from "@/lib/with-auth";
 
 export const POST = withAuth<{ appName: string }>(
@@ -21,7 +22,7 @@ export const POST = withAuth<{ appName: string }>(
       invalidateArgocdCaches();
       return NextResponse.json({ ok: true });
     } catch (err) {
-      return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
+      return NextResponse.json({ ok: false, error: safeError(err) }, { status: 502 });
     }
   },
 );

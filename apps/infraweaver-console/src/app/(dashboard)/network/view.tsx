@@ -1,8 +1,8 @@
 "use client";
 import { Network } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface TopoNode {
   id: string;
@@ -116,12 +116,9 @@ function TopologyMap({ data }: { data: TopologyData }) {
 }
 
 export function NetworkTopologyView() {
-  const { data: topoData, isLoading } = useQuery<TopologyData>({
+  const { data: topoData, isLoading } = useApiQuery<TopologyData>({
     queryKey: ["network", "topology"],
-    queryFn: async () => {
-      const res = await fetch("/api/network/topology");
-      return res.json();
-    },
+    path: "/api/network/topology",
     staleTime: 60000,
     refetchInterval: 120000,
   });
@@ -129,18 +126,6 @@ export function NetworkTopologyView() {
   return (
     <div>
       <PageHeader icon={Network} title="Network" subtitle="Services, ingress, and network topology" />
-      <div className="relative rounded-xl overflow-hidden mb-6">
-        <div className="absolute inset-0 page-gradient-network pointer-events-none" />
-        <div className="relative flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              <Network className="w-5 h-5 text-emerald-400" />
-              Network
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Service ingress and network topology</p>
-          </div>
-        </div>
-      </div>
 
       {topoData && topoData.nodes.length > 0 ? (
         <div className="mb-5">

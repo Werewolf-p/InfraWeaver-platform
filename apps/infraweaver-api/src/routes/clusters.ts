@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { addCluster, getCluster, listClusters, removeCluster, updateClusterStatus } from '../lib/cluster-registry.js';
 import { getCoreApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { badRequest, forbidden, notFound } from '../lib/responses.js';
 import type { AppBindings, ClusterMeta } from '../types/index.js';
 
 const clusterIdSchema = z.object({
@@ -25,7 +26,7 @@ export const clustersRoute = new Hono<AppBindings>();
 clustersRoute.get('/', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:admin')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   return c.json(await listClusters());
@@ -34,13 +35,13 @@ clustersRoute.get('/', async (c) => {
 clustersRoute.post('/', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:admin')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const payload = await c.req.json().catch(() => null);
   const parsed = createClusterSchema.safeParse(payload);
   if (!parsed.success) {
-    return c.json({ error: 'Invalid request body' }, 400);
+    return badRequest(c, 'Invalid request body');
   }
 
   if (await getCluster(parsed.data.id)) {
@@ -67,17 +68,17 @@ clustersRoute.post('/', async (c) => {
 clustersRoute.delete('/:id', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:admin')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const parsed = clusterIdSchema.safeParse(c.req.param());
   if (!parsed.success) {
-    return c.json({ error: 'Invalid cluster id' }, 400);
+    return badRequest(c, 'Invalid cluster id');
   }
 
   const existing = await getCluster(parsed.data.id);
   if (!existing) {
-    return c.json({ error: 'Cluster not found' }, 404);
+    return notFound(c, 'Cluster not found');
   }
 
   await removeCluster(parsed.data.id);
@@ -87,17 +88,17 @@ clustersRoute.delete('/:id', async (c) => {
 clustersRoute.get('/:id/health', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:admin')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const parsed = clusterIdSchema.safeParse(c.req.param());
   if (!parsed.success) {
-    return c.json({ error: 'Invalid cluster id' }, 400);
+    return badRequest(c, 'Invalid cluster id');
   }
 
   const cluster = await getCluster(parsed.data.id);
   if (!cluster) {
-    return c.json({ error: 'Cluster not found' }, 404);
+    return notFound(c, 'Cluster not found');
   }
 
   try {

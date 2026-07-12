@@ -36,6 +36,11 @@ function vaultAuth(): { addr: string; token: string } {
 
 const dataApiPath = `${KV_MOUNT}/data/${UDM_LOGICAL_PATH}`;
 
+/** NOTE: intentionally NOT `@/lib/openbao/kv` — that helper imports
+ *  "server-only", which the plain-jest suites importing this module for real
+ *  (via `@/lib/udm/config`) cannot resolve outside Next's webpack alias. The
+ *  AbortController dance (instead of `AbortSignal.timeout`) is also deliberate:
+ *  jsdom-jest lacks the static. */
 async function vaultFetch(init: RequestInit): Promise<Response> {
   const { addr, token } = vaultAuth();
   const controller = new AbortController();

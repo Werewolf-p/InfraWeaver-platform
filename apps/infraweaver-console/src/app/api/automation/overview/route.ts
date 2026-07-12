@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { loadCronJobs } from "@/lib/ops-data";
-import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { withAuth } from "@/lib/with-auth";
 
 const CLUSTER_AUTOMATIONS = [
   {
@@ -91,15 +91,9 @@ const WORKFLOW_AUTOMATIONS = [
   },
 ] as const;
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withAuth({ permission: ["infra:read", "cluster:read"] }, async ({ session }) => {
+  // Cached (60s) — same context the guard above resolved.
   const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["infra:read", "cluster:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   const canTrigger = hasSessionPermission(access, "cluster:admin");
   const cronPayload = await loadCronJobs();
   const cronjobs = cronPayload.cronjobs ?? [];
@@ -131,4 +125,4 @@ export async function GET() {
     },
     { headers: { "Cache-Control": "no-store" } },
   );
-}
+});

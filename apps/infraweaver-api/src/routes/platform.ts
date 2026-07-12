@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { hasPermission } from "../lib/rbac.js";
 import { onedevGetFile, onedevPutFile } from "../lib/git-provider.js";
 import { getCoreApiForCluster } from "../lib/k8s-client.js";
+import { errMessage } from '../lib/errors.js';
 import type { AppBindings } from "../types/index.js";
 
 /**
@@ -249,7 +250,7 @@ route.get("/version", async (c) => {
       hasGithubToken: Boolean(GITHUB_TOKEN),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errMessage(err);
     return c.json({ ok: false, error: `Version check failed: ${msg}` }, 502);
   }
 });
@@ -321,7 +322,7 @@ route.post("/update", async (c) => {
       );
       results[appName] = { ok: true };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errMessage(err);
       results[appName] = { ok: false, error: msg };
       manifestErrors.push(`${appName}: ${msg}`);
     }
@@ -387,7 +388,7 @@ route.post("/trigger-ci", async (c) => {
       runUrl: run?.html_url,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errMessage(err);
     return c.json({ ok: false, error: `Failed to trigger CI: ${msg}` }, 502);
   }
 });
@@ -422,7 +423,7 @@ route.get("/workflow/:runId", async (c) => {
       commitMessage: run.head_commit?.message?.split("\n")[0],
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errMessage(err);
     return c.json({ ok: false, error: msg }, 502);
   }
 });

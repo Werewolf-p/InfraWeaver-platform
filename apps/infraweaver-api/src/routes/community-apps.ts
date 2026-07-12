@@ -3,6 +3,8 @@ import { z } from 'zod';
 import * as k8s from '@kubernetes/client-node';
 import { getCoreApiForCluster, getCustomApiForCluster, getKcForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { errMessage } from '../lib/errors.js';
+import { forbidden, badRequest, invalidBody, notFound } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 const APP_SOURCE_RESOLUTION_ATTEMPTS = 6;
@@ -16,6 +18,17 @@ const argoAppBodySchema = z.object({
 
 const k8sNameRe = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
 const k8sNamespaceRe = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$/;
+
+// Core/system namespaces a community-app operation must never target — deleting
+// or writing secrets into these would escape the community-apps scope entirely.
+const RESERVED_NAMESPACES = new Set([
+  'default', 'kube-system', 'kube-public', 'kube-node-lease', 'argocd',
+  'cert-manager', 'external-secrets', 'external-dns', 'monitoring', 'falco',
+  'longhorn-system', 'cilium-secrets', 'crds', 'bootstrap', 'dns-system',
+  'infraweaver', 'infraweaver-console', 'infraweaver-system',
+]);
+const isReservedNamespace = (name: string): boolean =>
+  RESERVED_NAMESPACES.has(name) || name.endsWith('-system') || name.startsWith('kube-');
 
 // C6: community-app secrets are created directly via the K8s API (NOT committed
 // to git). Values never touch the repo, so they cannot leak through git history.
@@ -69,9 +82,9 @@ export const communityAppsRoute = new Hono<AppBindings>();
 
 communityAppsRoute.get('/:slug', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'apps:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'apps:read')) return forbidden(c);
   const { slug } = c.req.param();
-  if (!slugRe.test(slug)) return c.json({ error: 'Invalid slug' }, 400);
+  if (!slugRe.test(slug)) return badRequest(c, 'Invalid slug');
   try {
     const customApi = await getCustomApiForCluster(user.clusterId);
     const existing = await customApi.getNamespacedCustomObject({
@@ -88,16 +101,31 @@ communityAppsRoute.get('/:slug', async (c) => {
 
 communityAppsRoute.delete('/:slug', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'catalog:delete')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'catalog:delete')) return forbidden(c);
   const { slug } = c.req.param();
-  if (!slugRe.test(slug)) return c.json({ error: 'Invalid slug' }, 400);
+  if (!slugRe.test(slug)) return badRequest(c, 'Invalid slug');
+  if (isReservedNamespace(slug)) return forbidden(c, 'Refusing to delete a reserved namespace');
 
   const argoAppName = `catalog-${slug}-manifests`;
   try {
-    const [customApi, coreApi] = await Promise.all([
+    const [customApi, coreApi, readApi] = await Promise.all([
       getMergePatchCustomApi(user.clusterId),
       getCoreApiForCluster(user.clusterId),
+      getCustomApiForCluster(user.clusterId),
     ]);
+
+    // 0. Allowlist: only a namespace that belongs to an INSTALLED community app
+    // may be deleted. Mirror the GET handler's label check — the static
+    // RESERVED_NAMESPACES denylist above is defence-in-depth only and must not
+    // be the sole guard (it cannot enumerate every platform namespace).
+    const existing = await readApi.getNamespacedCustomObject({
+      group: 'argoproj.io', version: 'v1alpha1', namespace: 'argocd', plural: 'applications',
+      name: argoAppName,
+    }).catch(() => null) as { metadata?: { labels?: Record<string, string> } } | null;
+    if (!existing) return notFound(c, 'Community app not found');
+    if (existing.metadata?.labels?.['infraweaver.io/source'] !== 'community-apps') {
+      return forbidden(c, 'Refusing to delete: not a community app');
+    }
 
     // 1. Remove finalizer so the app can be deleted instantly
     await customApi.patchNamespacedCustomObject({
@@ -116,26 +144,26 @@ communityAppsRoute.delete('/:slug', async (c) => {
 
     return c.json({ ok: true });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : 'K8s cleanup failed' }, 502);
+    return c.json({ ok: false, error: errMessage(err, 'K8s cleanup failed') }, 502);
   }
 });
 
 communityAppsRoute.post('/bootstrap-refresh', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'apps:write')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'apps:write')) return forbidden(c);
   await triggerBootstrapRefresh(user.clusterId);
   return c.json({ ok: true });
 });
 
 communityAppsRoute.post('/:slug/argocd-app', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'catalog:write')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'catalog:write')) return forbidden(c);
   const { slug } = c.req.param();
-  if (!slugRe.test(slug)) return c.json({ error: 'Invalid slug' }, 400);
+  if (!slugRe.test(slug)) return badRequest(c, 'Invalid slug');
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = argoAppBodySchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!parsed.success) return invalidBody(c, parsed.error);
   const { repoUrl, baseDir, namespace } = parsed.data;
 
   const argoAppName = `catalog-${slug}-manifests`;
@@ -177,7 +205,7 @@ communityAppsRoute.post('/:slug/argocd-app', async (c) => {
 
     return c.json({ ok: true, argoAppName });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : 'Failed to create ArgoCD app' }, 502);
+    return c.json({ ok: false, error: errMessage(err, 'Failed to create ArgoCD app') }, 502);
   }
 });
 
@@ -186,27 +214,65 @@ communityAppsRoute.post('/:slug/argocd-app', async (c) => {
 // so ArgoCD's prune/selfHeal will not adopt or delete them.
 communityAppsRoute.post('/:slug/secrets', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'catalog:write')) return c.json({ error: 'Forbidden' }, 403);
-  if (user.clusterId === 'all') return c.json({ error: 'Select a specific cluster before performing this action' }, 400);
+  if (!hasPermission(user, 'catalog:write')) return forbidden(c);
+  if (user.clusterId === 'all') return badRequest(c, 'Select a specific cluster before performing this action');
   const { slug } = c.req.param();
-  if (!slugRe.test(slug)) return c.json({ error: 'Invalid slug' }, 400);
+  if (!slugRe.test(slug)) return badRequest(c, 'Invalid slug');
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = secretsBodySchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!parsed.success) return invalidBody(c, parsed.error);
   const { namespace, secrets } = parsed.data;
+  if (isReservedNamespace(namespace)) return forbidden(c, 'Refusing to write secrets into a reserved namespace');
 
   try {
-    const coreApi = await getCoreApiForCluster(user.clusterId);
+    const [coreApi, customApi] = await Promise.all([
+      getCoreApiForCluster(user.clusterId),
+      getCustomApiForCluster(user.clusterId),
+    ]);
+
+    // Bind the target namespace to the app itself: secrets for `slug` may only
+    // land in the namespace that community app owns. The reserved-namespace
+    // denylist above is defence-in-depth only — the binding below is the guard.
+    const argoApp = await customApi.getNamespacedCustomObject({
+      group: 'argoproj.io', version: 'v1alpha1', namespace: 'argocd', plural: 'applications',
+      name: `catalog-${slug}-manifests`,
+    }).catch(() => null) as { metadata?: { labels?: Record<string, string> }; spec?: { destination?: { namespace?: string } } } | null;
+
+    const existingNs = await coreApi.readNamespace({ name: namespace })
+      .then((ns) => ns as { metadata?: { labels?: Record<string, string> } })
+      .catch((err) => { if (k8sStatusCode(err) === 404) return null; throw err; });
+
+    if (argoApp) {
+      // Installed app: the namespace MUST be the Application's own destination.
+      if (argoApp.metadata?.labels?.['infraweaver.io/source'] !== 'community-apps') {
+        return forbidden(c, 'Refusing to write secrets: not a community app');
+      }
+      if (argoApp.spec?.destination?.namespace !== namespace) {
+        return forbidden(c, 'Namespace does not belong to this community app');
+      }
+    } else if (existingNs) {
+      // Fresh install (the ArgoCD Application is created right after this step,
+      // so it may not exist yet): never adopt a pre-existing namespace we do not
+      // own — only one previously created (and labeled) for this exact app.
+      const nsLabels = existingNs.metadata?.labels;
+      if (nsLabels?.['infraweaver.io/source'] !== 'community-apps' || nsLabels?.['app.kubernetes.io/name'] !== slug) {
+        return forbidden(c, 'Namespace does not belong to this community app');
+      }
+    }
 
     // Ensure the target namespace exists (ArgoCD also creates it via
     // CreateNamespace=true, but that sync is async — create eagerly so the
-    // Secret has a home immediately).
-    await coreApi.readNamespace({ name: namespace }).catch(async (err) => {
-      if (k8sStatusCode(err) !== 404) throw err;
-      await coreApi.createNamespace({ body: { apiVersion: 'v1', kind: 'Namespace', metadata: { name: namespace } } })
-        .catch((e) => { if (k8sStatusCode(e) !== 409) throw e; });
-    });
+    // Secret has a home immediately). Label it so later fresh-install requests
+    // can prove ownership.
+    if (!existingNs) {
+      await coreApi.createNamespace({
+        body: {
+          apiVersion: 'v1', kind: 'Namespace',
+          metadata: { name: namespace, labels: { 'app.kubernetes.io/name': slug, 'infraweaver.io/source': 'community-apps' } },
+        },
+      }).catch((e) => { if (k8sStatusCode(e) !== 409) throw e; });
+    }
 
     for (const s of secrets) {
       const secretBody = {
@@ -224,12 +290,20 @@ communityAppsRoute.post('/:slug/secrets', async (c) => {
         await coreApi.createNamespacedSecret({ namespace, body: secretBody });
       } catch (e: unknown) {
         if (k8sStatusCode(e) !== 409) throw e;
+        // Only overwrite a pre-existing secret if it is itself community-apps-managed;
+        // never clobber a secret owned by another controller/operator.
+        const current = await coreApi.readNamespacedSecret({ name: s.name, namespace })
+          .then((sec) => (sec as { metadata?: { labels?: Record<string, string> } }).metadata)
+          .catch(() => undefined);
+        if (current?.labels?.['infraweaver.io/source'] !== 'community-apps') {
+          throw new Error(`Secret ${s.name} in ${namespace} already exists and is not community-apps managed`);
+        }
         await coreApi.replaceNamespacedSecret({ name: s.name, namespace, body: secretBody });
       }
     }
 
     return c.json({ ok: true, count: secrets.length });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : 'Failed to create secrets' }, 502);
+    return c.json({ ok: false, error: errMessage(err, 'Failed to create secrets') }, 502);
   }
 });

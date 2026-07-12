@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import {
   Package, FileText, ChevronRight, ChevronLeft, Check, Loader2,
@@ -13,7 +12,6 @@ import {
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { AccessTierBadge } from "@/components/access-tier-badge";
 import { PageHeader } from "@/components/ui/page-header";
@@ -30,7 +28,13 @@ import { useArgoApps } from "@/hooks/use-argocd";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { UpdatePolicyModal } from "@/components/apps/update-policy-modal";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useApiQuery } from "@/hooks/use-api-query";
+import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
+import { useConfirm } from "@/hooks/use-confirm";
+import { useSlashFocus } from "@/hooks/use-slash-focus";
+import { runBulkAction, pluralize } from "@/lib/bulk-actions";
+import { serializeRows, type ExportFormat } from "@/lib/export-serializers";
+import { BodyPortal } from "@/components/ui/body-portal";
 import { resolveAppRouteAccess, type AppRouteAccessSummary } from "@/lib/app-route-access";
 import type { AccessTier } from "@/lib/access-tier";
 import { AppPodsDrilldown } from "@/components/apps/app-pods-drilldown";
@@ -42,13 +46,6 @@ import {
   type WordpressSiteSummary,
 } from "@/lib/wordpress-apps";
 
-
-
-// ── BodyPortal ────────────────────────────────────────────────────────────────
-function BodyPortal({ children }: { children: React.ReactNode }) {
-  if (typeof document === "undefined") return null;
-  return createPortal(children, document.body);
-}
 
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 import { AppCardSkeleton, TableRowSkeleton } from "@/components/ui/skeleton-card";
@@ -105,20 +102,19 @@ interface AppPolicy {
 }
 
 function useAppPolicy(slug: string): AppPolicy | null {
-  const [policy, setPolicy] = useState<AppPolicy | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/apps/update-policy?app=${encodeURIComponent(slug)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((d: { source?: PolicySource; policy?: { enabled?: boolean; schedule?: PolicySchedule } } | null) => {
-        if (!cancelled && d) {
-          setPolicy({ source: d.source ?? "none", schedule: d.policy?.schedule, enabled: d.policy?.enabled });
-        }
-      })
-      .catch(() => { /* silent */ });
-    return () => { cancelled = true; };
-  }, [slug]);
-  return policy;
+  // Cached per slug so the desktop table and mobile card badges share one
+  // request instead of the old per-instance fetch effect (N+1).
+  const { data } = useApiQuery<
+    { source?: PolicySource; policy?: { enabled?: boolean; schedule?: PolicySchedule } },
+    AppPolicy
+  >({
+    queryKey: ["app-update-policy", slug],
+    path: "/api/apps/update-policy",
+    request: { query: { app: slug } },
+    staleTime: 60_000,
+    select: (d) => ({ source: d.source ?? "none", schedule: d.policy?.schedule, enabled: d.policy?.enabled }),
+  });
+  return data ?? null;
 }
 
 function PolicyBadge({ slug }: { slug: string }) {
@@ -248,9 +244,8 @@ function AppAccessBadges({ access }: { access?: AppRouteAccessSummary }) {
     <div className="flex flex-wrap items-center gap-1.5">
       {access.tiers.map((tier) => {
         const matchedHosts = access.matches.filter((match) => match.tier === tier).map((match) => match.host).filter((host): host is string => Boolean(host));
-        const warning = null;
         const tooltip = matchedHosts.length > 0 ? `${matchedHosts.join(", ")} — ${tier.toUpperCase()} access` : `${tier.toUpperCase()} access`;
-        return <AccessTierBadge key={tier} tier={tier} compact warning={warning} tooltip={tooltip} />;
+        return <AccessTierBadge key={tier} tier={tier} compact warning={null} tooltip={tooltip} />;
       })}
     </div>
   );
@@ -409,10 +404,6 @@ function AllInstalledTab() {
   const [sourceFilter, setSourceFilter] = useState<AppSourceFilter>("all");
   const [namespaceFilter, setNamespaceFilter] = useState("all");
   const [sortOption, setSortOption] = useState<AppSortOption>("health");
-  const [syncingApp, setSyncingApp] = useState<string | null>(null);
-  const [poweringApp, setPoweringApp] = useState<string | null>(null);
-  const [deletingApp, setDeletingApp] = useState<string | null>(null);
-  const [uninstallingApp, setUninstallingApp] = useState<string | null>(null);
   const [bulkSyncing, setBulkSyncing] = useState(false);
   const [bulkHardRefreshing, setBulkHardRefreshing] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -422,65 +413,45 @@ function AllInstalledTab() {
   const [expandedApp, setExpandedApp] = useState<string | null>(null);
   const [updatePolicyApp, setUpdatePolicyApp] = useState<{ name: string; slug: string } | null>(null);
   const [recentlyUninstalled, setRecentlyUninstalled] = useState<Set<string>>(new Set());
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    title: string;
-    description?: string;
-    confirmText?: string;
-    onConfirm: () => void;
-    danger?: boolean;
-    requireTyping?: string;
-  }>({ open: false, title: "", confirmText: "Yes, proceed", onConfirm: () => {} });
+  const { confirm, confirmDialog } = useConfirm();
 
+  useSlashFocus(searchRef);
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isTypingTarget = target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-      if (event.key === "/" && !isTypingTarget) {
-        event.preventDefault();
-        searchRef.current?.focus();
-      }
-      if (event.key === "Escape") {
-        setSearch("");
-        setHealthFilter("all");
-        setSyncFilter("all");
-        setSourceFilter("all");
-        setNamespaceFilter("all");
-        setSelectedIds(new Set());
-      }
+      if (event.key !== "Escape") return;
+      setSearch("");
+      setHealthFilter("all");
+      setSyncFilter("all");
+      setSourceFilter("all");
+      setNamespaceFilter("all");
+      setSelectedIds(new Set());
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const communityAppsQuery = useQuery<InstalledCommunityAppsResponse>({
+  const communityAppsQuery = useApiQuery<InstalledCommunityAppsResponse>({
     queryKey: ["community-installed-apps"],
-    queryFn: async () => {
-      const response = await fetch("/api/community-apps/installed");
-      return response.ok ? response.json() : { apps: [], total: 0 };
-    },
+    path: "/api/community-apps/installed",
     staleTime: 30_000,
+    placeholderData: { apps: [], total: 0 },
   });
   // WordPress sites are provisioned imperatively (not as ArgoCD Applications),
   // so they get their own feed. A user without wordpress:read simply sees none.
-  const wordpressSitesQuery = useQuery<{ sites: WordpressSiteSummary[] }>({
+  const wordpressSitesQuery = useApiQuery<{ sites: WordpressSiteSummary[] }>({
     queryKey: ["wordpress-apps"],
-    queryFn: async () => {
-      const response = await fetch("/api/wordpress/sites");
-      return response.ok ? response.json() : { sites: [] };
-    },
+    path: "/api/wordpress/sites",
     staleTime: 30_000,
     refetchInterval: 30_000,
+    placeholderData: { sites: [] },
   });
-  const ingressQuery = useQuery<IngressResponse>({
+  const ingressQuery = useApiQuery<IngressResponse>({
     queryKey: ["ingress-routes", "apps"],
-    queryFn: async () => {
-      const response = await fetch("/api/ingress", { cache: "no-store" });
-      if (!response.ok) return { ingressRoutes: [] } satisfies IngressResponse;
-      return response.json();
-    },
+    path: "/api/ingress",
+    request: { cache: "no-store" },
     staleTime: 30_000,
     refetchInterval: 60_000,
+    placeholderData: { ingressRoutes: [] },
   });
 
   const communityApps = useMemo(() => communityAppsQuery.data?.apps ?? [], [communityAppsQuery.data?.apps]);
@@ -690,49 +661,46 @@ function AllInstalledTab() {
     if (!res.ok) throw new Error(data?.error ?? "Uninstall failed");
   };
 
-  const handleSync = async (name: string) => {
-    if (!canSyncApps) {
-      toast.error("You do not have permission to sync apps");
-      return;
-    }
-    setSyncingApp(name);
-    setOptimisticSyncing(prev => new Set([...prev, name]));
-    try {
-      await syncOne(name);
-      toast.success(`Syncing ${name}…`);
-      setTimeout(() => void refetch(), 2000);
-    } catch {
-      toast.error(`Failed to sync ${name}`);
-    } finally {
-      setSyncingApp(null);
-      setOptimisticSyncing(prev => { const next = new Set(prev); next.delete(name); return next; });
-    }
+  const clearOptimisticSyncing = (name: string) => {
+    setOptimisticSyncing(prev => { const next = new Set(prev); next.delete(name); return next; });
   };
 
-  const requestSync = (name: string) => {
+  const syncMutation = useMutationWithToast<void, string>({
+    mutationFn: syncOne,
+    successMessage: (_data, name) => `Syncing ${name}…`,
+    errorMessage: (_error, name) => `Failed to sync ${name}`,
+    onMutate: (name) => { setOptimisticSyncing(prev => new Set([...prev, name])); },
+    onSuccess: (_data, name) => {
+      clearOptimisticSyncing(name);
+      // ArgoCD needs a moment to register the operation before a refetch shows it.
+      setTimeout(() => void refetch(), 2000);
+    },
+    onError: (_error, name) => clearOptimisticSyncing(name),
+  });
+
+  const handleSync = (name: string) => {
     if (!canSyncApps) {
       toast.error("You do not have permission to sync apps");
       return;
     }
-    setConfirmDialog({
-      open: true,
+    syncMutation.mutate(name);
+  };
+
+  const requestSync = async (name: string) => {
+    if (!canSyncApps) {
+      toast.error("You do not have permission to sync apps");
+      return;
+    }
+    const confirmed = await confirm({
       title: `Force sync "${name}"?`,
       description: "This asks ArgoCD to reconcile the application immediately.",
       confirmText: "Force sync",
-      onConfirm: () => {
-        setConfirmDialog(dialog => ({ ...dialog, open: false }));
-        void handleSync(name);
-      },
     });
+    if (confirmed) handleSync(name);
   };
 
-  const handlePower = async (name: string, action: "stop" | "start") => {
-    if (!canPowerApps) {
-      toast.error("You do not have permission to start/stop apps");
-      return;
-    }
-    setPoweringApp(name);
-    try {
+  const powerMutation = useMutationWithToast<unknown, { name: string; action: "stop" | "start" }>({
+    mutationFn: async ({ name, action }) => {
       const res = await fetch("/api/app-groups/power", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -740,34 +708,74 @@ function AllInstalledTab() {
       });
       const data = await res.json().catch(() => null) as { error?: string } | null;
       if (!res.ok) throw new Error(data?.error ?? "Power action failed");
-      toast.success(action === "stop" ? `Stopping ${name}…` : `Starting ${name}…`);
-      setTimeout(() => void refetch(), 2500);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : `Failed to ${action} ${name}`);
-    } finally {
-      setPoweringApp(null);
-    }
-  };
+      return data;
+    },
+    successMessage: (_data, { name, action }) => (action === "stop" ? `Stopping ${name}…` : `Starting ${name}…`),
+    onSuccess: () => setTimeout(() => void refetch(), 2500),
+  });
 
-  const requestPower = (name: string, action: "stop" | "start") => {
+  const requestPower = async (name: string, action: "stop" | "start") => {
     if (!canPowerApps) {
       toast.error("You do not have permission to start/stop apps");
       return;
     }
-    setConfirmDialog({
-      open: true,
+    const confirmed = await confirm({
       title: action === "stop" ? `Stop "${name}"?` : `Start "${name}"?`,
       description: action === "stop"
         ? "Scales every controller in the app's namespace to zero — which terminates all of its pods — and pauses ArgoCD auto-sync so it stays stopped. Data volumes are kept; you can start it again anytime."
         : "Restores ArgoCD auto-sync and scales the app back up from git.",
       confirmText: action === "stop" ? "Stop app" : "Start app",
       danger: action === "stop",
-      onConfirm: () => {
-        setConfirmDialog(dialog => ({ ...dialog, open: false }));
-        void handlePower(name, action);
-      },
     });
+    if (confirmed) powerMutation.mutate({ name, action });
   };
+
+  const deleteMutation = useMutationWithToast<{ message?: string; error?: string }, string>({
+    mutationFn: async (name) => {
+      const endpoint = name.startsWith("catalog-") || name.startsWith("platform-")
+        ? `/api/apps/${encodeURIComponent(name)}/uninstall`
+        : `/api/argocd/apps/${encodeURIComponent(name)}/delete`;
+      const res = await fetch(endpoint, { method: "DELETE" });
+      const data = await res.json() as { message?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Remove failed");
+      return data;
+    },
+    successMessage: (data, name) => data.message ?? `Removed ${name}`,
+    onSuccess: () => void refetch(),
+  });
+
+  const wordpressDeleteMutation = useMutationWithToast<{ error?: string }, string>({
+    mutationFn: async (site) => {
+      const res = await fetch(`/api/wordpress/sites/${encodeURIComponent(site)}`, { method: "DELETE" });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Delete failed");
+      return data;
+    },
+    successMessage: (_data, site) => `Deleted site ${site}`,
+    onSuccess: () => void wordpressSitesQuery.refetch(),
+  });
+
+  const uninstallCommunityMutation = useMutationWithToast<{ message?: string; error?: string; details?: string[] }, string>({
+    // Quirk preserved from the original inline handler: the response is treated
+    // as success regardless of HTTP status; only network/parse errors surface.
+    mutationFn: async (slug) => {
+      const res = await fetch(`/api/community-apps/${encodeURIComponent(slug)}`, { method: "DELETE" });
+      return await res.json() as { message?: string; error?: string; details?: string[] };
+    },
+    successMessage: (data, slug) => data.message ?? `${slug} scheduled for removal`,
+    errorMessage: (error) => String(error),
+    onSuccess: (_data, slug) => {
+      void communityAppsQuery.refetch();
+      setRecentlyUninstalled(prev => new Set([...prev, `catalog-${slug}-manifests`]));
+    },
+  });
+
+  const syncingApp = syncMutation.isPending ? syncMutation.variables ?? null : null;
+  const poweringApp = powerMutation.isPending ? powerMutation.variables?.name ?? null : null;
+  const deletingApp = deleteMutation.isPending
+    ? deleteMutation.variables ?? null
+    : wordpressDeleteMutation.isPending ? wordpressDeleteMutation.variables ?? null : null;
+  const uninstallingApp = uninstallCommunityMutation.isPending ? uninstallCommunityMutation.variables ?? null : null;
 
   const handleBulkSync = async () => {
     if (!canSyncApps) {
@@ -781,11 +789,9 @@ function AllInstalledTab() {
     }
     setBulkSyncing(true);
     setOptimisticSyncing(prev => new Set([...prev, ...targets.map(target => target.name)]));
-    const results = await Promise.allSettled(targets.map(target => syncOne(target.name)));
-    const ok = results.filter(result => result.status === "fulfilled").length;
-    const failed = results.length - ok;
-    if (ok > 0) toast.success(`Queued sync for ${ok} app${ok === 1 ? "" : "s"}`);
-    if (failed > 0) toast.error(`${failed} app${failed === 1 ? "" : "s"} failed to sync`);
+    const result = await runBulkAction(targets, target => syncOne(target.name), { noun: "app", verb: "Queued sync for", failureVerb: "sync" });
+    if (result.successMessage) toast.success(result.successMessage);
+    if (result.errorMessage) toast.error(result.errorMessage);
     setBulkSyncing(false);
     setSelectedIds(new Set());
     setOptimisticSyncing(prev => {
@@ -796,22 +802,18 @@ function AllInstalledTab() {
     void refetch();
   };
 
-  const requestBulkSync = () => {
+  const requestBulkSync = async () => {
     const targets = selectedCatalogRows;
     if (targets.length === 0) {
       toast.error("Select at least one catalog app to bulk sync");
       return;
     }
-    setConfirmDialog({
-      open: true,
-      title: `Force sync ${targets.length} selected app${targets.length === 1 ? "" : "s"}?`,
+    const confirmed = await confirm({
+      title: `Force sync ${pluralize(targets.length, "selected app")}?`,
       description: "This queues an immediate sync for every selected catalog app.",
       confirmText: "Sync selected apps",
-      onConfirm: () => {
-        setConfirmDialog(dialog => ({ ...dialog, open: false }));
-        void handleBulkSync();
-      },
     });
+    if (confirmed) void handleBulkSync();
   };
 
   const handleBulkHardRefresh = async () => {
@@ -825,11 +827,9 @@ function AllInstalledTab() {
       return;
     }
     setBulkHardRefreshing(true);
-    const results = await Promise.allSettled(targets.map(target => hardRefreshOne(target.name)));
-    const ok = results.filter(result => result.status === "fulfilled").length;
-    const failed = results.length - ok;
-    if (ok > 0) toast.success(`Hard-refreshed ${ok} app${ok === 1 ? "" : "s"}`);
-    if (failed > 0) toast.error(`${failed} app${failed === 1 ? "" : "s"} failed to hard-refresh`);
+    const result = await runBulkAction(targets, target => hardRefreshOne(target.name), { noun: "app", verb: "Hard-refreshed", failureVerb: "hard-refresh" });
+    if (result.successMessage) toast.success(result.successMessage);
+    if (result.errorMessage) toast.error(result.errorMessage);
     setBulkHardRefreshing(false);
     setSelectedIds(new Set());
     void refetch();
@@ -845,17 +845,15 @@ function AllInstalledTab() {
       return;
     }
     setBulkDeleting(true);
-    const results = await Promise.allSettled(targets.map(target => deleteCatalogAppOne(target.name)));
-    const ok = results.filter(result => result.status === "fulfilled").length;
-    const failed = results.length - ok;
-    if (ok > 0) toast.success(`Deleted ${ok} app${ok === 1 ? "" : "s"}`);
-    if (failed > 0) toast.error(`${failed} app${failed === 1 ? "" : "s"} failed to delete`);
+    const result = await runBulkAction(targets, target => deleteCatalogAppOne(target.name), { noun: "app", verb: "Deleted", failureVerb: "delete" });
+    if (result.successMessage) toast.success(result.successMessage);
+    if (result.errorMessage) toast.error(result.errorMessage);
     setBulkDeleting(false);
     setSelectedIds(new Set());
     void refetch();
   };
 
-  const requestBulkDelete = () => {
+  const requestBulkDelete = async () => {
     if (!canManageApps) {
       toast.error("You do not have permission to delete apps");
       return;
@@ -865,17 +863,13 @@ function AllInstalledTab() {
       toast.error("No deletable catalog apps selected");
       return;
     }
-    setConfirmDialog({
-      open: true,
-      title: `Delete ${targets.length} app${targets.length === 1 ? "" : "s"}?`,
+    const confirmed = await confirm({
+      title: `Delete ${pluralize(targets.length, "app")}?`,
       description: `This removes ${targets.length} apps from ArgoCD. Kubernetes resources may remain.`,
       confirmText: "Delete selected",
       danger: true,
-      onConfirm: () => {
-        setConfirmDialog(dialog => ({ ...dialog, open: false }));
-        void handleBulkDelete(targets);
-      },
     });
+    if (confirmed) void handleBulkDelete(targets);
   };
 
   const handleBulkCommunityUninstall = async (targets: AppRow[]) => {
@@ -888,21 +882,19 @@ function AllInstalledTab() {
       return;
     }
     setBulkUninstalling(true);
-    const results = await Promise.allSettled(targets.map(target => uninstallCommunityAppOne(target.name)));
-    const ok = results.filter(result => result.status === "fulfilled").length;
-    const failed = results.length - ok;
-    if (ok > 0) {
-      toast.success(`Uninstalled ${ok} community app${ok === 1 ? "" : "s"}`);
+    const result = await runBulkAction(targets, target => uninstallCommunityAppOne(target.name), { noun: "community app", verb: "Uninstalled", failureVerb: "uninstall" });
+    if (result.successMessage) {
+      toast.success(result.successMessage);
       setRecentlyUninstalled(prev => new Set([...prev, ...targets.map(target => `catalog-${target.name}-manifests`)]));
     }
-    if (failed > 0) toast.error(`${failed} community app${failed === 1 ? "" : "s"} failed to uninstall`);
+    if (result.errorMessage) toast.error(result.errorMessage);
     setBulkUninstalling(false);
     setSelectedIds(new Set());
     void communityAppsQuery.refetch();
     void refetch();
   };
 
-  const requestBulkCommunityUninstall = () => {
+  const requestBulkCommunityUninstall = async () => {
     if (!canManageApps) {
       toast.error("You do not have permission to uninstall community apps");
       return;
@@ -912,17 +904,13 @@ function AllInstalledTab() {
       toast.error("No community apps selected");
       return;
     }
-    setConfirmDialog({
-      open: true,
-      title: `Uninstall ${targets.length} community app${targets.length === 1 ? "" : "s"}?`,
+    const confirmed = await confirm({
+      title: `Uninstall ${pluralize(targets.length, "community app")}?`,
       description: "This removes the selected community apps from git. ArgoCD will clean up deployed resources within a few minutes.",
       confirmText: "Uninstall selected",
       danger: true,
-      onConfirm: () => {
-        setConfirmDialog(dialog => ({ ...dialog, open: false }));
-        void handleBulkCommunityUninstall(targets);
-      },
     });
+    if (confirmed) void handleBulkCommunityUninstall(targets);
   };
 
   const openExternal = (href: string) => {
@@ -950,7 +938,7 @@ function AllInstalledTab() {
       actions.push({
         label: deletingApp === row.name ? "Deleting…" : "Delete site",
         icon: <X className="h-4 w-4" />,
-        onClick: () => handleDeleteWordpressSite(row.name),
+        onClick: () => void handleDeleteWordpressSite(row.name),
         variant: "destructive",
         disabled: deletingApp === row.name || !canManageWordpress,
       });
@@ -973,7 +961,7 @@ function AllInstalledTab() {
       actions.push({
         label: syncingApp === row.name ? "Syncing…" : "Force sync",
         icon: <RefreshCw className="h-4 w-4" />,
-        onClick: () => requestSync(row.name),
+        onClick: () => void requestSync(row.name),
         disabled: syncingApp === row.name || !canSyncApps,
       });
       actions.push(
@@ -981,13 +969,13 @@ function AllInstalledTab() {
           ? {
               label: poweringApp === row.name ? "Starting…" : "Start app",
               icon: <Play className="h-4 w-4" />,
-              onClick: () => requestPower(row.name, "start"),
+              onClick: () => void requestPower(row.name, "start"),
               disabled: poweringApp === row.name || !canPowerApps,
             }
           : {
               label: poweringApp === row.name ? "Stopping…" : "Stop app",
               icon: <Power className="h-4 w-4" />,
-              onClick: () => requestPower(row.name, "stop"),
+              onClick: () => void requestPower(row.name, "stop"),
               disabled: poweringApp === row.name || !canPowerApps,
             },
       );
@@ -1018,71 +1006,37 @@ function AllInstalledTab() {
       return;
     }
 
-    const isCoreApp = isProtectedCatalogApp(name);
-    if (isCoreApp) {
+    if (isProtectedCatalogApp(name)) {
       toast.error(`"${name}" is core infrastructure and cannot be removed from the console.`);
       return;
     }
 
     const isCatalogOrPlatform = name.startsWith("catalog-") || name.startsWith("platform-");
-    const description = isCatalogOrPlatform
-      ? "Removes the app's bootstrap file and catalog directory from git. ArgoCD will cascade-delete all deployed resources. This cannot be undone."
-      : "Permanently removes the ArgoCD application and all deployed resources. This cannot be undone.";
-
-    setConfirmDialog({
-      open: true,
+    const confirmed = await confirm({
       title: `Remove "${name}"?`,
-      description,
+      description: isCatalogOrPlatform
+        ? "Removes the app's bootstrap file and catalog directory from git. ArgoCD will cascade-delete all deployed resources. This cannot be undone."
+        : "Permanently removes the ArgoCD application and all deployed resources. This cannot be undone.",
       confirmText: "Delete app",
       danger: true,
       requireTyping: isCatalogOrPlatform ? name : undefined,
-      onConfirm: () => {
-        setConfirmDialog(d => ({ ...d, open: false }));
-        setDeletingApp(name);
-
-        const endpoint = isCatalogOrPlatform
-          ? `/api/apps/${encodeURIComponent(name)}/uninstall`
-          : `/api/argocd/apps/${encodeURIComponent(name)}/delete`;
-
-        fetch(endpoint, { method: "DELETE" })
-          .then(res => res.json().then(data => ({ ok: res.ok, data })))
-          .then(({ ok, data }: { ok: boolean; data: { message?: string; error?: string } }) => {
-            if (!ok) throw new Error(data.error ?? "Remove failed");
-            toast.success(data.message ?? `Removed ${name}`);
-            void refetch();
-          })
-          .catch((e: unknown) => toast.error(e instanceof Error ? e.message : `Failed to remove ${name}`))
-          .finally(() => setDeletingApp(null));
-      },
     });
+    if (confirmed) deleteMutation.mutate(name);
   };
 
-  const handleDeleteWordpressSite = (site: string) => {
+  const handleDeleteWordpressSite = async (site: string) => {
     if (!canManageWordpress) {
       toast.error("You do not have permission to delete WordPress sites");
       return;
     }
-    setConfirmDialog({
-      open: true,
+    const confirmed = await confirm({
       title: `Delete WordPress site "${site}"?`,
       description: "Removes the site's deployments, services, volumes, DNS record, SSO gate, and vault secrets. The site's content and database are permanently deleted. This cannot be undone.",
       confirmText: "Delete site",
       danger: true,
       requireTyping: site,
-      onConfirm: () => {
-        setConfirmDialog(d => ({ ...d, open: false }));
-        setDeletingApp(site);
-        fetch(`/api/wordpress/sites/${encodeURIComponent(site)}`, { method: "DELETE" })
-          .then(res => res.json().then(data => ({ ok: res.ok, data })))
-          .then(({ ok, data }: { ok: boolean; data: { error?: string } }) => {
-            if (!ok) throw new Error(data.error ?? "Delete failed");
-            toast.success(`Deleted site ${site}`);
-            void wordpressSitesQuery.refetch();
-          })
-          .catch((e: unknown) => toast.error(e instanceof Error ? e.message : `Failed to delete ${site}`))
-          .finally(() => setDeletingApp(null));
-      },
     });
+    if (confirmed) wordpressDeleteMutation.mutate(site);
   };
 
   const handleUninstallCommunity = async (slug: string) => {
@@ -1090,31 +1044,18 @@ function AllInstalledTab() {
       toast.error("You do not have permission to uninstall community apps");
       return;
     }
-    setConfirmDialog({
-      open: true,
+    const confirmed = await confirm({
       title: `Uninstall "${slug}"?`,
       description: "Removes the bootstrap file and catalog directory from git. ArgoCD will cascade-delete all deployed resources within a few minutes.",
       confirmText: "Uninstall app",
       danger: true,
       requireTyping: slug,
-      onConfirm: () => {
-        setConfirmDialog(d => ({ ...d, open: false }));
-        setUninstallingApp(slug);
-        fetch(`/api/community-apps/${encodeURIComponent(slug)}`, { method: "DELETE" })
-          .then(r => r.json())
-          .then((data: { message?: string; error?: string; details?: string[] }) => {
-            toast.success(data.message ?? `${slug} scheduled for removal`);
-            void communityAppsQuery.refetch();
-            setRecentlyUninstalled(prev => new Set([...prev, `catalog-${slug}-manifests`]));
-          })
-          .catch(e => toast.error(String(e)))
-          .finally(() => setUninstallingApp(null));
-      },
     });
+    if (confirmed) uninstallCommunityMutation.mutate(slug);
   };
 
-  const exportRows = async (format: "csv" | "json" | "yaml") => {
-    const rows = filtered.map((row) => ({
+  const exportRows = (format: ExportFormat) =>
+    serializeRows(filtered.map((row) => ({
       name: row.name,
       namespace: row.namespace,
       source: row.source,
@@ -1123,15 +1064,7 @@ function AllInstalledTab() {
       lastSync: row.lastSync || "",
       createdAt: row.createdAt || "",
       ingressHost: row.ingressHost || "",
-    }));
-    if (format === "json") return JSON.stringify(rows, null, 2);
-    const headers = ["name", "namespace", "source", "health", "syncStatus", "lastSync", "createdAt", "ingressHost"];
-    const csv = [headers.join(","), ...rows.map(row => headers.map(key => JSON.stringify(row[key as keyof typeof row] ?? "")).join(","))].join("\n");
-    if (format === "yaml") {
-      return rows.map(row => `- name: ${row.name}\n  namespace: ${row.namespace}\n  source: ${row.source}\n  health: ${row.health}\n  syncStatus: ${row.syncStatus}\n  lastSync: ${row.lastSync}\n  createdAt: ${row.createdAt}\n  ingressHost: ${row.ingressHost}`).join("\n");
-    }
-    return csv;
-  };
+    })), format);
 
   const toggleSelected = (id: string) => {
     setSelectedIds(current => {
@@ -1315,7 +1248,7 @@ function AllInstalledTab() {
             <span>{activeSelectedIds.size} selected</span>
             <button onClick={() => setSelectedIds(new Set())} className="text-slate-500 dark:text-slate-400 transition hover:text-gray-900 dark:hover:text-white">Reset selection</button>
             <button
-              onClick={requestBulkSync}
+              onClick={() => void requestBulkSync()}
               disabled={bulkSyncing || !canSyncApps || selectedCatalogRows.length === 0}
               className="ml-auto inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
             >
@@ -1331,7 +1264,7 @@ function AllInstalledTab() {
               Hard refresh
             </button>
             <button
-              onClick={requestBulkDelete}
+              onClick={() => void requestBulkDelete()}
               disabled={bulkDeleting || !canManageApps || selectedDeletableCatalogRows.length === 0}
               className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
             >
@@ -1339,7 +1272,7 @@ function AllInstalledTab() {
               Delete selected
             </button>
             <button
-              onClick={requestBulkCommunityUninstall}
+              onClick={() => void requestBulkCommunityUninstall()}
               disabled={bulkUninstalling || !canManageApps || selectedCommunityRows.length === 0}
               className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 px-4 py-2 text-sm text-fuchsia-200 transition hover:bg-fuchsia-500/20 disabled:opacity-50"
             >
@@ -1497,8 +1430,8 @@ function AllInstalledTab() {
                         powerState={row.powerState}
                         canPower={canPowerApps && row.source === "Catalog"}
                         powering={poweringApp === row.name}
-                        onStop={() => requestPower(row.name, "stop")}
-                        onStart={() => requestPower(row.name, "start")}
+                        onStop={() => void requestPower(row.name, "stop")}
+                        onStart={() => void requestPower(row.name, "start")}
                       />
                     </td>
                   </tr>
@@ -1556,8 +1489,8 @@ function AllInstalledTab() {
                     powerState={row.powerState}
                     canPower={canPowerApps && row.source === "Catalog"}
                     powering={poweringApp === row.name}
-                    onStop={() => requestPower(row.name, "stop")}
-                    onStart={() => requestPower(row.name, "start")}
+                    onStop={() => void requestPower(row.name, "stop")}
+                    onStart={() => void requestPower(row.name, "start")}
                   />
                 </div>
               )}
@@ -1575,16 +1508,7 @@ function AllInstalledTab() {
         />
       )}
 
-      <ConfirmDialog
-        open={confirmDialog.open}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        danger={confirmDialog.danger}
-        confirmText={confirmDialog.confirmText ?? "Yes, proceed"}
-        requireTyping={confirmDialog.requireTyping}
-        onConfirm={confirmDialog.onConfirm}
-        onCancel={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
-      />
+      {confirmDialog}
     </div>
   );
 }
@@ -1762,18 +1686,13 @@ function CatalogBrowseView({
   installedNames: Set<string>;
   canInstall: boolean;
 }) {
-  const [apps, setApps] = useState<CatalogAppEntry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true);
-    fetch("/api/config/catalog-apps")
-      .then(r => r.ok ? r.json() as Promise<CatalogAppEntry[]> : Promise.resolve([] as CatalogAppEntry[]))
-      .then(data => { setApps(data.filter(a => a.name !== "_template")); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
+  const { data: apps = [], isLoading: loading } = useApiQuery<CatalogAppEntry[]>({
+    queryKey: ["catalog-apps"],
+    path: "/api/config/catalog-apps",
+    select: (data) => data.filter(a => a.name !== "_template"),
+  });
 
   const filtered = apps.filter(a =>
     !search ||
@@ -1865,7 +1784,6 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
     gitPath: "", targetRevision: "HEAD",
   });
   const [commitMessage, setCommitMessage] = useState("");
-  const [installing, setInstalling] = useState(false);
   const [success, setSuccess] = useState(false);
 
   // Pull ArgoCD apps to know what's installed
@@ -1909,13 +1827,8 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
     setMode("wizard");
   };
 
-  const handleInstall = async () => {
-    if (!canInstallCatalog) {
-      toast.error("You do not have permission to install catalog apps");
-      return;
-    }
-    setInstalling(true);
-    try {
+  const installMutation = useMutationWithToast<void, void>({
+    mutationFn: async () => {
       const body = appType === "helm"
         ? { appName: helmFields.appName, namespace: helmFields.namespace, yaml: generatedYaml, appType, helmRepoURL: helmFields.helmRepoURL, chartName: helmFields.chartName, chartVersion: helmFields.chartVersion }
         : { appName: rawFields.appName, namespace: rawFields.namespace, yaml: generatedYaml, appType, gitRepoURL: rawFields.gitRepoURL, gitPath: rawFields.gitPath };
@@ -1927,14 +1840,22 @@ function CatalogInstallerTab({ onInstalled }: { onInstalled?: () => void }) {
         const data = (await res.json()) as { error?: string };
         throw new Error(data.error ?? "Install failed");
       }
-      toast.success(`${appName} installed successfully! ArgoCD will sync shortly.`);
+    },
+    successMessage: () => `${appName} installed successfully! ArgoCD will sync shortly.`,
+    errorMessage: (error) => String(error),
+    onSuccess: () => {
       setSuccess(true);
       onInstalled?.();
-    } catch (err) {
-      toast.error(String(err));
-    } finally {
-      setInstalling(false);
+    },
+  });
+  const installing = installMutation.isPending;
+
+  const handleInstall = () => {
+    if (!canInstallCatalog) {
+      toast.error("You do not have permission to install catalog apps");
+      return;
     }
+    installMutation.mutate();
   };
 
   // ── Browse Mode ──────────────────────────────────────────────────────────────

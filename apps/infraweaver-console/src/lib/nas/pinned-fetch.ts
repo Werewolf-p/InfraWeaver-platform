@@ -39,6 +39,7 @@ import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import type { PeerCertificate, TLSSocket } from "node:tls";
+import { normalize as normalizeSha256 } from "@/lib/crypto/cert-fingerprint";
 import { parseAllowedInternalUrlAsync } from "@/lib/internal-url-allowlist-server";
 
 const DEFAULT_TIMEOUT_MS = 8_000;
@@ -88,9 +89,7 @@ export function isNasCertificateError(
 /** Canonical pin form: uppercase hex, separators stripped. Throws on anything
  *  that is not a SHA-256 digest, so a malformed pin can never widen trust. */
 export function normalizeFingerprint(raw: string): string {
-  const hex = raw.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
-  if (hex.length !== 64) throw new Error("Invalid SHA-256 fingerprint");
-  return hex;
+  return normalizeSha256(raw).toUpperCase();
 }
 
 /** Display form: `AB:CD:…`. */

@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import * as k8s from "@kubernetes/client-node";
-import { makeCoreApi } from "@/lib/kube-client";
+import { createConfigMapJsonStore } from "@/lib/configmap-store";
 import { loadKubeConfig } from "@/lib/k8s";
 
 /**
@@ -49,51 +49,21 @@ interface ArgoApp {
   spec?: { destination?: { namespace?: string }; syncPolicy?: { automated?: unknown } };
 }
 
-function isNotFound(error: unknown) {
-  const msg = error instanceof Error ? error.message : String(error);
-  return /404|not\s*found/i.test(msg);
-}
-
 // ── Group storage (ConfigMap-backed) ─────────────────────────────────────────
 
-async function readGroupsConfigMap(): Promise<k8s.V1ConfigMap | null> {
-  const core = makeCoreApi();
-  try {
-    return await core.readNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: CONSOLE_NAMESPACE });
-  } catch (error) {
-    if (isNotFound(error)) return null;
-    throw error;
-  }
-}
+const groupStore = createConfigMapJsonStore<{ groups: AppGroup[] }>({
+  name: CONFIGMAP_NAME,
+  namespace: CONSOLE_NAMESPACE,
+  keys: ["groups"],
+});
 
 export async function loadGroups(): Promise<AppGroup[]> {
-  const cm = await readGroupsConfigMap();
-  const raw = cm?.data?.groups;
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as AppGroup[]) : [];
-  } catch {
-    return [];
-  }
+  const stored = await groupStore.load();
+  return Array.isArray(stored?.groups) ? stored.groups : [];
 }
 
 async function saveGroups(groups: AppGroup[]): Promise<void> {
-  const core = makeCoreApi();
-  const existing = await readGroupsConfigMap();
-  const body: k8s.V1ConfigMap = {
-    metadata: { name: CONFIGMAP_NAME, namespace: CONSOLE_NAMESPACE },
-    data: { groups: JSON.stringify(groups) },
-  };
-  if (existing) {
-    await core.replaceNamespacedConfigMap({
-      name: CONFIGMAP_NAME,
-      namespace: CONSOLE_NAMESPACE,
-      body: { ...existing, data: { ...(existing.data ?? {}), groups: JSON.stringify(groups) } },
-    });
-  } else {
-    await core.createNamespacedConfigMap({ namespace: CONSOLE_NAMESPACE, body });
-  }
+  await groupStore.save({ groups });
 }
 
 export async function createGroup(name: string, apps: string[]): Promise<AppGroup> {
@@ -165,24 +135,25 @@ export function powerStateOf(app: ArgoApp): PowerState {
 /** Scale every Deployment + StatefulSet in a namespace to `replicas`. */
 async function scaleNamespace(clusterId: string | undefined, namespace: string, replicas: number): Promise<string[]> {
   const apps = appsApi(clusterId);
-  const touched: string[] = [];
-  const deps = await apps.listNamespacedDeployment({ namespace });
-  for (const d of deps.items) {
-    const n = d.metadata?.name;
-    if (!n) continue;
-    const scale = await apps.readNamespacedDeploymentScale({ name: n, namespace });
-    await apps.replaceNamespacedDeploymentScale({ name: n, namespace, body: { ...scale, spec: { ...(scale.spec ?? {}), replicas } } });
-    touched.push(`deploy/${n}`);
-  }
-  const sets = await apps.listNamespacedStatefulSet({ namespace });
-  for (const s of sets.items) {
-    const n = s.metadata?.name;
-    if (!n) continue;
-    const scale = await apps.readNamespacedStatefulSetScale({ name: n, namespace });
-    await apps.replaceNamespacedStatefulSetScale({ name: n, namespace, body: { ...scale, spec: { ...(scale.spec ?? {}), replicas } } });
-    touched.push(`statefulset/${n}`);
-  }
-  return touched;
+  const [deps, sets] = await Promise.all([
+    apps.listNamespacedDeployment({ namespace }),
+    apps.listNamespacedStatefulSet({ namespace }),
+  ]);
+  const depNames = deps.items.map((d) => d.metadata?.name).filter((n): n is string => Boolean(n));
+  const setNames = sets.items.map((s) => s.metadata?.name).filter((n): n is string => Boolean(n));
+  const [scaledDeps, scaledSets] = await Promise.all([
+    Promise.all(depNames.map(async (n) => {
+      const scale = await apps.readNamespacedDeploymentScale({ name: n, namespace });
+      await apps.replaceNamespacedDeploymentScale({ name: n, namespace, body: { ...scale, spec: { ...(scale.spec ?? {}), replicas } } });
+      return `deploy/${n}`;
+    })),
+    Promise.all(setNames.map(async (n) => {
+      const scale = await apps.readNamespacedStatefulSetScale({ name: n, namespace });
+      await apps.replaceNamespacedStatefulSetScale({ name: n, namespace, body: { ...scale, spec: { ...(scale.spec ?? {}), replicas } } });
+      return `statefulset/${n}`;
+    })),
+  ]);
+  return [...scaledDeps, ...scaledSets];
 }
 
 export interface PowerResult {

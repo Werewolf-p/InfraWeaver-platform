@@ -1,23 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { GAME_HUB_NS, getDeploymentGameType, getServerDeployment, makeGameHubClients } from "@/lib/game-hub-server";
-import { validateK8sName } from "@/lib/api-security";
+import { NextResponse } from "next/server";
+import { GAME_HUB_NS, getDeploymentGameType, getServerDeployment, makeGameHubClients, withGameHubAuth } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { name } = await params;
-  const nameErr = validateK8sName(name);
-  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
-
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withGameHubAuth({ permission: "game-hub:read" }, async ({ name }) => {
   try {
     const clients = makeGameHubClients();
     const deployment = await getServerDeployment(clients.appsApi, name);
@@ -70,4 +55,4 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
     console.error("template export failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

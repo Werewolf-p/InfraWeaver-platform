@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getCoreApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { badRequest, forbidden, notFound, upstream } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 const podTargetSchema = z.object({
@@ -9,12 +10,27 @@ const podTargetSchema = z.object({
   name: z.string().regex(/^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/, 'Invalid pod name'),
 });
 
+// Logs from core/system namespaces (kube-system, authentik, external-secrets,
+// openbao, …) routinely contain tokens, session identifiers and PII — reading
+// them is effectively a security-read operation, so it is gated like the
+// secrets route (security:read / cluster:admin). The namespace list mirrors
+// RESERVED_NAMESPACES in routes/community-apps.ts plus the auth/secrets stack.
+const SENSITIVE_LOG_NAMESPACES = new Set([
+  'default', 'kube-system', 'kube-public', 'kube-node-lease', 'argocd',
+  'cert-manager', 'external-secrets', 'external-dns', 'monitoring', 'falco',
+  'longhorn-system', 'cilium-secrets', 'crds', 'bootstrap', 'dns-system',
+  'infraweaver', 'infraweaver-console', 'infraweaver-system',
+  'authentik', 'openbao',
+]);
+const isSensitiveLogNamespace = (name: string): boolean =>
+  SENSITIVE_LOG_NAMESPACES.has(name) || name.endsWith('-system') || name.startsWith('kube-');
+
 export const podsRoute = new Hono<AppBindings>();
 
 podsRoute.get('/', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const namespace = c.req.query('namespace');
@@ -62,19 +78,33 @@ podsRoute.get('/', async (c) => {
     }
     return c.json({ pods, clusterId: user.clusterId });
   } catch {
-    return c.json({ error: 'Failed to fetch pods' }, 502);
+    return upstream(c, 'Failed to fetch pods');
   }
 });
 
 podsRoute.get('/:namespace/:name/logs', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'apps:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+  // Log reads are gated at cluster:read (matching the pod list endpoint above —
+  // a caller who cannot enumerate pods must not be able to read their logs).
+  // Every built-in role holding apps:read also holds cluster:read, so this only
+  // tightens weaker custom/scoped grants.
+  if (!hasPermission(user, 'cluster:read')) {
+    return forbidden(c);
   }
 
   const parsed = podTargetSchema.safeParse(c.req.param());
   if (!parsed.success) {
-    return c.json({ error: 'Invalid pod target' }, 400);
+    return badRequest(c, 'Invalid pod target');
+  }
+
+  // System/infra namespaces require the security-read tier (same gate as the
+  // secrets route): their logs are as sensitive as secret material.
+  if (
+    isSensitiveLogNamespace(parsed.data.namespace)
+    && !hasPermission(user, 'security:read')
+    && !hasPermission(user, 'cluster:admin')
+  ) {
+    return forbidden(c);
   }
 
   const tailLines = Math.min(Math.max(Number.parseInt(c.req.query('lines') ?? '500', 10) || 500, 1), 1000);
@@ -96,11 +126,11 @@ podsRoute.get('/:namespace/:name/logs', async (c) => {
     // raw query value, so a crafted name can't be used to manipulate the
     // request sent to the kube-apiserver.
     if (requested && !podContainers.includes(requested)) {
-      return c.json({ error: 'Unknown container for pod' }, 400);
+      return badRequest(c, 'Unknown container for pod');
     }
     const container = requested ?? podContainers[0];
     if (!container) {
-      return c.json({ error: 'Pod container not found' }, 404);
+      return notFound(c, 'Pod container not found');
     }
 
     const logs = await coreApi.readNamespacedPodLog({
@@ -114,6 +144,6 @@ podsRoute.get('/:namespace/:name/logs', async (c) => {
     c.header('Content-Type', 'text/plain; charset=utf-8');
     return c.body(logs);
   } catch {
-    return c.json({ error: 'Failed to fetch pod logs' }, 502);
+    return upstream(c, 'Failed to fetch pod logs');
   }
 });

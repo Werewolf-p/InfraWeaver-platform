@@ -1,13 +1,12 @@
-import net from "node:net";
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
+import { NextResponse } from "next/server";
 import {
   GAME_HUB_NS,
   getKubernetesErrorStatus,
   getNodeIp,
   getServerPod,
   makeGameHubClients,
+  tcpProbe,
+  withGameHubAuth,
 } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 
@@ -35,53 +34,7 @@ function buildUnknownConnectivity(message: string) {
   };
 }
 
-async function checkTcpConnect(host: string | null, port: number | null) {
-  if (!host || !port) {
-    return { open: false, latencyMs: null };
-  }
-
-  return new Promise<{ open: boolean; latencyMs: number | null }>((resolve) => {
-    const startedAt = Date.now();
-    const socket = new net.Socket();
-    let settled = false;
-
-    const finish = (open: boolean) => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      resolve({ open, latencyMs: open ? Date.now() - startedAt : null });
-    };
-
-    socket.setTimeout(3000);
-    socket.once("connect", () => finish(true));
-    socket.once("timeout", () => finish(false));
-    socket.once("error", () => finish(false));
-    socket.connect(port, host);
-  });
-}
-
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ name: string }> },
-) {
-  const session = await auth();
-  if (!session)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { name } = await params;
-  const access = await getGameHubAccessContext(session, 60);
-  if (
-    !hasGameHubPermission(
-      access.groups,
-      access.username,
-      access.roleAssignments,
-      "game-hub:read",
-      name,
-    )
-  ) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withGameHubAuth({ permission: "game-hub:read" }, async ({ name }) => {
   try {
     const { coreApi } = makeGameHubClients();
     let connectivityMessage: string | null = null;
@@ -158,7 +111,7 @@ export async function GET(
           };
         }
 
-        const external = await checkTcpConnect(host, nodePort ?? servicePortNumber);
+        const external = await tcpProbe(host, nodePort ?? servicePortNumber);
         return {
           ...basePort,
           status: (external.open ? "open" : "closed") as ConnectivityStatus,
@@ -194,4 +147,4 @@ export async function GET(
       : safeError(error) || "connectivity unavailable";
     return NextResponse.json(buildUnknownConnectivity(message), { status: 200 });
   }
-}
+});

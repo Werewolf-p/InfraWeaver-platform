@@ -1,9 +1,9 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Package, ShieldAlert, Shield } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface ImageEntry {
   image: string;
@@ -16,13 +16,9 @@ interface ImageEntry {
 export default function ImageVulnerabilitiesPage() {
   const [filter, setFilter] = useState<"all" | "untrusted">("all");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useApiQuery<{ images: ImageEntry[] }>({
     queryKey: ["security", "images"],
-    queryFn: async () => {
-      const res = await fetch("/api/security/images");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<{ images: ImageEntry[] }>;
-    },
+    path: "/api/security/images",
   });
 
   const images = data?.images ?? [];

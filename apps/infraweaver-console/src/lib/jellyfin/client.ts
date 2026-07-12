@@ -19,6 +19,7 @@
  * caller from OpenBao and is never logged.
  */
 import "server-only";
+import { jsonRequest } from "@/lib/http/json-request";
 
 const REQUEST_TIMEOUT_MS = Number(process.env.JELLYFIN_TIMEOUT_MS) || 10_000;
 /** How long to wait for Jellyfin to materialize the wizard's default first user. */
@@ -74,31 +75,19 @@ export class JellyfinClient {
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    let res: Response;
-    try {
-      res = await fetch(`${this.baseUrl}${path}`, {
-        method,
-        headers: {
-          Authorization: this.authHeader(),
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") throw new JellyfinError(`Jellyfin request timed out after ${REQUEST_TIMEOUT_MS}ms`);
-      throw new JellyfinError("Jellyfin is unreachable");
-    } finally {
-      clearTimeout(timer);
-    }
-    // Only the status is surfaced — a Jellyfin error body can echo back input.
-    if (!res.ok) throw new JellyfinError(`Jellyfin ${method} ${path} failed: ${res.status}`, res.status);
-    if (res.status === 204) return undefined as T;
-    const text = await res.text();
-    return (text ? JSON.parse(text) : undefined) as T;
+    const result = await jsonRequest<T>(`${this.baseUrl}${path}`, {
+      method,
+      body,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      headers: { Authorization: this.authHeader() },
+      onError: (failure) => {
+        if (failure.kind === "timeout") return new JellyfinError(`Jellyfin request timed out after ${failure.timeoutMs}ms`);
+        if (failure.kind === "unreachable") return new JellyfinError("Jellyfin is unreachable");
+        // Only the status is surfaced — a Jellyfin error body can echo back input.
+        return new JellyfinError(`Jellyfin ${method} ${path} failed: ${failure.status}`, failure.status);
+      },
+    });
+    return result as T;
   }
 
   // --- Health / bootstrap state ---------------------------------------------

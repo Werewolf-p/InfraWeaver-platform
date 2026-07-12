@@ -1,7 +1,9 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useApiQuery, useApiMutation } from "@/hooks/use-api-query";
+import { useSlashFocus } from "@/hooks/use-slash-focus";
 import { Server, Plus, Lock, RefreshCw, Zap, Link2, Loader2, Copy, Check, ChevronDown, Activity, Layers, BarChart2, GitBranch, Pencil, Save, X, Download, Settings2, ArrowRightLeft, MemoryStick, AlertTriangle, Bell, Globe, Radio, ShieldCheck, ShieldX } from "lucide-react";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
@@ -119,6 +121,12 @@ function quotaPct(used: string, hard: string): number {
   const h = parseQuotaValue(hard);
   if (h === 0) return 0;
   return Math.min(100, Math.round((u / h) * 100));
+}
+
+/** Derives an API-safe cluster id (`^[a-z0-9-]+$`, max 64 chars) from the agent's reported cluster name. */
+function toClusterId(name: string): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+  return slug || "cluster";
 }
 
 // ── Pod Migration Modal ───────────────────────────────────────────────────────
@@ -534,11 +542,8 @@ export default function ClusterPage() {
   const [showSyncConfirm, setShowSyncConfirm] = useState(false);
   const [showRolloutConfirm, setShowRolloutConfirm] = useState(false);
   const [showAddNode, setShowAddNode] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [rolling, setRolling] = useState(false);
   const [newIp, setNewIp] = useState("10.10.0.93");
   const [metricsRefreshSeconds, setMetricsRefreshSeconds] = useState(15);
-  const [cordoningNode, setCordoningNode] = useState<string | null>(null);
   const [drainingNode, setDrainingNode] = useState<string | null>(null);
   const [cordonTarget, setCordonTarget] = useState<Node | null>(null);
   const [drainTarget, setDrainTarget] = useState<Node | null>(null);
@@ -551,106 +556,104 @@ export default function ClusterPage() {
   const [nodeHistory, setNodeHistory] = useState<Record<string, { cpu: SparklinePoint[]; memory: SparklinePoint[] }>>({});
 
   // ── Agent approval ────────────────────────────────────────────────────────
-  const [approvingAgent, setApprovingAgent] = useState<string | null>(null);
-  const [rejectingAgent, setRejectingAgent] = useState<string | null>(null);
-
-  const { data: agentData, refetch: refetchAgents } = useQuery<{
+  const { data: agentData } = useApiQuery<{
     agents: Array<{ clusterId: string; connectedAt: string; lastHeartbeat: string; status: { nodeCount: number; podCount: number; ready: boolean } }>;
     pending: Array<{ agentId: string; clusterName: string; clusterCaFingerprint: string; receivedAt: string }>;
   }>({
     queryKey: ["agents"],
-    queryFn: async () => {
-      const r = await fetch("/api/agents");
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    },
+    path: "/api/agents",
     refetchInterval: 8_000,
   });
 
-
-  const { data, isLoading, refetch } = useQuery<{ nodes: Node[] }>({
+  const { data, isLoading, refetch } = useApiQuery<{ nodes: Node[] }>({
     queryKey: ["cluster", "nodes"],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/nodes");
-      return res.json();
-    },
+    path: "/api/cluster/nodes",
     staleTime: 30000,
     refetchInterval: 60000,
   });
 
-  const { data: nodePodData, refetch: refetchNodePods } = useQuery<{
+  const { data: nodePodData, refetch: refetchNodePods } = useApiQuery<{
     nodes: NodeCapacityInfo[];
     pods: NodePodInfo[];
   }>({
     queryKey: ["cluster", "node-pods"],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/node-pods");
-      return res.json();
-    },
+    path: "/api/cluster/node-pods",
     staleTime: 20000,
     refetchInterval: 30000,
   });
 
-  const { data: metricsData, refetch: refetchMetrics } = useQuery<{ metrics: NodeMetric[]; timestamp: string }>({
+  const { data: metricsData, refetch: refetchMetrics } = useApiQuery<{ metrics: NodeMetric[]; timestamp: string }>({
     queryKey: ["cluster", "metrics", metricsRefreshSeconds],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/metrics");
-      const payload = await res.json() as { metrics: NodeMetric[]; timestamp: string };
-      if (payload.metrics?.length) {
-        const avgCpuValue = Math.round(payload.metrics.reduce((a, m) => a + m.cpuPct, 0) / payload.metrics.length);
-        const avgMemValue = Math.round(payload.metrics.reduce((a, m) => a + m.memPct, 0) / payload.metrics.length);
-        const time = new Date(payload.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-        setCpuHistory(prev => [...prev.slice(-19), { time, value: avgCpuValue }]);
-        setMemHistory(prev => [...prev.slice(-19), { time, value: avgMemValue }]);
-      }
-      return payload;
-    },
+    path: "/api/cluster/metrics",
     staleTime: 10000,
     refetchInterval: metricsRefreshSeconds * 1000,
   });
 
-  const { data: hpaData, refetch: refetchHpa } = useQuery<{ hpas: HPA[] }>({
+  const { data: hpaData, refetch: refetchHpa } = useApiQuery<{ hpas: HPA[] }>({
     queryKey: ["cluster", "hpa"],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/hpa");
-      return res.json();
-    },
+    path: "/api/cluster/hpa",
     staleTime: 30000,
     refetchInterval: 60000,
   });
 
-  const { data: quotaData, refetch: refetchQuota } = useQuery<{ quotas: Quota[] }>({
+  const { data: quotaData } = useApiQuery<{ quotas: Quota[] }>({
     queryKey: ["cluster", "quota", "cluster-page"],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/quota");
-      if (!res.ok) throw new Error("Failed to fetch cluster quotas");
-      return res.json();
-    },
+    path: "/api/cluster/quota",
     staleTime: 30000,
     refetchInterval: 60000,
   });
 
-  const { data: eventData, refetch: refetchEvents } = useQuery<{ events: ClusterEvent[] }>({
+  const { data: eventData } = useApiQuery<{ events: ClusterEvent[] }>({
     queryKey: ["cluster", "events", "cluster-page"],
-    queryFn: async () => {
-      const res = await fetch("/api/events");
-      if (!res.ok) throw new Error("Failed to fetch recent events");
-      return res.json();
-    },
+    path: "/api/cluster/events",
     staleTime: 15000,
     refetchInterval: 30000,
   });
 
-  const { data: pdbData, refetch: refetchPdbs } = useQuery<{ pdbs: PodDisruptionBudgetSummary[] }>({
+  const { data: pdbData } = useApiQuery<{ pdbs: PodDisruptionBudgetSummary[] }>({
     queryKey: ["cluster", "pdbs"],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/pdbs");
-      if (!res.ok) throw new Error("Failed to fetch PodDisruptionBudgets");
-      return res.json();
-    },
+    path: "/api/cluster/pdbs",
     staleTime: 30000,
     refetchInterval: 60000,
   });
+
+  const syncAllMutation = useApiMutation<{ synced?: string[] }, void>({
+    path: "/api/argocd/sync-all",
+    invalidateQueryKeys: [["argocd", "apps"]],
+    successMessage: (result) => (result.synced !== undefined ? `Synced ${result.synced.length} ArgoCD apps` : undefined),
+  });
+
+  const rolloutMutation = useApiMutation<unknown, void>({
+    path: "/api/cluster/rollout",
+    successMessage: "Rollout triggered for infraweaver-console",
+  });
+
+  const cordonMutation = useApiMutation<unknown, Node>({
+    path: (node) => `/api/cluster/nodes/${encodeURIComponent(node.name)}/cordon`,
+    method: "PATCH",
+    request: (node) => ({ json: { cordon: !node.unschedulable } }),
+    invalidateQueryKeys: [["cluster", "nodes"]],
+    successMessage: (_result, node) => (node.unschedulable ? `Uncordoned ${node.name}` : `Cordoned ${node.name}`),
+  });
+  const cordoningNode = cordonMutation.isPending ? cordonMutation.variables?.name ?? null : null;
+
+  const approveAgentMutation = useApiMutation<unknown, { agentId: string; clusterName: string }>({
+    path: ({ agentId }) => `/api/agents/${encodeURIComponent(agentId)}/approve`,
+    request: ({ clusterName }) => ({
+      json: { clusterId: toClusterId(clusterName), clusterName: clusterName.slice(0, 128), environment: "production" },
+    }),
+    invalidateQueryKeys: [["agents"]],
+    successMessage: "Agent approved — waiting for node to connect",
+  });
+  const approvingAgent = approveAgentMutation.isPending ? approveAgentMutation.variables?.agentId ?? null : null;
+
+  const rejectAgentMutation = useApiMutation<unknown, string>({
+    path: (agentId) => `/api/agents/${encodeURIComponent(agentId)}/reject`,
+    request: () => ({ json: { reason: "Rejected by admin" } }),
+    invalidateQueryKeys: [["agents"]],
+    successMessage: "Agent rejected",
+  });
+  const rejectingAgent = rejectAgentMutation.isPending ? rejectAgentMutation.variables ?? null : null;
 
   const nodes = useMemo(() => data?.nodes ?? [], [data?.nodes]);
   const metrics = useMemo(() => metricsData?.metrics ?? [], [metricsData?.metrics]);
@@ -663,7 +666,11 @@ export default function ClusterPage() {
   useEffect(() => {
     if (!metricsData?.metrics?.length) return;
     const label = new Date(metricsData.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const avgCpuValue = Math.round(metricsData.metrics.reduce((a, m) => a + m.cpuPct, 0) / metricsData.metrics.length);
+    const avgMemValue = Math.round(metricsData.metrics.reduce((a, m) => a + m.memPct, 0) / metricsData.metrics.length);
     const frame = window.requestAnimationFrame(() => {
+      setCpuHistory(prev => [...prev.slice(-19), { time: label, value: avgCpuValue }]);
+      setMemHistory(prev => [...prev.slice(-19), { time: label, value: avgMemValue }]);
       setNodeHistory((prev) => {
         const next = { ...prev };
         for (const metric of metricsData.metrics) {
@@ -689,14 +696,10 @@ export default function ClusterPage() {
     return map;
   }, [nodePodData?.pods]);
 
+  useSlashFocus(searchRef);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isTypingTarget = target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-      if (event.key === "/" && !isTypingTarget) {
-        event.preventDefault();
-        searchRef.current?.focus();
-      }
       if (event.key === "Escape") {
         setNodeSearch("");
         setNodeFilter("all");
@@ -751,57 +754,6 @@ export default function ClusterPage() {
       </div>
     );
   }
-
-  const handleSyncAll = async () => {
-    setSyncing(true);
-    setShowSyncConfirm(false);
-    try {
-      const res = await fetch("/api/argocd/sync-all", { method: "POST" });
-      const result = await res.json() as { ok?: boolean; synced?: string[]; errors?: string[]; total?: number };
-      if (result.synced !== undefined) {
-        toast.success(`Synced ${result.synced.length} ArgoCD apps`);
-        qc.invalidateQueries({ queryKey: ["argocd", "apps"] });
-      } else {
-        toast.error("Sync failed");
-      }
-    } catch {
-      toast.error("Sync all failed");
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const handleRollout = async () => {
-    setRolling(true);
-    setShowRolloutConfirm(false);
-    try {
-      await fetch("/api/cluster/rollout", { method: "POST" });
-      toast.success("Rollout triggered for infraweaver-console");
-    } catch {
-      toast.error("Rollout failed");
-    } finally {
-      setRolling(false);
-    }
-  };
-
-  const handleToggleCordon = async (node: Node) => {
-    setCordoningNode(node.name);
-    try {
-      const res = await fetch(`/api/cluster/nodes/${encodeURIComponent(node.name)}/cordon`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cordon: !node.unschedulable }),
-      });
-      const result = await res.json() as { error?: string };
-      if (!res.ok) throw new Error(result.error ?? "Failed to update node scheduling");
-      toast.success(node.unschedulable ? `Uncordoned ${node.name}` : `Cordoned ${node.name}`);
-      await refetch();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update node scheduling");
-    } finally {
-      setCordoningNode(null);
-    }
-  };
 
   const handleDrainNode = async (node: Node) => {
     if (!isAdmin || !nodePodData) return;
@@ -861,45 +813,6 @@ export default function ClusterPage() {
     window.location.href = "/api/cluster/export";
   };
 
-  async function approveAgent(agentId: string) {
-    setApprovingAgent(agentId);
-    try {
-      const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clusterId: "prod-cluster", clusterName: "Production Cluster", environment: "production" }),
-      });
-      const data = await res.json() as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Approval failed");
-      toast.success("Agent approved — waiting for node to connect");
-      await refetchAgents();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setApprovingAgent(null);
-    }
-  }
-
-  async function rejectAgent(agentId: string) {
-    setRejectingAgent(agentId);
-    try {
-      const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "Rejected by admin" }),
-      });
-      const data = await res.json() as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Reject failed");
-      toast.success("Agent rejected");
-      await refetchAgents();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setRejectingAgent(null);
-    }
-  }
-  // ── end agent approval ────────────────────────────────────────────────────
-
   return (
     <div>
       <PageHeader icon={Server} title="Cluster Nodes" subtitle="Node management and cluster overview" />
@@ -927,7 +840,7 @@ export default function ClusterPage() {
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => approveAgent(agent.agentId)}
+                        onClick={() => approveAgentMutation.mutate({ agentId: agent.agentId, clusterName: agent.clusterName })}
                         disabled={approvingAgent === agent.agentId}
                         className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -935,7 +848,7 @@ export default function ClusterPage() {
                         Approve
                       </button>
                       <button
-                        onClick={() => rejectAgent(agent.agentId)}
+                        onClick={() => rejectAgentMutation.mutate(agent.agentId)}
                         disabled={rejectingAgent === agent.agentId}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -1011,7 +924,7 @@ export default function ClusterPage() {
                 ))}
               </select>
             </div>
-            <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); void refetchQuota(); void refetchEvents(); void refetchPdbs(); }} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white active:scale-95 touch-manipulation sm:flex-none">
+            <button onClick={() => void qc.invalidateQueries({ queryKey: ["cluster"] })} className="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white active:scale-95 touch-manipulation sm:flex-none">
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </button>
@@ -1033,7 +946,7 @@ export default function ClusterPage() {
                 <p className="text-sm font-semibold text-gray-900 dark:text-white">Node capacity distribution</p>
                 <p className="text-xs text-slate-500">Healthy, cordoned, and high-pressure nodes grouped into one quick view.</p>
               </div>
-              <button onClick={() => { void refetch(); void refetchMetrics(); void refetchHpa(); void refetchNodePods(); void refetchQuota(); void refetchEvents(); void refetchPdbs(); }} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-1.5 text-xs text-gray-500 dark:text-[#9e9e9e] transition hover:text-gray-900 dark:hover:text-white">
+              <button onClick={() => void qc.invalidateQueries({ queryKey: ["cluster"] })} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] px-3 py-1.5 text-xs text-gray-500 dark:text-[#9e9e9e] transition hover:text-gray-900 dark:hover:text-white">
                 <RefreshCw className="h-3.5 w-3.5" /> Refresh all
               </button>
             </div>
@@ -1412,12 +1325,12 @@ export default function ClusterPage() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-4 sm:p-5">
             <h3 className="mb-4 text-sm font-semibold text-gray-900 dark:text-white">Quick Cluster Actions</h3>
             <div className="flex flex-wrap gap-2 sm:gap-3">
-              <button onClick={() => setShowSyncConfirm(true)} disabled={syncing} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/20 px-4 py-2.5 text-sm text-indigo-300 transition-colors hover:bg-indigo-500/30 disabled:opacity-50 sm:w-auto">
-                {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+              <button onClick={() => setShowSyncConfirm(true)} disabled={syncAllMutation.isPending} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/20 px-4 py-2.5 text-sm text-indigo-300 transition-colors hover:bg-indigo-500/30 disabled:opacity-50 sm:w-auto">
+                {syncAllMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
                 Sync All ArgoCD Apps
               </button>
-              <button onClick={() => setShowRolloutConfirm(true)} disabled={rolling} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-orange-500/30 bg-orange-500/20 px-4 py-2.5 text-sm text-orange-300 transition-colors hover:bg-orange-500/30 disabled:opacity-50 sm:w-auto">
-                {rolling ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              <button onClick={() => setShowRolloutConfirm(true)} disabled={rolloutMutation.isPending} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-orange-500/30 bg-orange-500/20 px-4 py-2.5 text-sm text-orange-300 transition-colors hover:bg-orange-500/30 disabled:opacity-50 sm:w-auto">
+                {rolloutMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                 Force Redeploy InfraWeaver
               </button>
               <button onClick={() => setShowAddNode(true)} className="flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/20 px-4 py-2.5 text-sm text-green-300 transition-colors hover:bg-green-500/30 sm:w-auto">
@@ -1467,11 +1380,11 @@ export default function ClusterPage() {
         )}
       </div>
 
-      <ConfirmDialog open={showSyncConfirm} onConfirm={handleSyncAll} onCancel={() => setShowSyncConfirm(false)} title="Sync All ArgoCD Apps?" description="This will trigger a sync for all ArgoCD applications." confirmText="Sync All" />
-      <ConfirmDialog open={showRolloutConfirm} onConfirm={handleRollout} onCancel={() => setShowRolloutConfirm(false)} title="Force Redeploy InfraWeaver?" description="This will restart all InfraWeaver console pods. The console will be briefly unavailable." confirmText="REDEPLOY" danger requireTyping="REDEPLOY" />
+      <ConfirmDialog open={showSyncConfirm} onConfirm={() => { setShowSyncConfirm(false); syncAllMutation.mutate(); }} onCancel={() => setShowSyncConfirm(false)} title="Sync All ArgoCD Apps?" description="This will trigger a sync for all ArgoCD applications." confirmText="Sync All" />
+      <ConfirmDialog open={showRolloutConfirm} onConfirm={() => { setShowRolloutConfirm(false); rolloutMutation.mutate(); }} onCancel={() => setShowRolloutConfirm(false)} title="Force Redeploy InfraWeaver?" description="This will restart all InfraWeaver console pods. The console will be briefly unavailable." confirmText="REDEPLOY" danger requireTyping="REDEPLOY" />
       <ConfirmDialog
         open={Boolean(cordonTarget)}
-        onConfirm={() => cordonTarget && void handleToggleCordon(cordonTarget)}
+        onConfirm={() => cordonTarget && cordonMutation.mutate(cordonTarget)}
         onCancel={() => setCordonTarget(null)}
         title={cordonTarget ? `${cordonTarget.unschedulable ? "Disable" : "Enable"} maintenance for ${cordonTarget.name}?` : "Update node maintenance?"}
         description={cordonTarget?.unschedulable

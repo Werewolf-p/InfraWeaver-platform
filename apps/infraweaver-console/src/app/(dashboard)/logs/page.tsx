@@ -2,17 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, FileText, Globe, PanelLeftClose, PanelLeftOpen, Rows3 } from "lucide-react";
+import { AlertCircle, FileText, PanelLeftClose, PanelLeftOpen, Rows3 } from "lucide-react";
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { LogStreamViewer } from "@/components/logs/log-stream-viewer";
 import { PodSelectorTree } from "@/components/logs/pod-selector-tree";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
-import { useCluster } from "@/contexts/cluster-context";
 import { PageHeader } from "@/components/ui/page-header";
+import { SingleClusterGuard } from "@/components/ui/single-cluster-guard";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { usePods } from "@/hooks/use-pods";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { isTypingTarget } from "@/lib/keyboard-shortcuts";
 
 const STORAGE_KEY = "infraweaver:logs-selection";
 
@@ -46,13 +47,7 @@ function podPriority(status: string) {
   return 3;
 }
 
-function isTypingTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-}
-
 export default function LogsPage() {
-  const { activeId } = useCluster();
   const { canAny } = useRBAC();
   const { data: pods = [], isLoading } = usePods();
   const searchParams = useSearchParams();
@@ -161,27 +156,20 @@ export default function LogsPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [moveSelection]);
 
-  if (activeId === "all") {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Globe className="mb-4 h-10 w-10 text-gray-700 dark:text-[#333]" />
-        <p className="text-sm font-medium text-gray-400 dark:text-[#666]">Select a specific cluster to view this page</p>
-        <p className="mt-1 text-xs text-gray-400 dark:text-[#444]">Use the cluster selector in the top bar</p>
-      </div>
-    );
-  }
-
   if (!canAny(["cluster:read", "infra:read"])) {
     return (
-      <div className="flex h-64 flex-col items-center justify-center text-center">
-        <AlertCircle className="mb-3 h-8 w-8 text-red-400" />
-        <h3 className="mb-1 font-semibold text-gray-900 dark:text-white">Access denied</h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400">You need cluster:read or infra:read permission to view pod logs.</p>
-      </div>
+      <SingleClusterGuard>
+        <div className="flex h-64 flex-col items-center justify-center text-center">
+          <AlertCircle className="mb-3 h-8 w-8 text-red-400" />
+          <h3 className="mb-1 font-semibold text-gray-900 dark:text-white">Access denied</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400">You need cluster:read or infra:read permission to view pod logs.</p>
+        </div>
+      </SingleClusterGuard>
     );
   }
 
   return (
+    <SingleClusterGuard>
     <div className="space-y-6">
       <PageHeader
         icon={FileText}
@@ -270,5 +258,6 @@ export default function LogsPage() {
 
       {isLoading ? <div className="text-sm text-slate-500">Loading pods…</div> : null}
     </div>
+    </SingleClusterGuard>
   );
 }

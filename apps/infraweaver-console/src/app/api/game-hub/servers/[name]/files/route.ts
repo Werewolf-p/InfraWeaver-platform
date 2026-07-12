@@ -1,10 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
-import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, makeGameHubClients, shellQuote } from "@/lib/game-hub-server";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { appendServerAudit, makeGameHubClients, shellQuote, withGameHubAuth } from "@/lib/game-hub-server";
 import {
   ARCHIVE_UNSAFE_MEMBER_MARKER,
   buildContainerRealpathGuard,
@@ -102,32 +99,13 @@ function parseStatOutput(output: string, basePath: string): FileEntry[] {
   return files;
 }
 
-async function writableAccess(req: NextRequest, name: string) {
-  const session = await auth();
-  if (!session) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name)) {
-    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
-  }
-  return { session, access };
-}
-
 const LISTING_SCRIPT = (path: string) =>
   `cd ${shellQuote(path)} 2>/dev/null && for file in .[!.]* ..?* *; do [ -e "$file" ] || continue; stat -c '%n|%s|%Y|%A|%F' "$file" 2>/dev/null || ls -ld --color=never "$file"; done || echo ERROR:NO_SUCH_PATH`;
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { name } = await params;
-  const access = await getGameHubAccessContext(session, 60);
-  // Reading the file browser can expose secrets (e.g. server.properties contains
-  // rcon.password), so gate listing at the same files tier as writes — not the
-  // broad game-hub:read that read-only/player roles hold.
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  const canWrite = hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:files", name);
-
+// Reading the file browser can expose secrets (e.g. server.properties contains
+// rcon.password), so gate listing at the same files tier as writes — not the
+// broad game-hub:read that read-only/player roles hold.
+export const GET = withGameHubAuth({ permission: "game-hub:files" }, async ({ req, name }) => {
   try {
     const clients = makeGameHubClients();
     return await withServerFileExec(clients, name, "read", async ({ exec, rootPath, offline }) => {
@@ -146,184 +124,174 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
       const files = result.stdout.includes("|")
         ? parseStatOutput(result.stdout, targetPath)
         : parseLsOutput(result.stdout, targetPath);
-      return NextResponse.json({ path: targetPath, files, readOnly: !canWrite, offline });
+      return NextResponse.json({ path: targetPath, files, readOnly: false, offline });
     });
   } catch (error) {
     console.error("file listing failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  if (!checkRateLimit(rateLimitKey("game-hub-files-post", req), 20, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
-  const { name } = await params;
-  const authz = await writableAccess(req, name);
-  if (authz.error) return authz.error;
-  const rawBody = await req.json().catch(() => null);
-  const parsed = mkdirBodySchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
-  }
-  const body = parsed.data;
+export const POST = withGameHubAuth(
+  { permission: "game-hub:files", rateLimit: { name: "game-hub-files-post", limit: 20, windowMs: 60_000 } },
+  async ({ req, session, name }) => {
+    const rawBody = await req.json().catch(() => null);
+    const parsed = mkdirBodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+    }
+    const body = parsed.data;
 
-  try {
-    const clients = makeGameHubClients();
-    return await withServerFileExec(clients, name, "write", async ({ exec, rootPath }) => {
-      if (!validateContainerPath(body.path) || !validateContainerPathWithinRoot(body.path, rootPath)) {
-        return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
-      }
-      const guard = buildContainerRealpathGuard(rootPath, [{ path: body.path, kind: "destination" }], shellQuote);
-      const result = await exec(`${guard}\nmkdir -p ${shellQuote(body.path)}`);
-      if (result.stdout.includes(PATH_ESCAPE_MARKER)) {
-        return NextResponse.json({ error: "Path resolves outside the server data directory" }, { status: 400 });
-      }
-      await auditLog("game-hub:mkdir", authz.session?.user?.email ?? "unknown", `${name} ${body.path}`);
-      await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:mkdir", details: body.path });
-      return NextResponse.json({ ok: true, path: body.path });
-    });
-  } catch (error) {
-    console.error("mkdir failed", error);
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
-
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  if (!checkRateLimit(rateLimitKey("game-hub-files-patch", req), 20, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
-  const { name } = await params;
-  const authz = await writableAccess(req, name);
-  if (authz.error) return authz.error;
-  const rawBody = await req.json().catch(() => null);
-  const parsed = patchBodySchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
-  }
-  const body = parsed.data;
-
-  try {
-    const clients = makeGameHubClients();
-    return await withServerFileExec(clients, name, "write", async ({ exec, rootPath }) => {
-      if (body.action === "rename") {
-        if (!body.from || !body.to) return NextResponse.json({ error: "rename from/to required" }, { status: 400 });
-        if (!validateContainerPath(body.from) || !validateContainerPath(body.to)
-          || !validateContainerPathWithinRoot(body.from, rootPath)
-          || !validateContainerPathWithinRoot(body.to, rootPath)) {
-          return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
-        }
-        const guard = buildContainerRealpathGuard(rootPath, [
-          { path: body.from, kind: "entry" },
-          { path: body.to, kind: "destination" },
-        ], shellQuote);
-        const result = await exec(`${guard}\nmv ${shellQuote(body.from)} ${shellQuote(body.to)}`);
-        if (result.stdout.includes(PATH_ESCAPE_MARKER)) {
-          return NextResponse.json({ error: "Path resolves outside the server data directory" }, { status: 400 });
-        }
-        await auditLog("game-hub:rename", authz.session?.user?.email ?? "unknown", `${name} ${body.from} -> ${body.to}`);
-        await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:rename", details: `${body.from} -> ${body.to}` });
-        return NextResponse.json({ ok: true, from: body.from, to: body.to });
-      }
-
-      if (body.action === "extract") {
-        if (!body.path) return NextResponse.json({ error: "path required" }, { status: 400 });
+    try {
+      const clients = makeGameHubClients();
+      return await withServerFileExec(clients, name, "write", async ({ exec, rootPath }) => {
         if (!validateContainerPath(body.path) || !validateContainerPathWithinRoot(body.path, rootPath)) {
           return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
         }
-        const destDir = body.path.replace(/\/[^/]+$/, "") || "/";
-        const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
-        const isTar = body.path.endsWith(".tar.gz") || body.path.endsWith(".tgz");
-        const extractCmd = isTar
-          ? `tar -xzf ${shellQuote(body.path)} -C ${shellQuote(destDir)}`
-          : body.path.endsWith(".zip")
-            ? `unzip -o ${shellQuote(body.path)} -d ${shellQuote(destDir)}`
-            : null;
-        if (!extractCmd) return NextResponse.json({ error: "Unsupported archive format" }, { status: 400 });
-        const guard = buildContainerRealpathGuard(rootPath, [
-          { path: body.path, kind: "existing-file" },
-          { path: destDir, kind: "existing-dir" },
-        ], shellQuote);
-        // Symlink/hardlink archive members re-open the traversal hole the
-        // realpath guard closes (extract a `link -> /` entry, then walk through
-        // it), so archives containing them are rejected. tar listings expose
-        // member types up front, so tarballs are rejected BEFORE extraction.
-        // zip cannot be listed portably (busybox unzip has no zipinfo), so it
-        // is extracted then swept: every symlink under the dest is resolved with
-        // the container's own view and any that escapes the root is deleted and
-        // the request fails. The sweep is mtime-independent (unzip may restore
-        // archived timestamps), and even a symlink that momentarily survives
-        // cannot be traversed later — every read/write/list re-runs the guard.
-        const tarPrecheck = isTar
-          ? `if tar -tzvf ${shellQuote(body.path)} 2>/dev/null | grep -qE '^[lh]'; then echo ${ARCHIVE_UNSAFE_MEMBER_MARKER}; exit 1; fi; ` +
-            `if tar -tzf ${shellQuote(body.path)} 2>/dev/null | grep -qE '(^|/)\\.\\.(/|$)|^/'; then echo ${ARCHIVE_UNSAFE_MEMBER_MARKER}; exit 1; fi; `
-          : "";
-        // `iw_root` is defined by the guard prelude above ("" when root is "/");
-        // export it so the find -exec child shell can see it. find -exec (not a
-        // `for` over $(find)) keeps the sweep safe for file names with spaces or
-        // newlines. Any escaping symlink is removed and emits a byte to stdout.
-        const sweptExtract = isTar
-          ? extractCmd
-          : `export iw_root; ${extractCmd}; iw_x=$?; ` +
-            `iw_bad=$(find ${shellQuote(destDir)} -type l -exec sh -c ` +
-            `'for p do t=$(readlink -f "$p" 2>/dev/null || echo /IW_UNRESOLVABLE); case "$t/" in "$iw_root/"*) : ;; *) rm -f "$p"; echo X ;; esac; done' ` +
-            `_ {} + 2>/dev/null); ` +
-            `if [ -n "$iw_bad" ]; then echo ${ARCHIVE_UNSAFE_MEMBER_MARKER}; exit 1; fi; exit $iw_x`;
-        const command = `${guard}\n${tarPrecheck}SIZE=$(stat -c %s ${shellQuote(body.path)} 2>/dev/null || echo 0); if [ "$SIZE" -gt ${MAX_ARCHIVE_BYTES} ]; then echo ARCHIVE_TOO_LARGE; else ${sweptExtract}; fi`;
-        const result = await exec(command, 30_000);
+        const guard = buildContainerRealpathGuard(rootPath, [{ path: body.path, kind: "destination" }], shellQuote);
+        const result = await exec(`${guard}\nmkdir -p ${shellQuote(body.path)}`);
         if (result.stdout.includes(PATH_ESCAPE_MARKER)) {
           return NextResponse.json({ error: "Path resolves outside the server data directory" }, { status: 400 });
         }
-        if (result.stdout.includes(ARCHIVE_UNSAFE_MEMBER_MARKER)) {
-          return NextResponse.json({ error: "Archive contains symlink, hardlink, or unsafe path entries" }, { status: 400 });
-        }
-        if (result.stdout.includes("ARCHIVE_TOO_LARGE")) {
-          return NextResponse.json({ error: "Archive too large (max 512MB)" }, { status: 413 });
-        }
-        await auditLog("game-hub:extract", authz.session?.user?.email ?? "unknown", `${name} ${body.path}`);
-        await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:extract", details: body.path });
+        await auditLog("game-hub:mkdir", session.user?.email ?? "unknown", `${name} ${body.path}`);
+        await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "file:mkdir", details: body.path });
         return NextResponse.json({ ok: true, path: body.path });
-      }
+      });
+    } catch (error) {
+      console.error("mkdir failed", error);
+      return NextResponse.json({ error: safeError(error) }, { status: 500 });
+    }
+  },
+);
 
-      return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
-    });
-  } catch (error) {
-    console.error("file patch failed", error);
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+export const PATCH = withGameHubAuth(
+  { permission: "game-hub:files", rateLimit: { name: "game-hub-files-patch", limit: 20, windowMs: 60_000 } },
+  async ({ req, session, name }) => {
+    const rawBody = await req.json().catch(() => null);
+    const parsed = patchBodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+    }
+    const body = parsed.data;
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  if (!checkRateLimit(rateLimitKey("game-hub-files-delete", req), 20, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
-  const { name } = await params;
-  const authz = await writableAccess(req, name);
-  if (authz.error) return authz.error;
+    try {
+      const clients = makeGameHubClients();
+      return await withServerFileExec(clients, name, "write", async ({ exec, rootPath }) => {
+        if (body.action === "rename") {
+          if (!body.from || !body.to) return NextResponse.json({ error: "rename from/to required" }, { status: 400 });
+          if (!validateContainerPath(body.from) || !validateContainerPath(body.to)
+            || !validateContainerPathWithinRoot(body.from, rootPath)
+            || !validateContainerPathWithinRoot(body.to, rootPath)) {
+            return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+          }
+          const guard = buildContainerRealpathGuard(rootPath, [
+            { path: body.from, kind: "entry" },
+            { path: body.to, kind: "destination" },
+          ], shellQuote);
+          const result = await exec(`${guard}\nmv ${shellQuote(body.from)} ${shellQuote(body.to)}`);
+          if (result.stdout.includes(PATH_ESCAPE_MARKER)) {
+            return NextResponse.json({ error: "Path resolves outside the server data directory" }, { status: 400 });
+          }
+          await auditLog("game-hub:rename", session.user?.email ?? "unknown", `${name} ${body.from} -> ${body.to}`);
+          await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "file:rename", details: `${body.from} -> ${body.to}` });
+          return NextResponse.json({ ok: true, from: body.from, to: body.to });
+        }
 
-  const path = req.nextUrl.searchParams.get("path");
-  if (!path) return NextResponse.json({ error: "path required" }, { status: 400 });
+        if (body.action === "extract") {
+          if (!body.path) return NextResponse.json({ error: "path required" }, { status: 400 });
+          if (!validateContainerPath(body.path) || !validateContainerPathWithinRoot(body.path, rootPath)) {
+            return NextResponse.json({ error: "Path must stay within the server data directory" }, { status: 400 });
+          }
+          const destDir = body.path.replace(/\/[^/]+$/, "") || "/";
+          const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
+          const isTar = body.path.endsWith(".tar.gz") || body.path.endsWith(".tgz");
+          const extractCmd = isTar
+            ? `tar -xzf ${shellQuote(body.path)} -C ${shellQuote(destDir)}`
+            : body.path.endsWith(".zip")
+              ? `unzip -o ${shellQuote(body.path)} -d ${shellQuote(destDir)}`
+              : null;
+          if (!extractCmd) return NextResponse.json({ error: "Unsupported archive format" }, { status: 400 });
+          const guard = buildContainerRealpathGuard(rootPath, [
+            { path: body.path, kind: "existing-file" },
+            { path: destDir, kind: "existing-dir" },
+          ], shellQuote);
+          // Symlink/hardlink archive members re-open the traversal hole the
+          // realpath guard closes (extract a `link -> /` entry, then walk through
+          // it), so archives containing them are rejected. tar listings expose
+          // member types up front, so tarballs are rejected BEFORE extraction.
+          // zip cannot be listed portably (busybox unzip has no zipinfo), so it
+          // is extracted then swept: every symlink under the dest is resolved with
+          // the container's own view and any that escapes the root is deleted and
+          // the request fails. The sweep is mtime-independent (unzip may restore
+          // archived timestamps), and even a symlink that momentarily survives
+          // cannot be traversed later — every read/write/list re-runs the guard.
+          const tarPrecheck = isTar
+            ? `if tar -tzvf ${shellQuote(body.path)} 2>/dev/null | grep -qE '^[lh]'; then echo ${ARCHIVE_UNSAFE_MEMBER_MARKER}; exit 1; fi; ` +
+              `if tar -tzf ${shellQuote(body.path)} 2>/dev/null | grep -qE '(^|/)\\.\\.(/|$)|^/'; then echo ${ARCHIVE_UNSAFE_MEMBER_MARKER}; exit 1; fi; `
+            : "";
+          // `iw_root` is defined by the guard prelude above ("" when root is "/");
+          // export it so the find -exec child shell can see it. find -exec (not a
+          // `for` over $(find)) keeps the sweep safe for file names with spaces or
+          // newlines. Any escaping symlink is removed and emits a byte to stdout.
+          const sweptExtract = isTar
+            ? extractCmd
+            : `export iw_root; ${extractCmd}; iw_x=$?; ` +
+              `iw_bad=$(find ${shellQuote(destDir)} -type l -exec sh -c ` +
+              `'for p do t=$(readlink -f "$p" 2>/dev/null || echo /IW_UNRESOLVABLE); case "$t/" in "$iw_root/"*) : ;; *) rm -f "$p"; echo X ;; esac; done' ` +
+              `_ {} + 2>/dev/null); ` +
+              `if [ -n "$iw_bad" ]; then echo ${ARCHIVE_UNSAFE_MEMBER_MARKER}; exit 1; fi; exit $iw_x`;
+          const command = `${guard}\n${tarPrecheck}SIZE=$(stat -c %s ${shellQuote(body.path)} 2>/dev/null || echo 0); if [ "$SIZE" -gt ${MAX_ARCHIVE_BYTES} ]; then echo ARCHIVE_TOO_LARGE; else ${sweptExtract}; fi`;
+          const result = await exec(command, 30_000);
+          if (result.stdout.includes(PATH_ESCAPE_MARKER)) {
+            return NextResponse.json({ error: "Path resolves outside the server data directory" }, { status: 400 });
+          }
+          if (result.stdout.includes(ARCHIVE_UNSAFE_MEMBER_MARKER)) {
+            return NextResponse.json({ error: "Archive contains symlink, hardlink, or unsafe path entries" }, { status: 400 });
+          }
+          if (result.stdout.includes("ARCHIVE_TOO_LARGE")) {
+            return NextResponse.json({ error: "Archive too large (max 512MB)" }, { status: 413 });
+          }
+          await auditLog("game-hub:extract", session.user?.email ?? "unknown", `${name} ${body.path}`);
+          await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "file:extract", details: body.path });
+          return NextResponse.json({ ok: true, path: body.path });
+        }
 
-  try {
-    const clients = makeGameHubClients();
-    return await withServerFileExec(clients, name, "write", async ({ exec, rootPath }) => {
-      if (!validateContainerPath(path) || !validateContainerPathWithinRoot(path, rootPath) || path.replace(/\/$/, "") === rootPath.replace(/\/$/, "")) {
-        return NextResponse.json({ error: "Cannot delete this path" }, { status: 403 });
-      }
-      // "entry" (not "existing-file"): deleting a symlink itself removes the
-      // link, never its target — only the parent must resolve in-root.
-      const guard = buildContainerRealpathGuard(rootPath, [{ path, kind: "entry" }], shellQuote);
-      const result = await exec(`${guard}\nrm -rf ${shellQuote(path)}`);
-      if (result.stdout.includes(PATH_ESCAPE_MARKER)) {
-        return NextResponse.json({ error: "Path resolves outside the server data directory" }, { status: 400 });
-      }
-      if (result.stderr) return NextResponse.json({ error: safeError(result.stderr) }, { status: 500 });
-      await auditLog("game-hub:delete-file", authz.session?.user?.email ?? "unknown", `${name} ${path}`);
-      await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: authz.session?.user?.email ?? "unknown", action: "file:delete", details: path });
-      return NextResponse.json({ deleted: true, path });
-    });
-  } catch (error) {
-    console.error("delete file failed", error);
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+        return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+      });
+    } catch (error) {
+      console.error("file patch failed", error);
+      return NextResponse.json({ error: safeError(error) }, { status: 500 });
+    }
+  },
+);
+
+export const DELETE = withGameHubAuth(
+  { permission: "game-hub:files", rateLimit: { name: "game-hub-files-delete", limit: 20, windowMs: 60_000 } },
+  async ({ req, session, name }) => {
+    const path = req.nextUrl.searchParams.get("path");
+    if (!path) return NextResponse.json({ error: "path required" }, { status: 400 });
+
+    try {
+      const clients = makeGameHubClients();
+      return await withServerFileExec(clients, name, "write", async ({ exec, rootPath }) => {
+        if (!validateContainerPath(path) || !validateContainerPathWithinRoot(path, rootPath) || path.replace(/\/$/, "") === rootPath.replace(/\/$/, "")) {
+          return NextResponse.json({ error: "Cannot delete this path" }, { status: 403 });
+        }
+        // "entry" (not "existing-file"): deleting a symlink itself removes the
+        // link, never its target — only the parent must resolve in-root.
+        const guard = buildContainerRealpathGuard(rootPath, [{ path, kind: "entry" }], shellQuote);
+        const result = await exec(`${guard}\nrm -rf ${shellQuote(path)}`);
+        if (result.stdout.includes(PATH_ESCAPE_MARKER)) {
+          return NextResponse.json({ error: "Path resolves outside the server data directory" }, { status: 400 });
+        }
+        if (result.stderr) return NextResponse.json({ error: safeError(result.stderr) }, { status: 500 });
+        await auditLog("game-hub:delete-file", session.user?.email ?? "unknown", `${name} ${path}`);
+        await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "file:delete", details: path });
+        return NextResponse.json({ deleted: true, path });
+      });
+    } catch (error) {
+      console.error("delete file failed", error);
+      return NextResponse.json({ error: safeError(error) }, { status: 500 });
+    }
+  },
+);

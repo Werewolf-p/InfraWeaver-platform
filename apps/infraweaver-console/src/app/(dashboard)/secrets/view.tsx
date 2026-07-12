@@ -1,13 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Globe, KeyRound, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
-import { ConfirmDialog, EmptyState, PageScaffold, RelativeTime, SearchInput } from "@/components/ui";
-import { useCluster } from "@/contexts/cluster-context";
-import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
+import { KeyRound, ShieldAlert, Trash2 } from "lucide-react";
+import { ConfirmDialog, DashboardStatCard, EmptyState, FilterSelect, KubeOfflineBanner, PageScaffold, RefreshButton, RelativeTime, SearchInput, SingleClusterGuard } from "@/components/ui";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
-import { cn } from "@/lib/utils";
 
 interface SecretItem {
   name: string;
@@ -29,7 +26,6 @@ function secretId(secret: Pick<SecretItem, "namespace" | "name">) {
 }
 
 export function SecretsView() {
-  const { activeId } = useCluster();
   const { can } = useRBAC();
   const canViewSecrets = can("cluster:admin");
   const [search, setSearch] = useState("");
@@ -38,33 +34,20 @@ export function SecretsView() {
   const [deleteTarget, setDeleteTarget] = useState<SecretItem | null>(null);
   const [removedSecrets, setRemovedSecrets] = useState<Set<string>>(new Set());
 
-  const { data, isLoading, isFetching, refetch, isError, error } = useQuery<SecretsResponse>({
+  const { data, isLoading, isFetching, refetch, isError, error } = useApiQuery<SecretsResponse>({
     queryKey: ["secrets-browser"],
-    queryFn: async () => {
-      const response = await fetch("/api/secrets", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to load secrets");
-      return response.json();
-    },
+    path: "/api/secrets",
     staleTime: 30_000,
     refetchInterval: 60_000,
     enabled: canViewSecrets,
   });
 
-  const deleteMutation = useMutationWithToast<{ ok: boolean; simulated?: boolean }, { namespace: string; name: string }>({
-    mutationFn: async (vars) => {
-      const response = await fetch("/api/secrets", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(vars),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error((payload as { error?: string }).error ?? "Failed to delete secret");
-      }
-      return payload as { ok: boolean; simulated?: boolean };
-    },
+  const deleteMutation = useApiMutation<{ ok: boolean; simulated?: boolean }, { namespace: string; name: string }>({
+    path: "/api/secrets",
+    method: "DELETE",
+    request: (vars) => ({ json: vars }),
     successMessage: (payload, vars) => payload.simulated ? `Deleted ${vars.name} (simulated)` : `Deleted ${vars.name}`,
-    invalidateKeys: [["secrets-browser"]],
+    invalidateQueryKeys: [["secrets-browser"]],
     onSuccess: (_, vars) => {
       setRemovedSecrets((current) => {
         const next = new Set(current);
@@ -100,48 +83,31 @@ export function SecretsView() {
 
   const managedCount = visibleSecrets.filter((secret) => secret.externalSecret).length;
 
-  if (activeId === "all") {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Globe className="mb-4 h-10 w-10 text-gray-700 dark:text-[#333]" />
-        <p className="text-sm font-medium text-gray-400 dark:text-[#666]">Select a specific cluster to view this page</p>
-        <p className="mt-1 text-xs text-gray-400 dark:text-[#444]">Use the cluster selector in the top bar</p>
-      </div>
-    );
-  }
-
   if (!canViewSecrets) {
     return (
-      <PageScaffold icon={KeyRound} title="Secrets" description="Read-only secret inventory with ExternalSecret ownership.">
-        <EmptyState
-          icon={ShieldAlert}
-          title="Cluster admin permission required"
-          description="Secret metadata is restricted to cluster:admin. Values are never returned by the API."
-        />
-      </PageScaffold>
+      <SingleClusterGuard>
+        <PageScaffold icon={KeyRound} title="Secrets" description="Read-only secret inventory with ExternalSecret ownership.">
+          <EmptyState
+            icon={ShieldAlert}
+            title="Cluster admin permission required"
+            description="Secret metadata is restricted to cluster:admin. Values are never returned by the API."
+          />
+        </PageScaffold>
+      </SingleClusterGuard>
     );
   }
 
   return (
-    <>
+    <SingleClusterGuard>
       <PageScaffold
         icon={KeyRound}
         title="Secrets"
         description="Read-only browser for Kubernetes secrets, key names, and ExternalSecret ownership. Values are never shown."
-        actions={
-          <button
-            type="button"
-            onClick={() => void refetch()}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
-          >
-            <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
-            Refresh
-          </button>
-        }
+        actions={<RefreshButton onClick={() => void refetch()} refreshing={isFetching} />}
         loading={isLoading}
         isEmpty={!isLoading && !isError && filteredSecrets.length === 0}
         isError={isError}
-        errorDetail={(error as Error)?.message}
+        errorDetail={error?.message}
         emptyState={{
           icon: KeyRound,
           title: visibleSecrets.length === 0 ? "No secrets found" : "No secrets matched",
@@ -151,29 +117,17 @@ export function SecretsView() {
         }}
       >
         <div className="space-y-6">
-          {data?.live === false ? (
-            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              Kubernetes unavailable — secret data cannot be loaded. Check cluster connectivity and service account permissions.
-            </div>
-          ) : null}
+          <KubeOfflineBanner
+            show={data?.live === false}
+            resource="secret data"
+            hint="Check cluster connectivity and service account permissions."
+          />
 
           <div className="grid gap-4 md:grid-cols-4">
-            <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Secrets</p>
-              <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{visibleSecrets.length}</p>
-            </div>
-            <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-indigo-100/80">Namespaces</p>
-              <p className="mt-2 text-3xl font-semibold text-indigo-200">{namespaces.length}</p>
-            </div>
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-emerald-100/80">ExternalSecrets</p>
-              <p className="mt-2 text-3xl font-semibold text-emerald-200">{managedCount}</p>
-            </div>
-            <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-cyan-100/80">Keys tracked</p>
-              <p className="mt-2 text-3xl font-semibold text-cyan-200">{visibleSecrets.reduce((count, secret) => count + secret.keyCount, 0)}</p>
-            </div>
+            <DashboardStatCard label="Secrets" value={visibleSecrets.length} />
+            <DashboardStatCard label="Namespaces" value={namespaces.length} tone="info" />
+            <DashboardStatCard label="ExternalSecrets" value={managedCount} tone="success" />
+            <DashboardStatCard label="Keys tracked" value={visibleSecrets.reduce((count, secret) => count + secret.keyCount, 0)} tone="info" />
           </div>
 
           <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
@@ -184,22 +138,18 @@ export function SecretsView() {
                 placeholder="Search by name, namespace, type, ExternalSecret, or key name…"
                 className="flex-1"
               />
-              <select
+              <FilterSelect
+                label="Filter by namespace"
                 value={namespaceFilter}
-                onChange={(event) => setNamespaceFilter(event.target.value)}
-                className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
-              >
-                <option value="all">All namespaces</option>
-                {namespaces.map((namespace) => <option key={namespace} value={namespace}>{namespace}</option>)}
-              </select>
-              <select
+                onChange={setNamespaceFilter}
+                options={[{ value: "all", label: "All namespaces" }, ...namespaces]}
+              />
+              <FilterSelect
+                label="Filter by type"
                 value={typeFilter}
-                onChange={(event) => setTypeFilter(event.target.value)}
-                className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
-              >
-                <option value="all">All types</option>
-                {types.map((type) => <option key={type} value={type}>{type}</option>)}
-              </select>
+                onChange={setTypeFilter}
+                options={[{ value: "all", label: "All types" }, ...types]}
+              />
             </div>
           </div>
 
@@ -270,6 +220,6 @@ export function SecretsView() {
         danger
         requireTyping={deleteTarget?.name}
       />
-    </>
+    </SingleClusterGuard>
   );
 }

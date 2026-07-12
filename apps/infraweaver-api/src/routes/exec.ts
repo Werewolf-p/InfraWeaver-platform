@@ -4,6 +4,7 @@ import * as k8s from '@kubernetes/client-node';
 import { PassThrough } from 'node:stream';
 import { getKcForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { forbidden, badRequest } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 const K8S_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
@@ -63,16 +64,16 @@ export const execRoute = new Hono<AppBindings>();
 
 execRoute.post('/', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:admin')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:admin')) return forbidden(c);
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = execBodySchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: 'Validation failed' }, 400);
+  if (!parsed.success) return badRequest(c, 'Validation failed');
   const { namespace, pod, container, command } = parsed.data;
 
-  if (!EXEC_ALLOWED_NAMESPACES.has(namespace)) return c.json({ error: 'Exec is not permitted in this namespace' }, 403);
+  if (!EXEC_ALLOWED_NAMESPACES.has(namespace)) return forbidden(c, 'Exec is not permitted in this namespace');
 
-  if (!ALLOWED_COMMANDS.has(command)) return c.json({ error: 'Command not allowed' }, 403);
+  if (!ALLOWED_COMMANDS.has(command)) return forbidden(c, 'Command not allowed');
 
   try {
     const kc = await getKcForCluster(user.clusterId);

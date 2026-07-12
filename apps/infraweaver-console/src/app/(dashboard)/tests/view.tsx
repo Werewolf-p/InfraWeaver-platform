@@ -1,21 +1,11 @@
 "use client";
 import { useState, useCallback } from "react";
-import { CheckCircle2, XCircle, Loader2, Play, Info, AlertTriangle } from "lucide-react";
+import { CheckCircle2, Loader2, Play, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { TestRunList, type TestResult } from "@/components/diagnostics/test-run-list";
 
-interface TestResult {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
-  status: "pending" | "running" | "pass" | "fail" | "skip";
-  durationMs?: number;
-  error?: string;
-  detail?: string;
-}
-
-const TEST_DEFS: Omit<TestResult, "status" | "durationMs" | "error" | "detail">[] = [
+const TEST_DEFS: Pick<TestResult, "id" | "name" | "category" | "description">[] = [
   // Authentication
   { id: "api-auth", name: "Auth Session", category: "Authentication", description: "Verifies the current session is valid" },
   // Core APIs
@@ -164,7 +154,6 @@ export function TestsView() {
     setRunning(false);
   }, []);
 
-  const categories = [...new Set(TEST_DEFS.map(t => t.category))];
   const passed = results.filter(r => r.status === "pass").length;
   const failed = results.filter(r => r.status === "fail").length;
   const skipped = results.filter(r => r.status === "skip").length;
@@ -211,48 +200,7 @@ export function TestsView() {
       )}
 
       {/* Results by category */}
-      {categories.map(cat => {
-        const catResults = results.filter(r => r.category === cat);
-        return (
-          <div key={cat} className="rounded-xl border border-gray-200 dark:border-white/10 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 dark:bg-white/[0.02] border-b border-gray-200 dark:border-white/5 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300">{cat}</h2>
-              <div className="flex gap-2">
-                {catResults.some(r => r.status === "fail") && (
-                  <span className="text-xs text-red-400">{catResults.filter(r => r.status === "fail").length} failed</span>
-                )}
-                {catResults.length > 0 && catResults.every(r => r.status === "pass") && (
-                  <span className="text-xs text-green-400">✓ All passed</span>
-                )}
-              </div>
-            </div>
-            <div className="divide-y divide-white/5">
-              {catResults.map(result => (
-                <div key={result.id} className="flex items-start gap-3 px-4 py-3">
-                  <div className="flex-none mt-0.5">
-                    {result.status === "pending" && <div className="w-4 h-4 rounded-full border-2 border-slate-200 dark:border-slate-700" />}
-                    {result.status === "running" && <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />}
-                    {result.status === "pass" && <CheckCircle2 className="w-4 h-4 text-green-400" />}
-                    {result.status === "fail" && <XCircle className="w-4 h-4 text-red-400" />}
-                    {result.status === "skip" && <Info className="w-4 h-4 text-slate-500" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{result.name}</span>
-                      {result.durationMs !== undefined && result.durationMs > 0 && (
-                        <span className="text-xs text-slate-600 font-mono">{result.durationMs.toFixed(0)}ms</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-500 mt-0.5">{result.description}</p>
-                    {result.detail && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">{result.detail}</p>}
-                    {result.error && <p className="text-xs text-red-400 mt-1 font-mono">{result.error}</p>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
+      <TestRunList results={results} grouped />
 
       {/* Info */}
       <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-500/5 border border-blue-500/20">

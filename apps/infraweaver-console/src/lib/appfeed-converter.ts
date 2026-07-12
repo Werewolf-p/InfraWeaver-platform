@@ -14,6 +14,7 @@
  *   ExtraParams            → capabilities, sysctls, runAsUser, memory limits
  */
 
+import { dump } from "js-yaml";
 import { UserError } from "./utils";
 
 export type K8sCompatTier = "simple" | "medium" | "complex";
@@ -125,28 +126,30 @@ const MEDIA_SEGMENT_KEYWORDS = new Set([
 ]);
 
 type PathVolumeKind = "pvc" | "hostPath" | "emptyDir" | "skip";
-type PathClassification = { kind: PathVolumeKind; medium?: "Memory" };
+/** Why a path was classified as emptyDir: scratch dir, media path, or media-hinting config Name. */
+type EmptyDirReason = "scratch" | "media" | "media-name";
+type PathClassification = { kind: PathVolumeKind; medium?: "Memory"; reason?: EmptyDirReason };
 
 function classifyPath(target: string, configName?: string): PathClassification {
   const p = target.replace(/\\/g, "/");
   if (RUNTIME_SKIP_PATHS.some(s => p === s || p.startsWith(s + "/"))) return { kind: "skip" };
   for (const ed of EMPTY_DIR_MOUNTS) {
-    if (p === ed.prefix || p.startsWith(ed.prefix + "/")) return { kind: "emptyDir", medium: ed.medium };
+    if (p === ed.prefix || p.startsWith(ed.prefix + "/")) return { kind: "emptyDir", medium: ed.medium, reason: "scratch" };
   }
   if (HOST_PATH_RO.some(h => p === h || p.startsWith(h + "/"))) return { kind: "hostPath" };
   // Top-level media prefix check (e.g. /movies, /tv)
-  if (MEDIA_SINK_PREFIXES.some(m => p === m || p.startsWith(m + "/"))) return { kind: "emptyDir" };
+  if (MEDIA_SINK_PREFIXES.some(m => p === m || p.startsWith(m + "/"))) return { kind: "emptyDir", reason: "media" };
   // Segment-level media keyword check (e.g. /data/tvshows, /data/movies)
   const segments = p.split("/").filter(Boolean);
   if (segments.length > 1 && segments.some(s => MEDIA_SEGMENT_KEYWORDS.has(s.toLowerCase()))) {
-    return { kind: "emptyDir" };
+    return { kind: "emptyDir", reason: "media" };
   }
   // Check configName for media keywords (e.g. Lidarr's /data has Name="Music" or "data")
   // This catches paths like /data when the AppFeed Config Name hints it's a media library.
   if (configName) {
     const nameLower = configName.toLowerCase();
     for (const kw of MEDIA_SEGMENT_KEYWORDS) {
-      if (nameLower.includes(kw)) return { kind: "emptyDir" };
+      if (nameLower.includes(kw)) return { kind: "emptyDir", reason: "media-name" };
     }
   }
   return { kind: "pvc" };
@@ -156,6 +159,15 @@ function classifyPath(target: string, configName?: string): PathClassification {
 function isDockerSocket(target: string): boolean {
   const p = target.replace(/\\/g, "/");
   return p.includes("/var/run/docker.sock") || p.includes("/run/docker.sock");
+}
+
+/** Whether any Path config mounts the docker socket, filtered by its Required flag. */
+function hasDockerSocketPath(configs: AppFeedConfig[], { required }: { required: boolean }): boolean {
+  return configs.some(c => {
+    const attrs = c["@attributes"];
+    if (attrs?.Type !== "Path" || !isDockerSocket(attrs.Target ?? "")) return false;
+    return required ? attrs.Required === "true" : attrs.Required !== "true";
+  });
 }
 
 // ── ExtraParams parser ────────────────────────────────────────────────────────
@@ -260,6 +272,7 @@ function isLinuxServerImage(image: string): boolean {
 interface VolumeInfo {
   kind: PathVolumeKind;
   medium?: "Memory";
+  reason?: EmptyDirReason;
   volumeName: string;
   mountPath: string;
   originalTarget: string;
@@ -312,6 +325,7 @@ function computeVolumeInfos(configs: AppFeedConfig[], slug: string): VolumeInfo[
     infos.push({
       kind: cls.kind,
       medium: cls.medium,
+      reason: cls.reason,
       volumeName,
       mountPath,
       originalTarget: target,
@@ -328,16 +342,7 @@ function computeVolumeInfos(configs: AppFeedConfig[], slug: string): VolumeInfo[
   // Rationale: media manager apps (Lidarr, Sonarr, Radarr…) use /data as a
   // library/download root — a NAS path on Unraid, not a config store.
   // Scratch paths (/tmp, /cache, /logs) do NOT trigger this — only named media paths do.
-  const hasMediaEmptyDir = infos.some(i => {
-    if (i.kind !== "emptyDir") return false;
-    const p = i.originalTarget;
-    if (EMPTY_DIR_MOUNTS.some(ed => p === ed.prefix || p.startsWith(ed.prefix + "/"))) return false;
-    return (
-      MEDIA_SINK_PREFIXES.some(m => p === m || p.startsWith(m + "/")) ||
-      (p.split("/").filter(Boolean).length > 1 &&
-        p.split("/").filter(Boolean).some(s => MEDIA_SEGMENT_KEYWORDS.has(s.toLowerCase())))
-    );
-  });
+  const hasMediaEmptyDir = infos.some(i => i.reason === "media");
   if (hasMediaEmptyDir) {
     for (const info of infos) {
       if (info.kind === "pvc" && info.originalTarget === "/data") {
@@ -475,9 +480,22 @@ function toSlug(name: string): string {
   return slug || "app";
 }
 
-function yamlString(value: string): string {
-  return JSON.stringify(value);
+const YAML_DUMP_OPTIONS = { lineWidth: -1, indent: 2, noRefs: true } as const;
+
+type ManifestNode = Record<string, unknown>;
+
+/** Serialize a manifest object as a `---`-prefixed YAML document with optional leading comment lines. */
+function toYamlDocument(manifest: ManifestNode, commentLines: readonly string[] = []): string {
+  const comments = commentLines.map(line => `# ${line}`);
+  return ["---", ...comments, dump(manifest, YAML_DUMP_OPTIONS).trim()].join("\n");
 }
+
+/** Rationale comment injected under the Deployment's top-level `spec:` in the committed manifest. */
+const REPLICAS_OMITTED_COMMENT = [
+  "  # replicas intentionally omitted: the console owns start/stop by scaling the",
+  "  # live Deployment. Pinning replicas in git makes ArgoCD selfHeal restart a",
+  "  # stopped workload on every sync. k8s defaults the field to 1 on first apply.",
+].join("\n");
 
 /**
  * Returns true if the value contains an unfilled placeholder like [REPLACE-WITH-IP],
@@ -493,18 +511,15 @@ function isPlaceholderValue(value?: string): boolean {
  * Includes Required=true vars, masked/secret vars, and vars with placeholder Defaults.
  */
 export function extractRequiredVariables(configs: AppFeedConfig[]): RequiredVariable[] {
-  return configs
-    .filter(c => c["@attributes"]?.Type === "Variable")
-    .map(c => {
-      const attrs = c["@attributes"];
-      const defaultValue = c.value?.trim() ? c.value : (attrs.Default ?? "");
-      const masked = attrs.Mask === "true";
-      const required = attrs.Required === "true";
-      const placeholder = isPlaceholderValue(defaultValue);
-      return { attrs, defaultValue, masked, required, placeholder };
-    })
-    .filter(({ masked, required, placeholder }) => masked || required || placeholder)
-    .map(({ attrs, defaultValue, masked, required, placeholder }) => ({
+  return configs.flatMap(c => {
+    const attrs = c["@attributes"];
+    if (attrs?.Type !== "Variable") return [];
+    const defaultValue = c.value?.trim() ? c.value : (attrs.Default ?? "");
+    const masked = attrs.Mask === "true";
+    const required = attrs.Required === "true";
+    const placeholder = isPlaceholderValue(defaultValue);
+    if (!masked && !required && !placeholder) return [];
+    return [{
       name: attrs.Name ?? attrs.Target ?? "",
       target: attrs.Target ?? "",
       description: attrs.Description,
@@ -512,7 +527,8 @@ export function extractRequiredVariables(configs: AppFeedConfig[]): RequiredVari
       masked,
       required,
       isPlaceholder: placeholder,
-    }));
+    }];
+  });
 }
 
 /**
@@ -733,11 +749,6 @@ export async function reconcileAppPortsWithImageMetadata(app: AppFeedEntry): Pro
   }
 }
 
-function indent(text: string, spaces: number): string {
-  const pad = " ".repeat(spaces);
-  return text.split("\n").map(l => (l.trim() ? pad + l : "")).join("\n");
-}
-
 function getResourceProfile(appName: string, tier: K8sCompatTier): ResourceProfile {
   return KNOWN_HEAVY_APPS[toSlug(appName)] ?? TIER_RESOURCE_PROFILES[tier];
 }
@@ -772,8 +783,12 @@ export function detectTier(app: AppFeedEntry): K8sCompatTier {
 
 // ── individual section generators ────────────────────────────────────────────
 
+type K8sEnvVar =
+  | { name: string; value: string }
+  | { name: string; valueFrom: { secretKeyRef: { name: string; key: string } } };
+
 /**
- * Build env[] lines for a Deployment.
+ * Build env[] entries for a Deployment.
  * @param configs - AppFeed Variable configs
  * @param extraEnvVars - env vars parsed from ExtraParams
  * @param addLinuxServerDefaults - inject PUID/PGID/TZ for linuxserver.io images
@@ -784,24 +799,21 @@ function buildEnvVars(
   extraEnvVars: Array<{ name: string; value: string }>,
   addLinuxServerDefaults: boolean,
   userVariables?: Record<string, string>
-): string[] {
-  const lines = configs
+): K8sEnvVar[] {
+  const envVars: K8sEnvVar[] = configs
     .filter(c => c["@attributes"]?.Type === "Variable")
     .map(c => {
       const attrs = c["@attributes"];
+      if (attrs.Mask === "true") {
+        return { name: attrs.Target, valueFrom: { secretKeyRef: { name: `${toSlug(attrs.Name)}-secret`, key: "value" } } };
+      }
       const feedDefault = c.value?.trim() ? c.value : (attrs.Default ?? "");
-      const masked = attrs.Mask === "true";
       // User-supplied value takes priority; strip any lingering placeholder brackets
       const userVal = userVariables?.[attrs.Target ?? ""];
       const value = userVal !== undefined && userVal !== ""
         ? userVal
         : feedDefault.replace(/\[[^\]]+\]/g, "").trim() || feedDefault;
-      return [
-        `            - name: ${attrs.Target}`,
-        masked
-          ? `              valueFrom:\n                secretKeyRef:\n                  name: ${toSlug(attrs.Name)}-secret\n                  key: value`
-          : `              value: ${yamlString(value)}`,
-      ].join("\n");
+      return { name: attrs.Target, value };
     });
 
   // Inject env vars from ExtraParams --env flags (skip if already defined)
@@ -810,19 +822,19 @@ function buildEnvVars(
   );
   for (const ev of extraEnvVars) {
     if (!definedNames.has(ev.name)) {
-      lines.push(`            - name: ${ev.name}\n              value: ${yamlString(ev.value)}`);
+      envVars.push({ name: ev.name, value: ev.value });
       definedNames.add(ev.name);
     }
   }
 
   // linuxserver.io images use PUID/PGID/TZ for user mapping
   if (addLinuxServerDefaults) {
-    if (!definedNames.has("PUID")) lines.push(`            - name: PUID\n              value: "1000"`);
-    if (!definedNames.has("PGID")) lines.push(`            - name: PGID\n              value: "1000"`);
-    if (!definedNames.has("TZ")) lines.push(`            - name: TZ\n              value: "UTC"`);
+    if (!definedNames.has("PUID")) envVars.push({ name: "PUID", value: "1000" });
+    if (!definedNames.has("PGID")) envVars.push({ name: "PGID", value: "1000" });
+    if (!definedNames.has("TZ")) envVars.push({ name: "TZ", value: "UTC" });
   }
 
-  return lines;
+  return envVars;
 }
 
 /** Generate a Kubernetes Secret manifest for all masked variables in the app feed entry.
@@ -845,39 +857,41 @@ function buildSecretsManifest(
     const userVal = userVariables?.[attrs.Target ?? ""];
     const secretValue = (userVal !== undefined && userVal !== "") ? userVal : (feedDefault || "change-me");
     const isPlaceholder = secretValue === "change-me" || !userVal;
-    return `---
-# Secret for ${attrs.Name} (${attrs.Target})${isPlaceholder ? "\n# ⚠ Update this placeholder value before the app will work!" : ""}
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ${secretName}
-  namespace: ${namespace}
-  labels:
-    app.kubernetes.io/name: ${slug}
-    infraweaver.io/source: community-apps
-type: Opaque
-stringData:
-  value: ${yamlString(secretValue)}`;
+    return toYamlDocument({
+      apiVersion: "v1",
+      kind: "Secret",
+      metadata: {
+        name: secretName,
+        namespace,
+        labels: {
+          "app.kubernetes.io/name": slug,
+          "infraweaver.io/source": "community-apps",
+        },
+      },
+      type: "Opaque",
+      stringData: { value: secretValue },
+    }, [
+      `Secret for ${attrs.Name} (${attrs.Target})`,
+      ...(isPlaceholder ? ["⚠ Update this placeholder value before the app will work!"] : []),
+    ]);
   });
 
   return secretDocs.join("\n");
 }
 
-function buildContainerPorts(configs: AppFeedConfig[]): string[] {
+function buildContainerPorts(configs: AppFeedConfig[]): Array<{ containerPort: number; protocol: string; name: string }> {
   return configs
     .filter(c => c["@attributes"]?.Type === "Port")
-    .map(c => {
+    .flatMap(c => {
       const attrs = c["@attributes"];
-      const proto = (attrs.Mode ?? "tcp").toUpperCase();
       const containerPort = parseInt(attrs.Target, 10);
-      if (isNaN(containerPort)) return "";
-      return [
-        `            - containerPort: ${containerPort}`,
-        `              protocol: ${proto}`,
-        `              name: ${portName(attrs.Name, containerPort, attrs.Mode)}`,
-      ].join("\n");
-    })
-    .filter(Boolean);
+      if (isNaN(containerPort)) return [];
+      return [{
+        containerPort,
+        protocol: (attrs.Mode ?? "tcp").toUpperCase(),
+        name: portName(attrs.Name, containerPort, attrs.Mode),
+      }];
+    });
 }
 
 /**
@@ -900,42 +914,25 @@ function safeMountDir(p: string): string {
   return parent && parent !== "/" ? parent : "/data";
 }
 
-function buildVolumeMounts(infos: VolumeInfo[]): string[] {
-  return infos.map(info => {
-    const lines = [
-      `            - name: ${info.volumeName}`,
-      `              mountPath: ${yamlString(info.mountPath)}`,
-    ];
-    if (info.isReadOnly) lines.push(`              readOnly: true`);
-    return lines.join("\n");
-  });
+function buildVolumeMounts(infos: VolumeInfo[]): ManifestNode[] {
+  return infos.map(info => ({
+    name: info.volumeName,
+    mountPath: info.mountPath,
+    ...(info.isReadOnly ? { readOnly: true } : {}),
+  }));
 }
 
-function buildVolumes(infos: VolumeInfo[]): string[] {
+function buildVolumes(infos: VolumeInfo[]): ManifestNode[] {
   return infos.map(info => {
     if (info.kind === "pvc") {
-      return [
-        `      - name: ${info.volumeName}`,
-        `        persistentVolumeClaim:`,
-        `          claimName: ${info.pvcName}`,
-      ].join("\n");
-    } else if (info.kind === "hostPath") {
+      return { name: info.volumeName, persistentVolumeClaim: { claimName: info.pvcName } };
+    }
+    if (info.kind === "hostPath") {
       // Detect known file paths (not directories) to use correct hostPath type
       const isFilePath = info.originalTarget === "/etc/localtime" || info.originalTarget === "/etc/timezone";
-      return [
-        `      - name: ${info.volumeName}`,
-        `        hostPath:`,
-        `          path: ${info.originalTarget}`,
-        `          type: ${isFilePath ? "File" : "DirectoryOrCreate"}`,
-      ].join("\n");
-    } else {
-      // emptyDir
-      const mediumLine = info.medium ? `\n          medium: ${info.medium}` : "";
-      return [
-        `      - name: ${info.volumeName}`,
-        `        emptyDir:{}${mediumLine}`,
-      ].join("\n").replace("emptyDir:{}", "emptyDir:");
+      return { name: info.volumeName, hostPath: { path: info.originalTarget, type: isFilePath ? "File" : "DirectoryOrCreate" } };
     }
+    return { name: info.volumeName, emptyDir: info.medium ? { medium: info.medium } : {} };
   });
 }
 
@@ -945,28 +942,31 @@ function buildPVCs(infos: VolumeInfo[], namespace: string, sizeGi: number, stora
     .map(info => {
       const adjusted = info.mountPath !== info.originalTarget
         ? ` (adjusted from file path "${info.originalTarget}")` : "";
-      return `---
-# PVC for "${info.configName}" → ${info.mountPath}${adjusted}
-# Default path on Unraid: ${info.configDefault || "(not set)"}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: ${info.pvcName}
-  namespace: ${namespace}
-  labels:
-    app.kubernetes.io/name: ${info.volumeName.replace(/-data-\d+$/, "")}
-    app.kubernetes.io/component: storage
-    infraweaver.io/source: community-apps
-  annotations:
-    infraweaver.io/unraid-path: ${yamlString(info.configDefault || info.originalTarget)}
-    infraweaver.io/required: "${info.configRequired}"
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: ${storageClass}
-  resources:
-    requests:
-      storage: ${sizeGi}Gi`;
+      return toYamlDocument({
+        apiVersion: "v1",
+        kind: "PersistentVolumeClaim",
+        metadata: {
+          name: info.pvcName,
+          namespace,
+          labels: {
+            "app.kubernetes.io/name": info.volumeName.replace(/-data-\d+$/, ""),
+            "app.kubernetes.io/component": "storage",
+            "infraweaver.io/source": "community-apps",
+          },
+          annotations: {
+            "infraweaver.io/unraid-path": info.configDefault || info.originalTarget,
+            "infraweaver.io/required": String(info.configRequired),
+          },
+        },
+        spec: {
+          accessModes: ["ReadWriteOnce"],
+          storageClassName: storageClass,
+          resources: { requests: { storage: `${sizeGi}Gi` } },
+        },
+      }, [
+        `PVC for "${info.configName}" → ${info.mountPath}${adjusted}`,
+        `Default path on Unraid: ${info.configDefault || "(not set)"}`,
+      ]);
     });
 }
 
@@ -977,54 +977,64 @@ spec:
  * namespace allows them while audit/warn stay at baseline for visibility.
  */
 function buildNamespaceManifest(namespace: string): string {
-  return `---
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${namespace}
-  labels:
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/warn: privileged
-    pod-security.kubernetes.io/audit: baseline
-    infraweaver.io/source: community-apps`;
+  return toYamlDocument({
+    apiVersion: "v1",
+    kind: "Namespace",
+    metadata: {
+      name: namespace,
+      labels: {
+        "pod-security.kubernetes.io/enforce": "privileged",
+        "pod-security.kubernetes.io/warn": "privileged",
+        "pod-security.kubernetes.io/audit": "baseline",
+        "infraweaver.io/source": "community-apps",
+      },
+    },
+  });
 }
 
-function buildService(ports: AppFeedConfig[], slug: string, namespace: string): string | null {
-  const allPorts = ports.filter(c => c["@attributes"]?.Type === "Port");
-  if (allPorts.length === 0) return null;
-
-  const portLines = allPorts
-    .map(c => {
+/**
+ * Build a ClusterIP Service from the app's Port configs.
+ * When the app has no usable Port configs, `fallbackPort` (when provided) yields a
+ * minimal single-port Service so an IngressRoute has something to route to;
+ * otherwise returns null.
+ */
+function buildService(ports: AppFeedConfig[], slug: string, namespace: string, fallbackPort?: number): string | null {
+  const servicePorts = ports
+    .filter(c => c["@attributes"]?.Type === "Port")
+    .flatMap(c => {
       const attrs = c["@attributes"];
       const containerPort = parseInt(attrs.Target, 10);
-      if (isNaN(containerPort)) return "";
-      const proto = (attrs.Mode ?? "tcp").toUpperCase();
-      return [
-        `  - port: ${containerPort}`,
-        `    targetPort: ${containerPort}`,
-        `    protocol: ${proto}`,
-        `    name: ${portName(attrs.Name, containerPort, attrs.Mode)}`,
-      ].join("\n");
-    })
-    .filter(Boolean);
+      if (isNaN(containerPort)) return [];
+      return [{
+        port: containerPort,
+        targetPort: containerPort,
+        protocol: (attrs.Mode ?? "tcp").toUpperCase(),
+        name: portName(attrs.Name, containerPort, attrs.Mode),
+      }];
+    });
 
-  if (portLines.length === 0) return null;
+  if (servicePorts.length === 0) {
+    if (fallbackPort === undefined) return null;
+    servicePorts.push({ port: fallbackPort, targetPort: fallbackPort, protocol: "TCP", name: "http" });
+  }
 
-  return `---
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${slug}
-  namespace: ${namespace}
-  labels:
-    app.kubernetes.io/name: ${slug}
-    infraweaver.io/source: community-apps
-spec:
-  selector:
-    app.kubernetes.io/name: ${slug}
-  ports:
-${portLines.map(p => indent(p, 2)).join("\n")}
-  type: ClusterIP`;
+  return toYamlDocument({
+    apiVersion: "v1",
+    kind: "Service",
+    metadata: {
+      name: slug,
+      namespace,
+      labels: {
+        "app.kubernetes.io/name": slug,
+        "infraweaver.io/source": "community-apps",
+      },
+    },
+    spec: {
+      selector: { "app.kubernetes.io/name": slug },
+      ports: servicePorts,
+      type: "ClusterIP",
+    },
+  });
 }
 
 function buildIngressRoute(
@@ -1035,31 +1045,28 @@ function buildIngressRoute(
   middleware = "forward-auth",
   middlewareNamespace = "traefik",
 ): string {
-  return `---
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: ${slug}
-  namespace: ${namespace}
-  labels:
-    app.kubernetes.io/name: ${slug}
-    infraweaver.io/source: community-apps
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(\`${host}\`)
-      kind: Rule
-      middlewares:
-        - name: ${middleware}
-          namespace: ${middlewareNamespace}
-      services:
-        - name: ${slug}
-          port: ${port}
-  tls:
-    store:
-      name: default
-      namespace: traefik`;
+  return toYamlDocument({
+    apiVersion: "traefik.io/v1alpha1",
+    kind: "IngressRoute",
+    metadata: {
+      name: slug,
+      namespace,
+      labels: {
+        "app.kubernetes.io/name": slug,
+        "infraweaver.io/source": "community-apps",
+      },
+    },
+    spec: {
+      entryPoints: ["websecure"],
+      routes: [{
+        match: `Host(\`${host}\`)`,
+        kind: "Rule",
+        middlewares: [{ name: middleware, namespace: middlewareNamespace }],
+        services: [{ name: slug, port }],
+      }],
+      tls: { store: { name: "default", namespace: "traefik" } },
+    },
+  });
 }
 
 // ── main converter ───────────────────────────────────────────────────────────
@@ -1090,12 +1097,7 @@ export function convertAppFeedEntry(
   // Block only when docker socket is explicitly Required=true.
   // Apps like UptimeKuma list docker.sock as Required=false for optional features —
   // we skip that mount and still deploy the app.
-  const hasRequiredDockerSocket = configs0.some(c =>
-    c["@attributes"]?.Type === "Path" &&
-    isDockerSocket(c["@attributes"]?.Target ?? "") &&
-    c["@attributes"]?.Required === "true"
-  );
-  if (hasRequiredDockerSocket) {
+  if (hasDockerSocketPath(configs0, { required: true })) {
     throw new UserError(`App "${appName}" requires the Docker socket and cannot run in Kubernetes — use a Kubernetes-native monitoring tool instead`);
   }
 
@@ -1133,12 +1135,7 @@ export function convertAppFeedEntry(
   }
 
   // Warn about optional docker.sock paths that are being silently skipped
-  const hasOptionalDockerSocket = configs.some(c =>
-    c["@attributes"]?.Type === "Path" &&
-    isDockerSocket(c["@attributes"]?.Target ?? "") &&
-    c["@attributes"]?.Required !== "true"
-  );
-  if (hasOptionalDockerSocket) {
+  if (hasDockerSocketPath(configs, { required: false })) {
     warnings.push("ℹ️ Docker socket mount skipped (optional feature on Unraid; not available in Kubernetes). Docker-dependent features will be unavailable.");
   }
 
@@ -1188,8 +1185,6 @@ export function convertAppFeedEntry(
   });
   if (secretsYaml && missingSecrets.length > 0) {
     warnings.push(`🔑 This app has ${missingSecrets.length} secret variable(s) with placeholder values — fill them in via 'App Configuration' before the app will work correctly.`);
-  } else if (secretsYaml) {
-    // User supplied all secret values — no warning needed
   }
 
   // Extract variables that need user input (required, masked, or placeholder defaults)
@@ -1200,9 +1195,6 @@ export function convertAppFeedEntry(
 
   // Extract image + args
   const postArgs = splitArgs(app.PostArgs ?? "");
-  const argsYaml = postArgs.length > 0
-    ? `\n          args:\n${postArgs.map(arg => `            - ${yamlString(arg)}`).join("\n")}`
-    : "";
 
   // Build env vars (with linuxserver.io PUID/PGID injection and ExtraParams envs)
   const envVars = buildEnvVars(configs, extra.envVars, isLinuxServerImage(image), options.userVariables);
@@ -1212,31 +1204,23 @@ export function convertAppFeedEntry(
   const pvcs = buildPVCs(volumeInfos, namespace, pvcSizeGi, storageClass);
 
   // ── Container security context ──────────────────────────────────────────────
-  const secCtxLines: string[] = [];
+  let containerSecurityContext: ManifestNode | undefined;
   if (isPrivileged) {
-    secCtxLines.push("privileged: true");
+    containerSecurityContext = { privileged: true };
   } else if (extra.caps.length > 0) {
     // Add capabilities from ExtraParams (e.g. NET_ADMIN, SYS_MODULE for WireGuard)
-    secCtxLines.push("capabilities:");
-    secCtxLines.push("  add:");
-    for (const cap of extra.caps) secCtxLines.push(`    - ${cap}`);
+    containerSecurityContext = { capabilities: { add: [...extra.caps] } };
   }
   // Note: we deliberately do NOT set allowPrivilegeEscalation: false — many community
   // apps use setuid binaries or spawn privileged child processes and would crash silently.
 
   // ── Pod-level security context ──────────────────────────────────────────────
-  const fsGroup = extra.runAsGroup ?? 1000;
-  const podSecCtxParts: string[] = [`fsGroup: ${fsGroup}`];
-  if (extra.runAsUser !== undefined) podSecCtxParts.push(`runAsUser: ${extra.runAsUser}`);
-  if (extra.runAsGroup !== undefined) podSecCtxParts.push(`runAsGroup: ${extra.runAsGroup}`);
+  const podSecurityContext: ManifestNode = { fsGroup: extra.runAsGroup ?? 1000 };
+  if (extra.runAsUser !== undefined) podSecurityContext.runAsUser = extra.runAsUser;
+  if (extra.runAsGroup !== undefined) podSecurityContext.runAsGroup = extra.runAsGroup;
   if (extra.sysctls.length > 0) {
-    podSecCtxParts.push("sysctls:");
-    for (const s of extra.sysctls) {
-      podSecCtxParts.push(`  - name: ${s.name}`);
-      podSecCtxParts.push(`    value: ${yamlString(s.value)}`);
-    }
+    podSecurityContext.sysctls = extra.sysctls.map(s => ({ name: s.name, value: s.value }));
   }
-  const podSecCtxYaml = indent(podSecCtxParts.join("\n"), 8);
 
   // ── Resources — respect ExtraParams --memory ────────────────────────────────
   const baseResources = getResourceProfile(appName, tier);
@@ -1248,91 +1232,77 @@ export function convertAppFeedEntry(
   // startupProbe gives the container up to (failureThreshold × periodSeconds) seconds
   // to start before liveness/readiness probes begin, preventing CrashLoopBackOff.
   const probePort = getProbePort(configs);
-  const hasPvcs = pvcs.length > 0;
   // Stateful apps (PVCs) can take longer: 10 min; stateless: 5 min
-  const startupFailureThreshold = hasPvcs ? 120 : 60;
-  const probeYaml = probePort !== null
-    ? [
-      "          startupProbe:",
-      "            tcpSocket:",
-      `              port: ${probePort}`,
-      "            initialDelaySeconds: 5",
-      "            periodSeconds: 5",
-      `            failureThreshold: ${startupFailureThreshold}`,
-      "          readinessProbe:",
-      "            tcpSocket:",
-      `              port: ${probePort}`,
-      "            periodSeconds: 10",
-      "            failureThreshold: 3",
-      "          livenessProbe:",
-      "            tcpSocket:",
-      `              port: ${probePort}`,
-      "            periodSeconds: 30",
-      "            failureThreshold: 3",
-    ].join("\n")
-    : "";
+  const startupFailureThreshold = pvcs.length > 0 ? 120 : 60;
 
   // ── shm-size → emptyDir volume at /dev/shm ──────────────────────────────────
-  const shmVolumeMount = extra.shmSize
-    ? `            - name: dshm\n              mountPath: "/dev/shm"` : "";
-  const shmVolume = extra.shmSize
-    ? `      - name: dshm\n        emptyDir:\n          medium: Memory\n          sizeLimit: ${extra.shmSize}` : "";
+  const allVolumeMounts: ManifestNode[] = [
+    ...volumeMounts,
+    ...(extra.shmSize ? [{ name: "dshm", mountPath: "/dev/shm" }] : []),
+  ];
+  const allVolumes: ManifestNode[] = [
+    ...volumes,
+    ...(extra.shmSize ? [{ name: "dshm", emptyDir: { medium: "Memory", sizeLimit: extra.shmSize } }] : []),
+  ];
 
-  const allVolumeMounts = [...volumeMounts, ...(shmVolumeMount ? [shmVolumeMount] : [])];
-  const allVolumes = [...volumes, ...(shmVolume ? [shmVolume] : [])];
+  const container: ManifestNode = { name: slug, image };
+  if (postArgs.length > 0) container.args = postArgs;
+  if (envVars.length > 0) container.env = envVars;
+  if (containerPorts.length > 0) container.ports = containerPorts;
+  if (probePort !== null) {
+    container.startupProbe = {
+      tcpSocket: { port: probePort },
+      initialDelaySeconds: 5,
+      periodSeconds: 5,
+      failureThreshold: startupFailureThreshold,
+    };
+    container.readinessProbe = { tcpSocket: { port: probePort }, periodSeconds: 10, failureThreshold: 3 };
+    container.livenessProbe = { tcpSocket: { port: probePort }, periodSeconds: 30, failureThreshold: 3 };
+  }
+  if (allVolumeMounts.length > 0) container.volumeMounts = allVolumeMounts;
+  if (containerSecurityContext) container.securityContext = containerSecurityContext;
+  container.resources = {
+    requests: { memory: resources.memReq, cpu: resources.cpuReq },
+    limits: { memory: memLimit, cpu: resources.cpuLimit },
+  };
 
-  const hostPidLine = extra.hostPID ? "\n      hostPID: true" : "";
-  const containerSecCtxYaml = secCtxLines.length > 0
-    ? `          securityContext:\n${indent(secCtxLines.join("\n"), 12)}\n`
-    : "";
+  const podSpec: ManifestNode = {};
+  if (isHostNetwork) podSpec.hostNetwork = true;
+  if (extra.hostPID) podSpec.hostPID = true;
+  podSpec.enableServiceLinks = false;
+  podSpec.securityContext = podSecurityContext;
+  podSpec.containers = [container];
+  if (allVolumes.length > 0) podSpec.volumes = allVolumes;
 
-  const deploymentYaml = `---
-# Generated by InfraWeaver Community Apps from Unraid AppFeed
-# Source: ${app.TemplateURL ?? ""}
-# Category: ${(app.CategoryList ?? []).join(", ")}
-# Stars: ${app.stars ?? 0} | Downloads: ${app.downloads ?? 0}
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${slug}
-  namespace: ${namespace}
-  labels:
-    app.kubernetes.io/name: ${slug}
-    app.kubernetes.io/managed-by: infraweaver
-    infraweaver.io/source: community-apps
-    infraweaver.io/tier: ${tier}
-spec:
-  # replicas intentionally omitted: the console owns start/stop by scaling the
-  # live Deployment. Pinning replicas in git makes ArgoCD selfHeal restart a
-  # stopped workload on every sync. k8s defaults the field to 1 on first apply.
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: ${slug}
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: ${slug}
-    spec:${isHostNetwork ? "\n      hostNetwork: true" : ""}${hostPidLine}
-      enableServiceLinks: false
-      securityContext:
-${podSecCtxYaml}
-      containers:
-        - name: ${slug}
-          image: ${image}${argsYaml}
-${envVars.length > 0 ? `          env:\n${envVars.join("\n")}` : "          # No environment variables defined"}
-${containerPorts.length > 0 ? `          ports:\n${containerPorts.join("\n")}` : "          # No ports defined"}
-${probeYaml}
-${allVolumeMounts.length > 0 ? `          volumeMounts:\n${allVolumeMounts.join("\n")}` : "          # No volume mounts defined"}
-${containerSecCtxYaml}          resources:
-            requests:
-              memory: ${yamlString(resources.memReq)}
-              cpu: ${yamlString(resources.cpuReq)}
-            limits:
-              memory: ${yamlString(memLimit)}
-              cpu: ${yamlString(resources.cpuLimit)}
-${allVolumes.length > 0 ? `      volumes:\n${allVolumes.join("\n")}` : "      # No volumes defined"}`;
+  const deploymentYaml = toYamlDocument({
+    apiVersion: "apps/v1",
+    kind: "Deployment",
+    metadata: {
+      name: slug,
+      namespace,
+      labels: {
+        "app.kubernetes.io/name": slug,
+        "app.kubernetes.io/managed-by": "infraweaver",
+        "infraweaver.io/source": "community-apps",
+        "infraweaver.io/tier": tier,
+      },
+    },
+    // replicas intentionally omitted (see REPLICAS_OMITTED_COMMENT injected below)
+    spec: {
+      strategy: { type: "Recreate" },
+      selector: { matchLabels: { "app.kubernetes.io/name": slug } },
+      template: {
+        metadata: { labels: { "app.kubernetes.io/name": slug } },
+        spec: podSpec,
+      },
+    },
+  }, [
+    "Generated by InfraWeaver Community Apps from Unraid AppFeed",
+    `Source: ${app.TemplateURL ?? ""}`,
+    `Category: ${(app.CategoryList ?? []).join(", ")}`,
+    `Stars: ${app.stars ?? 0} | Downloads: ${app.downloads ?? 0}`,
+    // Keep the omitted-replicas rationale visible in the committed manifest, right under `spec:`.
+  ]).replace("\nspec:\n", `\nspec:\n${REPLICAS_OMITTED_COMMENT}\n`);
 
   const portConfigs = configs.filter(c => c["@attributes"]?.Type === "Port");
   let serviceYaml = buildService(portConfigs, slug, namespace);
@@ -1390,24 +1360,7 @@ ${allVolumes.length > 0 ? `      volumes:\n${allVolumes.join("\n")}` : "      # 
       // If no Service was generated (no Port configs), create a minimal fallback Service
       // using the ingressPort so the IngressRoute has something to route to.
       if (!serviceYaml) {
-        serviceYaml = `---
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${slug}
-  namespace: ${namespace}
-  labels:
-    app.kubernetes.io/name: ${slug}
-    infraweaver.io/source: community-apps
-spec:
-  selector:
-    app.kubernetes.io/name: ${slug}
-  ports:
-  - port: ${ingressPort}
-    targetPort: ${ingressPort}
-    protocol: TCP
-    name: http
-  type: ClusterIP`;
+        serviceYaml = buildService(portConfigs, slug, namespace, ingressPort);
       }
       const baseDomain = options.ingressDomain ?? process.env.BASE_DOMAIN ?? "local";
       const host = options.ingressHost ?? `${slug}.int.${baseDomain}`;
@@ -1480,11 +1433,7 @@ export function summarizeApp(app: AppFeedEntry): AppFeedSummary {
 
   // Only mark incompatible when docker.sock is Required=true.
   // Apps with optional docker.sock (like UptimeKuma) still work without it.
-  const hasRequiredDockerSocket = configs.some(c =>
-    c["@attributes"]?.Type === "Path" &&
-    isDockerSocket(c["@attributes"]?.Target ?? "") &&
-    c["@attributes"]?.Required === "true"
-  );
+  const hasRequiredDockerSocket = hasDockerSocketPath(configs, { required: true });
 
   const summary: AppFeedSummary = {
     name: app.Name,

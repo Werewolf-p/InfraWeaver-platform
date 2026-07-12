@@ -155,10 +155,21 @@ export async function createSiteHandler(req: NextRequest): Promise<NextResponse>
   });
 }
 
-/** Public-ish config for the create form: the domain dropdown + plugin catalog. */
+/** Config for the create form: the domain dropdown + plugin catalog. */
 export async function getConfigHandler(): Promise<NextResponse> {
   const gate = await authorize("wordpress:read");
-  if (!gate.ok && !gate.ctx) return gate.error;
+  if (!gate.ok) {
+    if (!gate.ctx) return gate.error;
+    // Mirror listSitesHandler: a blanket "/wordpress" grant gets the full config;
+    // users scoped to specific sites get only the plugin catalog — the managed
+    // domain list and internal gating subdomain are infrastructure topology and
+    // stay withheld. Sessions with zero wordpress grants are refused outright.
+    if (!hasAllWordpressAccess(gate.ctx.roleAssignments)) {
+      const scoped = getScopedWordpressSites(gate.ctx.roleAssignments);
+      if (scoped.length === 0) return gate.error;
+      return json({ domains: [], defaultDomain: "", internalSubdomain: "", catalog: PLUGIN_CATALOG });
+    }
+  }
   return guard(async () => {
     const domains = await listDomains();
     return json({

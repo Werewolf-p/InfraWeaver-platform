@@ -21,7 +21,9 @@ export async function POST(
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["users:invite", "users:write", "rbac:admin"])) {
+  // users:invite is deliberately excluded: it is the low-privilege enrollment
+  // role (C3/C4 hardening) and must never authorize destructive lifecycle actions.
+  if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -1,21 +1,11 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
+import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { loadClusterEvents } from "@/lib/ops-data";
+import { withAuth } from "@/lib/with-auth";
 
-const notificationPostSchema = z.object({
-  title: z.string().min(1),
-  body: z.string().optional(),
-  level: z.string().optional(),
-});
-
-export async function GET() {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+// Auth-only wrapper: a reader without any read permission still gets a 200
+// with an EMPTY payload (the notification bell renders quietly) — never a 403.
+export const GET = withAuth({}, async ({ session }) => {
   const access = await getSessionRBACContext(session, 60);
   if (!hasAnySessionPermission(access, ["apps:read", "cluster:read", "infra:read", "security:read", "config:read"])) {
     return NextResponse.json({ notifications: [], counts: { warning: 0, error: 0 }, live: false });
@@ -42,35 +32,4 @@ export async function GET() {
     },
     live,
   });
-}
-
-export async function POST(request: Request) {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "config:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const rawBody = await request.json().catch(() => ({}));
-  const parsed = notificationPostSchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
-  }
-  const { title, body: notifBody, level = "info" } = parsed.data;
-
-  return NextResponse.json({
-    success: true,
-    notification: {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      title,
-      body: notifBody,
-      level,
-      timestamp: Date.now(),
-      read: false,
-    },
-  });
-}
+});

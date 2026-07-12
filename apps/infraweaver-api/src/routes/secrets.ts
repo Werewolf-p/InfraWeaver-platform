@@ -1,13 +1,15 @@
 import { Hono } from 'hono';
 import { getCoreApiForCluster, getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { errMessage } from '../lib/errors.js';
+import { forbidden, badRequest, upstream } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 export const secretsRoute = new Hono<AppBindings>();
 
 secretsRoute.get('/', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'security:read') && !hasPermission(user, 'cluster:admin')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'security:read') && !hasPermission(user, 'cluster:admin')) return forbidden(c);
   const namespace = c.req.query('namespace');
   try {
     const [coreApi, customApi] = await Promise.all([
@@ -55,8 +57,8 @@ secretsRoute.get('/', async (c) => {
 
 secretsRoute.delete('/:namespace/:name', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:admin')) return c.json({ error: 'Forbidden' }, 403);
-  if (user.clusterId === 'all') return c.json({ error: 'Select a specific cluster before performing this action' }, 400);
+  if (!hasPermission(user, 'cluster:admin')) return forbidden(c);
+  if (user.clusterId === 'all') return badRequest(c, 'Select a specific cluster before performing this action');
 
   const { namespace, name } = c.req.param();
   try {
@@ -64,6 +66,6 @@ secretsRoute.delete('/:namespace/:name', async (c) => {
     await coreApi.deleteNamespacedSecret({ namespace, name });
     return c.json({ ok: true, namespace, name });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : 'Operation failed' }, 502);
+    return upstream(c, errMessage(err, 'Operation failed'));
   }
 });

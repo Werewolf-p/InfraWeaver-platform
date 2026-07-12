@@ -1,11 +1,11 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "@/lib/notify";
 import { Terminal } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
 
 interface Pod {
@@ -28,13 +28,9 @@ export default function PodShellPage() {
   const [output, setOutput] = useState<{ text: string; isError: boolean }[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const { data: podsData } = useQuery({
+  const { data: podsData } = useApiQuery<Pod[]>({
     queryKey: ["pods"],
-    queryFn: async () => {
-      const res = await fetch("/api/pods");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<Pod[]>;
-    },
+    path: "/api/pods",
   });
 
   const pods = podsData ?? [];

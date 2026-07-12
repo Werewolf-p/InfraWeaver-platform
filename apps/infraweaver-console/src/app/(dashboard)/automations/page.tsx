@@ -1,14 +1,13 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Activity, GitBranch, Play, ShieldAlert, Sparkles, Workflow } from "lucide-react";
-import { toast } from "@/lib/notify";
 import { DataCard } from "@/components/ui/data-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { timeAgo } from "@/lib/utils";
 
 interface ClusterAutomation {
@@ -50,37 +49,20 @@ interface AutomationPayload {
 export default function AutomationsPage() {
   const { canAny } = usePermissions();
   const canView = canAny(["infra:read", "cluster:read"]);
-  const queryClient = useQueryClient();
 
-  const automationQuery = useQuery<AutomationPayload>({
+  const automationQuery = useApiQuery<AutomationPayload>({
     queryKey: ["automation-overview"],
-    queryFn: async () => {
-      const response = await fetch("/api/automation/overview", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to load automation overview");
-      return response.json();
-    },
+    path: "/api/automation/overview",
+    request: { cache: "no-store" },
     enabled: canView,
     refetchInterval: 30_000,
   });
 
-  const triggerMutation = useMutation({
-    mutationFn: async ({ namespace, name }: { namespace: string; name: string }) => {
-      const response = await fetch("/api/cluster/trigger-cronjob", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ namespace, name }),
-      });
-      const payload = await response.json() as { ok?: boolean; error?: string; simulated?: boolean; jobName?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Failed to trigger automation");
-      return payload;
-    },
-    onSuccess: (payload, variables) => {
-      toast.success(payload.simulated ? `Simulated ${variables.name}` : `Triggered ${variables.name}`);
-      void queryClient.invalidateQueries({ queryKey: ["automation-overview"] });
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to trigger automation");
-    },
+  const triggerMutation = useApiMutation<{ ok?: boolean; error?: string; simulated?: boolean; jobName?: string }, { namespace: string; name: string }>({
+    path: "/api/cluster/trigger-cronjob",
+    successMessage: (payload, variables) => (payload.simulated ? `Simulated ${variables.name}` : `Triggered ${variables.name}`),
+    errorMessage: (error) => (error instanceof Error ? error.message : "Failed to trigger automation"),
+    invalidateQueryKeys: [["automation-overview"]],
   });
 
   if (!canView) {

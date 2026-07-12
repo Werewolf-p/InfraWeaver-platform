@@ -20,8 +20,7 @@
 // The worked example — jellyfin RO and nextcloud RW on the same `media` folder —
 // is exactly one POST with two targets.
 
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { auditLog } from "@/lib/audit-log";
 import { gitCommitFiles, gitReadFile } from "@/lib/git-provider";
 import { parseAllowedInternalUrlAsync } from "@/lib/internal-url-allowlist-server";
@@ -40,11 +39,13 @@ import {
 } from "@/lib/nas/manifest";
 import { ensureProviderSmbCredentials } from "@/lib/nas/mount-credentials";
 import { normalizeSubfolder } from "@/lib/nas/paths";
-import { getResolvedNasProvider, resolveNasCredentials, resolveNasProviders } from "@/lib/nas/providers";
+import { resolveNasCredentials } from "@/lib/nas/providers";
+import { requireNasProvider } from "@/lib/nas/route-helpers";
 import { nasCredsLogicalPath } from "@/lib/nas/store";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 import { z } from "zod";
 
 const K8S_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
@@ -113,10 +114,8 @@ function findWorkload(docs: unknown[], kind: string, name: string, namespace: st
 
 interface CommitFile { path: string; content: string }
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  const actor = session?.user?.email ?? "unauthenticated";
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const POST = withAuth({ logMutating: true }, async ({ req, session }) => {
+  const actor = session.user?.email ?? "unauthenticated";
   const rbac = await getSessionRBACContext(session, 60);
   // `nas:write` governs the NAS side and may be held on a `/nas/...` scope alone;
   // the exact folder is checked against its own scope further down. Patching a
@@ -150,11 +149,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const provider = await getResolvedNasProvider(body.provider);
-    if (!provider) {
-      const registered = (await resolveNasProviders()).map((p) => p.id).join(", ") || "(none)";
-      return NextResponse.json({ error: `Unknown NAS provider '${body.provider}'. Registered: ${registered}` }, { status: 400 });
-    }
+    const resolvedProvider = await requireNasProvider(body.provider, "listed");
+    if (resolvedProvider.response) return resolvedProvider.response;
+    const provider = resolvedProvider.provider;
     const backend: NasBackend = body.backend ?? provider.backends[0];
     if (!provider.backends.includes(backend)) {
       return NextResponse.json({ error: `Provider '${body.provider}' does not support backend '${backend}'` }, { status: 400 });
@@ -305,12 +302,10 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  const actor = session?.user?.email ?? "unauthenticated";
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const DELETE = withAuth({ logMutating: true }, async ({ req, session }) => {
+  const actor = session.user?.email ?? "unauthenticated";
   const rbac = await getSessionRBACContext(session, 60);
   if (!canWriteStorage(rbac) || !hasSessionPermission(rbac, "catalog:write")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -334,8 +329,9 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: safeError(error) }, { status: 400 });
     }
 
-    const provider = await getResolvedNasProvider(body.provider);
-    if (!provider) return NextResponse.json({ error: `Unknown NAS provider '${body.provider}'` }, { status: 400 });
+    const resolvedProvider = await requireNasProvider(body.provider, "named");
+    if (resolvedProvider.response) return resolvedProvider.response;
+    const provider = resolvedProvider.provider;
 
     // Same authority as mounting: an unmount the ACL would have blocked as a
     // mount must not be reachable either.
@@ -399,4 +395,4 @@ export async function DELETE(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

@@ -4,35 +4,29 @@ import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { validateK8sName, validateK8sNamespace } from "@/lib/api-security";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
+import { makeCoreApi } from "@/lib/kube-client";
 import { invalidatePodCaches } from "@/lib/performance-cache";
-import { isPodInstalling } from "@/lib/pod-install-state";
 import { logMutatingAccess } from "@/lib/access-log";
-import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
+import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import * as k8s from "@kubernetes/client-node";
+import { requireSingleCluster } from "@/lib/route-utils";
+import { withAuth } from "@/lib/with-auth";
+import { restartPodSafely } from "../../restart-pod";
 
 function serializeYaml(value: unknown) {
   return dump(JSON.parse(JSON.stringify(value)), { noRefs: true, lineWidth: 120 });
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ namespace: string; name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["cluster:read", "infra:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const { namespace, name } = await params;
+export const GET = withAuth<{ namespace: string; name: string }>(
+  { permission: ["cluster:read", "infra:read"] },
+  async ({ req, params }) => {
+  const { namespace, name } = params;
   const namespaceErr = validateK8sNamespace(namespace);
   if (namespaceErr) return NextResponse.json(namespaceErr.error, { status: namespaceErr.status });
   const nameErr = validateK8sName(name);
   if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   try {
-    const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
-    const pod = await coreApi.readNamespacedPod({ name, namespace });
+    const pod = await makeCoreApi(getRequestClusterId(req)).readNamespacedPod({ name, namespace });
     const statuses = pod.status?.containerStatuses ?? [];
 
     return NextResponse.json({
@@ -59,7 +53,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   } catch {
     return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
-}
+});
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ namespace: string; name: string }> }) {
   const session = await auth();
@@ -82,26 +76,19 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
   if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
   const force = new URL(req.url).searchParams.get("force") === "true";
   try {
-    const clusterId = getRequestClusterId(req);
-    if (clusterId === "all") {
-      return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
-    }
-    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
+    const cluster = requireSingleCluster(req);
+    if (cluster instanceof NextResponse) return cluster;
+    const coreApi = makeCoreApi(cluster.clusterId);
 
-    // Refuse to delete a pod mid-install unless forced: for a Recreate-strategy
-    // Deployment the replacement re-runs the whole install, so a delete repeated
-    // during a rollout churns it. A deliberate operator delete passes ?force=true.
-    if (!force) {
-      const pod = await coreApi.readNamespacedPod({ name, namespace }).catch(() => null);
-      if (pod && isPodInstalling(pod)) {
-        return NextResponse.json(
-          { error: "Pod is still installing; refusing to delete. Retry with ?force=true to override.", skippedInstalling: true },
-          { status: 409 },
-        );
-      }
+    // Refuse to delete a pod mid-install unless forced: a deliberate operator
+    // delete passes ?force=true.
+    const outcome = await restartPodSafely(coreApi, { namespace, name }, force);
+    if (outcome === "skipped-installing") {
+      return NextResponse.json(
+        { error: "Pod is still installing; refusing to delete. Retry with ?force=true to override.", skippedInstalling: true },
+        { status: 409 },
+      );
     }
-
-    await coreApi.deleteNamespacedPod({ name, namespace });
     await auditLog("pod:delete", session.user?.email ?? "unknown", `deleted pod ${namespace}/${name}${force ? " (forced)" : ""}`);
     invalidatePodCaches();
     return NextResponse.json({ ok: true });

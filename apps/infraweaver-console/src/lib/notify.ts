@@ -30,37 +30,24 @@ function pushToHistory(title: unknown, level: NotificationPushDetail["level"]) {
 
 // Re-export a toast object compatible with sonner's API that additionally
 // dispatches a bell-history event on every error/warning/success/info call.
-// We use a Proxy so all other methods (loading, custom, promise, etc.) pass through.
+// All other methods (loading, custom, promise, etc.) are copied over by spreading
+// sonner's toast object at import time; only the four leveled methods are wrapped.
+const LEVELS = ["error", "warning", "success", "info"] as const;
+
 const _wrapped = {
   ..._toast,
-  error(
-    title: Parameters<typeof _toast.error>[0],
-    opts?: Parameters<typeof _toast.error>[1],
-  ) {
-    pushToHistory(title, "error");
-    return _toast.error(title, opts);
-  },
-  warning(
-    title: Parameters<typeof _toast.warning>[0],
-    opts?: Parameters<typeof _toast.warning>[1],
-  ) {
-    pushToHistory(title, "warning");
-    return _toast.warning(title, opts);
-  },
-  success(
-    title: Parameters<typeof _toast.success>[0],
-    opts?: Parameters<typeof _toast.success>[1],
-  ) {
-    pushToHistory(title, "success");
-    return _toast.success(title, opts);
-  },
-  info(
-    title: Parameters<typeof _toast.info>[0],
-    opts?: Parameters<typeof _toast.info>[1],
-  ) {
-    pushToHistory(title, "info");
-    return _toast.info(title, opts);
-  },
+  ...(Object.fromEntries(
+    LEVELS.map((level) => [
+      level,
+      (
+        title: Parameters<typeof _toast.error>[0],
+        opts?: Parameters<typeof _toast.error>[1],
+      ) => {
+        pushToHistory(title, level);
+        return _toast[level](title, opts);
+      },
+    ]),
+  ) as Pick<typeof _toast, (typeof LEVELS)[number]>),
 };
 
 function toastFn(...args: Parameters<typeof _toast>) {

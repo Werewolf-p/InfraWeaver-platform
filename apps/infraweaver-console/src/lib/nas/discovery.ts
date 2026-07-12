@@ -6,11 +6,12 @@
  * "save & test" flow in the providers route can validate credentials against a
  * live NAS before persisting them.
  *
- * Every outbound call goes through `fetchNasService`, which pins requests to
- * the SSRF allowlist AND to the appliance's operator-confirmed TLS certificate
- * fingerprint. The host is taken from a resolved provider config, except on the
- * wizard's save-and-test path, where it is the not-yet-stored host the wizard
- * cleared with `isAllowedInternalHostForWizard` and passed as `wizardHost`.
+ * Every outbound call goes through the `synoRequest`/`truenasRequest` clients,
+ * which pin requests to the SSRF allowlist AND to the appliance's
+ * operator-confirmed TLS certificate fingerprint. The host is taken from a
+ * resolved provider config, except on the wizard's save-and-test path, where it
+ * is the not-yet-stored host the wizard cleared with
+ * `isAllowedInternalHostForWizard` and passed as `wizardHost`.
  *
  * Error contract for the `*List*` adapters: an ordinary failure (bad password,
  * appliance error, malformed body) degrades to `[]`, but a TLS certificate
@@ -20,12 +21,13 @@
  * it; `@/app/api/nas/{shares,folders}` turn it into a 409 challenge.
  */
 
-import {
-  fetchNasService,
-  isNasCertificateError,
-  type NasPeerCertificate,
-} from "@/lib/nas/pinned-fetch";
+import { isNasCertificateError, type NasPeerCertificate } from "@/lib/nas/pinned-fetch";
 import type { StoredNasCredentials } from "@/lib/nas/store";
+import { synoListShares, synoRequest, toSynologyConn, type SynologyConn } from "@/lib/nas/synology-api";
+import { truenasRequest, type TruenasConnection } from "@/lib/nas/truenas-api";
+
+export type { SynologyConn };
+export type TruenasConn = TruenasConnection;
 
 export interface NasShare {
   name: string;
@@ -38,141 +40,92 @@ export interface NasFolder {
   path: string;
 }
 
-/** Connection details shared by every adapter. `tlsFingerprint256` is the pin
- *  the operator confirmed; without it an HTTPS call fails closed. */
-interface NasConn {
-  host: string;
-  port: number;
-  tlsFingerprint256?: string;
-  /**
-   * Set to `host` by the wizard only, once `isAllowedInternalHostForWizard` has
-   * cleared it, so the save-and-test probe can reach an appliance that is not on
-   * the SSRF allowlist yet (it joins the allowlist only once stored). Adapters
-   * driven from a resolved provider leave this unset.
-   */
-  wizardHost?: string;
-}
-
-export interface SynologyConn extends NasConn {
-  user: string;
-  password: string;
-}
-
-export interface TruenasConn extends NasConn {
-  apiKey: string;
-}
-
 const PROBE_TIMEOUT_MS = 5000;
 
-/** TrueNAS serves its REST API under `/api/v2.0` — `/api/v2` is a 404. */
-function truenasBase(conn: NasConn): string {
-  return `https://${conn.host}:${conn.port}/api/v2.0`;
+/**
+ * Run one NAS call with the adapters' error contract: an ordinary failure
+ * degrades to `fallback`, but a `NasCertificate*Error` is rethrown because it
+ * is operator-actionable configuration state, not a "wrong password".
+ */
+async function withNasFallback<T>(fallback: T, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (isNasCertificateError(error)) throw error;
+    return fallback;
+  }
 }
 
 export async function synologyLogin(conn: SynologyConn): Promise<string | null> {
-  const user = encodeURIComponent(conn.user);
-  const pass = encodeURIComponent(conn.password);
   if (!conn.user || !conn.password) return null;
-  try {
-    const res = await fetchNasService(
-      `https://${conn.host}:${conn.port}/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login&account=${user}&passwd=${pass}&session=FileStation&format=sid`,
-      { timeoutMs: PROBE_TIMEOUT_MS },
-      { pin: conn.tlsFingerprint256, wizardHost: conn.wizardHost },
+  return withNasFallback<string | null>(null, async () => {
+    const data = await synoRequest<{ success: boolean; data?: { sid: string } }>(
+      conn,
+      "SYNO.API.Auth",
+      "login",
+      { version: "3", account: conn.user, passwd: conn.password, session: "FileStation", format: "sid" },
+      PROBE_TIMEOUT_MS,
     );
-    const data = (await res.json()) as { success: boolean; data?: { sid: string } };
     return data.success ? data.data?.sid ?? null : null;
-  } catch (error) {
-    // A cert problem is an operator-actionable configuration state, not a
-    // "wrong password" — let it reach the caller instead of becoming `null`.
-    if (isNasCertificateError(error)) throw error;
-    return null;
-  }
+  });
 }
 
 export async function synologyListShares(conn: SynologyConn): Promise<NasShare[]> {
   const sid = await synologyLogin(conn);
   if (!sid) return [];
-  try {
-    const res = await fetchNasService(
-      `https://${conn.host}:${conn.port}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list_share&SID=${sid}`,
-      { timeoutMs: PROBE_TIMEOUT_MS },
-      { pin: conn.tlsFingerprint256, wizardHost: conn.wizardHost },
-    );
-    const data = (await res.json()) as {
-      success: boolean;
-      data?: { shares: Array<{ name: string; additional?: { real_path?: string }; desc?: string }> };
-    };
-    if (!data.success) return [];
-    return (data.data?.shares ?? []).map((share) => ({
+  return withNasFallback<NasShare[]>([], async () => {
+    const shares = await synoListShares(conn, sid, PROBE_TIMEOUT_MS);
+    return shares.map((share) => ({
       name: share.name,
       desc: share.desc ?? "",
       path: share.additional?.real_path ?? `/${share.name}`,
     }));
-  } catch (error) {
-    if (isNasCertificateError(error)) throw error;
-    return [];
-  }
+  });
 }
 
 export async function synologyListFolders(conn: SynologyConn, share: string): Promise<NasFolder[]> {
   const sid = await synologyLogin(conn);
   if (!sid) return [];
-  try {
-    const folderPath = encodeURIComponent(`/${share}`);
-    const res = await fetchNasService(
-      `https://${conn.host}:${conn.port}/webapi/entry.cgi?api=SYNO.FileStation.List&version=2&method=list&folder_path=${folderPath}&filetype=dir&SID=${sid}`,
-      { timeoutMs: PROBE_TIMEOUT_MS },
-      { pin: conn.tlsFingerprint256, wizardHost: conn.wizardHost },
+  return withNasFallback<NasFolder[]>([], async () => {
+    const data = await synoRequest<{ success: boolean; data?: { files: Array<{ name: string; path: string }> } }>(
+      conn,
+      "SYNO.FileStation.List",
+      "list",
+      { version: "2", folder_path: `/${share}`, filetype: "dir", SID: sid },
+      PROBE_TIMEOUT_MS,
     );
-    const data = (await res.json()) as { success: boolean; data?: { files: Array<{ name: string; path: string }> } };
     if (!data.success) return [];
     return (data.data?.files ?? []).map((file) => ({ name: file.name, path: file.path }));
-  } catch (error) {
-    if (isNasCertificateError(error)) throw error;
-    return [];
-  }
+  });
 }
 
 export async function truenasListShares(conn: TruenasConn): Promise<NasShare[]> {
   if (!conn.apiKey) return [];
-  try {
-    const res = await fetchNasService(
-      `${truenasBase(conn)}/sharing/smb`,
-      { headers: { Authorization: `Bearer ${conn.apiKey}` }, timeoutMs: PROBE_TIMEOUT_MS },
-      { pin: conn.tlsFingerprint256, wizardHost: conn.wizardHost },
-    );
-    if (!res.ok) return [];
-    const shares = await res.json();
-    if (!Array.isArray(shares)) return [];
-    return (shares as Array<{ name: string; path: string }>).map((share) => ({ name: share.name, path: share.path }));
-  } catch (error) {
-    if (isNasCertificateError(error)) throw error;
-    return [];
-  }
+  return withNasFallback<NasShare[]>([], async () => {
+    const res = await truenasRequest<Array<{ name: string; path: string }>>(conn, "/sharing/smb", {
+      timeoutMs: PROBE_TIMEOUT_MS,
+    });
+    if (!res.ok || !Array.isArray(res.body)) return [];
+    return res.body.map((share) => ({ name: share.name, path: share.path }));
+  });
 }
 
 export async function truenasListFolders(conn: TruenasConn, share: string): Promise<NasFolder[]> {
   if (!conn.apiKey) return [];
-  try {
-    const res = await fetchNasService(
-      `${truenasBase(conn)}/pool/dataset?type=FILESYSTEM&limit=50`,
-      { headers: { Authorization: `Bearer ${conn.apiKey}` }, timeoutMs: PROBE_TIMEOUT_MS },
-      { pin: conn.tlsFingerprint256, wizardHost: conn.wizardHost },
+  return withNasFallback<NasFolder[]>([], async () => {
+    const res = await truenasRequest<Array<{ name: string; mountpoint?: { value?: string } }>>(
+      conn,
+      "/pool/dataset?type=FILESYSTEM&limit=50",
+      { timeoutMs: PROBE_TIMEOUT_MS },
     );
-    if (!res.ok) return [];
-    const parsed = await res.json();
-    if (!Array.isArray(parsed)) return [];
-    const datasets = parsed as Array<{ name: string; mountpoint?: { value?: string } }>;
-    return datasets
+    if (!res.ok || !Array.isArray(res.body)) return [];
+    return res.body
       .filter((dataset) => dataset.name.toLowerCase().includes(share.toLowerCase()))
       .map((dataset) => ({
         name: dataset.name.split("/").pop() ?? dataset.name,
         path: dataset.mountpoint?.value ?? `/${dataset.name}`,
       }));
-  } catch (error) {
-    if (isNasCertificateError(error)) throw error;
-    return [];
-  }
+  });
 }
 
 export interface ProbeTarget {
@@ -180,7 +133,7 @@ export interface ProbeTarget {
   port: number;
   kind: "synology" | "truenas" | "generic-smb" | "generic-nfs";
   tlsFingerprint256?: string;
-  /** See `NasConn.wizardHost` — set only by the wizard's save-and-test probe. */
+  /** See `SynologyApiConn.wizardHost` — set only by the wizard's save-and-test probe. */
   wizardHost?: string;
 }
 
@@ -228,14 +181,7 @@ export async function probeNasCredentials(
       return { ok: false, error: "username and password are required" };
     }
     try {
-      const sid = await synologyLogin({
-        host: target.host,
-        port: target.port,
-        tlsFingerprint256: target.tlsFingerprint256,
-        wizardHost: target.wizardHost,
-        user: credentials.username,
-        password: credentials.password,
-      });
+      const sid = await synologyLogin(toSynologyConn(target, credentials));
       return sid ? { ok: true } : { ok: false, error: "Synology login failed — check host and credentials" };
     } catch (error) {
       return certificateFailure(error) ?? { ok: false, error: "Synology unreachable" };
@@ -244,10 +190,16 @@ export async function probeNasCredentials(
   if (target.kind === "truenas") {
     if (!credentials.apiKey) return { ok: false, error: "API key is required" };
     try {
-      const res = await fetchNasService(
-        `${truenasBase(target)}/system/info`,
-        { headers: { Authorization: `Bearer ${credentials.apiKey}` }, timeoutMs: PROBE_TIMEOUT_MS },
-        { pin: target.tlsFingerprint256, wizardHost: target.wizardHost },
+      const res = await truenasRequest(
+        {
+          host: target.host,
+          port: target.port,
+          apiKey: credentials.apiKey,
+          tlsFingerprint256: target.tlsFingerprint256,
+          wizardHost: target.wizardHost,
+        },
+        "/system/info",
+        { timeoutMs: PROBE_TIMEOUT_MS },
       );
       return res.ok
         ? { ok: true }

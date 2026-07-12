@@ -1,25 +1,7 @@
-export type Permission =
-  | "*"
-  | "apps:read" | "apps:write" | "apps:sync" | "apps:delete"
-  | "config:read" | "config:write"
-  | "catalog:write" | "catalog:delete"
-  | "users:read" | "users:write" | "users:invite"
-  | "cluster:read" | "cluster:drain" | "cluster:scale" | "cluster:admin"
-  | "security:read" | "security:write"
-  | "nas:read" | "nas:write"
-  | "infra:read" | "infra:write" | "rbac:admin"
-  | "platform:update"
-  | "game-hub:read" | "game-hub:write" | "game-hub:admin"
-  | "game-hub:players"
-  | "game-hub:console" | "game-hub:files" | "game-hub:start" | "game-hub:stop" | "game-hub:scale"
-  | "wiki:read" | "wiki:edit"
-  | "wordpress:read" | "wordpress:write" | "wordpress:admin"
-  | "jellyfin:read" | "jellyfin:admin";
-
 /**
- * Runtime registry of every Permission in the union above. Kept next to the
- * `Permission` type so the two stay in sync; the compile-time guard below fails
- * `tsc` if a union member is added without being listed here (or vice versa).
+ * Runtime registry of every permission. The `Permission` union is DERIVED from
+ * this list, so adding an entry here is the single source of truth — no
+ * hand-maintained union to keep in sync.
  */
 export const ALL_PERMISSIONS = [
   "*",
@@ -38,12 +20,9 @@ export const ALL_PERMISSIONS = [
   "wiki:read", "wiki:edit",
   "wordpress:read", "wordpress:write", "wordpress:admin",
   "jellyfin:read", "jellyfin:admin",
-] as const satisfies readonly Permission[];
+] as const;
 
-// Compile-time exhaustiveness: every Permission must appear in ALL_PERMISSIONS.
-type _PermissionsCovered = Exclude<Permission, (typeof ALL_PERMISSIONS)[number]> extends never ? true : never;
-const _allPermissionsCovered: _PermissionsCovered = true;
-void _allPermissionsCovered;
+export type Permission = (typeof ALL_PERMISSIONS)[number];
 
 /**
  * A grantable permission on the ROLE (granted) side. In addition to concrete
@@ -80,6 +59,11 @@ export const GROUP_DENIED_PERMISSIONS = [
   "rbac:admin",
   "platform:update",
   "cluster:admin",
+  // cluster:drain / cluster:scale are PIM-time-boxed cluster operations (pim.ts
+  // cluster-admin role); a custom group must not carry them or a 60-minute
+  // elevation could mint itself permanent cluster-operation rights.
+  "cluster:drain",
+  "cluster:scale",
   "security:write",
 ] as const satisfies readonly Permission[];
 
@@ -172,7 +156,7 @@ export interface RoleAssignment {
  * (GROUP_DENIED_PERMISSIONS), so a scoped Admin can never mint users:write /
  * rbac:admin / cluster:admin. Owner is the single full-control role ("*").
  */
-function permissionVerb(permission: string): string {
+export function permissionVerb(permission: string): string {
   const separator = permission.indexOf(":");
   return separator === -1 ? permission : permission.slice(separator + 1);
 }
@@ -207,7 +191,7 @@ export function expandPermissionPattern(pattern: string): Permission[] {
 }
 
 /** Like {@link expandPermissionPattern} but `"*"` fans out to every concrete permission. */
-function expandToConcrete(pattern: string): Permission[] {
+export function expandToConcrete(pattern: string): Permission[] {
   if (pattern === "*") return ALL_PERMISSIONS.filter((p) => p !== "*");
   return expandPermissionPattern(pattern);
 }
@@ -642,10 +626,9 @@ export function hasAssignedPermissionForScope(
   permission: Permission,
   scope: string,
 ) {
-  const now = new Date();
   let allowed = false;
   for (const assignment of roleAssignments) {
-    if (assignment.expiresAt && new Date(assignment.expiresAt) < now) continue;
+    if (isAssignmentExpired(assignment)) continue;
     if (!scopeCovers(assignment.scope, scope)) continue;
     const role = resolveRoleDefinition(assignment.roleId);
     if (!role) continue;
@@ -671,10 +654,9 @@ export function hasAssignedPermissionInScopeTree(
   permission: Permission,
   scopePrefix: string,
 ) {
-  const now = new Date();
   return roleAssignments.some((assignment) => {
     if (assignment.effect === "Deny") return false;
-    if (assignment.expiresAt && new Date(assignment.expiresAt) < now) return false;
+    if (isAssignmentExpired(assignment)) return false;
     if (!scopesOverlap(assignment.scope, scopePrefix)) return false;
     return roleHasPermission(resolveRoleDefinition(assignment.roleId), permission);
   });
@@ -715,12 +697,8 @@ export function getEffectivePermissions(
     }
   }
 
-  const now = new Date();
   for (const assignment of roleAssignments) {
-    if (assignment.expiresAt && new Date(assignment.expiresAt) < now) continue;
-    if (!scopeCovers(assignment.scope, scope)) continue;
-    if (assignment.principalType === "group" && assignment.principalId && !groups.includes(assignment.principalId)) continue;
-    if (assignment.principalType === "user" && assignment.principalId && username && assignment.principalId !== username) continue;
+    if (!assignmentAppliesToSubject(assignment, groups, username, scope)) continue;
 
     const roleDef = resolveRoleDefinition(assignment.roleId);
     if (!roleDef) continue;
@@ -759,20 +737,6 @@ export function hasPermission(
 ): boolean {
   const perms = getEffectivePermissions(groups, username, roleAssignments, scope);
   return perms.has("*") || perms.has(permission);
-}
-
-export function hasPermissionLegacy(groups: string[], permission: Permission): boolean {
-  return hasPermission(groups, permission, [], "/");
-}
-
-export function checkPermission(
-  groups: string[],
-  roleAssignments: RoleAssignment[],
-  permission: Permission,
-  scope = "/",
-  username = ""
-): boolean {
-  return hasPermission(groups, permission, roleAssignments, scope, username);
 }
 
 /** A principal (user or group member) whose access is being evaluated. */
@@ -815,10 +779,7 @@ export interface ScopeGrant {
 export function grantsForScope(subject: RbacSubject, scope: ScopePath): ScopeGrant[] {
   const grants: ScopeGrant[] = [];
   for (const assignment of subject.roleAssignments) {
-    if (isAssignmentExpired(assignment)) continue;
-    if (!scopeCovers(assignment.scope, scope)) continue;
-    if (assignment.principalType === "group" && assignment.principalId && !subject.groups.includes(assignment.principalId)) continue;
-    if (assignment.principalType === "user" && assignment.principalId && subject.username && assignment.principalId !== subject.username) continue;
+    if (!assignmentAppliesToSubject(assignment, subject.groups, subject.username, scope)) continue;
     const role = resolveRoleDefinition(assignment.roleId);
     if (!role) continue;
     grants.push({ assignment, role, inherited: isStrictAncestorScope(assignment.scope, scope) });
@@ -888,9 +849,14 @@ export function getBuiltInRoles(): RoleDefinition[] {
   return Object.values(BUILT_IN_ROLES);
 }
 
-export function isAssignmentExpired(assignment: RoleAssignment): boolean {
+export function isAssignmentExpired(assignment: { expiresAt?: string }, now: number = Date.now()): boolean {
   if (!assignment.expiresAt) return false;
-  return new Date(assignment.expiresAt) < new Date();
+  const expiry = new Date(assignment.expiresAt).getTime();
+  // Fail closed: an unparseable expiry must be treated as EXPIRED, never as a
+  // permanent grant (NaN < now is false, which would silently make the grant
+  // never expire).
+  if (Number.isNaN(expiry)) return true;
+  return expiry < now;
 }
 
 export const STATIC_SCOPES = [
@@ -926,8 +892,6 @@ export function buildScopes(serverNames: string[] = []) {
     ...serverNames.map((serverName) => ({ value: gameServerScope(serverName), label: `Server: ${serverName}` })),
   ];
 }
-
-export const SCOPES = STATIC_SCOPES;
 
 export const ROLE_COLOR_CLASSES = {
   red: { badge: "bg-red-500/10 border-red-500/30 text-red-300", dot: "bg-red-400" },

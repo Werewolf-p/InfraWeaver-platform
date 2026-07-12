@@ -1,9 +1,9 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Network, Shield} from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface NetworkPolicy {
   namespace: string;
@@ -19,13 +19,9 @@ export function NetworkPoliciesView() {
   const [nsFilter, setNsFilter] = useState("all");
   const [showYaml, setShowYaml] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useApiQuery<{ policies: NetworkPolicy[] }>({
     queryKey: ["network", "policies"],
-    queryFn: async () => {
-      const res = await fetch("/api/network/policies");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<{ policies: NetworkPolicy[] }>;
-    },
+    path: "/api/network/policies",
   });
 
   const policies = data?.policies ?? [];

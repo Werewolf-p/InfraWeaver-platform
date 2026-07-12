@@ -22,7 +22,7 @@ import { ActionButton } from '@/components/ui/ActionButton'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StepHeader } from '@/components/ui/StepHeader'
 import { useWizardStore, type PresetType } from '@/lib/store'
-import { fadeUpItem, isDomain, isIPv4, isPositiveInteger, isVipRange, staggerContainer, textareaClassName } from '@/lib/utils'
+import { errMessage, fadeUpItem, isDomain, isIPv4, isPositiveInteger, isVipRange, staggerContainer, textareaClassName } from '@/lib/utils'
 
 const logo = String.raw`
  ██╗███╗   ██╗███████╗██████╗  █████╗ ██╗    ██╗███████╗ █████╗ ██╗   ██╗███████╗██████╗
@@ -232,7 +232,7 @@ export function WelcomeStep({ onStart, onImportSuccess }: { onStart: () => void;
       }
       onImportSuccess()
     } catch (error) {
-      setImportMessage(error instanceof Error ? error.message : 'Unable to validate the imported .env.')
+      setImportMessage(errMessage(error, 'Unable to validate the imported .env.'))
     } finally {
       setImportBusy(false)
     }

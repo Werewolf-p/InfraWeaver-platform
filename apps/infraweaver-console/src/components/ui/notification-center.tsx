@@ -3,17 +3,7 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence, useAnimation } from "framer-motion";
 import { Bell, X, CheckCheck, Info, AlertTriangle, XCircle, CheckCircle, Trash2 } from "lucide-react";
 import { useNotifications, type NotificationLevel } from "@/hooks/use-notifications";
-import { cn } from "@/lib/utils";
-
-function formatRelativeTime(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
+import { cn, timeAgo } from "@/lib/utils";
 
 const levelConfig: Record<NotificationLevel, { icon: React.ElementType; color: string; bg: string }> = {
   info: { icon: Info, color: "text-blue-400", bg: "bg-blue-500/10" },
@@ -213,7 +203,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                           </div>
                           {notification.body && <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{notification.body}</p>}
                           <div className="mt-1 flex items-center gap-2">
-                            <span className="text-[10px] text-slate-600">{formatRelativeTime(notification.timestamp)}</span>
+                            <span className="text-[10px] text-slate-600">{timeAgo(new Date(notification.timestamp))}</span>
                             {!notification.read && <span aria-hidden="true" className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />}
                           </div>
                         </div>

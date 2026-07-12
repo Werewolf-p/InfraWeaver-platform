@@ -1,3 +1,14 @@
+// next/server references the global `Request` at module-eval (jsdom lacks it);
+// game-hub-server.ts imports it for route helpers. Stub so the pure helpers load.
+jest.mock("next/server", () => ({
+  NextResponse: {
+    json: (body: unknown, init?: { status?: number }) => ({ body, status: init?.status ?? 200 }),
+  },
+  NextRequest: class {},
+}));
+
+jest.mock("@/lib/auth", () => ({ auth: jest.fn(async () => null) }));
+
 // game-hub-server transitively imports @kubernetes/client-node (ESM); mock it so
 // jest can load the module for the pure helper under test.
 jest.mock("@kubernetes/client-node", () => {

@@ -3,8 +3,10 @@ import { createConfiguration, ServerConfiguration, type RequestContext, type Res
 import { randomBytes, randomUUID } from "crypto";
 import net from "net";
 import { Writable } from "stream";
+import type { Session } from "next-auth";
 import { getEggForGameType, type GameEgg, type SavedCommand } from "./game-eggs";
 import { GAME_HUB_NAMESPACE, parseEggConfig } from "./game-hub";
+import { auditLog } from "@/lib/audit-log";
 import { getEffectivePermissions, type Permission, type RoleAssignment } from "@/lib/rbac";
 import { loadKubeConfig } from "@/lib/k8s";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
@@ -1313,3 +1315,187 @@ export async function deleteCronJob(batchApi: k8s.BatchV1Api, name: string) {
 // Generic k8s quantity parsers live in core (@/lib/k8s-quantity). Re-exported
 // here so existing addon importers keep working.
 export { parseCpuQuantity, parseMemoryBytes } from "@/lib/k8s-quantity";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Route-handler helpers — consolidate the audit/error boilerplate repeated
+// across app/api/game-hub/**/route.ts. These mirror the EXISTING handler
+// behavior byte-for-byte (envelopes, ordering, status codes) so callers can
+// adopt them without any semantic change. The next/server-coupled wrappers
+// (withGameHubAuth, toApiErrorResponse) live in ./game-hub-route so this domain
+// lib stays free of next/server; both are re-exported via the
+// `@/lib/game-hub-server` shim.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Double-write an audit record the way mutating game-hub routes do today:
+ * the global audit log (`game-hub:<action>`) AND the per-server audit
+ * ConfigMap (same action/details, actor = session email or "unknown").
+ */
+export async function auditServerAction(
+  coreApi: k8s.CoreV1Api,
+  name: string,
+  session: Session | null,
+  action: string,
+  details: string,
+): Promise<void> {
+  const user = session?.user?.email ?? "unknown";
+  await auditLog(`game-hub:${action}`, user, `${name} — ${details}`);
+  await appendServerAudit(coreApi, name, {
+    timestamp: new Date().toISOString(),
+    user,
+    action,
+    details,
+  });
+}
+
+/**
+ * Map an unknown (usually Kubernetes client) error to an HTTP status:
+ * the error's own statusCode/body.code when present, else 404 for
+ * not-found-shaped errors, else 500.
+ */
+export function k8sErrorStatus(error: unknown): number {
+  const status = getKubernetesErrorStatus(error);
+  if (status !== null) return status;
+  return isKubernetesNotFoundError(error) ? 404 : 500;
+}
+
+// ── Deployment annotation readers (dual `infraweaver.io/` + `infraweaver/`) ──
+
+export type AnnotatedResource = { metadata?: { annotations?: Record<string, string> } } | null | undefined;
+
+/**
+ * Read an annotation off a resource. Bare keys (no "/") are tried under the
+ * `infraweaver.io/` prefix first, then legacy `infraweaver/` — the exact
+ * fallback order the routes use inline. Fully-qualified keys (containing "/",
+ * e.g. "game-hub/announcements") are read as-is.
+ */
+export function annotation(resource: AnnotatedResource, key: string, fallback = ""): string {
+  const annotations = resource?.metadata?.annotations ?? {};
+  if (key.includes("/")) return annotations[key] ?? fallback;
+  return annotations[`infraweaver.io/${key}`] ?? annotations[`infraweaver/${key}`] ?? fallback;
+}
+
+/**
+ * Integer annotation with fallback. Mirrors the routes' inline
+ * `parseInt(raw ?? "N", 10) || N`: NaN AND 0 both yield the fallback.
+ */
+export function intAnnotation(resource: AnnotatedResource, key: string, fallback: number): number {
+  return Number.parseInt(annotation(resource, key, ""), 10) || fallback;
+}
+
+/** Comma-separated annotation → trimmed, non-empty entries (e.g. tags). */
+export function csvAnnotation(resource: AnnotatedResource, key: string): string[] {
+  const raw = annotation(resource, key, "");
+  return raw ? raw.split(",").map((entry) => entry.trim()).filter(Boolean) : [];
+}
+
+// ── Misc route helpers ───────────────────────────────────────────────────────
+
+/**
+ * Live TCP dial with latency measurement (the connectivity route's inline
+ * checkTcpConnect). Unlike {@link checkPortReachable} it reports how long the
+ * connect took; a null/missing host or port resolves closed immediately.
+ */
+export async function tcpProbe(
+  host: string | null,
+  port: number | null,
+  timeoutMs = 3000,
+): Promise<{ open: boolean; latencyMs: number | null }> {
+  if (!host || !port) {
+    return { open: false, latencyMs: null };
+  }
+
+  return new Promise<{ open: boolean; latencyMs: number | null }>((resolve) => {
+    const startedAt = Date.now();
+    const socket = new net.Socket();
+    let settled = false;
+
+    const finish = (open: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve({ open, latencyMs: open ? Date.now() - startedAt : null });
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+    socket.connect(port, host);
+  });
+}
+
+/**
+ * Create-or-replace a ConfigMap (the read → replace, create-on-miss pattern
+ * used by appendServerAudit / writeSavedCommands / the egg route).
+ * `body.metadata.name` is required.
+ */
+export async function upsertConfigMap(
+  coreApi: k8s.CoreV1Api,
+  body: k8s.V1ConfigMap,
+  namespace: string = GAME_HUB_NS,
+): Promise<void> {
+  const name = body.metadata?.name;
+  if (!name) throw new Error("upsertConfigMap requires body.metadata.name");
+  try {
+    await coreApi.readNamespacedConfigMap({ name, namespace });
+    await coreApi.replaceNamespacedConfigMap({ name, namespace, body });
+  } catch {
+    await coreApi.createNamespacedConfigMap({ namespace, body });
+  }
+}
+
+/** Normalize a resource quantity: numbers → string, blank/nullish → undefined. */
+export function quantityToString(value: string | number | null | undefined): string | undefined {
+  if (typeof value === "number") return String(value);
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+/**
+ * Canonical label set stamped on game-server workloads/PVCs/services
+ * (dual `infraweaver/` + `infraweaver.io/` prefixes, matching create/clone).
+ * Pass `eggLabel` (already label-sanitized) to include game-type/egg labels.
+ */
+export function gameServerLabels(name: string, eggLabel?: string): Record<string, string> {
+  return {
+    app: name,
+    "infraweaver/game": "true",
+    "infraweaver.io/game": "true",
+    ...(eggLabel
+      ? {
+          "infraweaver/game-type": eggLabel,
+          "infraweaver.io/game-type": eggLabel,
+          "infraweaver/egg": eggLabel,
+          "infraweaver.io/egg": eggLabel,
+        }
+      : {}),
+  };
+}
+
+/**
+ * Label selector for game-hub list calls: all game servers when no name is
+ * given (`infraweaver/game=true`), one server's resources otherwise (`app=<name>`).
+ */
+export function gameServerSelector(name?: string): string {
+  return name ? `app=${name}` : "infraweaver/game=true";
+}
+
+export type GameServerListStatus = "maintenance" | "stopped" | "running" | "starting";
+
+/**
+ * Coarse list-view status derived from a deployment (the /search route's
+ * inline serverStatus). Unlike {@link derivePowerStatus} it never returns
+ * null — pods desired but not ready reads as "starting".
+ */
+export function serverStatus(deployment: {
+  metadata?: { annotations?: Record<string, string> };
+  spec?: { replicas?: number };
+  status?: { readyReplicas?: number; replicas?: number };
+}): GameServerListStatus {
+  if (deployment.metadata?.annotations?.["infraweaver/maintenance"] === "true") return "maintenance";
+  if ((deployment.spec?.replicas ?? 0) === 0) return "stopped";
+  if ((deployment.status?.readyReplicas ?? 0) > 0) return "running";
+  if ((deployment.status?.replicas ?? 0) > 0) return "starting";
+  return "stopped";
+}

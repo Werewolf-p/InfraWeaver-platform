@@ -1,5 +1,6 @@
 import * as k8s from '@kubernetes/client-node';
 import { clearKcCache } from './k8s-client.js';
+import { errMessage } from './errors.js';
 import type { ClusterMeta } from '../types/index.js';
 
 const REGISTRY_NAMESPACE = 'infraweaver-system';
@@ -64,7 +65,7 @@ function isNotFound(error: unknown): boolean {
   if (getStatusCode(error) === 404) {
     return true;
   }
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errMessage(error);
   return /\b404\b|not\s*found/i.test(message);
 }
 

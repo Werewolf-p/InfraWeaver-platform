@@ -11,6 +11,8 @@
  * This module-level cache stores the parsed feed object in Node.js memory.
  * It persists across requests in the same process (per pod). Each pod caches
  * independently but that's fine — worst case, 2 pods each download it once.
+ * (The shared apiCache is not usable here: it imports next/server, which the
+ * jsdom unit-test environment cannot load.)
  *
  * Properties:
  *   - TTL: 2 hours (matches AppFeed update cadence)
@@ -20,6 +22,7 @@
  */
 
 import { summarizeApp, type AppFeedEntry } from "./appfeed-converter";
+import { requestDedup } from "./request-dedup";
 
 export interface AppFeedResponse {
   apps: number;
@@ -31,50 +34,37 @@ export interface AppFeedResponse {
 
 const APPFEED_URL =
   "https://raw.githubusercontent.com/Squidly271/AppFeed/master/applicationFeed.json";
+const APPFEED_DEDUP_KEY = "appfeed:community-applications";
 const TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-interface CacheEntry {
-  data: AppFeedResponse;
-  fetchedAt: number;
-}
-
 // Module-level state — persists across requests in the same Node.js process
-let cache: CacheEntry | null = null;
-let inflight: Promise<AppFeedResponse> | null = null;
+let cache: { data: AppFeedResponse; fetchedAt: number } | null = null;
 
 /**
  * Returns the AppFeed, fetching from GitHub if the cache is stale or missing.
  * Concurrent callers all await the same promise — no duplicate downloads.
  */
 export async function getAppFeed(): Promise<AppFeedResponse> {
-  const now = Date.now();
-
   // Return cached data if still fresh
-  if (cache && now - cache.fetchedAt < TTL_MS) {
-    return cache.data;
-  }
+  if (cache && Date.now() - cache.fetchedAt < TTL_MS) return cache.data;
 
-  // Deduplicate: if a fetch is already in-flight, wait for it
-  if (inflight) return inflight;
-
-  inflight = fetch(APPFEED_URL, {
-    headers: { "User-Agent": "InfraWeaver-Console/1.0 (homelab platform)" },
-    // Use fetch without Next.js caching since the feed is too large for it
-    cache: "no-store",
-  })
-    .then(async (res) => {
+  // Infinite reuse window: share the inflight download (~2–5s) for its whole
+  // life; requestDedup drops the entry as soon as the promise settles.
+  return requestDedup.dedupe(
+    APPFEED_DEDUP_KEY,
+    async () => {
+      const res = await fetch(APPFEED_URL, {
+        headers: { "User-Agent": "InfraWeaver-Console/1.0 (homelab platform)" },
+        // Use fetch without Next.js caching since the feed is too large for it
+        cache: "no-store",
+      });
       if (!res.ok) throw new Error(`AppFeed fetch failed: ${res.status}`);
       const data = (await res.json()) as AppFeedResponse;
       cache = { data, fetchedAt: Date.now() };
-      inflight = null;
       return data;
-    })
-    .catch((err: unknown) => {
-      inflight = null;
-      throw err;
-    });
-
-  return inflight;
+    },
+    Number.POSITIVE_INFINITY,
+  );
 }
 
 const PREFERRED_REGISTRIES = ["lscr.io/linuxserver", "ghcr.io/linuxserver", "linuxserver/", "ghcr.io/"];

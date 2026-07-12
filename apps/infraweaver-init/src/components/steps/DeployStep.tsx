@@ -23,7 +23,7 @@ import { ActionButton } from '@/components/ui/ActionButton'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StepHeader } from '@/components/ui/StepHeader'
 import { downloadEnvFile, envPayloadToString, parseEnvText, readFileText } from '@/lib/env'
-import { classifyLog, isIPv4, staggerContainer } from '@/lib/utils'
+import { classifyLog, errMessage, isIPv4, staggerContainer } from '@/lib/utils'
 import { initialDeployStages, useWizardStore } from '@/lib/store'
 
 type CheckStatus = 'pending' | 'checking' | 'ok' | 'warn' | 'fail'
@@ -183,7 +183,7 @@ export function DeployStep() {
         setProxmoxReachability({ status: 'fail', detail: result.error ?? 'Proxmox did not respond.' })
       }
     } catch (error) {
-      setProxmoxReachability({ status: 'fail', detail: error instanceof Error ? error.message : 'Proxmox did not respond.' })
+      setProxmoxReachability({ status: 'fail', detail: errMessage(error, 'Proxmox did not respond.') })
     }
   }
 
@@ -203,7 +203,7 @@ export function DeployStep() {
       if (!silent) setSaveMessage(result.error ?? 'Unable to save .env')
       return false
     } catch (error) {
-      if (!silent) setSaveMessage(error instanceof Error ? error.message : 'Unable to save .env')
+      if (!silent) setSaveMessage(errMessage(error, 'Unable to save .env'))
       return false
     } finally {
       setLoading('saveEnv', false)
@@ -281,7 +281,7 @@ export function DeployStep() {
       })
       await refreshStatusAndChecks()
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Deploy failed'
+      const message = errMessage(error, 'Deploy failed')
       finalizeDeployStages('failed')
       appendDeployLog(`✗ ${message}`, 'err')
       setDeployState({ deployRunning: false, deployError: message, deploySummary: '', deployStepText: 'Deploy failed' })
@@ -457,7 +457,7 @@ export function DeployStep() {
         setActionMessage(result.error ?? 'kubeconfig not available yet.')
       }
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : 'Unable to fetch kubeconfig.')
+      setActionMessage(errMessage(error, 'Unable to fetch kubeconfig.'))
     }
   }
 
@@ -478,7 +478,7 @@ export function DeployStep() {
         setCleanupMessage(result.error ?? 'Cleanup failed.')
       }
     } catch (error) {
-      setCleanupMessage(error instanceof Error ? error.message : 'Cleanup failed.')
+      setCleanupMessage(errMessage(error, 'Cleanup failed.'))
     } finally {
       setCleanupBusy(false)
     }

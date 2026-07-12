@@ -1,22 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
+import { GAME_HUB_NAMESPACE } from "@/lib/game-hub";
+import { withGameHubAuth } from "@/lib/game-hub-server";
 import { loadKubeConfig } from "@/lib/k8s";
-import { validateK8sName } from "@/lib/api-security";
 import { safeError } from "@/lib/utils";
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { name } = await params;
-  const nameErr = validateK8sName(name);
-  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withGameHubAuth({ permission: "game-hub:read" }, async ({ req, name }) => {
   try {
     const k8s = await import("@kubernetes/client-node");
     const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
@@ -39,4 +28,4 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

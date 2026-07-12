@@ -195,16 +195,32 @@ export interface AllowRule {
   toPorts?: { ports: { port: string; protocol: string }[] }[];
 }
 
+/** `toPorts` clause shared by egress and ingress rules; undefined when port or protocol is missing. */
+function portsFor(peer: BlockedDestination): { ports: { port: string; protocol: string }[] }[] | undefined {
+  return peer.port && peer.protocol
+    ? [{ ports: [{ port: peer.port, protocol: peer.protocol.toUpperCase() }] }]
+    : undefined;
+}
+
+/** Endpoint selector for an in-cluster pod peer, shared by egress `toEndpoints` and ingress `fromEndpoints`. */
+function podEndpointSelector(peer: BlockedDestination): { matchLabels: Record<string, string> }[] {
+  return [
+    {
+      matchLabels: {
+        "k8s:io.kubernetes.pod.namespace": peer.namespace || "default",
+        "k8s:app": peer.target,
+      },
+    },
+  ];
+}
+
 /**
  * Build the egress allow rule an admin's "Allow next time" click should append to
  * the source pod's policy. FQDN destinations become toFQDNs (Cilium FQDN policy);
  * IPs become toCIDR; in-cluster pods become toEndpoints.
  */
 export function buildAllowRule(dest: BlockedDestination): AllowRule {
-  const ports =
-    dest.port && dest.protocol
-      ? [{ ports: [{ port: dest.port, protocol: dest.protocol.toUpperCase() }] }]
-      : undefined;
+  const ports = portsFor(dest);
 
   switch (dest.kind) {
     case "fqdn":
@@ -212,17 +228,7 @@ export function buildAllowRule(dest: BlockedDestination): AllowRule {
     case "ip":
       return { toCIDR: [dest.target], ...(ports ? { toPorts: ports } : {}) };
     case "pod":
-      return {
-        toEndpoints: [
-          {
-            matchLabels: {
-              "k8s:io.kubernetes.pod.namespace": dest.namespace || "default",
-              "k8s:app": dest.target,
-            },
-          },
-        ],
-        ...(ports ? { toPorts: ports } : {}),
-      };
+      return { toEndpoints: podEndpointSelector(dest), ...(ports ? { toPorts: ports } : {}) };
     default:
       // Unknown destinations are not auto-allowable; caller should reject.
       return {};
@@ -247,26 +253,13 @@ export interface IngressAllowRule {
  * auto-allowable on ingress.
  */
 export function buildIngressAllowRule(peer: BlockedDestination): IngressAllowRule {
-  const ports =
-    peer.port && peer.protocol
-      ? [{ ports: [{ port: peer.port, protocol: peer.protocol.toUpperCase() }] }]
-      : undefined;
+  const ports = portsFor(peer);
 
   switch (peer.kind) {
     case "ip":
       return { fromCIDR: [peer.target], ...(ports ? { toPorts: ports } : {}) };
     case "pod":
-      return {
-        fromEndpoints: [
-          {
-            matchLabels: {
-              "k8s:io.kubernetes.pod.namespace": peer.namespace || "default",
-              "k8s:app": peer.target,
-            },
-          },
-        ],
-        ...(ports ? { toPorts: ports } : {}),
-      };
+      return { fromEndpoints: podEndpointSelector(peer), ...(ports ? { toPorts: ports } : {}) };
     default:
       // fqdn / unknown sources cannot be expressed as an ingress allow.
       return {};

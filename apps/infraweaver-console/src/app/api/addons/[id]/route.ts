@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ADDONS } from "@/lib/addons";
 import { getEnabledAddons, setAddonEnabled } from "@/lib/addons-server";
 import { safeError } from "@/lib/utils";
-import { withRoute } from "@/lib/route-utils";
+import { parseBody, withRoute } from "@/lib/route-utils";
 
 const patchBodySchema = z.object({
   enabled: z.boolean(),
@@ -31,12 +31,8 @@ export const PATCH = withRoute("config:write", async (req: NextRequest, _session
     return NextResponse.json({ error: "Addon not found" }, { status: 404 });
   }
 
-  const rawBody = await req.json().catch(() => null);
-  const parsed = patchBodySchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
-  }
-  const body = parsed.data;
+  const body = await parseBody(req, patchBodySchema);
+  if (body instanceof NextResponse) return body;
 
   try {
     return NextResponse.json(await setAddonEnabled(id, body.enabled));

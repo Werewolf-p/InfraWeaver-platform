@@ -3,11 +3,21 @@ import type { ScheduledTask } from "@/types";
 import { z } from "zod";
 import { apiError, apiSuccess, requireRoutePermissions } from "@/lib/route-utils";
 
+const CRON_FIELD_RE = /^[\d*,/-]+$/;
+
+function isValidCronExpression(value: string): boolean {
+  const fields = value.trim().split(/\s+/);
+  return fields.length === 5 && fields.every((field) => CRON_FIELD_RE.test(field));
+}
+
 const createTaskSchema = z.object({
   name: z.string().optional(),
   namespace: z.string().optional(),
   pod: z.string().optional(),
-  schedule: z.string().optional(),
+  schedule: z
+    .string()
+    .refine(isValidCronExpression, "Invalid cron expression: expected 5 fields (minute hour day month weekday)")
+    .optional(),
   command: z.string().optional(),
   enabled: z.boolean().optional(),
 });

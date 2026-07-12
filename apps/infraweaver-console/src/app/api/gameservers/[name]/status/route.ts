@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { makeCoreApi } from "@/lib/kube-client";
 import { safeError } from "@/lib/utils";
 import * as net from "net";
 
@@ -24,10 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   const { name } = await params;
 
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = new k8s.KubeConfig();
-    kc.loadFromDefault();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi();
 
     const cm = await coreApi.readNamespacedConfigMap({ name, namespace: "game-servers" });
     const data = cm.data ?? {};

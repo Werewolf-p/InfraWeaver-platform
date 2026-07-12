@@ -62,10 +62,9 @@ export async function GET() {
 
     return apiSuccess({ drift, baselineCaptured: true });
   } catch {
-    return apiSuccess({
-      drift: baseline.map((entry) => ({ ...entry, currentReplicas: entry.replicas, currentImage: entry.image, drifted: false })),
-      baselineCaptured: true,
-    });
+    // Never report "no drift" when the live cluster could not be read — that
+    // would be a fabricated clean bill of health.
+    return apiError("Failed to read the live cluster for drift comparison", { status: 502 });
   }
 }
 
@@ -84,16 +83,9 @@ export async function POST(request: NextRequest) {
     baseline.splice(0, baseline.length, ...currentEntries);
     return apiSuccess({ ok: true, count: baseline.length });
   } catch {
-    baseline.splice(0, baseline.length, {
-      namespace: "default",
-      name: "my-app",
-      kind: "Deployment",
-      replicas: 2,
-      image: "nginx:1.25",
-      capturedAt: new Date().toISOString(),
-    });
-
-    return apiSuccess({ ok: true, count: baseline.length });
+    // Do not fabricate a baseline when the cluster could not be read; keep the
+    // previous baseline intact and surface the failure.
+    return apiError("Failed to capture baseline from the live cluster", { status: 502 });
   }
 }
 

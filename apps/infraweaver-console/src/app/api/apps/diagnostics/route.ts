@@ -1,7 +1,5 @@
 import * as k8s from "@kubernetes/client-node";
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { NextResponse } from "next/server";
 import { getArgocdAppsCached } from "@/lib/argocd-apps";
 import {
   ACTIVE_CLUSTER_COOKIE,
@@ -12,18 +10,14 @@ import {
 import { getGitAccessToken, getGitProviderName } from "@/lib/git-provider";
 import { loadKubeConfig } from "@/lib/k8s";
 import { safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 
 const DEFAULT_ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const DEFAULT_ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 
-export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "apps:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
+export const GET = withAuth({ permission: "apps:read" }, async ({ req }) => {
   try {
-    const clusterId = getActiveClusterIdFromCookieValue(request.cookies.get(ACTIVE_CLUSTER_COOKIE)?.value);
+    const clusterId = getActiveClusterIdFromCookieValue(req.cookies.get(ACTIVE_CLUSTER_COOKIE)?.value);
     const clusterConfig = getClusterConfig(clusterId) ?? getClusterConfig(getDefaultClusterId());
     const argocdServer = clusterConfig?.argocdServer ?? DEFAULT_ARGOCD_SERVER;
     const argocdToken = clusterConfig?.argocdToken ?? DEFAULT_ARGOCD_TOKEN;
@@ -66,4 +60,4 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as k8s from "@kubernetes/client-node";
 import { z } from "zod";
-import { getRequestClusterId } from "@/lib/cluster-context";
-import { requireRoutePermissions } from "@/lib/route-utils";
-import { loadKubeConfig } from "@/lib/k8s";
+import { requireRoutePermissions, requireSingleCluster } from "@/lib/route-utils";
+import { makeCoreApi } from "@/lib/kube-client";
 import { safeError } from "@/lib/utils";
 
 const expandSchema = z.object({
@@ -22,13 +20,11 @@ export async function PATCH(request: NextRequest) {
   }
 
   const { namespace, name, newSize } = parsed.data;
-  const clusterId = getRequestClusterId(request);
-  if (clusterId === "all") {
-    return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
-  }
+  const cluster = requireSingleCluster(request);
+  if (cluster instanceof NextResponse) return cluster;
 
   try {
-    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi(cluster.clusterId);
     await coreApi.patchNamespacedPersistentVolumeClaim({
       name,
       namespace,
@@ -47,9 +43,12 @@ export async function PATCH(request: NextRequest) {
       },
     });
   } catch (error) {
-    return NextResponse.json({
-      ok: false,
-      error: safeError(error),
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: safeError(error),
+      },
+      { status: 502 },
+    );
   }
 }

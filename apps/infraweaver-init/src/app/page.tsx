@@ -27,7 +27,7 @@ import { WelcomeStep } from '@/components/steps/WelcomeStep'
 import { RestoreStep } from '@/components/steps/RestoreStep'
 import { connectDeployEvents, getStatus, loadEnv, selfUpdate, type DeployEvent } from '@/lib/api'
 import { initialDeployStages, initialWizardData, isWizardDataPristine, useWizardStore } from '@/lib/store'
-import { classifyLog, isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger, isVipRange } from '@/lib/utils'
+import { classifyLog, errMessage, isCIDR, isDomain, isEmail, isIPv4, isPositiveInteger, isVipRange } from '@/lib/utils'
 import type { DnsProvider } from '@/lib/store'
 
 function hasDnsProviderCredentials(data: typeof initialWizardData): boolean {
@@ -269,7 +269,7 @@ export default function HomePage() {
     })
       .catch((error) => {
         if (cancelled) return
-        const message = error instanceof Error ? error.message : 'Unable to reconnect to deployment status.'
+        const message = errMessage(error, 'Unable to reconnect to deployment status.')
         const currentStore = useWizardStore.getState()
         currentStore.appendDeployLog(`✗ ${message}`, 'err')
         currentStore.setDeployState({ deployRunning: false, deployError: message })
@@ -333,7 +333,7 @@ export default function HomePage() {
       }
       void poll()
     } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : 'Update failed')
+      setUpdateError(errMessage(err, 'Update failed'))
       setUpdateState('error')
     }
   }

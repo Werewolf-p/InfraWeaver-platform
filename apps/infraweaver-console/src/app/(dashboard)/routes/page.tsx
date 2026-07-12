@@ -3,19 +3,16 @@
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import type { UseQueryResult } from "@tanstack/react-query";
 import {
   Cloud,
   ExternalLink,
   Globe,
   Info,
-  Layers,
   Network,
   Pencil,
   Plus,
-  RefreshCw,
   Server,
-  Sparkles,
   Trash2,
   Wrench,
 } from "lucide-react";
@@ -27,35 +24,19 @@ import { ActionsMenu } from "@/components/ui/actions-menu";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DashboardPanel } from "@/components/ui/dashboard-panel";
 import { EmptyState } from "@/components/ui/empty-state";
+import { KubeOfflineBanner } from "@/components/ui/kube-offline-banner";
 import { PageHeader } from "@/components/ui/page-header";
+import { PillTabs } from "@/components/ui/pill-tabs";
+import { RefreshButton } from "@/components/ui/refresh-button";
 import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { type AccessTier } from "@/lib/access-tier";
 import { isInternalDnsName, type ManagedDnsRecord } from "@/lib/dns";
 import type { ExternalRouteItem, ExternalRoutesResponse } from "@/lib/external-routes";
+import type { IngressResponse, IngressRoute } from "@/lib/ingress";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
-
-interface LiveIngressRoute {
-  id: string;
-  namespace: string;
-  name: string;
-  entryPoints: string[];
-  hosts: string[];
-  services: string[];
-  middlewares: string[];
-  authMiddlewares: string[];
-  accessTier: AccessTier;
-  tlsSecretName: string | null;
-  certResolver: string | null;
-  hasTls: boolean;
-}
-
-interface IngressResponse {
-  ingressRoutes: LiveIngressRoute[];
-  live: boolean;
-  summary: { total: number; authProtected: number; tlsEnabled: number; hosts: number };
-}
 
 interface DnsResponse {
   records: ManagedDnsRecord[];
@@ -91,13 +72,13 @@ interface UnifiedRoute {
 
 type TabKey = "all" | "manual" | "auto" | "dns" | "middleware" | "ports";
 
-const TABS: Array<{ key: TabKey; label: string; icon: typeof Globe; hint: string }> = [
-  { key: "all", label: "All", icon: Layers, hint: "Every route + DNS in one place" },
-  { key: "manual", label: "Manual", icon: Server, hint: "Routes you created (editable, git-managed)" },
-  { key: "auto", label: "Auto-generated", icon: Sparkles, hint: "Routes Traefik discovered in-cluster" },
-  { key: "dns", label: "DNS", icon: Globe, hint: "Cloudflare + internal DNS records" },
-  { key: "middleware", label: "Middleware", icon: Wrench, hint: "Traefik middlewares used by routes" },
-  { key: "ports", label: "Port routing", icon: Network, hint: "TCP/UDP port forwards" },
+const TABS: Array<{ key: TabKey; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "manual", label: "Manual" },
+  { key: "auto", label: "Auto-generated" },
+  { key: "dns", label: "DNS" },
+  { key: "middleware", label: "Middleware" },
+  { key: "ports", label: "Port routing" },
 ];
 
 function managedTargetSummary(route: ExternalRouteItem) {
@@ -111,7 +92,7 @@ function shortMiddleware(value: string) {
   return value.split("/").pop()?.trim() ?? value;
 }
 
-function buildUnifiedRoutes(managed: ExternalRouteItem[], live: LiveIngressRoute[]): UnifiedRoute[] {
+function buildUnifiedRoutes(managed: ExternalRouteItem[], live: IngressRoute[]): UnifiedRoute[] {
   const managedHosts = new Set<string>();
   const managedNames = new Set<string>();
   for (const route of managed) {
@@ -183,55 +164,40 @@ export default function RoutingPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState<ExternalRouteItem | null>(null);
   const [routeToDelete, setRouteToDelete] = useState<ExternalRouteItem | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const [dnsDialogOpen, setDnsDialogOpen] = useState(false);
   const [dnsDefaults, setDnsDefaults] = useState<DnsRecordDefaults>({});
   const [editingDns, setEditingDns] = useState<ManagedDnsRecord | null>(null);
   const [dnsToDelete, setDnsToDelete] = useState<ManagedDnsRecord | null>(null);
 
-  const managedQuery = useQuery<ExternalRoutesResponse>({
+  const managedQuery = useApiQuery<ExternalRoutesResponse>({
     queryKey: ["external-routes"],
-    queryFn: async () => {
-      const response = await fetch("/api/routes/external", { cache: "no-store" });
-      const payload = (await response.json()) as ExternalRoutesResponse & { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Failed to load external routes");
-      return payload;
-    },
+    path: "/api/routes/external",
+    request: { cache: "no-store" },
     staleTime: 15_000,
     refetchInterval: 60_000,
   });
 
-  const liveQuery = useQuery<IngressResponse>({
+  const liveQuery = useApiQuery<IngressResponse>({
     queryKey: ["ingress-routes"],
-    queryFn: async () => {
-      const response = await fetch("/api/ingress", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to fetch ingress routes");
-      return response.json();
-    },
+    path: "/api/ingress",
+    request: { cache: "no-store" },
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
 
-  const dnsQuery = useQuery<DnsResponse>({
+  const dnsQuery = useApiQuery<DnsResponse>({
     queryKey: ["dns", "records"],
-    queryFn: async () => {
-      const response = await fetch("/api/dns", { cache: "no-store" });
-      const payload = (await response.json()) as DnsResponse & { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Failed to load DNS records");
-      return payload;
-    },
+    path: "/api/dns",
+    request: { cache: "no-store" },
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
 
-  const portsQuery = useQuery<PortRoutingResponse>({
+  const portsQuery = useApiQuery<PortRoutingResponse>({
     queryKey: ["port-routing"],
-    queryFn: async () => {
-      const response = await fetch("/api/gameservers/ports", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to fetch port routing");
-      return response.json();
-    },
+    path: "/api/gameservers/ports",
+    request: { cache: "no-store" },
     enabled: tab === "ports",
     staleTime: 30_000,
   });
@@ -300,45 +266,47 @@ export default function RoutingPage() {
     ]);
   }
 
-  async function deleteRoute() {
+  const deleteRouteMutation = useApiMutation<unknown, ExternalRouteItem>({
+    path: (route) => `/api/routes/external/${encodeURIComponent(route.name)}`,
+    method: "DELETE",
+    successMessage: (_data, route) => `Deleted ${route.name}`,
+    errorMessage: (error) => error.message || "Unable to delete route",
+    onSuccess: async () => {
+      setRouteToDelete(null);
+      await managedQuery.refetch();
+    },
+  });
+
+  function deleteRoute() {
     if (!routeToDelete) return;
     if (!canWrite) {
       toast.error("You do not have permission to delete routes");
       return;
     }
-    setDeleting(true);
-    try {
-      const response = await fetch(`/api/routes/external/${encodeURIComponent(routeToDelete.name)}`, { method: "DELETE" });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Unable to delete route");
-      toast.success(`Deleted ${routeToDelete.name}`);
-      setRouteToDelete(null);
-      await managedQuery.refetch();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to delete route");
-    } finally {
-      setDeleting(false);
-    }
+    deleteRouteMutation.mutate(routeToDelete);
   }
 
-  async function deleteDnsRecord() {
+  const deleteDnsMutation = useApiMutation<unknown, ManagedDnsRecord>({
+    path: (record) => `/api/dns/${record.id}`,
+    method: "DELETE",
+    successMessage: (_data, record) => `Deleted ${record.name}`,
+    errorMessage: (error) => error.message || "Failed to delete DNS record",
+    onSuccess: async () => {
+      setDnsToDelete(null);
+      await dnsQuery.refetch();
+    },
+  });
+
+  function deleteDnsRecord() {
     if (!dnsToDelete) return;
     if (!canWriteDns) {
       toast.error("You do not have permission to delete DNS records");
       return;
     }
-    try {
-      const response = await fetch(`/api/dns/${dnsToDelete.id}`, { method: "DELETE" });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Failed to delete DNS record");
-      toast.success(`Deleted ${dnsToDelete.name}`);
-      setDnsToDelete(null);
-      await dnsQuery.refetch();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete DNS record");
-    }
+    deleteDnsMutation.mutate(dnsToDelete);
   }
 
+  const deleting = deleteRouteMutation.isPending;
   const isFetching = managedQuery.isFetching || liveQuery.isFetching || dnsQuery.isFetching;
   const managedError = managedQuery.error;
   const counts: Record<TabKey, number> = {
@@ -358,14 +326,7 @@ export default function RoutingPage() {
         subtitle="One place for routes, DNS records, access modes, and middleware."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void refreshAll()}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
-            >
-              <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
-              Refresh
-            </button>
+            <RefreshButton onClick={() => void refreshAll()} refreshing={isFetching} />
             {tab === "dns" ? null : (
               <button
                 type="button"
@@ -392,28 +353,12 @@ export default function RoutingPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {TABS.map(({ key, label, icon: Icon, hint }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            title={hint}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition",
-              tab === key
-                ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-200"
-                : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
-            )}
-          >
-            <Icon className="h-4 w-4" />
-            <span>{label}</span>
-            <span className="rounded-full bg-slate-200/70 px-2 text-xs text-slate-600 dark:bg-white/10 dark:text-slate-300">
-              {counts[key]}
-            </span>
-          </button>
-        ))}
-      </div>
+      <PillTabs
+        tabs={TABS.map(({ key, label }) => ({ value: key, label, count: counts[key] }))}
+        active={tab}
+        onChange={setTab}
+        label="Route tabs"
+      />
 
       {tab === "ports" ? (
         <PortRoutingPanel query={portsQuery} />
@@ -424,24 +369,16 @@ export default function RoutingPage() {
       ) : (
         <DashboardPanel title="Routes" description="Search and filter across manual and auto-generated routes." icon={Server}>
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {(["all", "internal", "public"] as const).map((tier) => (
-                <button
-                  key={tier}
-                  type="button"
-                  onClick={() => setAccessTierFilter(tier)}
-                  className={cn(
-                    "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition",
-                    accessTierFilter === tier
-                      ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-200"
-                      : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
-                  )}
-                >
-                  {tier === "all" ? <Globe className="h-4 w-4" /> : <AccessTierBadge tier={tier} compact className="h-6 min-w-6 px-1.5" />}
-                  <span className="capitalize">{tier === "all" ? "All modes" : tier}</span>
-                </button>
-              ))}
-            </div>
+            <PillTabs
+              tabs={[
+                { value: "all", label: "All modes" },
+                { value: "internal", label: "Internal" },
+                { value: "public", label: "Public" },
+              ]}
+              active={accessTierFilter}
+              onChange={(value) => setAccessTierFilter(value as "all" | AccessTier)}
+              label="Access mode"
+            />
 
             <ToolbarSearchInput value={search} onChange={setSearch} placeholder="Search hostnames, backends, middleware…" />
 
@@ -450,11 +387,10 @@ export default function RoutingPage() {
                 {managedError instanceof Error ? managedError.message : "Manual routes could not be loaded."}
               </div>
             ) : null}
-            {liveQuery.data?.live === false && tab !== "manual" ? (
-              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-600 dark:text-amber-200">
-                Kubernetes unavailable — auto-generated routes cannot be loaded.
-              </div>
-            ) : null}
+            <KubeOfflineBanner
+              show={liveQuery.data?.live === false && tab !== "manual"}
+              message="Kubernetes unavailable — auto-generated routes cannot be loaded."
+            />
 
             {managedQuery.isLoading || liveQuery.isLoading ? (
               <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 p-6 text-sm text-slate-500">
@@ -625,7 +561,7 @@ export default function RoutingPage() {
       <ConfirmDialog
         open={Boolean(routeToDelete)}
         onCancel={() => !deleting && setRouteToDelete(null)}
-        onConfirm={() => void deleteRoute()}
+        onConfirm={deleteRoute}
         title={routeToDelete ? `Delete ${routeToDelete.name}?` : "Delete route?"}
         description="This removes the route manifest and any dedicated backend objects managed for it."
         confirmText={deleting ? "Deleting…" : "Delete route"}
@@ -635,7 +571,7 @@ export default function RoutingPage() {
       <ConfirmDialog
         open={Boolean(dnsToDelete)}
         onCancel={() => setDnsToDelete(null)}
-        onConfirm={() => void deleteDnsRecord()}
+        onConfirm={deleteDnsRecord}
         title={dnsToDelete ? `Delete ${dnsToDelete.name}?` : "Delete DNS record?"}
         description={dnsToDelete ? `This permanently removes the ${dnsToDelete.type} record pointing to ${dnsToDelete.value}.` : undefined}
         confirmText="Delete record"
@@ -739,7 +675,7 @@ function MiddlewarePanel({ routes, loading }: { routes: UnifiedRoute[]; loading:
   );
 }
 
-function PortRoutingPanel({ query }: { query: ReturnType<typeof useQuery<PortRoutingResponse>> }) {
+function PortRoutingPanel({ query }: { query: UseQueryResult<PortRoutingResponse, Error> }) {
   const servers = query.data?.servers ?? [];
   const conflicts = query.data?.conflicts ?? [];
 

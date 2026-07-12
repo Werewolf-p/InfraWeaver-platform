@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { loadHomeDashboardSummary } from "@/lib/home-dashboard";
 import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
+import { withAuth } from "@/lib/with-auth";
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withAuth({}, async ({ session }) => {
   const access = await getSessionRBACContext(session, 60);
   const summary = await loadHomeDashboardSummary({
     includeArgocdSummary: hasSessionPermission(access, "apps:read"),
@@ -16,4 +13,4 @@ export async function GET() {
   return NextResponse.json(summary, {
     headers: { "Cache-Control": "no-store" },
   });
-}
+});

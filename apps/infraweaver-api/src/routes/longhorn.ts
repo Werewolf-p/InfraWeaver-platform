@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { forbidden, badRequest, upstream } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 type LonghornVolume = {
@@ -44,7 +45,7 @@ export const longhornRoute = new Hono<AppBindings>();
 longhornRoute.get('/volumes', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   try {
@@ -72,14 +73,14 @@ longhornRoute.get('/volumes', async (c) => {
 
     return c.json(volumes);
   } catch {
-    return c.json({ error: 'Failed to fetch Longhorn volumes' }, 502);
+    return upstream(c, 'Failed to fetch Longhorn volumes');
   }
 });
 
 longhornRoute.get('/backups', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   try {
@@ -105,14 +106,14 @@ longhornRoute.get('/backups', async (c) => {
 
     return c.json(backupVolumes);
   } catch {
-    return c.json({ error: 'Failed to fetch Longhorn backup volumes' }, 502);
+    return upstream(c, 'Failed to fetch Longhorn backup volumes');
   }
 });
 
 longhornRoute.get('/backups/:volumeName', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const { volumeName } = c.req.param();
@@ -145,14 +146,14 @@ longhornRoute.get('/backups/:volumeName', async (c) => {
 
     return c.json(backups);
   } catch {
-    return c.json({ error: 'Failed to fetch Longhorn backups' }, 502);
+    return upstream(c, 'Failed to fetch Longhorn backups');
   }
 });
 
 longhornRoute.post('/restore', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:admin')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
@@ -161,7 +162,7 @@ longhornRoute.post('/restore', async (c) => {
   const targetVolumeName = typeof body.targetVolumeName === 'string' ? body.targetVolumeName.trim() : '';
 
   if (!volumeName || !backupURL) {
-    return c.json({ error: 'volumeName and backupURL are required' }, 400);
+    return badRequest(c, 'volumeName and backupURL are required');
   }
 
   // Constrain the backup source scheme so a caller can't point Longhorn's
@@ -169,7 +170,7 @@ longhornRoute.post('/restore', async (c) => {
   // internal host — an SSRF/lateral-movement primitive. Longhorn backup targets
   // are only ever s3/nfs/cifs/azblob.
   if (!/^(?:s3|nfs|cifs|azblob):\/\//i.test(backupURL)) {
-    return c.json({ error: 'backupURL must be an s3://, nfs://, cifs://, or azblob:// target' }, 400);
+    return badRequest(c, 'backupURL must be an s3://, nfs://, cifs://, or azblob:// target');
   }
 
   const restoreVolumeName = targetVolumeName || volumeName;
@@ -203,6 +204,6 @@ longhornRoute.post('/restore', async (c) => {
       message: `Restore started for ${restoreVolumeName}`,
     });
   } catch {
-    return c.json({ error: 'Failed to start Longhorn restore' }, 502);
+    return upstream(c, 'Failed to start Longhorn restore');
   }
 });

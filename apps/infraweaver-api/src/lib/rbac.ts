@@ -53,7 +53,10 @@ export function hasPermission(user: UserContext, permission: Permission): boolea
     }
   }
   const elevated = elevatedPermissions.get(user);
-  if (elevated && (elevated.has('*') || elevated.has(permission))) {
+  // Elevated permissions deliberately never honor '*': no legitimate elevation
+  // source (PIM roles or validated custom groups) may confer the platform-owner
+  // wildcard, so only exact permission matches count here.
+  if (elevated?.has(permission)) {
     return true;
   }
   return false;
@@ -80,6 +83,47 @@ const PIM_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   'rbac-admin': ['rbac:admin'],
   'platform-updater': ['platform:update'],
 };
+
+// Custom-group permissions come from the infraweaver-access-control ConfigMap,
+// which is writable by more principals than the two ceiling-checked console
+// routes (app/api/groups/*). The backend therefore re-enforces the console's
+// invariants instead of trusting the stored strings: every group permission
+// must be a known concrete Permission AND must not be in the platform-level
+// escalation deny-list. Mirrors GROUP_DENIED_PERMISSIONS in the console's
+// lib/rbac.ts — a custom group can never mint users:write / rbac:admin / '*'.
+const GROUP_DENIED_PERMISSIONS: ReadonlySet<string> = new Set<Permission>([
+  '*',
+  'users:write',
+  'users:invite',
+  'rbac:admin',
+  'platform:update',
+  'cluster:admin',
+  'security:write',
+]);
+
+// Runtime catalog of every concrete Permission this API understands ('*'
+// excluded — it is never groupable). Kept in sync with the Permission union.
+const KNOWN_GROUP_PERMISSIONS: ReadonlySet<string> = new Set<Permission>([
+  'apps:read', 'apps:write', 'apps:sync', 'apps:delete',
+  'config:read', 'config:write',
+  'catalog:write', 'catalog:delete',
+  'users:read', 'users:write', 'users:invite',
+  'cluster:read', 'cluster:drain', 'cluster:scale', 'cluster:admin',
+  'security:read', 'security:write',
+  'nas:read', 'nas:write',
+  'infra:read', 'rbac:admin',
+  'platform:update',
+  'game-hub:read', 'game-hub:write', 'game-hub:admin',
+  'game-hub:players',
+  'game-hub:console', 'game-hub:files', 'game-hub:start', 'game-hub:stop', 'game-hub:scale',
+  'wiki:read', 'wiki:edit',
+]);
+
+/** True if a stored custom-group permission string may contribute to a user's
+ *  elevated set: it must be a known concrete permission outside the deny-list. */
+function isGroupGrantablePermission(perm: string): boolean {
+  return KNOWN_GROUP_PERMISSIONS.has(perm) && !GROUP_DENIED_PERMISSIONS.has(perm);
+}
 
 interface RawActivation {
   user?: string;
@@ -158,7 +202,11 @@ export async function computeElevatedPermissions(
         groupIds.has(normalizeId(group.id)) ||
         groupIds.has(normalizeId(group.name));
       if (!isMember) continue;
-      for (const perm of group.permissions ?? []) perms.add(perm);
+      for (const perm of group.permissions ?? []) {
+        // Validate stored strings against the catalog and deny-list — a value
+        // smuggled into the ConfigMap ('*', rbac:admin, …) must confer nothing.
+        if (isGroupGrantablePermission(perm)) perms.add(perm);
+      }
     }
   } catch {
     return new Set<string>();

@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { NextResponse } from "next/server";
 import { makeCoreApi, makeCustomApi } from "@/lib/kube-client";
+import { errorMessage } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 import { appLabelFromPod, type PromQueryResult } from "@/lib/firewall/drops";
 import { MANAGED_BY, workloadSelectorFromPodLabels } from "@/lib/firewall/rules";
 import {
@@ -57,18 +57,11 @@ function learnWindowMinutes(policy: LearnPolicyObject): number {
 }
 
 // GET ?namespace=&pods=a,b — learn-mode status + the learned FQDN list.
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth({ permission: "cluster:read" }, async ({ req }) => {
   const namespace = req.nextUrl.searchParams.get("namespace");
   const pods = (req.nextUrl.searchParams.get("pods") ?? "").split(",").filter(Boolean);
-  if (!namespace || pods.length === 0) {
-    return NextResponse.json({ error: "namespace and pods are required" }, { status: 400 });
+  if (!namespace || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(namespace) || pods.length === 0) {
+    return NextResponse.json({ error: "valid namespace and pods are required" }, { status: 400 });
   }
 
   const appLabel = appLabelFromPod(pods[0]);
@@ -81,7 +74,7 @@ export async function GET(req: NextRequest) {
     since: policy.metadata?.creationTimestamp ?? null,
     learned: parseLearnedQueries(result, pods),
   });
-}
+});
 
 interface LearnBody {
   namespace: string;
@@ -91,14 +84,7 @@ interface LearnBody {
 
 // POST — enable/disable learn mode, or commit ("Allow learned"): write every
 // learned FQDN into <app>-egress-allowlist, then drop the temp-allow policy.
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:admin")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const POST = withAuth({ permission: "cluster:admin" }, async ({ req }) => {
   let body: LearnBody;
   try {
     body = (await req.json()) as LearnBody;
@@ -106,8 +92,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
   const { namespace, pods, action } = body ?? {};
-  if (!namespace || !pods?.length || !["enable", "disable", "commit"].includes(action)) {
-    return NextResponse.json({ error: "namespace, pods and a valid action are required" }, { status: 400 });
+  if (!namespace || !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(namespace) || !pods?.length || !["enable", "disable", "commit"].includes(action)) {
+    return NextResponse.json({ error: "a valid namespace, pods and action are required" }, { status: 400 });
   }
 
   const appLabel = appLabelFromPod(pods[0]);
@@ -190,7 +176,6 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ ok: true, active: false, committed });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: `Learn mode ${action} failed: ${msg}` }, { status: 500 });
+    return NextResponse.json({ error: `Learn mode ${action} failed: ${errorMessage(err)}` }, { status: 500 });
   }
-}
+});

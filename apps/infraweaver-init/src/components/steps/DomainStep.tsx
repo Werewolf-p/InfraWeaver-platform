@@ -9,7 +9,7 @@ import { GlassCard } from '@/components/ui/GlassCard'
 import { FormField } from '@/components/ui/FormField'
 import { StepHeader } from '@/components/ui/StepHeader'
 import { useWizardStore } from '@/lib/store'
-import { controlClassName, fadeUpItem, isDomain, isEmail, isIPv4, isPrivateIPv4, staggerContainer } from '@/lib/utils'
+import { controlClassName, errMessage, fadeUpItem, isDomain, isEmail, isIPv4, isPrivateIPv4, staggerContainer } from '@/lib/utils'
 
 export function DomainStep() {
   const data = useWizardStore((state) => state.data)
@@ -32,7 +32,7 @@ export function DomainStep() {
         setPublicIpError(result.error ?? 'Could not detect a public IP.')
       }
     } catch (error) {
-      setPublicIpError(error instanceof Error ? error.message : 'Could not detect a public IP.')
+      setPublicIpError(errMessage(error, 'Could not detect a public IP.'))
     } finally {
       setLoading('detectPublicIp', false)
     }

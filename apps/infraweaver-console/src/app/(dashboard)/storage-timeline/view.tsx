@@ -1,8 +1,8 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { HardDrive } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface Volume {
   name: string;
@@ -14,13 +14,9 @@ interface Volume {
 }
 
 export function StorageTimelineView() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useApiQuery<{ volumes?: Volume[] }>({
     queryKey: ["longhorn", "volumes"],
-    queryFn: async () => {
-      const res = await fetch("/api/longhorn/volumes");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<{ volumes?: Volume[] }>;
-    },
+    path: "/api/longhorn/volumes",
   });
 
   const volumes = data?.volumes ?? [];

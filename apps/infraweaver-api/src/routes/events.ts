@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getCoreApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { forbidden, upstream } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 export const eventsRoute = new Hono<AppBindings>();
@@ -8,7 +9,7 @@ export const eventsRoute = new Hono<AppBindings>();
 eventsRoute.get('/', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const limit = Math.min(Math.max(Number.parseInt(c.req.query('limit') ?? '50', 10) || 50, 1), 200);
@@ -57,6 +58,6 @@ eventsRoute.get('/', async (c) => {
 
     return c.json({ events, clusterId: user.clusterId });
   } catch {
-    return c.json({ error: 'Failed to fetch events' }, 502);
+    return upstream(c, 'Failed to fetch events');
   }
 });

@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { synologyListShares, truenasListShares, type NasShare } from "@/lib/nas/discovery";
 import { isNasCertificateError } from "@/lib/nas/pinned-fetch";
-import { getResolvedNasProvider, resolveNasCredentials, resolveNasProviders, type ResolvedNasProvider } from "@/lib/nas/providers";
+import { resolveNasCredentials, resolveNasProviders, type ResolvedNasProvider } from "@/lib/nas/providers";
+import { nasCertificateChallenge, requireNasProvider } from "@/lib/nas/route-helpers";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, type SessionRBACContext } from "@/lib/session-rbac";
 import { canAccessNasFolder, canReadStorage } from "@/lib/nas/authz";
+import { withAuth } from "@/lib/with-auth";
 
 /**
  * A provider whose TLS certificate is untrusted or has changed. Surfaced to the
@@ -65,9 +66,7 @@ function scopeSharesToCaller(rbac: SessionRBACContext, shares: ListedShare[]) {
     }));
 }
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const GET = withAuth({}, async ({ req, session }) => {
   const access = await getSessionRBACContext(session, 60);
   // Admission is coarse — "does the caller hold nas:read anywhere under /nas?".
   // Each individual share is then checked against its own scope below, so a user
@@ -107,17 +106,14 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const provider = await getResolvedNasProvider(providerId);
-  if (!provider) return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
+  const resolvedProvider = await requireNasProvider(providerId);
+  if (resolvedProvider.response) return resolvedProvider.response;
+  const provider = resolvedProvider.provider;
   try {
     return NextResponse.json({ shares: scopeSharesToCaller(access, await listSharesForProvider(provider)) });
   } catch (error) {
-    if (isNasCertificateError(error)) {
-      return NextResponse.json(
-        { error: error.message, needsCertificateTrust: true, provider: provider.id },
-        { status: 409 },
-      );
-    }
+    const challenge = nasCertificateChallenge(error, provider.id);
+    if (challenge) return challenge;
     throw error;
   }
-}
+});

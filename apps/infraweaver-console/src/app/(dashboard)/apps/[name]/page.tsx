@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import { Activity, ArrowLeft, Box, Flame, GitBranch, RefreshCw, Shield, TerminalSquare, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { ResponsiveContainer, Treemap, Tooltip as RechartsTooltip } from "recharts";
@@ -13,6 +12,7 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { SectionTabs } from "@/components/ui/section-tabs";
 import { Skeleton, SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
 import { resolveRoleDefinition, scopeLabel } from "@/lib/rbac";
 import { AppFirewallPanel } from "@/app/(dashboard)/network/firewall/_components/app-firewall-panel";
@@ -83,24 +83,17 @@ export default function AppDetailPage() {
   const [selectedContainer, setSelectedContainer] = useState("");
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
-  const { data, isLoading, error } = useQuery<AppDetailResponse>({
+  const { data, isLoading, error } = useApiQuery<AppDetailResponse>({
     queryKey: ["app-detail", name],
     enabled: Boolean(name),
-    queryFn: async () => {
-      const response = await fetch(`/api/apps/${encodeURIComponent(name)}`);
-      if (!response.ok) throw new Error("Failed to fetch application details");
-      return response.json();
-    },
+    path: `/api/apps/${encodeURIComponent(name)}`,
   });
 
-  const { data: assignmentsData } = useQuery<{ assignments: Assignment[] }>({
+  const { data: assignmentsData } = useApiQuery<{ assignments: Assignment[] }>({
     queryKey: ["rbac-assignments", name],
     enabled: Boolean(name),
-    queryFn: async () => {
-      const response = await fetch("/api/rbac/assignments");
-      if (!response.ok) return { assignments: [] };
-      return response.json();
-    },
+    path: "/api/rbac/assignments",
+    placeholderData: { assignments: [] },
   });
 
   const isProtectedApp = name.startsWith("core-") || name === "bootstrap" || name.startsWith("appset-") || name === "catalog-infraweaver-console-manifests";

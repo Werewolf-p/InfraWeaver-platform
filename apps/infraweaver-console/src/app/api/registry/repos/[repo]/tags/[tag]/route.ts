@@ -18,7 +18,7 @@ export const DELETE = withRoute("config:write", async (req: NextRequest, _sessio
   const { repo: encodedRepo, tag } = await params;
   const repo = decodeURIComponent(encodedRepo);
 
-  if (!SAFE_REPO_RE.test(repo)) {
+  if (!SAFE_REPO_RE.test(repo) || repo.split("/").some((s) => s === "" || s === "." || s === "..")) {
     return NextResponse.json({ error: "Invalid repo name" }, { status: 400 });
   }
   if (!SAFE_TAG_RE.test(tag)) {

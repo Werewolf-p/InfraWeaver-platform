@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { checkSameOrigin, getRequestSizeViolation, hasUpstreamFeedbackSignature, internalCronTokenMatches } from "@/lib/api-helpers";
 import { auditAuthFailure, auditUnauthorizedAccess } from "@/lib/audit-log";
-import { checkRateLimit, LOGIN_RATE_LIMIT, rateLimitKey, UNAUTHENTICATED_RATE_LIMIT } from "@/lib/rate-limit";
+import { checkRateLimit, rateLimitKey, UNAUTHENTICATED_RATE_LIMIT } from "@/lib/rate-limit";
 import { NextResponse, type NextRequest } from "next/server";
 
 
@@ -161,17 +161,21 @@ export default auth(async (req) => {
       req.method === "POST" &&
       hasUpstreamFeedbackSignature(req)
     ) {
+      // Run the (method+path based) body-size guard BEFORE granting the HMAC
+      // bypass, otherwise a request merely carrying the signature headers reaches
+      // the handler unbounded — an unauthenticated memory-exhaustion vector.
+      const sizeViolation = getRequestSizeViolation(req, pathname);
+      if (sizeViolation) {
+        await auditUnauthorizedAccess("security:request-too-large", req, req.auth?.user?.email ?? "anonymous", `${req.method} ${pathname} — ${sizeViolation}`);
+        return withSecurityHeaders(NextResponse.json({ error: "Request body too large" }, { status: 413 }), nonce, requestId);
+      }
       return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
     }
 
-    if (pathname.startsWith("/api/auth/signin") && MUTATION_METHODS.has(req.method)) {
-      if (!checkRateLimit(rateLimitKey("login", req), LOGIN_RATE_LIMIT.max, LOGIN_RATE_LIMIT.windowMs)) {
-        await auditAuthFailure(`Rate limited login attempt for ${pathname}`, req);
-        const r = NextResponse.json({ error: "Too many login attempts" }, { status: 429 });
-        r.headers.set("Retry-After", "60");
-        return withSecurityHeaders(r, nonce, requestId);
-      }
-    }
+    // NOTE: login rate limiting for /api/auth/signin is enforced in the Auth.js
+    // route handler (app/api/auth/[...nextauth]/route.ts), NOT here — config.matcher
+    // below excludes /api/auth/, so any signin guard placed in this middleware is
+    // unreachable dead code. Keep the limiter in the route, not in the proxy.
 
     if (!isLoggedIn && !RATE_LIMIT_EXEMPT_PATHS.has(pathname) && !pathname.startsWith("/_next")) {
       if (!checkRateLimit(rateLimitKey("unauthenticated", req), UNAUTHENTICATED_RATE_LIMIT.max, UNAUTHENTICATED_RATE_LIMIT.windowMs)) {

@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCheck, RefreshCw, Search, ShieldCheck } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
+import { AlertTriangle, CheckCheck, ShieldCheck } from "lucide-react";
+import { DashboardStatCard, EmptyState, FilterSelect, KubeOfflineBanner, PageScaffold, RefreshButton, SearchInput } from "@/components/ui";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { cn, timeAgo } from "@/lib/utils";
 import { loadAckedEventIds, saveAckedEventIds, subscribeAckedEventIds } from "@/lib/event-ack";
 
@@ -38,17 +38,13 @@ export default function EventsPage() {
   const [namespaceFilter, setNamespaceFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState<"all" | "Warning" | "Normal">("all");
   const [hideAcked, setHideAcked] = useState(false);
-  const [ackedIds, setAckedIds] = useState<string[]>(() => loadAckedEventIds());
+  const [ackedIds, setAckedIds] = useState<Set<string>>(() => new Set(loadAckedEventIds()));
 
-  useEffect(() => subscribeAckedEventIds(() => setAckedIds(loadAckedEventIds())), []);
+  useEffect(() => subscribeAckedEventIds(() => setAckedIds(new Set(loadAckedEventIds()))), []);
 
-  const { data, isLoading, isFetching, refetch, dataUpdatedAt } = useQuery<EventsResponse>({
+  const { data, isLoading, isFetching, refetch, dataUpdatedAt } = useApiQuery<EventsResponse>({
     queryKey: ["cluster-events"],
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/events", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to fetch events");
-      return response.json();
-    },
+    path: "/api/cluster/events",
     refetchInterval: 15_000,
     staleTime: 10_000,
   });
@@ -68,97 +64,65 @@ export default function EventsPage() {
       || event.involvedObject.name.toLowerCase().includes(query);
     const matchesNamespace = namespaceFilter === "all" || event.namespace === namespaceFilter;
     const matchesType = typeFilter === "all" || event.type === typeFilter;
-    const isAcked = ackedIds.includes(event.id);
+    const isAcked = ackedIds.has(event.id);
     return matchesSearch && matchesNamespace && matchesType && (!hideAcked || !isAcked);
   }), [ackedIds, events, hideAcked, namespaceFilter, search, typeFilter]);
 
   const warningEvents = filteredEvents.filter((event) => event.type === "Warning");
-  const unackedWarnings = warningEvents.filter((event) => !ackedIds.includes(event.id));
+  const unackedWarnings = warningEvents.filter((event) => !ackedIds.has(event.id));
 
   const acknowledgeEvents = useCallback((ids: string[]) => {
-    saveAckedEventIds([...ackedIds, ...ids]);
+    saveAckedEventIds([...new Set([...ackedIds, ...ids])]);
   }, [ackedIds]);
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        icon={AlertTriangle}
-        title="Events"
-        subtitle="Cluster-wide Kubernetes event feed with acknowledgement workflow"
-        badge={data?.live === false ? "offline" : "live"}
-        actions={
-          <>
-            <RefreshCountdown intervalSeconds={15} resetKey={dataUpdatedAt} />
-            <button
-              onClick={() => void refetch()}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
-            >
-              <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
-              Refresh
-            </button>
-          </>
-        }
-      />
-
-      {data?.live === false ? (
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          Kubernetes unavailable — cluster events cannot be loaded. Check cluster connectivity.
-        </div>
-      ) : null}
+    <PageScaffold
+      icon={AlertTriangle}
+      title="Events"
+      subtitle="Cluster-wide Kubernetes event feed with acknowledgement workflow"
+      badge={data?.live === false ? "offline" : "live"}
+      actions={
+        <>
+          <RefreshCountdown intervalSeconds={15} resetKey={dataUpdatedAt} />
+          <RefreshButton onClick={() => void refetch()} refreshing={isFetching} />
+        </>
+      }
+      loading={isLoading}
+      bodyClassName="space-y-6"
+    >
+      <KubeOfflineBanner show={data?.live === false} resource="cluster events" />
 
       <div className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Open warnings</p>
-          <p className="mt-2 text-3xl font-semibold text-yellow-300">{unackedWarnings.length}</p>
-          <p className="mt-1 text-xs text-slate-500">Warning events not yet acknowledged</p>
-        </div>
-        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-red-200/80">Errors</p>
-          <p className="mt-2 text-3xl font-semibold text-red-300">{data?.summary.errors ?? 0}</p>
-          <p className="mt-1 text-xs text-red-100/70">BackOff, failure, or unhealthy signals</p>
-        </div>
-        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Warnings</p>
-          <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{data?.summary.warnings ?? 0}</p>
-          <p className="mt-1 text-xs text-slate-500">Total warning events in the current feed</p>
-        </div>
-        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Namespaces</p>
-          <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{data?.summary.namespaces ?? 0}</p>
-          <p className="mt-1 text-xs text-slate-500">Distinct namespaces represented</p>
-        </div>
+        <DashboardStatCard label="Open warnings" value={unackedWarnings.length} tone="warning" description="Warning events not yet acknowledged" />
+        <DashboardStatCard label="Errors" value={data?.summary.errors ?? 0} tone="danger" description="BackOff, failure, or unhealthy signals" />
+        <DashboardStatCard label="Warnings" value={data?.summary.warnings ?? 0} description="Total warning events in the current feed" />
+        <DashboardStatCard label="Namespaces" value={data?.summary.namespaces ?? 0} description="Distinct namespaces represented" />
       </div>
 
       <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by namespace, reason, message, or object…"
-              className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 py-2.5 pl-9 pr-3 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50"
-            />
-          </div>
-          <select
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search by namespace, reason, message, or object…"
+            className="flex-1"
+          />
+          <FilterSelect
+            label="Filter by namespace"
             value={namespaceFilter}
-            onChange={(event) => setNamespaceFilter(event.target.value)}
-            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
-          >
-            <option value="all">All namespaces</option>
-            {namespaces.map((namespace) => (
-              <option key={namespace} value={namespace}>{namespace}</option>
-            ))}
-          </select>
-          <select
+            onChange={setNamespaceFilter}
+            options={[{ value: "all", label: "All namespaces" }, ...namespaces]}
+          />
+          <FilterSelect
+            label="Filter by type"
             value={typeFilter}
-            onChange={(event) => setTypeFilter(event.target.value as "all" | "Warning" | "Normal")}
-            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
-          >
-            <option value="all">All types</option>
-            <option value="Warning">Warnings</option>
-            <option value="Normal">Normal</option>
-          </select>
+            onChange={(value) => setTypeFilter(value as "all" | "Warning" | "Normal")}
+            options={[
+              { value: "all", label: "All types" },
+              { value: "Warning", label: "Warnings" },
+              { value: "Normal", label: "Normal" },
+            ]}
+          />
           <button
             onClick={() => setHideAcked((value) => !value)}
             className={cn(
@@ -179,16 +143,12 @@ export default function EventsPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="space-y-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-28 rounded-2xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>
-      ) : filteredEvents.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 py-16 text-center text-sm text-slate-500">
-          No events matched the current filters.
-        </div>
+      {filteredEvents.length === 0 ? (
+        <EmptyState icon={AlertTriangle} title="No events matched the current filters." />
       ) : (
         <div className="space-y-3">
           {filteredEvents.map((event) => {
-            const isAcked = ackedIds.includes(event.id);
+            const isAcked = ackedIds.has(event.id);
             return (
               <div
                 key={event.id}
@@ -248,6 +208,6 @@ export default function EventsPage() {
           })}
         </div>
       )}
-    </div>
+    </PageScaffold>
   );
 }

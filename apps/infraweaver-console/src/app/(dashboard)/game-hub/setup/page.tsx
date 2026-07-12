@@ -1,9 +1,9 @@
 "use client";
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, XCircle, Loader2, Gamepad2, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { fetchJson } from "@/lib/fetch-json";
 import { toast } from "@/lib/notify";
 import Link from "next/link";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -22,27 +22,16 @@ export default function GameHubSetupPage() {
   const canViewSetup = canAny(["cluster:read", "infra:read", "game-hub:read"]);
   const canApplySetup = can("cluster:admin");
   const queryClient = useQueryClient();
-  const [applying, setApplying] = useState(false);
 
   const { data: status, isLoading } = useQuery({
     queryKey: ["game-hub", "setup"],
-    queryFn: async () => {
-      const res = await fetch("/api/game-hub/setup");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<SetupStatus>;
-    },
+    queryFn: () => fetchJson<SetupStatus>("/api/game-hub/setup"),
     refetchInterval: 5000,
   });
 
-  async function applyResources() {
-    if (!canApplySetup) {
-      toast.error("You do not have permission to apply Game Hub resources");
-      return;
-    }
-    setApplying(true);
-    try {
-      const res = await fetch("/api/game-hub/setup", { method: "POST" });
-      const data = await res.json() as { results: Array<{ resource: string; status: string; error?: string }> };
+  const applyMutation = useMutation({
+    mutationFn: () => fetchJson<{ results: Array<{ resource: string; status: string; error?: string }> }>("/api/game-hub/setup", { method: "POST" }),
+    onSuccess: (data) => {
       const errors = data.results.filter(r => r.status === "error");
       if (errors.length === 0) {
         toast.success("Resources applied successfully!");
@@ -51,12 +40,18 @@ export default function GameHubSetupPage() {
           toast.error(`${e.resource}: ${e.error ?? "failed"}`);
         }
       }
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "setup"] });
-    } catch (err) {
-      toast.error(String(err));
-    } finally {
-      setApplying(false);
+      void queryClient.invalidateQueries({ queryKey: ["game-hub", "setup"] });
+    },
+    onError: (err) => toast.error(String(err)),
+  });
+  const applying = applyMutation.isPending;
+
+  function applyResources() {
+    if (!canApplySetup) {
+      toast.error("You do not have permission to apply Game Hub resources");
+      return;
     }
+    applyMutation.mutate();
   }
 
   const checks = [

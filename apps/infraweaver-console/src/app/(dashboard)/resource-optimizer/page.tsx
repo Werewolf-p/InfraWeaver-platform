@@ -1,9 +1,9 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { Activity, TrendingDown} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface Container {
   name: string;
@@ -29,13 +29,9 @@ function statusBadge(status: string) {
 }
 
 export default function ResourceOptimizerPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useApiQuery<{ recommendations: Recommendation[] }>({
     queryKey: ["cluster", "resource-recommendations"],
-    queryFn: async () => {
-      const res = await fetch("/api/cluster/resource-recommendations");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<{ recommendations: Recommendation[] }>;
-    },
+    path: "/api/cluster/resource-recommendations",
   });
 
   const recs = data?.recommendations ?? [];

@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { makeCoreApi, makeCustomApi } from "@/lib/kube-client";
+import { NextResponse } from "next/server";
+import { listItems, makeCoreApi, makeCustomApi } from "@/lib/kube-client";
 import { appLabelFromPod, type FlowDirection } from "@/lib/firewall/drops";
 import { flattenPolicyRules, policySelectsApp, policySelectsPod, removeRuleFromSpec, type CnpObject } from "@/lib/firewall/rules";
+import { errorMessage, safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 
 const CNP_GROUP = "cilium.io";
 const CNP_VERSION = "v2";
@@ -16,14 +16,7 @@ function crdAbsent(msg: string): boolean {
 // GET: the rules currently allowed for a pod, split into ingress + egress. Pass
 // ?namespace=&app= (or &pod= to derive the app label). Degrades to empty when the
 // Cilium CRD isn't present yet.
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth({ permission: "cluster:read" }, async ({ req }) => {
   const namespace = req.nextUrl.searchParams.get("namespace")?.trim();
   const pod = req.nextUrl.searchParams.get("pod")?.trim();
   const appParam = req.nextUrl.searchParams.get("app")?.trim();
@@ -48,10 +41,10 @@ export async function GET(req: NextRequest) {
 
   const custom = makeCustomApi();
   try {
-    const list = (await custom.listNamespacedCustomObject({
+    const list = await custom.listNamespacedCustomObject({
       group: CNP_GROUP, version: CNP_VERSION, namespace, plural: CNP_PLURAL,
-    })) as { items?: CnpObject[] };
-    const matching = (list.items ?? []).filter((p) =>
+    });
+    const matching = listItems<CnpObject>(list).filter((p) =>
       podLabels ? policySelectsPod(p, podLabels) : policySelectsApp(p, app),
     );
     const rules = flattenPolicyRules(matching);
@@ -63,13 +56,14 @@ export async function GET(req: NextRequest) {
       egress: rules.filter((r) => r.direction === "egress"),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     if (crdAbsent(msg)) {
       return NextResponse.json({ available: false, reason: "dataplane_not_ready", ingress: [], egress: [] });
     }
-    return NextResponse.json({ error: `Failed to list rules: ${msg}` }, { status: 500 });
+    console.error("pod-rules GET: failed to list rules:", msg);
+    return NextResponse.json({ error: `Failed to list rules: ${safeError(err)}` }, { status: 500 });
   }
-}
+});
 
 interface DeleteBody {
   namespace: string;
@@ -81,14 +75,7 @@ interface DeleteBody {
 // DELETE: remove a single allow rule from a policy. Removing the last rule deletes
 // the now-empty policy rather than leaving a bare endpointSelector (which Cilium
 // treats as a default-deny for that endpoint).
-export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:admin")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const DELETE = withAuth({ permission: "cluster:admin" }, async ({ req }) => {
   let body: DeleteBody;
   try {
     body = (await req.json()) as DeleteBody;
@@ -127,7 +114,7 @@ export async function DELETE(req: NextRequest) {
     });
     return NextResponse.json({ ok: true, policy: policyName, deletedPolicy: false });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     if (/not found|404/i.test(msg)) {
       return NextResponse.json({ error: "Policy not found — it may have already been removed" }, { status: 404 });
     }
@@ -137,6 +124,7 @@ export async function DELETE(req: NextRequest) {
         { status: 503 },
       );
     }
-    return NextResponse.json({ error: `Failed to remove rule: ${msg}` }, { status: 500 });
+    console.error("pod-rules DELETE: failed to remove rule:", msg);
+    return NextResponse.json({ error: `Failed to remove rule: ${safeError(err)}` }, { status: 500 });
   }
-}
+});

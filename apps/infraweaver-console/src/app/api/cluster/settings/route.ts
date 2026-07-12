@@ -253,11 +253,8 @@ export const PUT = withRoute("config:write", async (req: NextRequest) => {
       return NextResponse.json({ error: parseResult.error.flatten() }, { status: 400 });
     }
     const body = parseResult.data;
-    if (!Array.isArray(body.changes) || body.changes.length === 0) {
-      return NextResponse.json({ error: "No changes provided" }, { status: 400 });
-    }
 
-    // Validate and normalise changes
+    // Validate and normalise changes (schema already enforces a non-empty array)
     const validChanges: Array<{ def: ResourceSettingDef; value: string | number }> = [];
     for (const change of body.changes) {
       const def = RESOURCE_DEFS.find((d) => d.key === change.key);

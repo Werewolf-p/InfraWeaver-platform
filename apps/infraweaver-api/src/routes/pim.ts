@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { computeElevatedPermissions, hasPermission } from '../lib/rbac.js';
+import { badRequest } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 /**
@@ -24,6 +25,6 @@ pimRoute.get('/me', async (c) => {
 pimRoute.get('/check', async (c) => {
   const user = c.get('user');
   const permission = c.req.query('permission') ?? '';
-  if (!permission) return c.json({ error: 'permission query param required' }, 400);
+  if (!permission) return badRequest(c, 'permission query param required');
   return c.json({ permission, allowed: hasPermission(user, permission as Parameters<typeof hasPermission>[1]) });
 });

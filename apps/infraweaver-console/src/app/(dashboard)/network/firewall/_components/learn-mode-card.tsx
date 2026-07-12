@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { GraduationCap, Loader2, ShieldCheck } from "lucide-react";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { cn } from "@/lib/utils";
 
 interface LearnedQuery {
@@ -32,38 +33,32 @@ const POLL_MS = 15000;
  * blocked flows once learn mode ends.
  */
 export function LearnModeCard({ namespace, podNames, onChanged }: LearnModeCardProps) {
-  const [status, setStatus] = useState<LearnStatus | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [actError, setActError] = useState<string | null>(null);
 
   const podsParam = podNames.join(",");
 
-  const refresh = useCallback(async () => {
-    if (!podsParam) return;
-    try {
-      const res = await fetch(
-        `/api/network/learn-mode?namespace=${encodeURIComponent(namespace)}&pods=${encodeURIComponent(podsParam)}`,
-        { cache: "no-store" },
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setStatus((await res.json()) as LearnStatus);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load learn state");
-    }
-  }, [namespace, podsParam]);
+  const query = useApiQuery<LearnStatus>({
+    queryKey: ["network", "learn-mode", namespace, podsParam],
+    path: `/api/network/learn-mode?namespace=${encodeURIComponent(namespace)}&pods=${encodeURIComponent(podsParam)}`,
+    request: { cache: "no-store" },
+    refetchInterval: POLL_MS,
+    enabled: podsParam.length > 0,
+  });
+  const status = query.data ?? null;
+  const { dataUpdatedAt, refetch } = query;
 
+  // The single error slot used to be cleared by every successful poll — keep
+  // that: a stale action error disappears once fresh learn state arrives.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- refresh() is async; setState runs only after await, so no synchronous cascade
-    refresh();
-    const t = setInterval(refresh, POLL_MS);
-    return () => clearInterval(t);
-  }, [refresh]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- no-op unless an action error is currently showing
+    setActError(null);
+  }, [dataUpdatedAt]);
 
   const act = useCallback(
     async (action: "enable" | "disable" | "commit") => {
       setBusy(true);
-      setError(null);
+      setActError(null);
       try {
         const res = await fetch("/api/network/learn-mode", {
           method: "POST",
@@ -72,16 +67,18 @@ export function LearnModeCard({ namespace, podNames, onChanged }: LearnModeCardP
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-        await refresh();
+        await refetch();
         onChanged?.();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Learn mode action failed");
+        setActError(e instanceof Error ? e.message : "Learn mode action failed");
       } finally {
         setBusy(false);
       }
     },
-    [namespace, podNames, refresh, onChanged],
+    [namespace, podNames, refetch, onChanged],
   );
+
+  const error = actError ?? (query.error ? query.error.message : null);
 
   const active = status?.active ?? false;
   const learned = status?.learned ?? [];

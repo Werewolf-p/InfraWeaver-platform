@@ -1,3 +1,18 @@
+/**
+ * True when the keyboard event (or element) targets a control the user is
+ * typing in — inputs, textareas, selects, and contenteditable regions — so
+ * global single-key shortcuts know to stay out of the way.
+ *
+ * Accepts either an event (native or React synthetic) or the target itself:
+ * `isTypingTarget(event)` and `isTypingTarget(event.target)` are equivalent.
+ */
+export function isTypingTarget(source: Event | { target: EventTarget | null } | EventTarget | null | undefined): boolean {
+  if (!source || typeof HTMLElement === "undefined") return false;
+  const target = source instanceof EventTarget ? source : source.target;
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
 export interface KeyboardShortcut {
   keys: string[];
   description: string;

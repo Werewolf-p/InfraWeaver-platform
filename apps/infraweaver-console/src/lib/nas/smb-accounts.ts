@@ -30,7 +30,7 @@
  *     different ACE shapes. We read the existing ACL and match it.
  */
 
-import { randomBytes } from "node:crypto";
+import { generatePassword } from "@/lib/crypto/password";
 import { joinNasPath } from "@/lib/nas/paths";
 import {
   truenasJobCall,
@@ -63,23 +63,6 @@ export function smbAccountName(providerId: string, access: NasAccess): string {
   return `iw-${slug}-${accessSlug(access)}`;
 }
 
-/**
- * Rejection-sampled password from a uniform alphabet. `randomBytes % n` would
- * bias the low bytes; for a credential that guards a filesystem, don't.
- */
-function generatePassword(): string {
-  const limit = 256 - (256 % PASSWORD_ALPHABET.length);
-  let out = "";
-  while (out.length < PASSWORD_LENGTH) {
-    for (const byte of randomBytes(PASSWORD_LENGTH)) {
-      if (byte >= limit) continue;
-      out += PASSWORD_ALPHABET[byte % PASSWORD_ALPHABET.length];
-      if (out.length === PASSWORD_LENGTH) break;
-    }
-  }
-  return out;
-}
-
 interface TruenasUser {
   id: number;
   uid: number;
@@ -109,7 +92,8 @@ async function ensureTruenasAccount(
   username: string,
   access: NasAccess,
 ): Promise<NasSmbAccount> {
-  const password = generatePassword();
+  // Uniformly sampled (no modulo skew) — for a credential that guards a filesystem, don't.
+  const password = generatePassword({ length: PASSWORD_LENGTH, alphabet: PASSWORD_ALPHABET });
   const existing = await findTruenasUser(conn, username);
 
   if (existing) {

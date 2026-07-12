@@ -89,7 +89,7 @@ describe("applyRoleAssignments — role swap", () => {
         revokes: ["old"],
         grants: [{ roleId: "jellyfin-admin", scope: "/jellyfin" }],
       },
-      { granterPerms: permsForRole("platform-owner"), actor: "owner@x" },
+      { granterPermsAt: () => permsForRole("platform-owner"), actor: "owner@x" },
     );
 
     expect(result).toMatchObject({ ok: true, grantedCount: 1, revokedCount: 1 });
@@ -119,7 +119,7 @@ describe("applyRoleAssignments — role swap", () => {
 
     await applyRoleAssignments(
       { principalType: "user", principal: "alice", revokes: ["old"], grants: [{ roleId: "jellyfin-admin", scope: "/jellyfin" }] },
-      { granterPerms: permsForRole("platform-owner"), actor: "owner@x" },
+      { granterPermsAt: () => permsForRole("platform-owner"), actor: "owner@x" },
     );
 
     const savedUsers = saveUsersConfig.mock.calls[0][0] as Record<string, { role_assignments: RoleAssignment[] }>;
@@ -147,7 +147,7 @@ describe("applyRoleAssignments — one commit + one notice per call", () => {
           { roleId: "jellyfin-user", scope: "/media/jellyfin" },
         ],
       },
-      { granterPerms: permsForRole("platform-owner"), actor: "owner@x" },
+      { granterPermsAt: () => permsForRole("platform-owner"), actor: "owner@x" },
     );
 
     expect(result).toMatchObject({ ok: true, grantedCount: 2, revokedCount: 1 });
@@ -168,7 +168,7 @@ describe("applyRoleAssignments — atomic + fail-closed", () => {
         // platform-admin cannot mint an Owner "*"; the whole batch must fail.
         grants: [{ roleId: "jellyfin-admin", scope: "/jellyfin" }, { roleId: "platform-owner", scope: "/" }],
       },
-      { granterPerms: permsForRole("platform-admin"), actor: "admin@x" },
+      { granterPermsAt: () => permsForRole("platform-admin"), actor: "admin@x" },
     );
 
     expect(result).toEqual({ ok: false, status: 403, error: expect.stringContaining("exceeds your own permissions") });
@@ -181,7 +181,7 @@ describe("applyRoleAssignments — atomic + fail-closed", () => {
 
     const result = await applyRoleAssignments(
       { principalType: "user", principal: "alice", revokes: ["missing"], grants: [] },
-      { granterPerms: permsForRole("platform-owner"), actor: "owner@x" },
+      { granterPermsAt: () => permsForRole("platform-owner"), actor: "owner@x" },
     );
 
     expect(result).toMatchObject({ ok: false, status: 404 });
@@ -193,7 +193,7 @@ describe("applyRoleAssignments — atomic + fail-closed", () => {
 
     const result = await applyRoleAssignments(
       { principalType: "user", principal: "alice", revokes: [], grants: [{ roleId: "jellyfin-user", scope: "/jellyfin" }] },
-      { granterPerms: permsForRole("platform-owner"), actor: "owner@x" },
+      { granterPermsAt: () => permsForRole("platform-owner"), actor: "owner@x" },
     );
 
     expect(result).toMatchObject({ ok: false, status: 409 });
@@ -205,7 +205,7 @@ describe("applyRoleAssignments — atomic + fail-closed", () => {
 
     const result = await applyRoleAssignments(
       { principalType: "user", principal: "alice", revokes: [], grants: [] },
-      { granterPerms: permsForRole("platform-owner"), actor: "owner@x" },
+      { granterPermsAt: () => permsForRole("platform-owner"), actor: "owner@x" },
     );
 
     expect(result).toMatchObject({ ok: true, grantedCount: 0, revokedCount: 0 });
@@ -229,7 +229,7 @@ describe("applyRoleAssignments — group principal", () => {
         revokes: ["g-old"],
         grants: [{ roleId: "jellyfin-admin", scope: "/jellyfin" }],
       },
-      { granterPerms: permsForRole("platform-owner"), actor: "owner@x" },
+      { granterPermsAt: () => permsForRole("platform-owner"), actor: "owner@x" },
     );
 
     expect(result).toMatchObject({ ok: true, grantedCount: 1, revokedCount: 1 });

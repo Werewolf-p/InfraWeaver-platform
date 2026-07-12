@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getMode, setMode } from '../lib/mode.js';
 import { hasPermission } from '../lib/rbac.js';
+import { forbidden } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 export const modeRoute = new Hono<AppBindings>();
@@ -18,7 +19,7 @@ modeRoute.put(
   async (c) => {
     const user = c.get('user');
     if (!hasPermission(user, 'cluster:admin')) {
-      return c.json({ error: 'Forbidden — cluster:admin required' }, 403);
+      return forbidden(c, 'Forbidden — cluster:admin required');
     }
 
     const { mode } = c.req.valid('json');

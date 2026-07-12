@@ -1,10 +1,9 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { toast } from "@/lib/notify";
 import { BellOff, Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
 
 interface Silence {
@@ -20,39 +19,30 @@ interface Silence {
 export default function AlertSilencePage() {
   const { can } = useRBAC();
   const canManageSilences = can("config:write");
-  const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(() => ({ name: "", matchers: "", comment: "", endsAt: new Date(Date.now() + 3600000).toISOString().slice(0, 16) }));
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useApiQuery<{ silences: Silence[] }>({
     queryKey: ["alert-silences"],
-    queryFn: async () => {
-      const res = await fetch("/api/alerts/silence");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<{ silences: Silence[] }>;
-    },
+    path: "/api/alerts/silence",
   });
 
   const silences = data?.silences ?? [];
 
-  const createMutation = useMutation({
-    mutationFn: async (body: typeof form) => {
-      if (!canManageSilences) throw new Error("Forbidden");
-      const res = await fetch("/api/alerts/silence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, endsAt: new Date(body.endsAt).toISOString() }) });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
-    },
-    onSuccess: () => { toast.success("Silence created"); void qc.invalidateQueries({ queryKey: ["alert-silences"] }); setShowForm(false); },
-    onError: () => toast.error("Failed to create silence"),
+  const createMutation = useApiMutation<unknown, typeof form>({
+    path: "/api/alerts/silence",
+    request: (body) => ({ json: { ...body, endsAt: new Date(body.endsAt).toISOString() } }),
+    successMessage: "Silence created",
+    errorMessage: "Failed to create silence",
+    invalidateQueryKeys: [["alert-silences"]],
+    onSuccess: () => setShowForm(false),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      if (!canManageSilences) throw new Error("Forbidden");
-      const res = await fetch(`/api/alerts/silence?id=${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed");
-    },
-    onSuccess: () => { toast.success("Silence removed"); void qc.invalidateQueries({ queryKey: ["alert-silences"] }); },
+  const deleteMutation = useApiMutation<unknown, string>({
+    method: "DELETE",
+    path: (id) => `/api/alerts/silence?id=${id}`,
+    successMessage: "Silence removed",
+    invalidateQueryKeys: [["alert-silences"]],
   });
 
   if (isLoading) return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
