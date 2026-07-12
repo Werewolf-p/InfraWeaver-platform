@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
-import * as k8s from "@kubernetes/client-node";
+import { makeCoreApi, makeCustomApi } from "@/lib/kube-client";
+import { withAuth } from "@/lib/with-auth";
 
 type MemoryPressureStatus = "ok" | "warn" | "critical";
 
@@ -38,27 +37,11 @@ function statusForPressure(pressurePct: number): MemoryPressureStatus {
   return "ok";
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["infra:read", "config:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth({ permission: ["infra:read", "config:read"] }, async () => {
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) {
-      kc.loadFromFile(process.env.KUBECONFIG);
-    } else {
-      try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); }
-    }
-
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    const customApi = kc.makeApiClient(k8s.CustomObjectsApi);
     const [nodesResp, metricsResp] = await Promise.all([
-      coreApi.listNode(),
-      customApi.listClusterCustomObject({
+      makeCoreApi().listNode(),
+      makeCustomApi().listClusterCustomObject({
         group: "metrics.k8s.io",
         version: "v1beta1",
         plural: "nodes",
@@ -104,4 +87,4 @@ export async function GET() {
       ],
     });
   }
-}
+});

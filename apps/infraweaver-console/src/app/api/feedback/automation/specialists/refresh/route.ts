@@ -1,24 +1,12 @@
 import { NextRequest } from "next/server";
-import type { Permission } from "@/lib/rbac";
-import {
-  apiError,
-  apiSuccess,
-  parseJsonBody,
-  requireRoutePermissions,
-  routeErrorResponse,
-} from "@/lib/route-utils";
+import { apiError, apiSuccess, parseJsonBody, routeErrorResponse } from "@/lib/route-utils";
 import { refreshSpecialists } from "@/lib/feedback-automation";
-import { isFeedbackHost } from "@/lib/feedback-host";
-
-const MANAGE: Permission[] = ["rbac:admin", "cluster:admin"];
+import { requireFeedbackManager } from "@/lib/feedback-host";
 
 // POST /api/feedback/automation/specialists/refresh — rebuild the library from a
 // public GitHub repo of agent prompts (defaults to the dispatch service's repo).
 export async function POST(request: NextRequest) {
-  if (!isFeedbackHost(request.headers)) {
-    return apiError("Agent Studio is only available on the canonical console host", { status: 403 });
-  }
-  const session = await requireRoutePermissions({ any: MANAGE });
+  const session = await requireFeedbackManager(request, "Agent Studio is only available on the canonical console host");
   if (session instanceof Response) return session;
 
   try {

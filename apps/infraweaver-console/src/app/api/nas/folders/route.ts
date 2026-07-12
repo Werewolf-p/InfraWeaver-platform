@@ -39,9 +39,9 @@ import {
   type NasFolderTarget,
 } from "@/lib/nas/folders";
 import { ensureProviderSmbCredentials, truenasConnectionFor } from "@/lib/nas/mount-credentials";
-import { isNasCertificateError } from "@/lib/nas/pinned-fetch";
 import { normalizeSubfolder } from "@/lib/nas/paths";
-import { getResolvedNasProvider, resolveNasCredentials } from "@/lib/nas/providers";
+import { resolveNasCredentials, type ResolvedNasProvider } from "@/lib/nas/providers";
+import { nasCertificateChallenge, requireNasProvider } from "@/lib/nas/route-helpers";
 import { grantTruenasFolderAccess, grantTruenasTraversal } from "@/lib/nas/smb-accounts";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext } from "@/lib/session-rbac";
@@ -51,18 +51,8 @@ import { z } from "zod";
 const SHARE_RE = /^[a-z0-9][a-z0-9\-_]*$/i;
 const PROVIDER_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-function toTarget(provider: Awaited<ReturnType<typeof getResolvedNasProvider>>): NasFolderTarget {
-  const p = provider!;
+function toTarget(p: ResolvedNasProvider): NasFolderTarget {
   return { kind: p.kind, host: p.host, port: p.port, tlsFingerprint256: p.tlsFingerprint256 };
-}
-
-/** A certificate problem is operator-actionable: 409, never an empty list. */
-function certificateResponse(error: unknown, providerId: string): NextResponse | null {
-  if (!isNasCertificateError(error)) return null;
-  return NextResponse.json(
-    { error: error.message, needsCertificateTrust: true, provider: providerId },
-    { status: 409 },
-  );
 }
 
 export async function GET(req: NextRequest) {
@@ -97,8 +87,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const provider = await getResolvedNasProvider(providerId);
-  if (!provider) return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
+  const resolvedProvider = await requireNasProvider(providerId);
+  if (resolvedProvider.response) return resolvedProvider.response;
+  const provider = resolvedProvider.provider;
   const creds = await resolveNasCredentials(providerId);
   if (!creds) return NextResponse.json({ folders: [], path, access: "readonly" });
 
@@ -138,7 +129,7 @@ export async function GET(req: NextRequest) {
         : "readonly",
     });
   } catch (error) {
-    const challenge = certificateResponse(error, provider.id);
+    const challenge = nasCertificateChallenge(error, provider.id);
     if (challenge) return challenge;
     if (error instanceof NasAmbiguousPathError) return NextResponse.json({ error: error.message }, { status: 409 });
     if (error instanceof NasShareNotFoundError) return NextResponse.json({ error: error.message }, { status: 404 });
@@ -181,8 +172,9 @@ export async function POST(req: NextRequest) {
     }
     if (!subfolder) return NextResponse.json({ error: "Cannot create the share root" }, { status: 400 });
 
-    const provider = await getResolvedNasProvider(providerId);
-    if (!provider) return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
+    const resolvedProvider = await requireNasProvider(providerId);
+    if (resolvedProvider.response) return resolvedProvider.response;
+    const provider = resolvedProvider.provider;
     const creds = await resolveNasCredentials(providerId);
     if (!creds) return NextResponse.json({ error: `Provider '${providerId}' has no stored credentials` }, { status: 400 });
 
@@ -257,7 +249,7 @@ export async function POST(req: NextRequest) {
     );
     return NextResponse.json({ ok: true, path: createPath, created, accountsGranted });
   } catch (error) {
-    const challenge = certificateResponse(error, providerIdForError);
+    const challenge = nasCertificateChallenge(error, providerIdForError);
     if (challenge) return challenge;
     if (error instanceof NasShareNotFoundError) return NextResponse.json({ error: error.message }, { status: 404 });
     if (error instanceof NasFolderUnsupportedError) return NextResponse.json({ error: error.message }, { status: 501 });

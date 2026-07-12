@@ -1,19 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { execShell, getPrimaryContainerName, getServerDeployment, getServerPod, makeGameHubClients, readServerEgg, shellQuote } from "@/lib/game-hub-server";
+import { NextResponse } from "next/server";
+import { execShell, getPrimaryContainerName, getServerDeployment, getServerPod, makeGameHubClients, readServerEgg, shellQuote, withGameHubAuth } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { name } = await params;
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withGameHubAuth({ permission: "game-hub:read" }, async ({ name }) => {
   try {
     const clients = makeGameHubClients();
     const deployment = await getServerDeployment(clients.appsApi, name);
@@ -57,4 +46,4 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
     console.error("disk route failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

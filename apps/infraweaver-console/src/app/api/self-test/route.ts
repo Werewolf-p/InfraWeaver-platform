@@ -1,26 +1,18 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
+import { makeAppsApi, makeCoreApi } from "@/lib/kube-client";
 import { safeError } from "@/lib/utils";
-import * as k8s from "@kubernetes/client-node";
+import { withAuth } from "@/lib/with-auth";
 
-export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "infra:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
+export const GET = withAuth({ permission: "infra:read" }, async ({ req }) => {
   try {
-    const kc = loadKubeConfig(getRequestClusterId(request));
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    const appsApi = kc.makeApiClient(k8s.AppsV1Api);
+    const clusterId = getRequestClusterId(req);
+    const coreApi = makeCoreApi(clusterId);
 
     const [podsData, nodesData, deploymentsData] = await Promise.all([
       coreApi.listPodForAllNamespaces(),
       coreApi.listNode(),
-      appsApi.listDeploymentForAllNamespaces(),
+      makeAppsApi(clusterId).listDeploymentForAllNamespaces(),
     ]);
 
     return NextResponse.json({
@@ -36,4 +28,4 @@ export async function GET(request: NextRequest) {
       error: safeError(err),
     });
   }
-}
+});

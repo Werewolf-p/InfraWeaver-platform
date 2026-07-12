@@ -1,24 +1,11 @@
-import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { iwApiFetch } from "@/lib/iw-api";
+import { withAuth } from "@/lib/with-auth";
 
 /** GET /api/longhorn/backups/[volumeName] — list backups for a specific volume via infraweaver-api */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ volumeName: string }> },
-) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:read")) {
-    return NextResponse.json({ error: "Forbidden: cluster:read required" }, { status: 403 });
-  }
-
-  const { volumeName } = await params;
+export const GET = withAuth<{ volumeName: string }>({ permission: "cluster:read" }, async ({ req, session, params }) => {
+  const { volumeName } = params;
   if (!volumeName || !/^[a-zA-Z0-9_.-]+$/.test(volumeName)) {
     return NextResponse.json({ error: "Invalid volumeName" }, { status: 400 });
   }
@@ -28,6 +15,5 @@ export async function GET(
     session,
     getRequestClusterId(req),
   );
-  const data = await res.json();
-  return NextResponse.json(data, { status: res.status });
-}
+  return NextResponse.json(await res.json(), { status: res.status });
+});

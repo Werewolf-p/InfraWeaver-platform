@@ -1,10 +1,8 @@
-import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { iwApiFetch } from "@/lib/iw-api";
+import { withAuth } from "@/lib/with-auth";
 import { z } from "zod";
 
 const RestoreBody = z.object({
@@ -14,15 +12,7 @@ const RestoreBody = z.object({
 });
 
 /** POST /api/longhorn/restore — trigger a Longhorn volume restore via infraweaver-api */
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:admin")) {
-    return NextResponse.json({ error: "Forbidden: cluster:admin required" }, { status: 403 });
-  }
-
+export const POST = withAuth({ permission: "cluster:admin" }, async ({ req, session }) => {
   let body: unknown;
   try {
     body = await req.json();
@@ -35,8 +25,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid body" }, { status: 400 });
   }
 
-  const clusterId = getRequestClusterId(req);
-  const res = await iwApiFetch("/longhorn/restore", session, clusterId, {
+  const res = await iwApiFetch("/longhorn/restore", session, getRequestClusterId(req), {
     method: "POST",
     body: JSON.stringify(parsed.data),
   });
@@ -51,4 +40,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json(data, { status: res.status });
-}
+});

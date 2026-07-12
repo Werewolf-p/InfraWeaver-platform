@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withAuth } from "@/lib/with-auth";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
+import { sessionActor } from "@/lib/user-guards";
 import { preservePrivilegedFields } from "@/lib/users-config-guard";
 import { BASE_DOMAIN } from "@/lib/domain";
 
@@ -79,7 +80,7 @@ export const POST = withAuth(
     await saveUsersConfig(usersObj, sha, commitMessage);
     await auditLog(
       "users-config:write",
-      session.user?.email ?? "unknown",
+      sessionActor(session),
       `Updated users.yaml — ${(body.users as unknown[]).length} user(s)`
     );
     return NextResponse.json({ ok: true });

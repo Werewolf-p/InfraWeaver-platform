@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auditLog } from "@/lib/audit-log";
-import { getRequestClusterId } from "@/lib/cluster-context";
 import { invalidateClusterCaches } from "@/lib/performance-cache";
+import { requireSingleCluster } from "@/lib/route-utils";
+import { safeError } from "@/lib/utils";
 import { withAuth } from "@/lib/with-auth";
 import { loadGroups, powerApp, powerGroup } from "@/lib/app-power";
 
@@ -21,10 +22,9 @@ export const POST = withAuth(
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     const { action, app, apps, groupId } = parsed.data;
 
-    const clusterId = getRequestClusterId(req);
-    if (clusterId === "all") {
-      return NextResponse.json({ error: "Select a specific cluster before powering apps" }, { status: 400 });
-    }
+    const cluster = requireSingleCluster(req, "Select a specific cluster before powering apps");
+    if (cluster instanceof NextResponse) return cluster;
+    const { clusterId } = cluster;
 
     // Resolve the target app list.
     let targets: string[] = [];
@@ -49,10 +49,7 @@ export const POST = withAuth(
       invalidateClusterCaches();
       return NextResponse.json({ ok: true, results });
     } catch (err) {
-      return NextResponse.json(
-        { ok: false, error: err instanceof Error ? err.message : "Power action failed" },
-        { status: 502 },
-      );
+      return NextResponse.json({ ok: false, error: safeError(err) }, { status: 502 });
     }
   },
 );

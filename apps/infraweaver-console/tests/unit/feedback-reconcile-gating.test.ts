@@ -8,6 +8,10 @@
 // object, so the instanceof check correctly stays false.
 (globalThis as { Response?: unknown }).Response ??= class {};
 
+// The route imports the shared FEEDBACK_MANAGE_PERMISSIONS from feedback-host,
+// which is a server module; neutralize the `server-only` marker under jest.
+jest.mock("server-only", () => ({}), { virtual: true });
+
 const reconcileStaleEntries = jest.fn(async () => {});
 const listFeedback = jest.fn();
 const hasAnySessionPermission = jest.fn();

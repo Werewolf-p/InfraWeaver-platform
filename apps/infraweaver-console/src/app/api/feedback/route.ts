@@ -11,17 +11,13 @@ import {
   type FeedbackType,
 } from "@/lib/feedback-store";
 import { isDispatchConfigured } from "@/lib/feedback-dispatch";
+import { FEEDBACK_MANAGE_PERMISSIONS } from "@/lib/feedback-host";
 import { needsReconcile, reconcileStaleEntries } from "@/lib/feedback-pipeline";
 import { signHmac, verifyHmac } from "@/lib/hmac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 
 // Any authenticated user may submit/list feedback context.
 const SUBMIT: Permission[] = ["apps:read", "cluster:read"];
-
-// Reconciliation on the read path issues outbound dispatch calls (a state
-// mutation), so it is gated to feedback managers — the same set every
-// feedback management route uses. Low-privilege readers get the list as-is.
-const MANAGE: Permission[] = ["rbac:admin", "cluster:admin"];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE ONE INTENTIONALLY-HARDCODED VALUE IN INFRAWEAVER.
@@ -87,9 +83,12 @@ export async function GET() {
     // write-back, or `dispatched` with no preview URL), so the dashboard reflects
     // finished dispatch runs and backfills their preview URLs without manual
     // intervention.
+    // Reconciliation on the read path issues outbound dispatch calls (a state
+    // mutation), so it is gated to feedback managers — the same set every
+    // feedback management route uses. Low-privilege readers get the list as-is.
     if (isDispatchConfigured() && entries.some(needsReconcile)) {
       const access = await getSessionRBACContext(session, 60);
-      if (hasAnySessionPermission(access, MANAGE)) {
+      if (hasAnySessionPermission(access, FEEDBACK_MANAGE_PERMISSIONS)) {
         await reconcileStaleEntries(entries);
         entries = await listFeedback();
       }

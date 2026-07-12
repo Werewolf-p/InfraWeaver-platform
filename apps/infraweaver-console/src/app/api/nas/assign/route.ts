@@ -1,5 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { parseAllowedInternalUrlAsync } from "@/lib/internal-url-allowlist-server";
 import { gitCommitFiles } from "@/lib/git-provider";
 import {
@@ -15,12 +14,14 @@ import { resolveNasSharePath } from "@/lib/nas/folders";
 import { ensureProviderSmbCredentials } from "@/lib/nas/mount-credentials";
 import { canWriteStorage, nasAccessDecision } from "@/lib/nas/authz";
 import { NasAmbiguousPathError, resolveCanonicalSubfolder } from "@/lib/nas/canonical";
-import { getResolvedNasProvider, resolveNasCredentials, resolveNasProviders } from "@/lib/nas/providers";
+import { resolveNasCredentials } from "@/lib/nas/providers";
+import { requireNasProvider } from "@/lib/nas/route-helpers";
 import { nasCredsLogicalPath } from "@/lib/nas/store";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import { loadUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 import { z } from "zod";
 
 const SAFE_NAME = /^[a-z0-9][a-z0-9\-_]*[a-z0-9]$/;
@@ -72,9 +73,7 @@ function isSafeYamlScalar(value: string) {
 
 // (Manifest generator lives in `@/lib/nas/manifest` for unit-testability.)
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const POST = withAuth({ logMutating: true }, async ({ req, session }) => {
   const rbac = await getSessionRBACContext(session, 60);
   // `nas:write` gates NAS-share management; provisioning a StorageClass/PVC into
   // a caller-chosen `pvc_namespace` is a catalog mutation, so also require
@@ -100,11 +99,9 @@ export async function POST(req: NextRequest) {
 
     // Resolve the provider via the registry so `synology` isn't hardcoded and
     // future providers work without touching this route (plan §"generic").
-    const providerCfg = await getResolvedNasProvider(provider);
-    if (!providerCfg) {
-      const registered = (await resolveNasProviders()).map((p) => p.id).join(", ") || "(none)";
-      return NextResponse.json({ error: `Unknown NAS provider '${provider}'. Registered: ${registered}` }, { status: 400 });
-    }
+    const resolvedProvider = await requireNasProvider(provider, "listed");
+    if (resolvedProvider.response) return resolvedProvider.response;
+    const providerCfg = resolvedProvider.provider;
     const backend: NasBackend = body.backend ?? providerCfg.backends[0];
     if (!providerCfg.backends.includes(backend)) {
       return NextResponse.json({ error: `Provider '${provider}' does not support backend '${backend}'` }, { status: 400 });
@@ -205,11 +202,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const DELETE = withAuth({ logMutating: true }, async ({ req, session }) => {
   const access = await getSessionRBACContext(session, 60);
   // Same authority as POST: deleting the assignment removes a StorageClass/PVC
   // manifest from `kubernetes/catalog/`, so require both permissions.
@@ -252,8 +247,9 @@ export async function DELETE(req: NextRequest) {
 
     usersData!.users![username].nas_shares = existing.filter((entry) => entry !== matched);
 
-    const providerCfg = await getResolvedNasProvider(provider);
-    if (!providerCfg) return NextResponse.json({ error: `Unknown NAS provider '${provider}'` }, { status: 400 });
+    const resolvedProvider = await requireNasProvider(provider, "named");
+    if (resolvedProvider.response) return resolvedProvider.response;
+    const providerCfg = resolvedProvider.provider;
     const manifestPath = deriveNasManifestPath({
       provider,
       backend: matched.backend ?? providerCfg.backends[0],
@@ -277,4 +273,4 @@ export async function DELETE(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

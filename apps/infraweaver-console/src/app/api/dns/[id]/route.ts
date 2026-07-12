@@ -1,9 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { deleteDnsRecordById, updateDnsRecord } from "@/lib/cloudflare";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 
 const patchBodySchema = z.object({
   value: z.string().optional(),
@@ -18,53 +16,18 @@ const patchBodySchema = z.object({
   message: "At least one field is required",
 });
 
-async function requireAccess() {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const DELETE = withAuth<{ id: string }>({ permission: "config:write" }, async ({ req, params }) => {
+  const zoneId = req.nextUrl.searchParams.get("zoneId")?.trim() || undefined;
+  await deleteDnsRecordById(params.id, zoneId);
+  return NextResponse.json({ success: true });
+});
 
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "config:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  return session;
-}
-
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const session = await requireAccess();
-  if (session instanceof NextResponse) return session;
-
-  try {
-    const { id } = await params;
-    const zoneId = req.nextUrl.searchParams.get("zoneId")?.trim() || undefined;
-    await deleteDnsRecordById(id, zoneId);
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
-
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const session = await requireAccess();
-  if (session instanceof NextResponse) return session;
-
-  try {
-    const { id } = await params;
-    const rawBody = await req.json().catch(() => null);
-    const parsed = patchBodySchema.safeParse(rawBody);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
-    }
-    const value = typeof parsed.data.value === "string" ? parsed.data.value.trim() : undefined;
-    if (typeof parsed.data.value === "string" && !value) {
+export const PATCH = withAuth<{ id: string }, z.infer<typeof patchBodySchema>>(
+  { permission: "config:write", bodySchema: patchBodySchema },
+  async ({ params, body }) => {
+    const data = body!;
+    const value = typeof data.value === "string" ? data.value.trim() : undefined;
+    if (typeof data.value === "string" && !value) {
       return NextResponse.json({
         error: "Validation failed",
         details: {
@@ -74,11 +37,11 @@ export async function PATCH(
       }, { status: 400 });
     }
 
-    const ttl = typeof parsed.data.ttl === "number" ? Math.max(1, Math.min(86400, Math.round(parsed.data.ttl))) : undefined;
-    const proxied = typeof parsed.data.proxied === "boolean" ? parsed.data.proxied : undefined;
-    const zoneId = parsed.data.zoneId?.trim() || undefined;
+    const ttl = typeof data.ttl === "number" ? Math.max(1, Math.min(86400, Math.round(data.ttl))) : undefined;
+    const proxied = typeof data.proxied === "boolean" ? data.proxied : undefined;
+    const zoneId = data.zoneId?.trim() || undefined;
 
-    const record = await updateDnsRecord(id, { content: value, ttl, proxied }, zoneId);
+    const record = await updateDnsRecord(params.id, { content: value, ttl, proxied }, zoneId);
     return NextResponse.json({
       record: {
         id: record.id,
@@ -88,7 +51,5 @@ export async function PATCH(
         updatedAt: record.modified_on ?? record.created_on,
       },
     });
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+  },
+);

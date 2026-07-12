@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import * as k8s from "@kubernetes/client-node";
 import { auditLog } from "@/lib/audit-log";
-import { getRequestClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
+import { makeCoreApi } from "@/lib/kube-client";
 import { invalidatePodCaches } from "@/lib/performance-cache";
-import { isPodInstalling } from "@/lib/pod-install-state";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { withRoute } from "@/lib/route-utils";
+import { safeError } from "@/lib/utils";
+import { requireSingleCluster, withRoute } from "@/lib/route-utils";
+import { restartPodSafely } from "../restart-pod";
 
 const payloadSchema = z.object({
   pods: z.array(z.object({
@@ -32,30 +31,20 @@ export const POST = withRoute("cluster:admin", async (req: NextRequest, session)
     parsed.data.pods.map((pod) => [`${pod.namespace}/${pod.name}`, pod]),
   ).values());
 
-  const clusterId = getRequestClusterId(req);
-  if (clusterId === "all") {
-    return NextResponse.json({ error: "Select a specific cluster before performing this action" }, { status: 400 });
-  }
+  const cluster = requireSingleCluster(req);
+  if (cluster instanceof NextResponse) return cluster;
 
   try {
-    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi(cluster.clusterId);
     const failures: Array<{ namespace: string; name: string; error: string }> = [];
     const skippedInstalling: Array<{ namespace: string; name: string }> = [];
 
     for (const pod of uniquePods) {
       try {
-        // Skip pods mid-install (init container still running) unless forced —
-        // deleting one throws away the install and the Recreate replacement
-        // re-runs it, so a repeated bulk restart churns it for the rollout's
-        // whole duration. Read failure fails open (can't confirm state).
-        if (!parsed.data.force) {
-          const current = await coreApi.readNamespacedPod({ namespace: pod.namespace, name: pod.name }).catch(() => null);
-          if (current && isPodInstalling(current)) {
-            skippedInstalling.push({ namespace: pod.namespace, name: pod.name });
-            continue;
-          }
+        const outcome = await restartPodSafely(coreApi, pod, parsed.data.force);
+        if (outcome === "skipped-installing") {
+          skippedInstalling.push({ namespace: pod.namespace, name: pod.name });
         }
-        await coreApi.deleteNamespacedPod({ namespace: pod.namespace, name: pod.name });
       } catch (error) {
         failures.push({
           namespace: pod.namespace,
@@ -82,9 +71,6 @@ export const POST = withRoute("cluster:admin", async (req: NextRequest, session)
       failures,
     });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : "Operation failed" },
-      { status: 502 },
-    );
+    return NextResponse.json({ ok: false, error: safeError(err) }, { status: 502 });
   }
 });

@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/with-auth";
 import { z } from "zod";
 
 interface Silence {
@@ -23,27 +22,9 @@ const CreateSilenceSchema = z.object({
 
 const silences: Silence[] = [];
 
-async function requireAccess(permission: "config:read" | "config:write") {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const GET = withAuth({ permission: "config:read" }, () => NextResponse.json({ silences }));
 
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, permission)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  return session;
-}
-
-export async function GET() {
-  const session = await requireAccess("config:read");
-  if (session instanceof NextResponse) return session;
-  return NextResponse.json({ silences });
-}
-
-export async function POST(req: NextRequest) {
-  const session = await requireAccess("config:write");
-  if (session instanceof NextResponse) return session;
+export const POST = withAuth({ permission: "config:write" }, async ({ req, session }) => {
   const parsed = CreateSilenceSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -60,15 +41,13 @@ export async function POST(req: NextRequest) {
   };
   silences.push(silence);
   return NextResponse.json({ silence });
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const session = await requireAccess("config:write");
-  if (session instanceof NextResponse) return session;
+export const DELETE = withAuth({ permission: "config:write" }, ({ req }) => {
   const { searchParams } = req.nextUrl;
   const id = searchParams.get("id");
   const idx = silences.findIndex(s => s.id === id);
   if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
   silences.splice(idx, 1);
   return NextResponse.json({ ok: true });
-}
+});

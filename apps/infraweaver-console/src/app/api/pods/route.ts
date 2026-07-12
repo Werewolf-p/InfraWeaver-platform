@@ -1,15 +1,9 @@
-import { type NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
 import { iwApiFetch } from "@/lib/iw-api";
+import { withAuth } from "@/lib/with-auth";
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "apps:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
+export const GET = withAuth({ permission: "apps:read" }, async ({ req, session }) => {
   const { searchParams } = new URL(req.url);
   const params = new URLSearchParams();
   if (searchParams.has("namespace")) params.set("namespace", searchParams.get("namespace")!);
@@ -24,4 +18,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json((data as { pods: unknown[] }).pods, { status: res.status });
   }
   return NextResponse.json(data, { status: res.status });
-}
+});

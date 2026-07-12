@@ -11,14 +11,13 @@ import {
   updateGroup,
   type PowerState,
 } from "@/lib/app-power";
-import * as k8s from "@kubernetes/client-node";
-import { loadKubeConfig } from "@/lib/k8s";
+import { makeCustomApi } from "@/lib/kube-client";
 
 /** Power state for every app referenced by any group (bounded, best-effort). */
 async function powerStates(clusterId: string, apps: string[]): Promise<Record<string, PowerState>> {
   const out: Record<string, PowerState> = {};
   if (apps.length === 0) return out;
-  const api = loadKubeConfig(clusterId).makeApiClient(k8s.CustomObjectsApi);
+  const api = makeCustomApi(clusterId);
   await Promise.all(
     apps.map(async (name) => {
       try {

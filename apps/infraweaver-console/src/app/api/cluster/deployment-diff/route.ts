@@ -1,23 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import * as k8s from "@kubernetes/client-node";
+import { NextResponse } from "next/server";
+import { makeAppsApi } from "@/lib/kube-client";
+import { withAuth } from "@/lib/with-auth";
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+export const GET = withAuth({ permission: "cluster:read" }, async ({ req }) => {
   const { searchParams } = req.nextUrl;
   const ns1 = searchParams.get("ns1") ?? "default";
   const dep1 = searchParams.get("dep1") ?? "";
   const ns2 = searchParams.get("ns2") ?? "default";
   const dep2 = searchParams.get("dep2") ?? "";
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); }
-    else { try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); } }
-    const appsApi = kc.makeApiClient(k8s.AppsV1Api);
+    const appsApi = makeAppsApi();
     const [r1, r2] = await Promise.all([
       appsApi.readNamespacedDeployment({ name: dep1, namespace: ns1 }),
       appsApi.readNamespacedDeployment({ name: dep2, namespace: ns2 }),
@@ -29,4 +21,4 @@ export async function GET(req: NextRequest) {
       dep2: { metadata: { name: dep2 || "app-v2", namespace: ns2 }, spec: { replicas: 3, template: { spec: { containers: [{ name: "app", image: "nginx:1.25", resources: { requests: { cpu: "200m", memory: "256Mi" } } }] } } } },
     });
   }
-}
+});

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
+import { listItems, makeCoreApi } from "@/lib/kube-client";
 import { withAuth } from "@/lib/with-auth";
-import * as k8s from "@kubernetes/client-node";
 
 // Deterministic colors for the well-known storage classes; anything else falls
 // through to the palette below so the pie always renders.
@@ -25,12 +24,12 @@ function parseGi(str: string): number {
 
 export const GET = withAuth({ permission: "config:read" }, async ({ req }) => {
   try {
-    const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi(getRequestClusterId(req));
     const pvcsResp = await coreApi.listPersistentVolumeClaimForAllNamespaces();
     const breakdown: Record<string, { totalGi: number; pvcCount: number }> = {};
     // Bin every real StorageClass by name — no allowlist, so NAS-backed SCs
     // (smb-<user>-<share>-<ro|rw>) show up automatically (plan §4).
-    for (const pvc of (pvcsResp as { items?: unknown[] }).items ?? []) {
+    for (const pvc of listItems<unknown>(pvcsResp)) {
       const p = pvc as {
         spec?: { storageClassName?: string; resources?: { requests?: { storage?: string } } };
       };

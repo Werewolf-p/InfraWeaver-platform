@@ -1,19 +1,10 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import * as k8s from "@kubernetes/client-node";
+import { makeCoreApi } from "@/lib/kube-client";
+import { withAuth } from "@/lib/with-auth";
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+export const GET = withAuth({ permission: "cluster:read" }, async () => {
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); }
-    else { try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); } }
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-    const res = await coreApi.listPodForAllNamespaces();
+    const res = await makeCoreApi().listPodForAllNamespaces();
     const recommendations = (res.items as unknown[]).map(item => {
       const p = item as { metadata?: { namespace?: string; name?: string }; spec?: { containers?: { name?: string; resources?: { requests?: { cpu?: string; memory?: string }; limits?: { cpu?: string; memory?: string } } }[] } };
       const containers = (p.spec?.containers ?? []).map(c => ({
@@ -41,4 +32,4 @@ export async function GET() {
       ],
     });
   }
-}
+});

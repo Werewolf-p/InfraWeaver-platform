@@ -10,7 +10,7 @@ import { GAME_HUB_NAMESPACE, getGameHubAccessContext, getScopedGameServerNames, 
 import { getLanNodeIp, openGameServerPortForward } from "@/addons/gamehub/lib/game-port-forward";
 import { readServerManifestSha, writeServerManifest } from "@/lib/game-hub-manifest";
 import { buildUniversalGameServerProbes } from "@/lib/game-hub-probes";
-import { derivePowerStatus, getDeploymentGameType, getNodeIp, getRconConnection, getServerDeployment, makeGameHubClients, normalizeServerName, parseImageVersion, parsePlayerHistory, readServerEgg, type RconConnection } from "@/lib/game-hub-server";
+import { derivePowerStatus, gameServerLabels, getDeploymentGameType, getNodeIp, getRconConnection, getServerDeployment, makeGameHubClients, normalizeServerName, parseCpuQuantity, parseImageVersion, parseMemoryBytes, parsePlayerHistory, quantityToString, readServerEgg, upsertConfigMap, type RconConnection } from "@/lib/game-hub-server";
 import { getPelicanGameEgg } from "@/lib/pelican-eggs";
 import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
 import { withAuth } from "@/lib/with-auth";
@@ -38,12 +38,6 @@ const createServerBodySchema = z.object({
 
 function pvcSuffixForMountPath(mountPath: string) {
   return (mountPath.split("/").filter(Boolean).pop() ?? "data").replace(/[^a-z0-9-]/g, "-") || "data";
-}
-
-function quantityToString(value: string | number | null | undefined) {
-  if (typeof value === "number") return String(value);
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
 }
 
 function buildGameServerResources(memory: string | number | null | undefined, cpu: string | number | null | undefined) {
@@ -417,25 +411,19 @@ async function createServer(body: {
   // One copy per namespace, shared by every game server; create-or-replace so a
   // parse.py update rolls out to all servers (mirrors appendServerAudit's pattern).
   if (configSyncInitContainer) {
-    const parserBody = buildEggConfigParserConfigMap(GAME_HUB_NAMESPACE);
-    try {
-      await coreApi.readNamespacedConfigMap({ name: EGG_CONFIG_PARSER_CONFIGMAP, namespace: GAME_HUB_NAMESPACE });
-      await coreApi.replaceNamespacedConfigMap({ name: EGG_CONFIG_PARSER_CONFIGMAP, namespace: GAME_HUB_NAMESPACE, body: parserBody });
-    } catch {
-      await coreApi.createNamespacedConfigMap({ namespace: GAME_HUB_NAMESPACE, body: parserBody });
-    }
+    await upsertConfigMap(coreApi, buildEggConfigParserConfigMap(GAME_HUB_NAMESPACE), GAME_HUB_NAMESPACE);
   }
 
   await appsApi.createNamespacedDeployment({
     namespace: GAME_HUB_NAMESPACE,
     body: {
-      metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: { app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true", "infraweaver/game-type": eggLabel, "infraweaver.io/game-type": eggLabel, "infraweaver/egg": eggLabel, "infraweaver.io/egg": eggLabel }, annotations },
+      metadata: { name: slug, namespace: GAME_HUB_NAMESPACE, labels: gameServerLabels(slug, eggLabel), annotations },
       spec: {
         replicas: 1,
         strategy: { type: "Recreate" },
         selector: { matchLabels: { app: slug } },
         template: {
-          metadata: { labels: { app: slug, "infraweaver/game": "true", "infraweaver.io/game": "true", "infraweaver/game-type": eggLabel, "infraweaver.io/game-type": eggLabel, "infraweaver/egg": eggLabel, "infraweaver.io/egg": eggLabel }, annotations },
+          metadata: { labels: gameServerLabels(slug, eggLabel), annotations },
           spec: {
             priorityClassName: "game-server",
             // Game servers never talk to the Kubernetes API — don't mount an SA
@@ -808,7 +796,6 @@ export const GET = withAuth({}, async ({ session }) => {
       let cpuLimit: number | null = null;
       let memoryLimit: number | null = null;
       try {
-        const { parseCpuQuantity, parseMemoryBytes } = await import("@/lib/game-hub-server");
         const limits = deployment.spec?.template?.spec?.containers?.[0]?.resources?.limits;
         cpuLimit = limits?.cpu ? parseCpuQuantity(typeof limits.cpu === "string" ? limits.cpu : null) : null;
         memoryLimit = limits?.memory ? parseMemoryBytes(typeof limits.memory === "string" ? limits.memory : null) : null;

@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { makeAppsApi, makeCoreApi, makeCustomApi } from "@/lib/kube-client";
 import { safeError } from "@/lib/utils";
 import { isValidK8sName, isValidNamespace } from "@/lib/validate";
-import * as k8s from "@kubernetes/client-node";
 import { z } from "zod";
 
 const MIGRATE_POD_SCHEMA = z.object({
@@ -37,16 +37,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid pod or node name" }, { status: 400 });
   }
 
-  const kc = new k8s.KubeConfig();
-  if (process.env.KUBECONFIG) {
-    kc.loadFromFile(process.env.KUBECONFIG);
-  } else {
-    try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); }
-  }
-
-  const coreApi = kc.makeApiClient(k8s.CoreV1Api);
-  const appsApi = kc.makeApiClient(k8s.AppsV1Api);
-  const metricsApi = kc.makeApiClient(k8s.CustomObjectsApi);
+  const coreApi = makeCoreApi();
+  const appsApi = makeAppsApi();
+  const metricsApi = makeCustomApi();
 
   try {
     const pod = await coreApi.readNamespacedPod({ name: podName, namespace });

@@ -55,6 +55,22 @@ export async function listCustomItems<T>(
 }
 
 /**
+ * Create-or-update a namespaced custom object via server-side apply (one PATCH
+ * with `application/apply-patch+yaml`), replacing the manual GET → resourceVersion
+ * → PUT/POST upsert dance. `force: true` matches kubectl's conflict behavior for
+ * a single-owner field manager.
+ */
+export async function upsertNamespacedCustomObject(
+  customApi: k8s.CustomObjectsApi,
+  params: { group: string; version: string; namespace: string; plural: string; name: string; body: Record<string, unknown> },
+): Promise<void> {
+  await customApi.patchNamespacedCustomObject(
+    { ...params, fieldManager: "infraweaver", force: true },
+    k8s.setHeaderOptions("Content-Type", k8s.PatchStrategy.ServerSideApply),
+  );
+}
+
+/**
  * Extracts the fulfilled values from a Promise.allSettled result, dropping
  * rejections. For fan-out reads where partial results are acceptable — callers
  * that must surface failures should inspect the rejected entries themselves.

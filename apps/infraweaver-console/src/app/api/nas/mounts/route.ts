@@ -18,10 +18,9 @@
 
 import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
+import { listItems, makeCoreApi } from "@/lib/kube-client";
 import { safeError } from "@/lib/utils";
 import { withAuth } from "@/lib/with-auth";
-import * as k8s from "@kubernetes/client-node";
 
 interface NasMount {
   pvcName: string;
@@ -68,8 +67,7 @@ interface PodResource {
 
 export const GET = withAuth({ permission: "nas:read", rateLimit: { name: "nas-mounts", limit: 30, windowMs: 60_000 } }, async ({ req }) => {
   try {
-    const kc = loadKubeConfig(getRequestClusterId(req));
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi(getRequestClusterId(req));
 
     const [pvcResp, pvResp] = await Promise.all([
       coreApi.listPersistentVolumeClaimForAllNamespaces({
@@ -77,8 +75,8 @@ export const GET = withAuth({ permission: "nas:read", rateLimit: { name: "nas-mo
       }),
       coreApi.listPersistentVolume(),
     ]);
-    const pvcs = ((pvcResp as { items?: PvcResource[] }).items ?? []);
-    const pvs = ((pvResp as { items?: PersistentVolumeResource[] }).items ?? []);
+    const pvcs = listItems<PvcResource>(pvcResp);
+    const pvs = listItems<PersistentVolumeResource>(pvResp);
     const pvByName = new Map(pvs.map((pv) => [pv.metadata?.name ?? "", pv]));
 
     // Group PVCs by namespace so we page pods once per namespace.
@@ -95,7 +93,7 @@ export const GET = withAuth({ permission: "nas:read", rateLimit: { name: "nas-mo
       [...nsToPvcs.keys()].map(async (ns) => {
         try {
           const resp = await coreApi.listNamespacedPod({ namespace: ns });
-          podsByNs.set(ns, ((resp as { items?: PodResource[] }).items ?? []));
+          podsByNs.set(ns, listItems<PodResource>(resp));
         } catch {
           podsByNs.set(ns, []);
         }

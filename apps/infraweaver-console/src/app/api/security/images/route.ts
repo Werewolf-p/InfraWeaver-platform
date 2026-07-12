@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { getRequestClusterId } from "@/lib/cluster-context";
+import { loadKubeConfig } from "@/lib/k8s";
+import { listItems } from "@/lib/kube-client";
+import { withRoute } from "@/lib/route-utils";
 import * as k8s from "@kubernetes/client-node";
 
 function getRegistry(image: string): string {
@@ -10,22 +12,12 @@ function getRegistry(image: string): string {
   return "docker.io";
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["security:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const GET = withRoute("security:read", async (req) => {
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); }
-    else { try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); } }
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
     const res = await coreApi.listPodForAllNamespaces();
     const imageMap: Record<string, { image: string; registry: string; namespaces: Set<string>; pods: number }> = {};
-    for (const pod of res.items as unknown[]) {
-      const p = pod as { metadata?: { namespace?: string }; spec?: { containers?: { image?: string }[] } };
+    for (const p of listItems<{ metadata?: { namespace?: string }; spec?: { containers?: { image?: string }[] } }>(res)) {
       const ns = p.metadata?.namespace ?? "default";
       for (const c of p.spec?.containers ?? []) {
         const img = c.image ?? "";
@@ -51,4 +43,4 @@ export async function GET() {
       ],
     });
   }
-}
+});

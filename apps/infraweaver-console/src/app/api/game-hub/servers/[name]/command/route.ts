@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { sanitizeConsoleCommand } from "@/lib/api-helpers";
 import { validateK8sName } from "@/lib/api-security";
-import { auditLog, auditUnauthorizedAccess } from "@/lib/audit-log";
+import { auditUnauthorizedAccess } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, assertCommandAllowed, isKubernetesNotFoundError, isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
+import { assertCommandAllowed, auditServerAction, isKubernetesNotFoundError, isServerStartingError, makeGameHubClients, runServerCommand } from "@/lib/game-hub-server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
@@ -54,8 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
     }
 
     const commandResult = await runServerCommand(clients, name, command, 10_000);
-    await auditLog("game-hub:command", session.user?.email ?? "unknown", `${name} — ${command}`);
-    await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: "command", details: command });
+    await auditServerAction(clients.coreApi, name, session, "command", command);
     return NextResponse.json({ stdout: commandResult.stdout, stderr: commandResult.stderr, success: true, method: commandResult.method });
   } catch (error) {
     console.error("game hub command failed", error);

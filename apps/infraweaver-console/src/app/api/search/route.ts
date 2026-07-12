@@ -1,17 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
-import { auth } from "@/lib/auth";
+import { getArgocdAppsCached } from "@/lib/argocd-apps";
+import { makeCoreApi } from "@/lib/kube-client";
 import { makeGameHubClients } from "@/lib/game-hub-server";
 import { filterNavGroupsByPermissions } from "@/lib/navigation-rbac";
 import { NAV_GROUPS } from "@/lib/nav-config";
 import { getEffectivePermissions } from "@/lib/rbac";
 import { EMPTY_SEARCH_RESPONSE, type SearchResponse, type SearchResult } from "@/lib/search";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import * as k8s from "@kubernetes/client-node";
-
-const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
-const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
+import { withAuth } from "@/lib/with-auth";
 
 function includesQuery(query: string, ...values: Array<string | null | undefined>) {
   if (!query) return true;
@@ -34,25 +31,8 @@ function badgeForStatus(status: string) {
 
 async function searchApps(query: string): Promise<SearchResult[]> {
   try {
-    const res = await fetch(`${ARGOCD_SERVER}/api/v1/applications?limit=200`, {
-      headers: {
-        Authorization: `Bearer ${ARGOCD_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(5000),
-    });
-
-    if (!res.ok) return [];
-    const data = (await res.json()) as {
-      items?: Array<{
-        metadata?: { name?: string };
-        spec?: { destination?: { namespace?: string }; project?: string };
-        status?: { health?: { status?: string }; sync?: { status?: string } };
-      }>;
-    };
-
-    return (data.items ?? [])
+    const { apps } = await getArgocdAppsCached();
+    return apps
       .filter((app) =>
         includesQuery(
           query,
@@ -81,8 +61,7 @@ async function searchApps(query: string): Promise<SearchResult[]> {
 
 async function searchPods(query: string, clusterId: string): Promise<SearchResult[]> {
   try {
-    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
-    const podList = await coreApi.listPodForAllNamespaces();
+    const podList = await makeCoreApi(clusterId).listPodForAllNamespaces();
     return (podList.items ?? [])
       .filter((pod) =>
         includesQuery(
@@ -202,10 +181,7 @@ function searchNavigation(
   };
 }
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withAuth({}, async ({ req, session }) => {
   const access = await getSessionRBACContext(session, 60);
   const permissions = getEffectivePermissions(
     access.groups,
@@ -241,4 +217,4 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json(response);
-}
+});

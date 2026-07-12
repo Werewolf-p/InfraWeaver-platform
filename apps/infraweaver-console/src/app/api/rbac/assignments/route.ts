@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { type RoleAssignment } from "@/lib/rbac";
-import { getSessionEffectivePermissions, getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { getSessionEffectivePermissions, hasAnySessionPermission } from "@/lib/session-rbac";
 import { grantRoleAssignment, revokeRoleAssignment } from "@/lib/rbac-assignments";
+import { parseBody, withRoute } from "@/lib/route-utils";
+import { sessionActor } from "@/lib/user-guards";
 import { safeError } from "@/lib/utils";
 import { loadUsersConfig, normalizeGroupRoleAssignments, normalizeRoleAssignments } from "@/lib/users-config";
 import { z } from "zod";
@@ -28,12 +29,7 @@ const revokeAssignmentBodySchema = z.object({
 /** An assignment enriched with the display fields the RBAC settings table expects. */
 type AssignmentRow = RoleAssignment & { username: string; userEmail: string; userName: string };
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["users:read", "rbac:admin"])) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
+export const GET = withRoute(["users:read", "rbac:admin"], async () => {
   try {
     const file = await loadUsersConfig();
     const assignments: AssignmentRow[] = [];
@@ -52,20 +48,15 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
-
-  const result = assignmentBodySchema.safeParse(await req.json().catch(() => null));
-  if (!result.success) {
-    return NextResponse.json({ error: "Validation failed", details: result.error.flatten() }, { status: 400 });
+export const POST = withRoute(null, async (req: NextRequest, session, access) => {
+  if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) {
+    return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
   }
 
-  const body = result.data;
+  const body = await parseBody(req, assignmentBodySchema);
+  if (body instanceof NextResponse) return body;
   if (!SAFE_SCOPE_RE.test(body.scope)) return NextResponse.json({ error: "Invalid scope" }, { status: 400 });
 
   const principalType = body.principalType ?? (body.group ? "group" : "user");
@@ -74,32 +65,28 @@ export async function POST(req: NextRequest) {
   if (principalType === "group" && !SAFE_GROUP_RE.test(principal)) return NextResponse.json({ error: "Invalid group name" }, { status: 400 });
 
   const granterPermsAt = (scope: string) => getSessionEffectivePermissions(access, scope);
-  const actor = session.user?.email ?? "unknown";
   try {
     const outcome = await grantRoleAssignment(
       { roleId: body.roleId, scope: body.scope, principalType, principal, expiresAt: body.expiresAt, effect: body.effect },
-      { granterPermsAt, actor },
+      { granterPermsAt, actor: sessionActor(session) },
     );
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
     return NextResponse.json({ ok: true, assignment: { ...outcome.assignment, username: principal } });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
-
-  const result = revokeAssignmentBodySchema.safeParse(await req.json().catch(() => null));
-  if (!result.success) {
-    return NextResponse.json({ error: "Validation failed", details: result.error.flatten() }, { status: 400 });
+export const DELETE = withRoute(null, async (req: NextRequest, session, access) => {
+  if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) {
+    return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
   }
 
-  const { id, username, group } = result.data;
-  const principalType = result.data.principalType ?? (group ? "group" : "user");
+  const body = await parseBody(req, revokeAssignmentBodySchema);
+  if (body instanceof NextResponse) return body;
+
+  const { id, username, group } = body;
+  const principalType = body.principalType ?? (group ? "group" : "user");
   const principal = principalType === "group" ? (group ?? username) : username;
   if (!principal) return NextResponse.json({ error: "Missing principal (username or group)" }, { status: 400 });
 
@@ -107,11 +94,11 @@ export async function DELETE(req: NextRequest) {
   try {
     const outcome = await revokeRoleAssignment(
       { assignmentId: id, principalType, principal },
-      { granterPermsAt, actor: session.user?.email ?? "unknown" },
+      { granterPermsAt, actor: sessionActor(session) },
     );
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

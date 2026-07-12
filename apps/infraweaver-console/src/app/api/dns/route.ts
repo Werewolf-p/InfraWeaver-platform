@@ -1,8 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { createDnsRecord, defaultZoneId, listDnsRecords, listZones } from "@/lib/cloudflare";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
 import {
   buildDnsName,
   buildDnsNameForDomain,
@@ -15,7 +13,7 @@ import {
   relativeDnsName,
   relativeDnsNameForDomain,
 } from "@/lib/dns";
-import { safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 
 const createDnsBodySchema = z.object({
   name: z.string().min(1),
@@ -68,65 +66,37 @@ function toManagedRecord(record: RawDnsRecord, zoneDomain?: string): ManagedDnsR
   };
 }
 
-async function requireAccess(permission: "config:read" | "config:write") {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const GET = withAuth({ permission: "config:read" }, async ({ req }) => {
+  const { zoneId, domain } = await resolveSelectedZone(
+    req.nextUrl.searchParams.get("zoneId") ?? undefined,
+  );
+  const records = await listDnsRecords({}, zoneId);
+  const isManaged = (name: string) =>
+    domain ? isManagedDnsNameForDomain(name, domain) : isManagedDnsName(name);
+  const managedRecords = records
+    .filter((record) => isManaged(record.name))
+    .map((record) => toManagedRecord(record, domain))
+    .filter((record) => MANAGED_RECORD_TYPES.includes(record.type as ManagedRecordType))
+    .sort((left, right) => {
+      const rightTime = new Date(right.updatedAt ?? right.createdAt ?? 0).getTime();
+      const leftTime = new Date(left.updatedAt ?? left.createdAt ?? 0).getTime();
+      return rightTime - leftTime || left.name.localeCompare(right.name);
+    });
 
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, permission)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  return NextResponse.json({ records: managedRecords });
+});
 
-  return session;
-}
+export const POST = withAuth(
+  { permission: "config:write", bodySchema: createDnsBodySchema },
+  async ({ body }) => {
+    const data = body!;
+    const name = data.name.trim();
+    const value = data.value.trim();
+    const type = data.type.toUpperCase() as ManagedRecordType;
+    const internal = data.internal !== false;
+    const ttl = typeof data.ttl === "number" ? Math.max(1, Math.min(86400, Math.round(data.ttl))) : 120;
 
-export async function GET(req: NextRequest) {
-  const session = await requireAccess("config:read");
-  if (session instanceof NextResponse) return session;
-
-  try {
-    const { zoneId, domain } = await resolveSelectedZone(
-      req.nextUrl.searchParams.get("zoneId") ?? undefined,
-    );
-    const records = await listDnsRecords({}, zoneId);
-    const isManaged = (name: string) =>
-      domain ? isManagedDnsNameForDomain(name, domain) : isManagedDnsName(name);
-    const managedRecords = records
-      .filter((record) => isManaged(record.name))
-      .map((record) => toManagedRecord(record, domain))
-      .filter((record) => MANAGED_RECORD_TYPES.includes(record.type as ManagedRecordType))
-      .sort((left, right) => {
-        const rightTime = new Date(right.updatedAt ?? right.createdAt ?? 0).getTime();
-        const leftTime = new Date(left.updatedAt ?? left.createdAt ?? 0).getTime();
-        return rightTime - leftTime || left.name.localeCompare(right.name);
-      });
-
-    return NextResponse.json({ records: managedRecords });
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
-
-export async function POST(req: NextRequest) {
-  const session = await requireAccess("config:write");
-  if (session instanceof NextResponse) return session;
-
-  try {
-    const rawBody = await req.json().catch(() => null);
-    const parsed = createDnsBodySchema.safeParse(rawBody);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
-    }
-
-    const name = parsed.data.name.trim();
-    const value = parsed.data.value.trim();
-    const type = parsed.data.type.toUpperCase() as ManagedRecordType;
-    const internal = parsed.data.internal !== false;
-    const ttl = typeof parsed.data.ttl === "number" ? Math.max(1, Math.min(86400, Math.round(parsed.data.ttl))) : 120;
-
-    const { zoneId, domain } = await resolveSelectedZone(parsed.data.zoneId);
+    const { zoneId, domain } = await resolveSelectedZone(data.zoneId);
     // A non-default zone has no internal scope; build the hostname under that
     // zone's domain. The env default zone keeps its internal/public split.
     const fqdn = domain ? buildDnsNameForDomain(name, domain) : buildDnsName(name, internal);
@@ -140,7 +110,5 @@ export async function POST(req: NextRequest) {
     }, zoneId);
 
     return NextResponse.json({ record: toManagedRecord(record, domain) }, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+  },
+);

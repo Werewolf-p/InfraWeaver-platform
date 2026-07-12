@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
-import type { Permission } from "@/lib/rbac";
-import { apiError, apiSuccess, requireRoutePermissions, routeErrorResponse } from "@/lib/route-utils";
+import { apiError, apiSuccess, routeErrorResponse } from "@/lib/route-utils";
 import {
   updateFeedbackStatus,
   listFeedback,
@@ -9,12 +8,7 @@ import {
 } from "@/lib/feedback-store";
 import { isDispatchConfigured, type ValidationAction } from "@/lib/feedback-dispatch";
 import { startApprove, startRedo, acceptVerdict } from "@/lib/feedback-pipeline";
-import { isFeedbackHost } from "@/lib/feedback-host";
-
-// Approving / dispatching / resolving feedback is an admin-gated action.
-// Human-in-the-loop: nothing downstream runs until an admin moves an entry to
-// `approved`. This mirrors the cluster:admin gate used by agent approval.
-const MANAGE: Permission[] = ["rbac:admin", "cluster:admin"];
+import { requireFeedbackManager } from "@/lib/feedback-host";
 
 const VALIDATION_ACTIONS: ValidationAction[] = ["validated", "not_fixed"];
 
@@ -38,11 +32,7 @@ export async function PATCH(
 ) {
   // Domain gate: the review surface only acts on the canonical console host, so
   // approving/publishing can never be triggered from inside a preview deployment.
-  if (!isFeedbackHost(request.headers)) {
-    return apiError("Feedback review is only available on the canonical console host", { status: 403 });
-  }
-
-  const session = await requireRoutePermissions({ any: MANAGE });
+  const session = await requireFeedbackManager(request, "Feedback review is only available on the canonical console host");
   if (session instanceof Response) return session;
 
   const { id } = await params;

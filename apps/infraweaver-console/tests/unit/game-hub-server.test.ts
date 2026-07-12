@@ -1,3 +1,15 @@
+// next/server references the global `Request` at module-eval, which jsdom
+// lacks; game-hub-server.ts imports it for its route helpers. Stub it so the
+// pure server helpers under test load. (Mirrors game-hub-restart-access-log.)
+jest.mock("next/server", () => ({
+  NextResponse: {
+    json: (body: unknown, init?: { status?: number }) => ({ body, status: init?.status ?? 200 }),
+  },
+  NextRequest: class {},
+}));
+
+jest.mock("@/lib/auth", () => ({ auth: jest.fn(async () => null) }));
+
 jest.mock("@kubernetes/client-node", () => {
   class DummyApi {}
   class DummyExec {

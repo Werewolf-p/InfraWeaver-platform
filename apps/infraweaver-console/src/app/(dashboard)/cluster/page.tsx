@@ -633,7 +633,7 @@ export default function ClusterPage() {
   const { data: eventData, refetch: refetchEvents } = useQuery<{ events: ClusterEvent[] }>({
     queryKey: ["cluster", "events", "cluster-page"],
     queryFn: async () => {
-      const res = await fetch("/api/events");
+      const res = await fetch("/api/cluster/events");
       if (!res.ok) throw new Error("Failed to fetch recent events");
       return res.json();
     },

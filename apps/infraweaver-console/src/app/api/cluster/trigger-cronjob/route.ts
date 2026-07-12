@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auditLog } from "@/lib/audit-log";
 import { makeBatchApi } from "@/lib/kube-client";
+import { safeError } from "@/lib/utils";
 import { z } from "zod";
 import { withRoute } from "@/lib/route-utils";
 
@@ -41,6 +42,6 @@ export const POST = withRoute("cluster:admin", async (req: NextRequest, session)
     await auditLog("cluster:trigger-cronjob", session.user?.email ?? "unknown", `triggered cronjob ${namespace}/${name} as ${jobName}`);
     return NextResponse.json({ ok: true, jobName });
   } catch (err) {
-    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Operation failed" }, { status: 502 });
+    return NextResponse.json({ ok: false, error: safeError(err) }, { status: 502 });
   }
 });

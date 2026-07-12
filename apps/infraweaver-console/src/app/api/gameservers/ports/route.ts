@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { makeCoreApi } from "@/lib/kube-client";
 import { safeError } from "@/lib/utils";
 
 export async function GET() {
@@ -10,10 +11,7 @@ export async function GET() {
   if (!hasSessionPermission(access, "game-hub:read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
-    const k8s = await import("@kubernetes/client-node");
-    const kc = new k8s.KubeConfig();
-    kc.loadFromDefault();
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = makeCoreApi();
 
     const cmList = await coreApi.listNamespacedConfigMap({ namespace: "game-servers" });
     const configMaps = (cmList.items ?? []).filter((cm: { metadata?: { labels?: Record<string, string> } }) =>

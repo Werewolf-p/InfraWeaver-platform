@@ -1,24 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
-import { buildEggConfigMap } from "@/lib/game-eggs";
 import { GAME_HUB_NAMESPACE, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { deleteServerManifest, getGitHubConfig, writeServerManifest } from "@/lib/game-hub-manifest";
 import {
   appendServerAudit,
-  buildPowerScheduleCron,
   checkPortReachable,
   derivePowerStatus,
-  createCronJob,
   deleteCronJob,
   GAME_HUB_NS,
-  forceStopServer,
   getDeploymentGameType,
   getNodeIp,
   getServerDeployment,
   getServerPod,
-  gracefulStopServer,
   makeGameHubClients,
   parseDiscordWebhookConfig,
   parseImageVersion,
@@ -26,51 +20,25 @@ import {
   parsePowerSchedule,
   readSavedCommands,
   readServerEgg,
-  restartServerPods,
   sendDiscordWebhook,
   validateServerToken,
-  writeSavedCommands,
   isKubernetesNotFoundError,
 } from "@/lib/game-hub-server";
 import { removeGameServerPortForward } from "@/addons/gamehub/lib/game-port-forward";
 import { validateK8sName } from "@/lib/api-security";
-import { logMutatingAccess } from "@/lib/access-log";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { getEffectivePermissions } from "@/lib/rbac";
 import { safeError } from "@/lib/utils";
+import {
+  ACTION_PERMISSIONS,
+  parseAnnouncementsAnnotation,
+  parseStringArrayAnnotation,
+  serverActionHandlers,
+  serverPatchBodySchema,
+} from "./server-actions";
 
 // Allow up to 60s for long operations (start/stop/restart/exec)
 export const maxDuration = 60;
-
-const VALID_ACTIONS = [
-  "start", "stop", "force-stop", "restart", "scale", "set-hpa", "remove-hpa", "update-env",
-  "set-restart-policy", "set-autopause", "set-notes", "update-notes", "update-resources", "set-maintenance",
-  "set-schedule", "set-backup-schedule", "set-backup-target", "set-alert-thresholds",
-  "expand-pvc", "update-image", "pin-image-version", "unpin-image-version",
-  "update-pull-policy", "update-strategy", "update-identity", "update-tags",
-  "update-service-ports", "set-scheduled-action", "save-command", "delete-saved-command",
-  "set-join-password", "set-command-blocklist", "add-announcement", "set-restart-reason",
-  "sync-to-git",
-] as const;
-
-const patchActionSchema = z.object({
-  action: z.enum(VALID_ACTIONS),
-});
-
-async function upsertEggConfigMap(
-  coreApi: import("@kubernetes/client-node").CoreV1Api,
-  serverName: string,
-  egg: import("@/lib/game-eggs").GameEgg,
-  env: Record<string, string>,
-) {
-  const body = buildEggConfigMap(GAME_HUB_NAMESPACE, serverName, egg, env);
-  try {
-    await coreApi.readNamespacedConfigMap({ name: `gameserver-${serverName}-egg`, namespace: GAME_HUB_NAMESPACE });
-    await coreApi.replaceNamespacedConfigMap({ name: `gameserver-${serverName}-egg`, namespace: GAME_HUB_NAMESPACE, body });
-  } catch {
-    await coreApi.createNamespacedConfigMap({ namespace: GAME_HUB_NAMESPACE, body });
-  }
-}
 
 const MANIFEST_SYNC_ACTIONS = new Set([
   // Power state (start/stop/force-stop/scale) is deliberately NOT synced to git.
@@ -106,85 +74,12 @@ const MANIFEST_SYNC_ACTIONS = new Set([
   "delete-saved-command",
 ]);
 
-function actionPermission(action: string) {
-  if (action === "start") return "game-hub:start" as const;
-  if (action === "stop" || action === "force-stop") return "game-hub:stop" as const;
-  if (action === "scale") return "game-hub:scale" as const;
-  if (["sync-to-git", "set-hpa", "remove-hpa", "update-env", "set-restart-policy", "set-notes", "update-notes", "update-resources", "set-maintenance", "set-schedule", "set-backup-schedule", "set-backup-target", "set-alert-thresholds", "expand-pvc"].includes(action)) {
-    return "game-hub:admin" as const;
-  }
-  if (["update-image", "pin-image-version", "unpin-image-version", "update-pull-policy", "update-strategy", "update-identity", "update-tags", "update-service-ports", "set-scheduled-action", "save-command", "delete-saved-command"].includes(action)) {
-    return "game-hub:admin" as const;
-  }
-  return "game-hub:write" as const;
-}
-
 async function currentRestartSchedule(batchApi: import("@kubernetes/client-node").BatchV1Api, name: string) {
   try {
     const cronJob = await batchApi.readNamespacedCronJob({ name: `gameserver-${name}-restart`, namespace: GAME_HUB_NS });
     return cronJob.spec?.schedule ?? null;
   } catch {
     return null;
-  }
-}
-
-function replaceImageTag(image: string, nextTag: string) {
-  const base = image.includes("@") ? image.split("@")[0] ?? image : image;
-  const lastColon = base.lastIndexOf(":");
-  const lastSlash = base.lastIndexOf("/");
-  if (lastColon > lastSlash) {
-    return `${base.slice(0, lastColon)}:${nextTag}`;
-  }
-  return `${base}:${nextTag}`;
-}
-
-/**
- * All deployment PATCHes go out as strategic-merge-patch, which merges the `env`
- * list by `name` and NEVER deletes entries. So removing an env var (a full env
- * replace, or clearing a join password) silently no-ops — the old value persists
- * while the UI reports it gone. Prepending the strategic-merge `$patch: replace`
- * directive forces the API server to replace the entire env list, so removed vars
- * are actually deleted.
- */
-function envListReplacingAll(
-  envVars: Array<{ name: string; value?: string }>,
-): Array<{ name: string; value?: string }> {
-  return [{ $patch: "replace" }, ...envVars] as unknown as Array<{ name: string; value?: string }>;
-}
-
-type ServerAnnouncement = {
-  id: string;
-  schedule: string;
-  message: string;
-};
-
-function parseStringArrayAnnotation(raw: string | undefined) {
-  if (!raw) return [] as string[];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((entry): entry is string => typeof entry === "string")
-      : [];
-  } catch {
-    return [] as string[];
-  }
-}
-
-function parseAnnouncementsAnnotation(raw: string | undefined) {
-  if (!raw) return [] as ServerAnnouncement[];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [] as ServerAnnouncement[];
-    return parsed.flatMap((entry) => {
-      if (!entry || typeof entry !== "object") return [] as ServerAnnouncement[];
-      const id = typeof entry.id === "string" ? entry.id : "";
-      const schedule = typeof entry.schedule === "string" ? entry.schedule : "";
-      const message = typeof entry.message === "string" ? entry.message : "";
-      if (!id || !schedule || !message) return [] as ServerAnnouncement[];
-      return [{ id, schedule, message }];
-    });
-  } catch {
-    return [] as ServerAnnouncement[];
   }
 }
 
@@ -675,59 +570,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
   if (nameErr3) return NextResponse.json(nameErr3.error, { status: nameErr3.status });
 
   const rawBody = await req.json().catch(() => ({}));
-  const actionParsed = patchActionSchema.safeParse(rawBody);
-  if (!actionParsed.success) {
-    return NextResponse.json({ error: "Validation failed", details: actionParsed.error.flatten() }, { status: 400 });
+  const parsedBody = serverPatchBodySchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
   }
-  const body = rawBody as {
-    action: "start" | "stop" | "force-stop" | "restart" | "scale" | "set-hpa" | "remove-hpa" | "update-env" | "set-restart-policy" | "set-autopause" | "set-notes" | "update-notes" | "update-resources" | "set-maintenance" | "set-schedule" | "set-backup-schedule" | "set-backup-target" | "set-alert-thresholds" | "expand-pvc" | "update-image" | "pin-image-version" | "unpin-image-version" | "update-pull-policy" | "update-strategy" | "update-identity" | "update-tags" | "update-service-ports" | "set-scheduled-action" | "set-join-password" | "set-command-blocklist" | "add-announcement" | "set-restart-reason" | "save-command" | "delete-saved-command" | "sync-to-git";
-    replicas?: number;
-    hpaMin?: number;
-    hpaMax?: number;
-    hpaCpuTarget?: number;
-    env?: Record<string, string>;
-    replaceEnv?: boolean;
-    restartPolicy?: boolean;
-    notes?: string;
-    memory?: string;
-    cpu?: string;
-    enabled?: boolean;
-    cronExpr?: string | null;
-    startSchedule?: import("@/lib/game-hub-server").PowerSchedule | null;
-    stopSchedule?: import("@/lib/game-hub-server").PowerSchedule | null;
-    retention?: number;
-    alertCpu?: number;
-    alertMemory?: number;
-    alertRestarts?: number;
-    target?: string;
-    pvcName?: string;
-    newSize?: string;
-    image?: string;
-    pullPolicy?: "Always" | "IfNotPresent" | "Never";
-    strategy?: "RollingUpdate" | "Recreate";
-    description?: string;
-    icon?: string;
-    tags?: string[];
-    groups?: string[];
-    annotations?: Record<string, string>;
-    reason?: string;
-    password?: string | null;
-    blocklist?: string[];
-    schedule?: string;
-    message?: string;
-    ports?: Array<{ name: string; port: number; targetPort?: number; protocol?: "TCP" | "UDP"; nodePort?: number }>;
-    scheduledAction?: string | null;
-    scheduledTime?: string | null;
-    command?: { id?: string; label: string; cmd: string; color?: string; description?: string };
-    commandId?: string;
-    commandLabel?: string;
-    commandCmd?: string;
-    autoPauseEnabled?: boolean;
-    autoPauseMinutes?: number;
-  };
+  const body = parsedBody.data;
 
   const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, actionPermission(body.action), name)) {
+  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, ACTION_PERMISSIONS[body.action], name)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -736,428 +586,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ na
     const deployment = await getServerDeployment(clients.appsApi, name);
     const egg = await readServerEgg(clients.coreApi, name, deployment);
     const webhookConfig = parseDiscordWebhookConfig(deployment.metadata?.annotations?.["infraweaver/discord-webhook"]);
-    let actionResult: Record<string, unknown> = {};
 
-    if (body.action === "start") {
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        // Clear crash-stopped-at so auto-stop can fire again on the next crash.
-        body: { spec: { replicas: 1 }, metadata: { annotations: { "infraweaver.io/last-started": new Date().toISOString(), "infraweaver/crash-stopped-at": "", "infraweaver/autopause-stopped-at": "", "infraweaver/players-empty-since": "" } } },
-
-        fieldManager: "infraweaver",
-      });
-      await sendDiscordWebhook(webhookConfig, "start", `🟢 ${name} started`);
-    } else if (body.action === "stop") {
-      // Delete any HPA first: an HPA with minReplicas >= 1 immediately scales the
-      // deployment back up after we scale to 0, causing the reported
-      // stopped -> starting -> running auto-restart. Matches the scale action.
-      await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
-      const result = await gracefulStopServer(clients, name, egg.stopCommand, 30_000);
-      await sendDiscordWebhook(webhookConfig, "stop", `⏹️ ${name} stopped${result.exitedGracefully ? " gracefully" : ""}`);
-    } else if (body.action === "force-stop") {
-      // See stop: remove the HPA so it cannot re-scale the pod back from 0.
-      await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
-      await forceStopServer(clients, name);
-      await sendDiscordWebhook(webhookConfig, "stop", `🛑 ${name} force-stopped`);
-    } else if (body.action === "restart") {
-      // Never delete a pod mid-install: the Recreate-strategy Deployment would
-      // recreate it and re-run the whole install, so a restart repeated during a
-      // console rolling update churns the pod for the install's whole duration.
-      //
-      // Emit a raw `type:access` line for the same reason the generic /api/pods
-      // routes do: a game-hub-originated restart deletes pods, so when it churns
-      // an installing pod during a console rolling update the trail must pin the
-      // caller + referer (this route's restart was previously the one mutating
-      // path with no access line).
-      logMutatingAccess(req, session.user?.email ?? "unknown");
-      const { deleted, skippedInstalling } = await restartServerPods(clients, name);
-      actionResult = { restarted: deleted, skippedInstalling };
-      await sendDiscordWebhook(webhookConfig, "restart", `🔄 ${name} restarted`);
-    } else if (body.action === "scale") {
-      await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
-      const count = Math.max(0, Math.min(body.replicas ?? 1, 10));
-      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { spec: { replicas: count } }, fieldManager: "infraweaver" });
-    } else if (body.action === "set-hpa") {
-      const min = Math.max(1, body.hpaMin ?? 1);
-      const max = Math.max(min, body.hpaMax ?? 3);
-      const cpu = Math.min(100, Math.max(10, body.hpaCpuTarget ?? 70));
-      const hpaSpec = {
-        apiVersion: "autoscaling/v2",
-        kind: "HorizontalPodAutoscaler",
-        metadata: { name, namespace: GAME_HUB_NAMESPACE },
-        spec: {
-          scaleTargetRef: { apiVersion: "apps/v1", kind: "Deployment", name },
-          minReplicas: min,
-          maxReplicas: max,
-          metrics: [{ type: "Resource", resource: { name: "cpu", target: { type: "Utilization", averageUtilization: cpu } } }],
-        },
-      };
-      try {
-        await clients.autoscalingApi.patchNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE, body: hpaSpec,  fieldManager: "infraweaver" });
-      } catch {
-        await clients.autoscalingApi.createNamespacedHorizontalPodAutoscaler({ namespace: GAME_HUB_NAMESPACE, body: hpaSpec });
-      }
-    } else if (body.action === "remove-hpa") {
-      await clients.autoscalingApi.deleteNamespacedHorizontalPodAutoscaler({ name, namespace: GAME_HUB_NAMESPACE }).catch(() => undefined);
-    } else if (body.action === "update-env") {
-      const currentEnv = Object.fromEntries((deployment.spec?.template?.spec?.containers?.[0]?.env ?? []).map((entry) => [entry.name, entry.value ?? ""]));
-      const nextEnv = body.replaceEnv ? (body.env ?? {}) : { ...currentEnv, ...(body.env ?? {}) };
-      const envVars = Object.entries(nextEnv).map(([key, value]) => ({ name: key, value }));
-      const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
-      // A full replace must actually DELETE vars the caller dropped; strategic
-      // merge alone would keep them. Merge mode intentionally upserts by name.
-      const envForPatch = body.replaceEnv ? envListReplacingAll(envVars) : envVars;
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { spec: { template: { spec: { containers: [{ name: containerName, env: envForPatch }] } } } },
-
-        fieldManager: "infraweaver",
-      });
-      await upsertEggConfigMap(clients.coreApi, name, egg, nextEnv);
-    } else if (body.action === "set-restart-policy") {
-      // Store the restart-on-crash preference as an annotation.
-      // When false: the status poller auto-scales to 0 on crash detection.
-      // When true (default): Kubernetes naturally restarts crashed containers.
-      const enabled = body.restartPolicy !== false;
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: {
-          metadata: {
-            annotations: {
-              "infraweaver/restart-on-crash": enabled ? "true" : "false",
-              // Clear the crash-stopped marker when re-enabling so auto-stop can fire again next crash.
-              ...(enabled ? {} : { "infraweaver/crash-stopped-at": "" }),
-            },
-          },
-        },
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "set-autopause") {
-      // Configure auto-pause: scale to 0 when no players are detected for N minutes.
-      // The players GET route tracks "players-empty-since"; this poller acts on it.
-      const enabled = body.autoPauseEnabled !== false;
-      const minutes = Math.max(5, Math.min(720, body.autoPauseMinutes ?? 30));
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: {
-          metadata: {
-            annotations: {
-              "infraweaver/autopause-enabled": enabled ? "true" : "false",
-              "infraweaver/autopause-minutes": String(minutes),
-              // Clear any stale pause marker so the next empty period is tracked fresh.
-              "infraweaver/autopause-stopped-at": "",
-            },
-          },
-        },
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "set-notes" || body.action === "update-notes") {
-      await clients.appsApi.patchNamespacedDeployment({ name, namespace: GAME_HUB_NAMESPACE, body: { metadata: { annotations: { "infraweaver/notes": body.notes ?? "" } } }, fieldManager: "infraweaver" });
-    } else if (body.action === "update-resources") {
-      const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { spec: { template: { spec: { containers: [{ name: containerName, resources: { limits: { memory: body.memory, cpu: body.cpu }, requests: { memory: body.memory, cpu: body.cpu } } }] } } } },
-
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "set-maintenance") {
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { metadata: { annotations: { "infraweaver/maintenance": body.enabled ? "true" : "false" } } },
-        fieldManager: "infraweaver",
-
-      });
-    } else if (body.action === "set-schedule") {
-      const startSchedule = parsePowerSchedule(body.startSchedule);
-      const stopSchedule = parsePowerSchedule(body.stopSchedule);
-      await deleteCronJob(clients.batchApi, `gameserver-${name}-restart`);
-      if (startSchedule) {
-        await createCronJob(
-          clients.batchApi,
-          `gameserver-${name}-scheduled-start`,
-          buildPowerScheduleCron(startSchedule),
-          `kubectl scale deployment/${name} -n ${GAME_HUB_NAMESPACE} --replicas=1`,
-          { app: name, "infraweaver/game": "true", "infraweaver/type": "scheduled-start" },
-          startSchedule.timezone,
-        );
-      } else {
-        await deleteCronJob(clients.batchApi, `gameserver-${name}-scheduled-start`);
-      }
-      if (stopSchedule) {
-        await createCronJob(
-          clients.batchApi,
-          `gameserver-${name}-scheduled-stop`,
-          buildPowerScheduleCron(stopSchedule),
-          `kubectl scale deployment/${name} -n ${GAME_HUB_NAMESPACE} --replicas=0`,
-          { app: name, "infraweaver/game": "true", "infraweaver/type": "scheduled-stop" },
-          stopSchedule.timezone,
-        );
-      } else {
-        await deleteCronJob(clients.batchApi, `gameserver-${name}-scheduled-stop`);
-      }
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: {
-          metadata: {
-            annotations: {
-              "infraweaver.io/schedule-start": startSchedule ? JSON.stringify(startSchedule) : "",
-              "infraweaver.io/schedule-stop": stopSchedule ? JSON.stringify(stopSchedule) : "",
-              "infraweaver/restart-schedule": "",
-            },
-          },
-        },
-        fieldManager: "infraweaver",
-
-      });
-    } else if (body.action === "set-backup-schedule") {
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { metadata: { annotations: { "infraweaver/backup-schedule": body.cronExpr ?? "", "infraweaver/backup-retention": String(body.retention ?? 7) } } },
-        fieldManager: "infraweaver",
-
-      });
-    } else if (body.action === "set-backup-target") {
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { metadata: { annotations: { "infraweaver/backup-target": body.target ?? "local" } } },
-        fieldManager: "infraweaver",
-
-      });
-    } else if (body.action === "set-alert-thresholds") {
-      const alertCpu = Math.min(100, Math.max(0, Math.round(body.alertCpu ?? 80)));
-      const alertMemory = Math.min(100, Math.max(0, Math.round(body.alertMemory ?? 80)));
-      const alertRestarts = Math.min(20, Math.max(1, Math.round(body.alertRestarts ?? 5)));
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: {
-          metadata: {
-            annotations: {
-              "infraweaver.io/alert-cpu": String(alertCpu),
-              "infraweaver.io/alert-memory": String(alertMemory),
-              "infraweaver.io/alert-restarts": String(alertRestarts),
-            },
-          },
-        },
-        fieldManager: "infraweaver",
-
-      });
-    } else if (body.action === "expand-pvc") {
-      if (!body.pvcName || !body.newSize) {
-        return NextResponse.json({ error: "pvcName and newSize are required" }, { status: 400 });
-      }
-      await clients.coreApi.patchNamespacedPersistentVolumeClaim({
-        name: body.pvcName,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { spec: { resources: { requests: { storage: body.newSize } } } },
-        fieldManager: "infraweaver",
-
-      });
-    } else if (body.action === "update-image") {
-      if (!body.image) return NextResponse.json({ error: "image is required" }, { status: 400 });
-      const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
-      const parsedVersion = parseImageVersion(body.image);
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: {
-          metadata: { annotations: { "infraweaver.io/image-version": parsedVersion.version } },
-          spec: { template: { metadata: { annotations: { "infraweaver.io/image-version": parsedVersion.version } }, spec: { containers: [{ name: containerName, image: body.image }] } } },
-        },
-
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "pin-image-version") {
-      const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
-      const currentImage = deployment.spec?.template?.spec?.containers?.[0]?.image ?? egg.dockerImage;
-      const currentVersion = deployment.metadata?.annotations?.["infraweaver.io/image-version"] ?? parseImageVersion(currentImage).version;
-      if (!currentVersion || currentVersion === "unknown" || currentVersion === "latest" || currentVersion === "sha256") {
-        return NextResponse.json({ error: "No concrete image version available to pin" }, { status: 400 });
-      }
-      const pinnedImage = replaceImageTag(currentImage, currentVersion);
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: {
-          metadata: { annotations: { "infraweaver.io/image-version": currentVersion } },
-          spec: { template: { metadata: { annotations: { "infraweaver.io/image-version": currentVersion } }, spec: { containers: [{ name: containerName, image: pinnedImage }] } } },
-        },
-
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "unpin-image-version") {
-      const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
-      const currentImage = deployment.spec?.template?.spec?.containers?.[0]?.image ?? egg.dockerImage;
-      const latestImage = replaceImageTag(currentImage, "latest");
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: {
-          metadata: { annotations: { "infraweaver.io/image-version": "latest" } },
-          spec: { template: { metadata: { annotations: { "infraweaver.io/image-version": "latest" } }, spec: { containers: [{ name: containerName, image: latestImage }] } } },
-        },
-
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "update-pull-policy") {
-      if (!body.pullPolicy) return NextResponse.json({ error: "pullPolicy is required" }, { status: 400 });
-      const containerName = deployment.spec?.template?.spec?.containers?.[0]?.name ?? name;
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { spec: { template: { spec: { containers: [{ name: containerName, imagePullPolicy: body.pullPolicy }] } } } },
-
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "update-strategy") {
-      const strategyType = body.strategy === "Recreate" ? "Recreate" : "RollingUpdate";
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { spec: { strategy: { type: strategyType } } },
-
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "update-identity" || body.action === "update-tags") {
-      const annotations: Record<string, string> = {};
-      if (body.description !== undefined) annotations["infraweaver.io/description"] = body.description;
-      if (body.icon !== undefined) annotations["infraweaver.io/icon"] = body.icon;
-      if (body.tags !== undefined) annotations["infraweaver.io/tags"] = (body.tags ?? []).join(",");
-      if (body.groups !== undefined) annotations["infraweaver.io/groups"] = (body.groups ?? []).join(",");
-      Object.assign(annotations, body.annotations ?? {});
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { metadata: { annotations } },
-
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "update-service-ports") {
-      if (!body.ports?.length) return NextResponse.json({ error: "ports array is required" }, { status: 400 });
-      await clients.coreApi.patchNamespacedService({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: {
-          spec: {
-            ports: body.ports.map((p) => ({
-              name: p.name,
-              port: p.port,
-              targetPort: p.targetPort ?? p.port,
-              protocol: p.protocol ?? "TCP",
-              ...(p.nodePort ? { nodePort: p.nodePort } : {}),
-            })),
-          },
-        },
-
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "set-scheduled-action") {
-      const annotations: Record<string, string> = {
-        "infraweaver.io/scheduled-action": body.scheduledAction ?? "",
-        "infraweaver.io/scheduled-time": body.scheduledTime ?? "",
-      };
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NAMESPACE,
-        body: { metadata: { annotations } },
- 
-        fieldManager: "infraweaver",
-      });
-    } else if (body.action === "set-join-password") {
-      const password = typeof body.password === "string" ? body.password : null;
-      const deploy = await clients.appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
-      const containers = deploy.spec?.template?.spec?.containers ?? [];
-      const primaryContainer = containers[0];
-      if (!primaryContainer) {
-        return NextResponse.json({ error: "Server container not found" }, { status: 404 });
-      }
-      const envVars = primaryContainer.env ?? [];
-      const filtered = envVars.filter((entry) => entry.name !== "SERVER_PASSWORD");
-      if (password) filtered.push({ name: "SERVER_PASSWORD", value: password });
-      // Clearing the password must truly remove SERVER_PASSWORD; strategic merge
-      // would otherwise retain the old value while we report it removed. Replace
-      // the whole env list so the deletion actually takes effect.
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NS,
-        body: { spec: { template: { spec: { containers: [{ ...primaryContainer, env: envListReplacingAll(filtered) }] } } } },
-      });
-      actionResult = { ok: true, passwordSet: !!password };
-    } else if (body.action === "set-command-blocklist") {
-      const blocklist = Array.isArray(body.blocklist)
-        ? body.blocklist.filter((entry): entry is string => typeof entry === "string")
-        : [];
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NS,
-        body: { metadata: { annotations: { "game-hub/command-blocklist": JSON.stringify(blocklist) } } },
-      });
-      actionResult = { ok: true, blocklist };
-    } else if (body.action === "add-announcement") {
-      const schedule = typeof body.schedule === "string" ? body.schedule : null;
-      const message = typeof body.message === "string" ? body.message.slice(0, 200) : null;
-      if (!schedule || !message) {
-        return NextResponse.json({ error: "schedule and message required" }, { status: 400 });
-      }
-      const deploy = await clients.appsApi.readNamespacedDeployment({ name, namespace: GAME_HUB_NS });
-      const existing = parseAnnouncementsAnnotation(deploy.metadata?.annotations?.["game-hub/announcements"]);
-      const announcements = [...existing, { id: Date.now().toString(), schedule, message }].slice(-10);
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NS,
-        body: { metadata: { annotations: { "game-hub/announcements": JSON.stringify(announcements) } } },
-      });
-      actionResult = { ok: true, announcements };
-    } else if (body.action === "set-restart-reason") {
-      const reason = typeof body.reason === "string" ? body.reason.slice(0, 100) : "manual";
-      const validReasons = ["manual", "crash", "oom", "maintenance", "scheduled", "update"];
-      const safeReason = validReasons.includes(reason) ? reason : "manual";
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: GAME_HUB_NS,
-        body: { metadata: { annotations: { "game-hub/restart-reason": safeReason, "game-hub/restart-time": new Date().toISOString() } } },
-      });
-      actionResult = { ok: true, reason: safeReason };
-    } else if (body.action === "save-command") {
-      if (!body.command?.label || !body.command?.cmd) return NextResponse.json({ error: "command.label and command.cmd are required" }, { status: 400 });
-      const existing = await readSavedCommands(clients.coreApi, name);
-      const { randomUUID } = await import("crypto");
-      const id = body.command.id ?? randomUUID();
-      const filtered = existing.filter((c) => c.id !== id);
-      await writeSavedCommands(clients.coreApi, name, [
-        ...filtered,
-        { id, label: body.command.label, cmd: body.command.cmd, color: body.command.color, description: body.command.description },
-      ]);
-    } else if (body.action === "delete-saved-command") {
-      const existing = await readSavedCommands(clients.coreApi, name);
-      let updated: typeof existing;
-      if (body.commandId) {
-        updated = existing.filter((c) => c.id !== body.commandId);
-      } else if (body.commandLabel !== undefined || body.commandCmd !== undefined) {
-        // Legacy commands stored without IDs — match by label + cmd
-        updated = existing.filter(
-          (c) => !(c.label === body.commandLabel && c.cmd === body.commandCmd),
-        );
-      } else {
-        return NextResponse.json({ error: "commandId or commandLabel+commandCmd is required" }, { status: 400 });
-      }
-      await writeSavedCommands(clients.coreApi, name, updated);
-    } else if (body.action === "sync-to-git") {
-      // Manifest sync is handled below.
-    }
+    const outcome = await serverActionHandlers[body.action]({ req, session, name, body, clients, deployment, egg, webhookConfig });
+    if (outcome.response) return outcome.response;
+    const actionResult = outcome.result ?? {};
 
     await auditLog(`game-hub:${body.action}`, session.user?.email ?? "unknown", `${body.action} ${name}`);
-    await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: body.action, details: JSON.stringify(body) });
+    await appendServerAudit(clients.coreApi, name, { timestamp: new Date().toISOString(), user: session.user?.email ?? "unknown", action: body.action, details: JSON.stringify(rawBody) });
 
     // ── IaC write-back ────────────────────────────────────────────────────────
     // Power actions (start/stop/force-stop/scale) and config actions are synced

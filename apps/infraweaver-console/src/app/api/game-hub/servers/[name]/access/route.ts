@@ -1,9 +1,9 @@
 import { randomUUID } from "crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
-import { gameHubScope, getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
+import { gameHubScope } from "@/lib/game-hub";
+import { withGameHubAuth } from "@/lib/game-hub-server";
 import { normalizeRoleAssignments, loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
 import { getLegacyRoleId, resolveRoleDefinition, type RoleAssignment } from "@/lib/rbac";
 import { notifyRoleAssignmentChangeByEmail } from "@/lib/rbac-change-email";
@@ -33,13 +33,6 @@ function normalizeRoleId(roleId: string) {
   return resolveRoleDefinition(roleId)?.id ?? roleId;
 }
 
-function canManageServerAccess(
-  access: Awaited<ReturnType<typeof getGameHubAccessContext>>,
-  serverName: string,
-) {
-  return hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:admin", serverName);
-}
-
 function requireUsername(username: string) {
   return SAFE_USERNAME_RE.test(username);
 }
@@ -62,16 +55,7 @@ function pushServerAssignment(entries: ServerAccessAssignment[], entry: ServerAc
   entries.push(entry);
 }
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { name } = await params;
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withGameHubAuth({ permission: "game-hub:read" }, async ({ name }) => {
   try {
     const file = await loadUsersConfig();
     const inherited: InheritedAccessAssignment[] = [];
@@ -114,18 +98,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ nam
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { name } = await params;
-  const access = await getGameHubAccessContext(session, 60);
-  if (!canManageServerAccess(access, name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const POST = withGameHubAuth({ permission: "game-hub:admin" }, async ({ req, session, name }) => {
   const result = CreateAccessBody.safeParse(await req.json());
   if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
   if (!requireUsername(result.data.username)) {
@@ -161,18 +136,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ nam
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { name } = await params;
-  const access = await getGameHubAccessContext(session, 60);
-  if (!canManageServerAccess(access, name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const DELETE = withGameHubAuth({ permission: "game-hub:admin" }, async ({ req, session, name }) => {
   const username = req.nextUrl.searchParams.get("username") ?? "";
   const roleResult = ServerRole.safeParse(req.nextUrl.searchParams.get("role"));
   if (!requireUsername(username)) {
@@ -208,4 +174,4 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ n
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

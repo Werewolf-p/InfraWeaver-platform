@@ -1,10 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
-import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { appendServerAudit, makeGameHubClients, readServerAudit } from "@/lib/game-hub-server";
-import { validateK8sName } from "@/lib/api-security";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { appendServerAudit, makeGameHubClients, readServerAudit, withGameHubAuth } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 
 const auditPostBodySchema = z.object({
@@ -16,17 +12,7 @@ function csvCell(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { name } = await params;
-  const nameErr = validateK8sName(name);
-  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:read", name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withGameHubAuth({ permission: "game-hub:read" }, async ({ req, name }) => {
   try {
     const { coreApi } = makeGameHubClients();
     const entries = await readServerAudit(coreApi, name);
@@ -47,41 +33,30 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
     console.error("audit route failed", error);
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
-  if (!checkRateLimit(rateLimitKey("game-hub-audit-post", req), 20, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
+export const POST = withGameHubAuth(
+  { permission: "game-hub:write", rateLimit: { name: "game-hub-audit-post", limit: 20, windowMs: 60_000 } },
+  async ({ req, session, name }) => {
+    const rawBody = await req.json().catch(() => null);
+    const parsed = auditPostBodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
+    }
+    const body = parsed.data;
 
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { name } = await params;
-  const nameErr = validateK8sName(name);
-  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
-  const access = await getGameHubAccessContext(session, 60);
-  if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, "game-hub:write", name)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const rawBody = await req.json().catch(() => null);
-  const parsed = auditPostBodySchema.safeParse(rawBody);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
-  }
-  const body = parsed.data;
-
-  try {
-    const { coreApi } = makeGameHubClients();
-    await appendServerAudit(coreApi, name, {
-      timestamp: new Date().toISOString(),
-      user: session.user?.email ?? "unknown",
-      action: body.action,
-      details: body.details ?? "",
-    });
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    console.error("audit append failed", error);
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+    try {
+      const { coreApi } = makeGameHubClients();
+      await appendServerAudit(coreApi, name, {
+        timestamp: new Date().toISOString(),
+        user: session.user?.email ?? "unknown",
+        action: body.action,
+        details: body.details ?? "",
+      });
+      return NextResponse.json({ ok: true });
+    } catch (error) {
+      console.error("audit append failed", error);
+      return NextResponse.json({ error: safeError(error) }, { status: 500 });
+    }
+  },
+);

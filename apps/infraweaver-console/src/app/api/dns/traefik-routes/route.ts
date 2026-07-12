@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
 import { loadKubeConfig } from "@/lib/k8s";
+import { listItems } from "@/lib/kube-client";
 import { safeError } from "@/lib/utils";
 import { withRoute } from "@/lib/route-utils";
 
@@ -177,7 +178,7 @@ export const GET = withRoute("config:read", async () => {
         version: "v1alpha1",
         plural: "ingressroutes",
       });
-      traefikItems = (traefikIngressRoutes as { items?: TraefikIngressRoute[] }).items ?? [];
+      traefikItems = listItems<TraefikIngressRoute>(traefikIngressRoutes);
     } catch (error) {
       console.error("Failed to list Traefik IngressRoutes (traefik.io/v1alpha1)", error);
       return NextResponse.json(

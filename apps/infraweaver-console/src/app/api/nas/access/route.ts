@@ -9,8 +9,7 @@
 // RoleAssignment that shows up in the RBAC visualizer alongside every other
 // grant. Storage stopped being a special case; it is now a scope.
 
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { listStorageGrantsForScope, storageAccessGroupName } from "@/lib/nas/access-policy";
 import { canReadStorage, canTraverseNasFolder } from "@/lib/nas/authz";
 import { describeNasScope, nasFolderScope, NasScopeError } from "@/lib/nas/scope";
@@ -24,6 +23,7 @@ import {
 } from "@/lib/session-rbac";
 import { loadUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 import { z } from "zod";
 
 const PROVIDER_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -96,9 +96,7 @@ function resolveScope(provider: string, share: string, path: string | undefined)
   }
 }
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const GET = withAuth({}, async ({ req, session }) => {
   const rbac = await getSessionRBACContext(session, 60);
   if (!canReadStorage(rbac)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!checkRateLimit(rateLimitKey("nas-access-get", req), 60, 60_000)) {
@@ -124,7 +122,6 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-
     const file = await loadUsersConfig();
     const grants = listStorageGrantsForScope(scope, file.users, file.groups);
 
@@ -152,11 +149,9 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const POST = withAuth({ logMutating: true }, async ({ req, session }) => {
   const rbac = await getSessionRBACContext(session, 60);
   if (!canManageGrants(rbac)) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
   if (!checkRateLimit(rateLimitKey("nas-access-grant", req), 20, 60_000)) {
@@ -186,11 +181,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const DELETE = withAuth({ logMutating: true }, async ({ req, session }) => {
   const rbac = await getSessionRBACContext(session, 60);
   if (!canManageGrants(rbac)) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
 
@@ -209,7 +202,7 @@ export async function DELETE(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});
 
 /**
  * Force-reconcile the share's Authentik access groups. The grant path already
@@ -217,9 +210,7 @@ export async function DELETE(req: NextRequest) {
  * fan-out failed (a transient Authentik outage) or when a broad `/nas` grant was
  * made, which is deliberately not fanned out per share.
  */
-export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const PUT = withAuth({ logMutating: true }, async ({ req, session }) => {
   const rbac = await getSessionRBACContext(session, 60);
   if (!canManageGrants(rbac)) return NextResponse.json({ error: "Forbidden: admin required" }, { status: 403 });
   if (!checkRateLimit(rateLimitKey("nas-access-sync", req), 10, 60_000)) {
@@ -239,4 +230,4 @@ export async function PUT(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

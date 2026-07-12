@@ -81,6 +81,15 @@ export async function requireRoutePermissions(options: RoutePermissionOptions = 
   return session;
 }
 
+/**
+ * Canonical fail-closed 503 for routes whose telemetry backend
+ * (Gatus/Longhorn/Prometheus/ArgoCD) is unreachable: `{ available: false, error }`.
+ * Matches /api/health/timeline and /api/logs/analytics — never fabricate data.
+ */
+export function unavailableResponse(error: unknown) {
+  return NextResponse.json({ available: false, error: safeError(error) }, { status: 503 });
+}
+
 export function routeErrorResponse(error: unknown, fallback = "Internal error", status = 500) {
   const message = safeError(error);
   // Promote transient infra blips to a retryable 503 so the client can absorb

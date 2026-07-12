@@ -3,7 +3,8 @@ import { withAuth } from "@/lib/with-auth";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
-const GITHUB_REPO = process.env.GITHUB_REPO ?? "your-org/your-repo";
+// Fail fast when unset — never query a placeholder repo.
+const GITHUB_REPO = process.env.GITHUB_REPO ?? "";
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? "";
 
 function githubHeaders() {
@@ -15,6 +16,12 @@ function githubHeaders() {
 }
 
 export const GET = withAuth({ permission: "config:read" }, async () => {
+  if (!GITHUB_REPO) {
+    return NextResponse.json(
+      { workflows: [], available: false, error: "GITHUB_REPO not configured" },
+      { status: 502 },
+    );
+  }
   try {
     const [workflowsRes, runsRes] = await Promise.all([
       fetch(`https://api.github.com/repos/${GITHUB_REPO}/actions/workflows`, { headers: githubHeaders(), cache: "no-store" }),
@@ -72,6 +79,9 @@ export const POST = withAuth(
     const result = PipelineDispatchBody.safeParse(await req.json());
     if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
     const { workflowId, ref, inputs } = result.data;
+    if (!GITHUB_REPO) {
+      return NextResponse.json({ error: "GITHUB_REPO not configured" }, { status: 500 });
+    }
     try {
       const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${workflowId}/dispatches`, {
         method: "POST",

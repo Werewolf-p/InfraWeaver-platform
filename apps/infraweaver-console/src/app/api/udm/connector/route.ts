@@ -12,12 +12,9 @@
  * password is never logged.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { auditLog } from "@/lib/audit-log";
-import { logMutatingAccess } from "@/lib/access-log";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { withAuth } from "@/lib/with-auth";
 import { buildUdmClient, isUdmConfigured } from "@/lib/udm/config";
 import { readStoredUdmConfig, writeStoredUdmConfig } from "@/lib/udm/store";
 import { fetchServerFingerprint } from "@/lib/udm/tofu";
@@ -50,14 +47,7 @@ function isNonEmptyString(value: unknown, max: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= max;
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "infra:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth({ permission: "infra:read" }, async () => {
   const stored = await readStoredUdmConfig().catch(() => null);
   const envConfigured = isUdmConfigured();
   return NextResponse.json({
@@ -67,24 +57,14 @@ export async function GET() {
     site: stored?.site ?? process.env.UDM_SITE ?? "default",
     source: stored ? "openbao" : envConfigured ? "env" : "none",
   });
-}
+});
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  const actor = session?.user?.email ?? "unauthenticated";
-  if (!session) {
-    logMutatingAccess(req, actor, { status: 401 });
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "infra:write")) {
-    logMutatingAccess(req, actor, { status: 403 });
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  logMutatingAccess(req, actor);
-  if (!checkRateLimit(rateLimitKey("udm-connector-save", req), 10, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
+export const POST = withAuth({
+  permission: "infra:write",
+  rateLimit: { name: "udm-connector-save", limit: 10, windowMs: 60_000 },
+  logMutating: true,
+}, async ({ req, session }) => {
+  const actor = session.user?.email ?? "unauthenticated";
 
   const body = (await req.json().catch(() => null)) as
     | { host?: unknown; username?: unknown; password?: unknown; site?: unknown }
@@ -132,4 +112,4 @@ export async function POST(req: NextRequest) {
     const message = error instanceof Error ? error.message : "connector test failed";
     return NextResponse.json({ error: `connector test failed: ${message}` }, { status: 502 });
   }
-}
+});

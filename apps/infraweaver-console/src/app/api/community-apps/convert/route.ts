@@ -29,10 +29,6 @@ const ConvertBody = z.object({
   path: ["appName"],
 });
 
-async function findAppInFeed(identifier: string) {
-  return findAppByIdentifier(identifier);
-}
-
 export const POST = withRoute("apps:read", async (req: NextRequest) => {
   if (!checkRateLimit(rateLimitKey("community-convert", req), 30, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
@@ -45,7 +41,7 @@ export const POST = withRoute("apps:read", async (req: NextRequest) => {
   const { appName, slug, namespace, pvcSizeGi, storageClass, ingressHost, createIngress, userVariables } = parsed.data;
   const appIdentifier = appName?.trim() || slug?.trim() || "";
 
-  const app = await findAppInFeed(appIdentifier);
+  const app = await findAppByIdentifier(appIdentifier);
   if (!app) {
     return NextResponse.json({ error: `App "${appIdentifier}" not found in AppFeed` }, { status: 404 });
   }

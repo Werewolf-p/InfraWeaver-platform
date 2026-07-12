@@ -127,28 +127,11 @@ export const PUT = withRoute("config:write", async (req: NextRequest) => {
       return NextResponse.json({ error: parseResult.error.flatten() }, { status: 400 });
     }
     const body = parseResult.data;
-    if (!Array.isArray(body.changes) || body.changes.length === 0) {
-      return NextResponse.json({ error: "No changes provided" }, { status: 400 });
-    }
 
-    // Validate changes
+    // Schema enforces presence/ranges; only the 512 MB alignment needs a manual pass.
     for (const change of body.changes) {
-      if (!change.name?.trim()) {
-        return NextResponse.json({ error: "Each change must have a node name" }, { status: 400 });
-      }
-      if (change.cpu !== undefined) {
-        if (!Number.isInteger(change.cpu) || change.cpu < 1 || change.cpu > 64) {
-          return NextResponse.json({ error: `cpu for ${change.name} must be 1–64` }, { status: 400 });
-        }
-      }
-      if (change.memory_mb !== undefined) {
-        if (!Number.isInteger(change.memory_mb) || change.memory_mb < 512 || change.memory_mb > 131072) {
-          return NextResponse.json({ error: `memory_mb for ${change.name} must be 512–131072` }, { status: 400 });
-        }
-        // Enforce 512 MB alignment
-        if (change.memory_mb % 512 !== 0) {
-          return NextResponse.json({ error: `memory_mb for ${change.name} must be a multiple of 512` }, { status: 400 });
-        }
+      if (change.memory_mb !== undefined && change.memory_mb % 512 !== 0) {
+        return NextResponse.json({ error: `memory_mb for ${change.name} must be a multiple of 512` }, { status: 400 });
       }
     }
 

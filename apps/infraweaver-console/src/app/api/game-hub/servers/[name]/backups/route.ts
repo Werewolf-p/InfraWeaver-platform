@@ -1,24 +1,22 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
-import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
 import { getSaveCommands } from "@/lib/game-eggs";
 import {
   appendServerAudit,
   execShell,
+  GAME_HUB_NS,
   getPrimaryContainerName,
   getServerDeployment,
   getServerPod,
   gracefulStopServer,
-  isKubernetesNotFoundError,
   makeGameHubClients,
   readServerEgg,
   runServerCommand,
   shellQuote,
+  toApiErrorResponse,
+  withGameHubAuth,
 } from "@/lib/game-hub-server";
-import { validateK8sName } from "@/lib/api-security";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { safeError } from "@/lib/utils";
 
 const backupPostBodySchema = z.object({
@@ -111,7 +109,7 @@ async function waitForServerPodsToStop(
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const pods = await coreApi.listNamespacedPod({
-      namespace: "game-hub",
+      namespace: GAME_HUB_NS,
       labelSelector: `app=${name}`,
     });
     const activePods = pods.items.filter((pod) => {
@@ -132,7 +130,7 @@ async function waitForPodRunning(
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const pod = await coreApi
-      .readNamespacedPod({ name: podName, namespace: "game-hub" })
+      .readNamespacedPod({ name: podName, namespace: GAME_HUB_NS })
       .catch(() => null);
     if (pod?.status?.phase === "Running") return;
     if (pod?.status?.phase === "Failed") {
@@ -143,254 +141,232 @@ async function waitForPodRunning(
   throw new Error("Timed out waiting for the restore pod");
 }
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ name: string }> },
-) {
-  const session = await auth();
-  if (!session)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { name } = await params;
-  const nameErr = validateK8sName(name);
-  if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
-  const access = await getGameHubAccessContext(session, 60);
-  if (
-    !hasGameHubPermission(
-      access.groups,
-      access.username,
-      access.roleAssignments,
-      "game-hub:read",
-      name,
-    )
-  ) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withGameHubAuth({ permission: "game-hub:read" }, async ({ name }) => {
   try {
     return NextResponse.json({ backups: await listBackups(name) });
   } catch (error) {
-    console.error("list backups failed", error);
-    if (isKubernetesNotFoundError(error)) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return toApiErrorResponse(error, "list backups failed");
+  }
+});
+
+export const POST = withGameHubAuth(
+  { permission: "game-hub:write", rateLimit: { name: "game-hub-backup-post", limit: 5, windowMs: 60_000 } },
+  async ({ req, session, name }) => {
+    const rawBody = await req.json().catch(() => ({}));
+    const parsedBody = backupPostBodySchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
     }
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+    const body = parsedBody.data;
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ name: string }> },
-) {
-  if (!checkRateLimit(rateLimitKey("game-hub-backup-post", req), 5, 60_000)) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded" },
-      { status: 429 },
-    );
-  }
+    try {
+      const clients = makeGameHubClients();
+      const deployment = await getServerDeployment(clients.appsApi, name);
+      const egg = await readServerEgg(clients.coreApi, name, deployment);
 
-  const session = await auth();
-  if (!session)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { name } = await params;
-  const nameErr2 = validateK8sName(name);
-  if (nameErr2) return NextResponse.json(nameErr2.error, { status: nameErr2.status });
-  const access = await getGameHubAccessContext(session, 60);
-  if (
-    !hasGameHubPermission(
-      access.groups,
-      access.username,
-      access.roleAssignments,
-      "game-hub:write",
-      name,
-    )
-  ) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+      if ((body.action ?? "create") === "restore") {
+        const backupName = sanitizeBackupName(body.backupName ?? body.filename ?? "");
+        if (!backupName) {
+          return NextResponse.json(
+            { error: "backupName is required" },
+            { status: 400 },
+          );
+        }
 
-  const rawBody = await req.json().catch(() => ({}));
-  const parsedBody = backupPostBodySchema.safeParse(rawBody);
-  if (!parsedBody.success) {
-    return NextResponse.json({ error: "Validation failed", details: parsedBody.error.flatten() }, { status: 400 });
-  }
-  const body = parsedBody.data;
-  if (!["create", "restore", "prune"].includes(body.action ?? "create")) {
-    return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
-  }
+        const pvcName =
+          deployment.spec?.template?.spec?.volumes?.find(
+            (volume) => volume.persistentVolumeClaim?.claimName,
+          )?.persistentVolumeClaim?.claimName ?? `${name}-data`;
+        const backupDir = backupDirForMountPath(egg.mountPath);
+        const desiredReplicas = deployment.spec?.replicas ?? 1;
+        const restorePodName = `${name}-restore`.slice(0, 63);
 
-  try {
-    const clients = makeGameHubClients();
-    const deployment = await getServerDeployment(clients.appsApi, name);
-    const egg = await readServerEgg(clients.coreApi, name, deployment);
+        if ((deployment.spec?.replicas ?? 0) > 0) {
+          await gracefulStopServer(clients, name, egg.stopCommand, 30_000);
+        } else {
+          await clients.appsApi.patchNamespacedDeployment({
+            name,
+            namespace: GAME_HUB_NS,
+            body: { spec: { replicas: 0 } },
 
-    if ((body.action ?? "create") === "restore") {
-      const backupName = sanitizeBackupName(body.backupName ?? body.filename ?? "");
-      if (!backupName) {
-        return NextResponse.json(
-          { error: "backupName is required" },
-          { status: 400 },
-        );
-      }
+            fieldManager: "infraweaver",
+          });
+        }
 
-      const pvcName =
-        deployment.spec?.template?.spec?.volumes?.find(
-          (volume) => volume.persistentVolumeClaim?.claimName,
-        )?.persistentVolumeClaim?.claimName ?? `${name}-data`;
-      const backupDir = backupDirForMountPath(egg.mountPath);
-      const desiredReplicas = deployment.spec?.replicas ?? 1;
-      const restorePodName = `${name}-restore`.slice(0, 63);
+        await waitForServerPodsToStop(clients.coreApi, name);
+        await clients.coreApi
+          .deleteNamespacedPod({ name: restorePodName, namespace: GAME_HUB_NS })
+          .catch(() => undefined);
 
-      if ((deployment.spec?.replicas ?? 0) > 0) {
-        await gracefulStopServer(clients, name, egg.stopCommand, 30_000);
-      } else {
-        await clients.appsApi.patchNamespacedDeployment({
-          name,
-          namespace: "game-hub",
-          body: { spec: { replicas: 0 } },
-
-          fieldManager: "infraweaver",
-        });
-      }
-
-      await waitForServerPodsToStop(clients.coreApi, name);
-      await clients.coreApi
-        .deleteNamespacedPod({ name: restorePodName, namespace: "game-hub" })
-        .catch(() => undefined);
-
-      // Classify the outcome without relying on exec error-message text: the
-      // check exec exits 0 and prints a token; extraction failures throw.
-      let restoreStatus: "ok" | "missing" | "corrupt" | "failed" = "failed";
-      let restoreError: unknown = null;
-      try {
-        await clients.coreApi.createNamespacedPod({
-          namespace: "game-hub",
-          body: {
-            apiVersion: "v1",
-            kind: "Pod",
-            metadata: {
-              name: restorePodName,
-              namespace: "game-hub",
-              labels: {
-                "infraweaver/game": "true",
-                "infraweaver/type": "backup-restore",
-                "infraweaver.io/server": name,
+        // Classify the outcome without relying on exec error-message text: the
+        // check exec exits 0 and prints a token; extraction failures throw.
+        let restoreStatus: "ok" | "missing" | "corrupt" | "failed" = "failed";
+        let restoreError: unknown = null;
+        try {
+          await clients.coreApi.createNamespacedPod({
+            namespace: GAME_HUB_NS,
+            body: {
+              apiVersion: "v1",
+              kind: "Pod",
+              metadata: {
+                name: restorePodName,
+                namespace: GAME_HUB_NS,
+                labels: {
+                  "infraweaver/game": "true",
+                  "infraweaver/type": "backup-restore",
+                  "infraweaver.io/server": name,
+                },
+              },
+              spec: {
+                restartPolicy: "Never",
+                securityContext: deployment.spec?.template?.spec?.securityContext,
+                containers: [
+                  {
+                    name: "restore",
+                    image:
+                      deployment.spec?.template?.spec?.containers?.[0]?.image ??
+                      egg.dockerImage,
+                    command: ["sh", "-c", "sleep 3600"],
+                    volumeMounts: [{ name: "data", mountPath: egg.mountPath }],
+                  },
+                ],
+                volumes: [
+                  { name: "data", persistentVolumeClaim: { claimName: pvcName } },
+                ],
               },
             },
-            spec: {
-              restartPolicy: "Never",
-              securityContext: deployment.spec?.template?.spec?.securityContext,
-              containers: [
-                {
-                  name: "restore",
-                  image:
-                    deployment.spec?.template?.spec?.containers?.[0]?.image ??
-                    egg.dockerImage,
-                  command: ["sh", "-c", "sleep 3600"],
-                  volumeMounts: [{ name: "data", mountPath: egg.mountPath }],
-                },
-              ],
-              volumes: [
-                { name: "data", persistentVolumeClaim: { claimName: pvcName } },
-              ],
-            },
-          },
-        });
-        await waitForPodRunning(clients.coreApi, restorePodName);
+          });
+          await waitForPodRunning(clients.coreApi, restorePodName);
 
-        // Pre-flight: prove the archive exists and is a readable gzip tar BEFORE
-        // we touch the live world. Emits a token on stdout for reliable
-        // classification (stderr/exit-code text is not carried by k8s exec).
-        const check = await execShell(
-          clients.kc,
-          restorePodName,
-          "restore",
-          `backup_file=${shellQuote(`${backupDir}/${backupName}`)}; if [ ! -f "$backup_file" ]; then echo IW_MISSING; elif ! tar -tzf "$backup_file" >/dev/null 2>&1; then echo IW_CORRUPT; else echo IW_OK; fi`,
-          30_000,
-        );
-        if (check.stdout.includes("IW_MISSING")) {
-          restoreStatus = "missing";
-        } else if (check.stdout.includes("IW_CORRUPT")) {
-          restoreStatus = "corrupt";
-        } else if (check.stdout.includes("IW_OK")) {
-          // Atomic extraction: unpack into a sibling temp dir on the same volume,
-          // and only wipe+swap the live world once the archive is fully
-          // extracted. If tar fails the live world is left untouched.
-          await execShell(
+          // Pre-flight: prove the archive exists and is a readable gzip tar BEFORE
+          // we touch the live world. Emits a token on stdout for reliable
+          // classification (stderr/exit-code text is not carried by k8s exec).
+          const check = await execShell(
             clients.kc,
             restorePodName,
             "restore",
-            `set -e; mount_path=${shellQuote(egg.mountPath)}; backup_file=${shellQuote(`${backupDir}/${backupName}`)}; if [ ! -f "$backup_file" ]; then echo MISSING >&2; exit 3; fi; rm -rf "$mount_path/.restore-tmp"; mkdir -p "$mount_path/.restore-tmp" && tar -xzf "$backup_file" -C "$mount_path/.restore-tmp" && find "$mount_path" -mindepth 1 -maxdepth 1 ! -name '.restore-tmp' ! -name '.infraweaver-backups' -exec rm -rf {} + && mv "$mount_path/.restore-tmp"/* "$mount_path"/ 2>/dev/null; mv "$mount_path/.restore-tmp"/.[!.]* "$mount_path"/ 2>/dev/null; rmdir "$mount_path/.restore-tmp"`,
-            // Large-world extraction can legitimately take minutes; the exec now
-            // rejects on timeout, so give it ample headroom (10 min).
-            600_000,
+            `backup_file=${shellQuote(`${backupDir}/${backupName}`)}; if [ ! -f "$backup_file" ]; then echo IW_MISSING; elif ! tar -tzf "$backup_file" >/dev/null 2>&1; then echo IW_CORRUPT; else echo IW_OK; fi`,
+            30_000,
           );
-          restoreStatus = "ok";
+          if (check.stdout.includes("IW_MISSING")) {
+            restoreStatus = "missing";
+          } else if (check.stdout.includes("IW_CORRUPT")) {
+            restoreStatus = "corrupt";
+          } else if (check.stdout.includes("IW_OK")) {
+            // Atomic extraction: unpack into a sibling temp dir on the same volume,
+            // and only wipe+swap the live world once the archive is fully
+            // extracted. If tar fails the live world is left untouched.
+            await execShell(
+              clients.kc,
+              restorePodName,
+              "restore",
+              `set -e; mount_path=${shellQuote(egg.mountPath)}; backup_file=${shellQuote(`${backupDir}/${backupName}`)}; if [ ! -f "$backup_file" ]; then echo MISSING >&2; exit 3; fi; rm -rf "$mount_path/.restore-tmp"; mkdir -p "$mount_path/.restore-tmp" && tar -xzf "$backup_file" -C "$mount_path/.restore-tmp" && find "$mount_path" -mindepth 1 -maxdepth 1 ! -name '.restore-tmp' ! -name '.infraweaver-backups' -exec rm -rf {} + && mv "$mount_path/.restore-tmp"/* "$mount_path"/ 2>/dev/null; mv "$mount_path/.restore-tmp"/.[!.]* "$mount_path"/ 2>/dev/null; rmdir "$mount_path/.restore-tmp"`,
+              // Large-world extraction can legitimately take minutes; the exec now
+              // rejects on timeout, so give it ample headroom (10 min).
+              600_000,
+            );
+            restoreStatus = "ok";
+          }
+        } catch (error) {
+          restoreStatus = "failed";
+          restoreError = error;
+        } finally {
+          await clients.coreApi
+            .deleteNamespacedPod({ name: restorePodName, namespace: GAME_HUB_NS })
+            .catch(() => undefined);
         }
-      } catch (error) {
-        restoreStatus = "failed";
-        restoreError = error;
-      } finally {
-        await clients.coreApi
-          .deleteNamespacedPod({ name: restorePodName, namespace: "game-hub" })
-          .catch(() => undefined);
-      }
 
-      // Always bring the server back to its desired replica count — a failed or
-      // aborted restore must never leave the workload stopped.
-      await clients.appsApi.patchNamespacedDeployment({
-        name,
-        namespace: "game-hub",
-        body: { spec: { replicas: desiredReplicas } },
+        // Always bring the server back to its desired replica count — a failed or
+        // aborted restore must never leave the workload stopped.
+        await clients.appsApi.patchNamespacedDeployment({
+          name,
+          namespace: GAME_HUB_NS,
+          body: { spec: { replicas: desiredReplicas } },
 
-        fieldManager: "infraweaver",
-      });
+          fieldManager: "infraweaver",
+        });
 
-      if (restoreStatus !== "ok") {
+        if (restoreStatus !== "ok") {
+          await appendServerAudit(clients.coreApi, name, {
+            timestamp: new Date().toISOString(),
+            user: session.user?.email ?? "unknown",
+            action: "backup:restore-failed",
+            details: `${backupName} (${restoreStatus})`,
+          });
+          if (restoreStatus === "missing") {
+            return NextResponse.json(
+              { error: `Backup ${backupName} not found` },
+              { status: 404 },
+            );
+          }
+          if (restoreStatus === "corrupt") {
+            return NextResponse.json(
+              { error: `Backup ${backupName} is not a readable archive` },
+              { status: 409 },
+            );
+          }
+          return NextResponse.json(
+            { error: `Restore failed: ${safeError(restoreError)}` },
+            { status: 500 },
+          );
+        }
+
+        await auditLog(
+          "game-hub:backup-restore",
+          session.user?.email ?? "unknown",
+          `restored backup ${backupName} for ${name}`,
+        );
         await appendServerAudit(clients.coreApi, name, {
           timestamp: new Date().toISOString(),
           user: session.user?.email ?? "unknown",
-          action: "backup:restore-failed",
-          details: `${backupName} (${restoreStatus})`,
+          action: "backup:restore",
+          details: backupName,
         });
-        if (restoreStatus === "missing") {
+        return NextResponse.json({ restored: true, backupName });
+      }
+
+      if ((body.action ?? "create") === "prune") {
+        const keepCount = typeof body.keepCount === "number"
+          ? Math.max(1, Math.min(20, Math.trunc(body.keepCount)))
+          : 5;
+        const backups = await listBackups(name);
+        const toDelete = backups.slice(keepCount);
+        if (toDelete.length === 0) {
+          return NextResponse.json({ backups, deleted: [], keepCount });
+        }
+
+        const pod = await getServerPod(clients.coreApi, name, true);
+        if (!pod?.metadata?.name) {
           return NextResponse.json(
-            { error: `Backup ${backupName} not found` },
+            { error: "No running pod found" },
             { status: 404 },
           );
         }
-        if (restoreStatus === "corrupt") {
-          return NextResponse.json(
-            { error: `Backup ${backupName} is not a readable archive` },
-            { status: 409 },
-          );
-        }
-        return NextResponse.json(
-          { error: `Restore failed: ${safeError(restoreError)}` },
-          { status: 500 },
+
+        const backupDir = backupDirForMountPath(egg.mountPath);
+        await execShell(
+          clients.kc,
+          pod.metadata.name,
+          getPrimaryContainerName(pod, name),
+          toDelete.map((backup) => `rm -f ${shellQuote(`${backupDir}/${backup.filename}`)}`).join(" && "),
+          10_000,
         );
-      }
-
-      await auditLog(
-        "game-hub:backup-restore",
-        session.user?.email ?? "unknown",
-        `restored backup ${backupName} for ${name}`,
-      );
-      await appendServerAudit(clients.coreApi, name, {
-        timestamp: new Date().toISOString(),
-        user: session.user?.email ?? "unknown",
-        action: "backup:restore",
-        details: backupName,
-      });
-      return NextResponse.json({ restored: true, backupName });
-    }
-
-    if ((body.action ?? "create") === "prune") {
-      const keepCount = typeof body.keepCount === "number"
-        ? Math.max(1, Math.min(20, Math.trunc(body.keepCount)))
-        : 5;
-      const backups = await listBackups(name);
-      const toDelete = backups.slice(keepCount);
-      if (toDelete.length === 0) {
-        return NextResponse.json({ backups, deleted: [], keepCount });
+        await auditLog(
+          "game-hub:backup-prune",
+          session.user?.email ?? "unknown",
+          `pruned backups for ${name} to keep ${keepCount}`,
+        );
+        await appendServerAudit(clients.coreApi, name, {
+          timestamp: new Date().toISOString(),
+          user: session.user?.email ?? "unknown",
+          action: "backup:prune",
+          details: `Kept ${keepCount}, deleted ${toDelete.length}`,
+        });
+        return NextResponse.json({
+          backups: await listBackups(name),
+          deleted: toDelete.map((backup) => backup.filename),
+          keepCount,
+        });
       }
 
       const pod = await getServerPod(clients.coreApi, name, true);
@@ -401,164 +377,97 @@ export async function POST(
         );
       }
 
+      const retention =
+        Number.parseInt(
+          deployment.metadata?.annotations?.["infraweaver/backup-retention"] ?? "7",
+          10,
+        ) || 7;
+      const backupDir = backupDirForMountPath(egg.mountPath);
+
+      // Quiesce the world before archiving so the tar captures a consistent
+      // snapshot: pause autosaves (off), flush to disk (flush), take the backup,
+      // then always resume autosaves (on). Every RCON call is best-effort — a
+      // game that lacks the command must not fail the backup.
+      const saves = getSaveCommands(egg);
+      const quiesce = async (command: string | undefined) => {
+        if (!command) return;
+        try {
+          await runServerCommand(clients, name, command);
+        } catch (rconError) {
+          console.error(`backup quiesce command failed (${command})`, rconError);
+        }
+      };
+
+      await quiesce(saves.off);
+      await quiesce(saves.flush);
+      try {
+        await execShell(
+          clients.kc,
+          pod.metadata.name,
+          getPrimaryContainerName(pod, name),
+          `backup_dir=${shellQuote(backupDir)}; mkdir -p "$backup_dir" && cd ${shellQuote(egg.mountPath)} && filename="$backup_dir/gameserver-backup-$(date +%Y%m%d-%H%M%S).tar.gz" && tar --exclude='.infraweaver-backups' -czf "$filename" . && ls -1t "$backup_dir"/gameserver-backup-*.tar.gz 2>/dev/null | tail -n +${retention + 1} | xargs -r rm -f`,
+          // Archiving a large world can take minutes; the exec rejects on timeout
+          // (a truncated archive must never be stored as a good backup), so allow 5 min.
+          300_000,
+        );
+      } finally {
+        await quiesce(saves.on);
+      }
+      await auditLog(
+        "game-hub:backup",
+        session.user?.email ?? "unknown",
+        `created backup for ${name}`,
+      );
+      await appendServerAudit(clients.coreApi, name, {
+        timestamp: new Date().toISOString(),
+        user: session.user?.email ?? "unknown",
+        action: "backup:create",
+        details: "Created manual backup",
+      });
+      return NextResponse.json({ backups: await listBackups(name) });
+    } catch (error) {
+      return toApiErrorResponse(error, "create backup failed");
+    }
+  },
+);
+
+export const DELETE = withGameHubAuth(
+  { permission: "game-hub:write", rateLimit: { name: "game-hub-backup-delete", limit: 10, windowMs: 60_000 } },
+  async ({ req, session, name }) => {
+    const rawDeleteBody = await req.json().catch(() => null);
+    const parsedDelete = backupDeleteBodySchema.safeParse(rawDeleteBody);
+    if (!parsedDelete.success) {
+      return NextResponse.json({ error: "Validation failed", details: parsedDelete.error.flatten() }, { status: 400 });
+    }
+    const backupName = sanitizeBackupName(parsedDelete.data.filename);
+
+    try {
+      const clients = makeGameHubClients();
+      const deployment = await getServerDeployment(clients.appsApi, name);
+      const egg = await readServerEgg(clients.coreApi, name, deployment);
+      const pod = await getServerPod(clients.coreApi, name, true);
+      if (!pod?.metadata?.name) {
+        return NextResponse.json(
+          { error: "No running pod found" },
+          { status: 404 },
+        );
+      }
       const backupDir = backupDirForMountPath(egg.mountPath);
       await execShell(
         clients.kc,
         pod.metadata.name,
         getPrimaryContainerName(pod, name),
-        toDelete.map((backup) => `rm -f ${shellQuote(`${backupDir}/${backup.filename}`)}`).join(" && "),
-        10_000,
-      );
-      await auditLog(
-        "game-hub:backup-prune",
-        session.user?.email ?? "unknown",
-        `pruned backups for ${name} to keep ${keepCount}`,
+        `rm -f ${shellQuote(`${backupDir}/${backupName}`)}`,
       );
       await appendServerAudit(clients.coreApi, name, {
         timestamp: new Date().toISOString(),
         user: session.user?.email ?? "unknown",
-        action: "backup:prune",
-        details: `Kept ${keepCount}, deleted ${toDelete.length}`,
+        action: "backup:delete",
+        details: `Deleted ${backupName}`,
       });
-      return NextResponse.json({
-        backups: await listBackups(name),
-        deleted: toDelete.map((backup) => backup.filename),
-        keepCount,
-      });
+      return NextResponse.json({ backups: await listBackups(name) });
+    } catch (error) {
+      return toApiErrorResponse(error, "delete backup failed");
     }
-
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) {
-      return NextResponse.json(
-        { error: "No running pod found" },
-        { status: 404 },
-      );
-    }
-
-    const retention =
-      Number.parseInt(
-        deployment.metadata?.annotations?.["infraweaver/backup-retention"] ?? "7",
-        10,
-      ) || 7;
-    const backupDir = backupDirForMountPath(egg.mountPath);
-
-    // Quiesce the world before archiving so the tar captures a consistent
-    // snapshot: pause autosaves (off), flush to disk (flush), take the backup,
-    // then always resume autosaves (on). Every RCON call is best-effort — a
-    // game that lacks the command must not fail the backup.
-    const saves = getSaveCommands(egg);
-    const quiesce = async (command: string | undefined) => {
-      if (!command) return;
-      try {
-        await runServerCommand(clients, name, command);
-      } catch (rconError) {
-        console.error(`backup quiesce command failed (${command})`, rconError);
-      }
-    };
-
-    await quiesce(saves.off);
-    await quiesce(saves.flush);
-    try {
-      await execShell(
-        clients.kc,
-        pod.metadata.name,
-        getPrimaryContainerName(pod, name),
-        `backup_dir=${shellQuote(backupDir)}; mkdir -p "$backup_dir" && cd ${shellQuote(egg.mountPath)} && filename="$backup_dir/gameserver-backup-$(date +%Y%m%d-%H%M%S).tar.gz" && tar --exclude='.infraweaver-backups' -czf "$filename" . && ls -1t "$backup_dir"/gameserver-backup-*.tar.gz 2>/dev/null | tail -n +${retention + 1} | xargs -r rm -f`,
-        // Archiving a large world can take minutes; the exec rejects on timeout
-        // (a truncated archive must never be stored as a good backup), so allow 5 min.
-        300_000,
-      );
-    } finally {
-      await quiesce(saves.on);
-    }
-    await auditLog(
-      "game-hub:backup",
-      session.user?.email ?? "unknown",
-      `created backup for ${name}`,
-    );
-    await appendServerAudit(clients.coreApi, name, {
-      timestamp: new Date().toISOString(),
-      user: session.user?.email ?? "unknown",
-      action: "backup:create",
-      details: "Created manual backup",
-    });
-    return NextResponse.json({ backups: await listBackups(name) });
-  } catch (error) {
-    console.error("create backup failed", error);
-    if (isKubernetesNotFoundError(error)) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
-
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ name: string }> },
-) {
-  if (!checkRateLimit(rateLimitKey("game-hub-backup-delete", req), 10, 60_000)) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded" },
-      { status: 429 },
-    );
-  }
-
-  const session = await auth();
-  if (!session)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { name } = await params;
-  const nameErr3 = validateK8sName(name);
-  if (nameErr3) return NextResponse.json(nameErr3.error, { status: nameErr3.status });
-  const access = await getGameHubAccessContext(session, 60);
-  if (
-    !hasGameHubPermission(
-      access.groups,
-      access.username,
-      access.roleAssignments,
-      "game-hub:write",
-      name,
-    )
-  ) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const rawDeleteBody = await req.json().catch(() => null);
-  const parsedDelete = backupDeleteBodySchema.safeParse(rawDeleteBody);
-  if (!parsedDelete.success) {
-    return NextResponse.json({ error: "Validation failed", details: parsedDelete.error.flatten() }, { status: 400 });
-  }
-  const backupName = sanitizeBackupName(parsedDelete.data.filename);
-
-  try {
-    const clients = makeGameHubClients();
-    const deployment = await getServerDeployment(clients.appsApi, name);
-    const egg = await readServerEgg(clients.coreApi, name, deployment);
-    const pod = await getServerPod(clients.coreApi, name, true);
-    if (!pod?.metadata?.name) {
-      return NextResponse.json(
-        { error: "No running pod found" },
-        { status: 404 },
-      );
-    }
-    const backupDir = backupDirForMountPath(egg.mountPath);
-    await execShell(
-      clients.kc,
-      pod.metadata.name,
-      getPrimaryContainerName(pod, name),
-      `rm -f ${shellQuote(`${backupDir}/${backupName}`)}`,
-    );
-    await appendServerAudit(clients.coreApi, name, {
-      timestamp: new Date().toISOString(),
-      user: session.user?.email ?? "unknown",
-      action: "backup:delete",
-      details: `Deleted ${backupName}`,
-    });
-    return NextResponse.json({ backups: await listBackups(name) });
-  } catch (error) {
-    console.error("delete backup failed", error);
-    if (isKubernetesNotFoundError(error)) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+  },
+);

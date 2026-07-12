@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { auditLog, redactAuditDetail } from "@/lib/audit-log";
+import { makeCoreApi } from "@/lib/kube-client";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { withRoute } from "@/lib/route-utils";
+import type { AuditEntry } from "@/lib/security/types";
 import { safeError } from "@/lib/utils";
-import * as k8s from "@kubernetes/client-node";
 import { z } from "zod";
 
 const NAMESPACE = "infraweaver-console";
@@ -18,17 +18,6 @@ const CreateAuditEntryBody = z.object({
   result: z.enum(["success", "failure"]).optional().default("success"),
 });
 
-export interface AuditEntry {
-  timestamp: string;
-  user: string;
-  action: string;
-  resource: string;
-  details: string;
-  result: "success" | "failure";
-  ip?: string;
-  userAgent?: string;
-}
-
 function requestIp(req?: Pick<Request, "headers">) {
   if (!req) return undefined;
   const realIp = req.headers.get("x-real-ip");
@@ -39,16 +28,6 @@ function requestIp(req?: Pick<Request, "headers">) {
 
 function requestUserAgent(req?: Pick<Request, "headers">) {
   return req?.headers.get("user-agent")?.trim() || undefined;
-}
-
-function getKubeConfig() {
-  const kc = new k8s.KubeConfig();
-  if (process.env.KUBECONFIG) {
-    kc.loadFromFile(process.env.KUBECONFIG);
-  } else {
-    try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); }
-  }
-  return kc;
 }
 
 function normalizeAuditEntry(entry: Partial<AuditEntry>): AuditEntry | null {
@@ -66,8 +45,7 @@ function normalizeAuditEntry(entry: Partial<AuditEntry>): AuditEntry | null {
 }
 
 async function readStoredEntries() {
-  const kc = getKubeConfig();
-  const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+  const coreApi = makeCoreApi();
   const cm = await coreApi.readNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: NAMESPACE });
   const log = (cm as { data?: Record<string, string> }).data?.log ?? "";
   return log
@@ -86,8 +64,7 @@ async function readStoredEntries() {
 }
 
 async function appendAuditEntry(entry: AuditEntry) {
-  const kc = getKubeConfig();
-  const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+  const coreApi = makeCoreApi();
 
   let existingLog = "";
   try {
@@ -118,14 +95,7 @@ async function appendAuditEntry(entry: AuditEntry) {
   }
 }
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["security:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withRoute("security:read", async () => {
   try {
     const entries = await readStoredEntries();
     return NextResponse.json({ entries }, {
@@ -136,16 +106,9 @@ export async function GET() {
       headers: { "Cache-Control": "no-store" },
     });
   }
-}
+});
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["security:write"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const POST = withRoute("security:write", async (req, session) => {
   if (!checkRateLimit(rateLimitKey("security-audit-log", req), 20, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -178,4 +141,4 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

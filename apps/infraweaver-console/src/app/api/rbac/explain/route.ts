@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { withRoute } from "@/lib/route-utils";
 import { safeError } from "@/lib/utils";
 import { findMatrixPrincipal } from "@/lib/rbac-matrix-source";
 import { grantsToAssignments } from "@/lib/rbac-access-matrix";
@@ -11,14 +10,7 @@ const SAFE_SCOPE_RE = /^\/(|[a-z0-9/_-]+)$/;
 // GET /api/rbac/explain?principal=alice&principalType=user&action=apps:read&scope=/apps
 // Explains WHY a principal is (dis)allowed an action at a scope: allow/deny plus
 // the deciding assignment(s). Deny wins over Allow (Azure semantics).
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["rbac:admin", "security:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withRoute(["rbac:admin", "security:read"], async (req: NextRequest) => {
   const params = req.nextUrl.searchParams;
   const principalId = params.get("principal") ?? "";
   const principalType = params.get("principalType") === "group" ? "group" : "user";
@@ -49,4 +41,4 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

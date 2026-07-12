@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { NextResponse } from "next/server";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
+import { makeKc } from "@/lib/kube-client";
+import { withAuth } from "@/lib/with-auth";
 import * as k8s from "@kubernetes/client-node";
-import { existsSync, readFileSync } from "fs";
-import path from "path";
+
+const PROBE_TIMEOUT_MS = 5000;
 
 export interface TestResult {
   id: string;
@@ -52,15 +51,10 @@ async function runTest(
   }
 }
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:admin")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
+export const GET = withAuth({ permission: "cluster:admin" }, async ({ req }) => {
   const filter = req.nextUrl.searchParams.get("category");
 
-  const kc = loadKubeConfig(getRequestClusterId(req));
+  const kc = makeKc(getRequestClusterId(req));
   const coreApi = kc.makeApiClient(k8s.CoreV1Api);
   const appsApi = kc.makeApiClient(k8s.AppsV1Api);
   const storageApi = kc.makeApiClient(k8s.StorageV1Api);
@@ -115,15 +109,11 @@ export async function GET(req: NextRequest) {
     }),
     () => runTest("console-health", "Console /api/health responds", "console", async () => {
       const url = "http://infraweaver-console.infraweaver-console.svc.cluster.local:3000/api/health";
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
-        const res = await fetch(url, { signal: ctrl.signal });
-        clearTimeout(timer);
+        const res = await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
         if (!res.ok) return { status: "fail", message: `Health endpoint returned HTTP ${res.status}` };
         return { status: "pass", message: "Health endpoint OK" };
       } catch {
-        clearTimeout(timer);
         // In-cluster call may not work from Next.js — skip gracefully
         return { status: "skip", message: "In-cluster health check not available from this context" };
       }
@@ -176,31 +166,24 @@ export async function GET(req: NextRequest) {
 
     // ── ArgoCD ────────────────────────────────────────────────────────────
     () => runTest("argocd-api", "ArgoCD API reachable", "argocd", async () => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
         const res = await fetch(`${argocdServer}/api/v1/applications?limit=1`, {
           headers: { Authorization: `Bearer ${process.env.ARGOCD_TOKEN ?? ""}` },
-          signal: ctrl.signal,
+          signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
         });
-        clearTimeout(timer);
         if (res.status === 401) return { status: "warn", message: "ArgoCD reachable but token invalid/missing" };
         if (!res.ok) return { status: "fail", message: `ArgoCD returned HTTP ${res.status}` };
         return { status: "pass", message: "ArgoCD API reachable and authenticated" };
       } catch {
-        clearTimeout(timer);
         return { status: "fail", message: "ArgoCD API unreachable" };
       }
     }),
     () => runTest("argocd-console-app", "Console ArgoCD app healthy", "argocd", async () => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
         const res = await fetch(`${argocdServer}/api/v1/applications/catalog-infraweaver-console-manifests`, {
           headers: { Authorization: `Bearer ${process.env.ARGOCD_TOKEN ?? ""}` },
-          signal: ctrl.signal,
+          signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
         });
-        clearTimeout(timer);
         if (!res.ok) return { status: "warn", message: `Cannot check console app status (HTTP ${res.status})` };
         const data = await res.json() as { status?: { health?: { status?: string }; sync?: { status?: string } } };
         const health = data.status?.health?.status ?? "Unknown";
@@ -208,22 +191,17 @@ export async function GET(req: NextRequest) {
         if (health !== "Healthy") return { status: "warn", message: `Console app health: ${health}, sync: ${sync}` };
         return { status: "pass", message: `Console app Healthy + ${sync}` };
       } catch {
-        clearTimeout(timer);
         return { status: "skip", message: "Could not reach ArgoCD to check app status" };
       }
     }),
 
     // ── Monitoring ────────────────────────────────────────────────────────
     () => runTest("prometheus-api", "Prometheus reachable", "monitoring", async () => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
-        const res = await fetch(`${prometheusUrl}/-/healthy`, { signal: ctrl.signal });
-        clearTimeout(timer);
+        const res = await fetch(`${prometheusUrl}/-/healthy`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
         if (!res.ok) return { status: "fail", message: `Prometheus returned HTTP ${res.status}` };
         return { status: "pass", message: "Prometheus healthy" };
       } catch {
-        clearTimeout(timer);
         return { status: "fail", message: "Prometheus unreachable" };
       }
     }),
@@ -278,11 +256,8 @@ export async function GET(req: NextRequest) {
     }),
     () => runTest("sec-auth-header", "Security headers present on API responses", "security", async () => {
       const origin = req.nextUrl.origin;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
-        const res = await fetch(`${origin}/api/ping`, { signal: ctrl.signal });
-        clearTimeout(timer);
+        const res = await fetch(`${origin}/api/ping`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
         const hasRequestId = res.headers.has("x-request-id");
         const hasXFrame = res.headers.get("x-frame-options") === "DENY";
         const hasCSP = res.headers.has("content-security-policy");
@@ -295,47 +270,38 @@ export async function GET(req: NextRequest) {
         if (missing.length > 0) return { status: "warn", message: `Missing headers: ${missing.join(", ")}` };
         return { status: "pass", message: "All security headers present (CSP, HSTS, X-Frame-Options, X-Request-Id)" };
       } catch {
-        clearTimeout(timer);
         return { status: "skip", message: "Could not reach self for header check" };
       }
     }),
     () => runTest("sec-auth-enforcement", "Auth enforced on protected API routes", "security", async () => {
       const origin = req.nextUrl.origin;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
         // Hit a protected route without a session cookie — middleware should return 401
         const res = await fetch(`${origin}/api/self-test`, {
           headers: { Cookie: "" }, // no session
-          signal: ctrl.signal,
+          signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
         });
-        clearTimeout(timer);
         if (res.status === 401) return { status: "pass", message: "Protected routes correctly return 401 without session" };
         if (res.status === 200) return { status: "fail", message: "/api/self-test returned 200 without auth (no auth guard!)" };
         return { status: "warn", message: `Unexpected status ${res.status} from unauthenticated request` };
       } catch {
-        clearTimeout(timer);
         return { status: "skip", message: "Self-call for auth check unavailable" };
       }
     }),
     () => runTest("sec-csrf-protection", "CSRF same-origin check active", "security", async () => {
       const origin = req.nextUrl.origin;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
         // Send a mutation with a spoofed Origin header — middleware should reject it
         const res = await fetch(`${origin}/api/cluster/rollout`, {
           method: "POST",
           headers: { Origin: "https://evil.example.com", "Content-Type": "application/json" },
           body: "{}",
-          signal: ctrl.signal,
+          signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
         });
-        clearTimeout(timer);
         // Should be blocked: 403 CSRF or 401 no-auth (auth check comes first)
         if (res.status === 403 || res.status === 401) return { status: "pass", message: `Cross-origin mutation blocked (${res.status})` };
         return { status: "fail", message: `CSRF check did not block cross-origin mutation (got ${res.status})` };
       } catch {
-        clearTimeout(timer);
         return { status: "skip", message: "Self-call for CSRF check unavailable" };
       }
     }),
@@ -358,15 +324,11 @@ export async function GET(req: NextRequest) {
     // ── Stability (enterprise stability agent) ────────────────────────────
     () => runTest("stab-ping", "Public /api/ping endpoint responds", "stability", async () => {
       const origin = req.nextUrl.origin;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
-        const res = await fetch(`${origin}/api/ping`, { signal: ctrl.signal });
-        clearTimeout(timer);
+        const res = await fetch(`${origin}/api/ping`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
         if (!res.ok) return { status: "fail", message: `Ping returned HTTP ${res.status}` };
         return { status: "pass", message: "Public ping endpoint live (used for k8s liveness probe)" };
       } catch {
-        clearTimeout(timer);
         return { status: "fail", message: "/api/ping unreachable" };
       }
     }),
@@ -381,39 +343,6 @@ export async function GET(req: NextRequest) {
       if (open.length > 0) return { status: "warn", message: `${open.length} circuit breaker(s) OPEN: ${open.map(s => s.name).join(", ")}` };
       return { status: "pass", message: `${names.length} circuit breaker(s) registered, all CLOSED. Breakers: ${names.join(", ")}` };
     }),
-    () => runTest("stab-error-boundary", "Error boundary component exists and is used in layout", "stability", async () => {
-      const boundaryPath = path.join(process.cwd(), "src/components/ui/error-boundary.tsx");
-      const altPath = path.join(process.cwd(), "src/components/error-boundary.tsx");
-      const exists = existsSync(boundaryPath) || existsSync(altPath);
-      if (!exists) return { status: "fail", message: "error-boundary.tsx component not found" };
-      const layoutPath = path.join(process.cwd(), "src/app/(dashboard)/layout.tsx");
-      const layoutContent = existsSync(layoutPath) ? readFileSync(layoutPath, "utf-8") : "";
-      if (!layoutContent.includes("ErrorBoundary")) return { status: "warn", message: "Error boundary file exists but not used in dashboard layout" };
-      return { status: "pass", message: "ErrorBoundary component exists and is applied in dashboard layout" };
-    }),
-    () => runTest("stab-global-error", "global-error.tsx root recovery page exists", "stability", async () => {
-      const p = path.join(process.cwd(), "src/app/global-error.tsx");
-      if (!existsSync(p)) return { status: "fail", message: "global-error.tsx not found — root layout errors will show browser error page" };
-      return { status: "pass", message: "global-error.tsx present — root layout errors have a recovery UI" };
-    }),
-    () => runTest("stab-chunk-recovery", "error.tsx handles ChunkLoadError for auto-reload", "stability", async () => {
-      const p = path.join(process.cwd(), "src/app/error.tsx");
-      if (!existsSync(p)) return { status: "fail", message: "src/app/error.tsx not found" };
-      const content = readFileSync(p, "utf-8");
-      if (!content.includes("ChunkLoadError") && !content.includes("Loading chunk")) {
-        return { status: "fail", message: "error.tsx does not handle ChunkLoadError — users will see blank page after deploys instead of auto-reloading" };
-      }
-      return { status: "pass", message: "error.tsx auto-reloads on ChunkLoadError (stale chunks after new deploys)" };
-    }),
-    () => runTest("stab-middleware-trycatch", "Middleware has try-catch for auth failures", "stability", async () => {
-      const p = path.join(process.cwd(), "src/proxy.ts");
-      if (!existsSync(p)) return { status: "fail", message: "middleware.ts not found" };
-      const content = readFileSync(p, "utf-8");
-      if (!content.includes("try") || !content.includes("catch")) {
-        return { status: "fail", message: "Middleware has no try-catch — if auth() throws, entire middleware crashes and shows browser error page" };
-      }
-      return { status: "pass", message: "Middleware wrapped in try-catch — auth failures handled gracefully" };
-    }),
     () => runTest("stab-console-pdb", "Console PodDisruptionBudget applied in cluster", "stability", async () => {
       try {
         const policyApi = kc.makeApiClient(k8s.PolicyV1Api);
@@ -424,93 +353,23 @@ export async function GET(req: NextRequest) {
         return { status: "warn", message: "Could not check PDB (RBAC or API unavailable)" };
       }
     }),
-    () => runTest("stab-query-defaults", "React Query client configured with retry/staletime", "stability", async () => {
-      const queryDefaultsPath = path.join(process.cwd(), "src/lib/query-defaults.ts");
-      const queryClientPath = path.join(process.cwd(), "src/lib/query-client.ts");
-      const hasDefaults = existsSync(queryDefaultsPath) || existsSync(queryClientPath);
-      if (!hasDefaults) return { status: "warn", message: "No query-defaults.ts or query-client.ts found" };
-      const content = readFileSync(existsSync(queryDefaultsPath) ? queryDefaultsPath : queryClientPath, "utf-8");
-      const hasRetry = content.includes("retry");
-      const hasStale = content.includes("staleTime") || content.includes("gcTime");
-      if (!hasRetry) return { status: "warn", message: "React Query retry not configured — transient k8s API errors will not auto-recover" };
-      if (!hasStale) return { status: "warn", message: "React Query staleTime not configured — excessive re-fetching may occur" };
-      return { status: "pass", message: "React Query configured with retry and staleTime defaults" };
-    }),
 
     // ── Features (usability + UI agent) ───────────────────────────────────
     () => runTest("feat-user-preferences", "User preferences API functional", "features", async () => {
       const origin = req.nextUrl.origin;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
         // We're already authenticated (session checked at top of handler) so forward cookies
         const sessionCookie = req.headers.get("cookie") ?? "";
         const res = await fetch(`${origin}/api/user/preferences`, {
           headers: { Cookie: sessionCookie },
-          signal: ctrl.signal,
+          signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
         });
-        clearTimeout(timer);
         if (res.status === 401) return { status: "fail", message: "Preferences API returned 401 — session not forwarded" };
         if (!res.ok) return { status: "fail", message: `Preferences API returned HTTP ${res.status}` };
         return { status: "pass", message: "User preferences API returns 200 with valid session" };
       } catch {
-        clearTimeout(timer);
         return { status: "skip", message: "Could not reach preferences API from test suite" };
       }
-    }),
-    () => runTest("feat-keyboard-shortcuts", "Keyboard shortcuts module defined", "features", async () => {
-      const p = path.join(process.cwd(), "src/lib/keyboard-shortcuts.ts");
-      if (!existsSync(p)) return { status: "fail", message: "keyboard-shortcuts.ts not found" };
-      const content = readFileSync(p, "utf-8");
-      const hasShortcuts = content.includes("?") || content.includes("shortcut") || content.includes("Shortcut");
-      if (!hasShortcuts) return { status: "warn", message: "keyboard-shortcuts.ts exists but appears empty" };
-      return { status: "pass", message: "Keyboard shortcuts module defined (?, ⌘K, g+h navigation shortcuts)" };
-    }),
-    () => runTest("feat-confirm-dialog", "ConfirmDialog component exists", "features", async () => {
-      const p = path.join(process.cwd(), "src/components/ui/confirm-dialog.tsx");
-      if (!existsSync(p)) return { status: "fail", message: "confirm-dialog.tsx not found — destructive actions have no confirmation step" };
-      return { status: "pass", message: "ConfirmDialog component present for destructive action safety" };
-    }),
-    () => runTest("feat-copy-button", "CopyButton component exists", "features", async () => {
-      const p = path.join(process.cwd(), "src/components/ui/copy-button.tsx");
-      if (!existsSync(p)) return { status: "fail", message: "copy-button.tsx not found" };
-      return { status: "pass", message: "CopyButton component present" };
-    }),
-    () => runTest("feat-design-tokens", "Azure design tokens defined in CSS", "features", async () => {
-      const candidates = [
-        path.join(process.cwd(), "src/app/globals.css"),
-        path.join(process.cwd(), "src/styles/globals.css"),
-      ];
-      const cssPath = candidates.find(existsSync);
-      if (!cssPath) return { status: "fail", message: "globals.css not found" };
-      const content = readFileSync(cssPath, "utf-8");
-      const hasPrimary = content.includes("--primary");
-      const hasAzure = content.includes("#0078D4") || content.includes("0078d4") || content.includes("--azure") || content.includes("0078");
-      if (!hasPrimary) return { status: "warn", message: "No --primary CSS token found in globals.css" };
-      if (!hasAzure) return { status: "warn", message: "--primary exists but Azure blue (#0078D4) not detected", detail: "UI may not match Azure design system" };
-      return { status: "pass", message: "Azure design tokens present in globals.css (#0078D4 primary color)" };
-    }),
-    () => runTest("feat-data-table", "TanStack Table component integrated", "features", async () => {
-      const pjson = path.join(process.cwd(), "package.json");
-      if (!existsSync(pjson)) return { status: "skip", message: "package.json not found" };
-      const pkg = JSON.parse(readFileSync(pjson, "utf-8"));
-      const hasTanStack = !!(pkg.dependencies?.["@tanstack/react-table"] || pkg.devDependencies?.["@tanstack/react-table"]);
-      if (!hasTanStack) return { status: "fail", message: "@tanstack/react-table not in package.json — data tables may be basic HTML tables" };
-      const tableComponent = path.join(process.cwd(), "src/components/ui/data-table.tsx");
-      if (!existsSync(tableComponent)) return { status: "warn", message: "@tanstack/react-table installed but no data-table.tsx component" };
-      return { status: "pass", message: "@tanstack/react-table installed and data-table.tsx component exists" };
-    }),
-    () => runTest("feat-skeleton-loaders", "Skeleton loading components exist", "features", async () => {
-      const candidates = ["skeleton-card.tsx", "skeleton-table.tsx", "skeleton.tsx"];
-      const base = path.join(process.cwd(), "src/components/ui");
-      const found = candidates.filter(f => existsSync(path.join(base, f)));
-      if (found.length === 0) return { status: "fail", message: "No skeleton loader components found — pages flash blank during loading" };
-      return { status: "pass", message: `Skeleton loaders present: ${found.join(", ")}` };
-    }),
-    () => runTest("feat-command-palette", "Command palette component exists", "features", async () => {
-      const p = path.join(process.cwd(), "src/components/ui/command-palette.tsx");
-      if (!existsSync(p)) return { status: "fail", message: "command-palette.tsx not found" };
-      return { status: "pass", message: "Command palette (⌘K) component present" };
     }),
   ];
 
@@ -530,5 +389,4 @@ export async function GET(req: NextRequest) {
     summary,
     testedAt: new Date().toISOString(),
   });
-}
-
+});

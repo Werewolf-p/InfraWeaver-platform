@@ -54,7 +54,7 @@ export default function CronJobsPage() {
   const { data, isLoading, isFetching, refetch } = useQuery<CronJobsResponse>({
     queryKey: ["cronjobs"],
     queryFn: async () => {
-      const response = await fetch("/api/cronjobs", { cache: "no-store" });
+      const response = await fetch("/api/cluster/cronjobs", { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to fetch cronjobs");
       return response.json();
     },

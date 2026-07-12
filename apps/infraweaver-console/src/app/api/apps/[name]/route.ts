@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dump } from "js-yaml";
 import { getRequestClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
-import * as k8s from "@kubernetes/client-node";
+import { makeCoreApi, makeCustomApi } from "@/lib/kube-client";
 import { withRoute } from "@/lib/route-utils";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
@@ -45,8 +44,7 @@ async function fetchApplication(name: string, clusterId: string) {
   }
 
   try {
-    const customObjectsApi = loadKubeConfig(clusterId).makeApiClient(k8s.CustomObjectsApi);
-    const application = await customObjectsApi.getNamespacedCustomObject({
+    const application = await makeCustomApi(clusterId).getNamespacedCustomObject({
       group: "argoproj.io",
       version: "v1alpha1",
       namespace: "argocd",
@@ -62,8 +60,7 @@ async function fetchApplication(name: string, clusterId: string) {
 
 async function listRelatedPods(name: string, namespace: string, resources: AppResource[], clusterId: string) {
   try {
-    const coreApi = loadKubeConfig(clusterId).makeApiClient(k8s.CoreV1Api);
-    const podList = await coreApi.listNamespacedPod({ namespace });
+    const podList = await makeCoreApi(clusterId).listNamespacedPod({ namespace });
     const resourceNames = new Set(resources.map((resource) => normalize(resource.name)).filter(Boolean));
     const appTokens = new Set([
       normalize(name),

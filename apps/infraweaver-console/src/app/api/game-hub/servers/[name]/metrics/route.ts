@@ -1,6 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
+import { NextResponse } from "next/server";
 import {
   GAME_HUB_NS,
   getServerDeployment,
@@ -8,6 +6,7 @@ import {
   makeGameHubClients,
   parseCpuQuantity,
   parseMemoryBytes,
+  withGameHubAuth,
 } from "@/lib/game-hub-server";
 import { safeError } from "@/lib/utils";
 
@@ -126,28 +125,7 @@ async function readMetrics(
   return { points: nextData };
 }
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ name: string }> },
-) {
-  const session = await auth();
-  if (!session)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { name } = await params;
-  const access = await getGameHubAccessContext(session, 60);
-  if (
-    !hasGameHubPermission(
-      access.groups,
-      access.username,
-      access.roleAssignments,
-      "game-hub:read",
-      name,
-    )
-  ) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withGameHubAuth({ permission: "game-hub:read" }, async ({ name }) => {
   try {
     const result = await readMetrics(name);
     if (result.error) {
@@ -165,4 +143,4 @@ export async function GET(
     }
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { NextResponse } from "next/server";
 import { makeCustomApi } from "@/lib/kube-client";
+import { errorMessage } from "@/lib/utils";
+import { withAuth } from "@/lib/with-auth";
 import {
   summarizeBlockedFlows,
   summarizeBlockedIngress,
@@ -53,14 +53,7 @@ async function promQuery(query: string): Promise<{ ok: boolean; json?: PromQuery
 
 // GET: recently blocked flows per pod, split into ingress + egress. Empty (not an
 // error) when Cilium/Hubble isn't live yet — the metric simply doesn't exist.
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth({ permission: "cluster:read" }, async ({ req }) => {
   const raw = Number(req.nextUrl.searchParams.get("window") ?? "10");
   // Clamp both bounds: an unbounded window turns rate(hubble_drop_total[...])
   // into a full-retention range query against Prometheus (DoS vector).
@@ -113,7 +106,7 @@ export async function GET(req: NextRequest) {
     pods,
     note: dataplaneLive ? undefined : "Cilium/Hubble not detected yet — no blocked-flow metrics.",
   });
-}
+});
 
 interface AllowBody {
   namespace: string;
@@ -222,14 +215,7 @@ async function applyAllow(
 // app's policy. When the peer is an in-cluster pod and `bidirectional` is set,
 // also adds the mirror rule on the peer's policy so both sides are covered in one
 // click. 503 (honest) until the Cilium CRD exists.
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session);
-  if (!hasSessionPermission(access, "cluster:admin")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const POST = withAuth({ permission: "cluster:admin" }, async ({ req }) => {
   let body: AllowBody;
   try {
     body = (await req.json()) as AllowBody;
@@ -287,7 +273,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, applied, bothSides: applied.length > 1 });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     if (/the server could not find the requested resource|not found|404|no matches for kind/i.test(msg)) {
       return NextResponse.json(
         { error: "Cilium dataplane is not live yet — cannot apply allow rules until migration completes." },
@@ -296,4 +282,4 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: `Failed to apply allow rule: ${msg}` }, { status: 500 });
   }
-}
+});

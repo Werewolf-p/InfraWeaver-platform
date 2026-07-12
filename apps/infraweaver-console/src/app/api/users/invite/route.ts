@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission, hasSessionPermission } from "@/lib/session-rbac";
+import { hasSessionPermission } from "@/lib/session-rbac";
 import { authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
 import { z } from "zod";
 import { publicHost } from "@/lib/domain";
 import { sendInviteEmail } from "@/lib/mailer";
+import { withRoute } from "@/lib/route-utils";
+import { sessionActor } from "@/lib/user-guards";
 import { safeError } from "@/lib/utils";
 
 const InviteBody = z.object({
@@ -27,15 +28,8 @@ async function resolveInvitationFlowPk(): Promise<string | null> {
   return data.results?.find((f) => f.slug === INVITATION_FLOW_SLUG)?.pk ?? null;
 }
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  // C4: raise the gate — issuing invitations requires users:write / rbac:admin.
-  if (!hasAnySessionPermission(access, ["users:write", "rbac:admin"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+// C4: raise the gate — issuing invitations requires users:write / rbac:admin.
+export const POST = withRoute(["users:write", "rbac:admin"], async (req: NextRequest, session, access) => {
   const parsed = InviteBody.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -103,9 +97,9 @@ export async function POST(req: NextRequest) {
 
   await auditLog(
     "users:invite",
-    session.user?.email ?? "unknown",
+    sessionActor(session),
     `Invited ${email}${emailed ? " (emailed)" : ` (email failed: ${emailError})`}`,
     { result: emailed ? "success" : "failure" },
   );
   return NextResponse.json({ url, emailed, ...(emailError ? { emailError } : {}) });
-}
+});

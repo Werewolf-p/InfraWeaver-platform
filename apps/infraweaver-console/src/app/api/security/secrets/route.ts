@@ -1,28 +1,21 @@
 import { X509Certificate } from "node:crypto";
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { getRequestClusterId } from "@/lib/cluster-context";
+import { loadKubeConfig } from "@/lib/k8s";
+import { listItems } from "@/lib/kube-client";
+import { withRoute } from "@/lib/route-utils";
 import * as k8s from "@kubernetes/client-node";
 
-export async function GET() {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["security:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export const GET = withRoute("security:read", async (req) => {
   try {
-    const kc = new k8s.KubeConfig();
-    if (process.env.KUBECONFIG) { kc.loadFromFile(process.env.KUBECONFIG); }
-    else { try { kc.loadFromCluster(); } catch { kc.loadFromDefault(); } }
-    const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+    const coreApi = loadKubeConfig(getRequestClusterId(req)).makeApiClient(k8s.CoreV1Api);
     const res = await coreApi.listSecretForAllNamespaces();
-    const tlsSecrets = (res.items as unknown[]).filter(item => {
-      const s = item as { type?: string };
-      return s.type === "kubernetes.io/tls";
-    });
-    const secrets = tlsSecrets.map((item) => {
-      const s = item as { metadata?: { namespace?: string; name?: string }; data?: Record<string, string> };
+    const tlsSecrets = listItems<{
+      type?: string;
+      metadata?: { namespace?: string; name?: string };
+      data?: Record<string, string>;
+    }>(res).filter((s) => s.type === "kubernetes.io/tls");
+    const secrets = tlsSecrets.map((s) => {
       let expiresAt: string | null = null;
       let daysLeft: number | null = null;
       let expired = false;
@@ -50,4 +43,4 @@ export async function GET() {
   } catch {
     return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
-}
+});

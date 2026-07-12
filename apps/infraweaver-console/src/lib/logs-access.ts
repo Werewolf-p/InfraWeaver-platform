@@ -6,6 +6,7 @@
  * live in core (not the gamehub addon) and depend only on @/lib/rbac and
  * @/lib/users-config. The gamehub addon re-exports these from here.
  */
+import type { CoreV1Api } from "@kubernetes/client-node";
 import type { Session } from "next-auth";
 import { getRole, hasPermission, type RoleAssignment } from "@/lib/rbac";
 import { getRoleAssignmentsForSession } from "@/lib/users-config";
@@ -58,4 +59,37 @@ export function canAccessLogsTarget(
     if (pod !== serverName && !pod.startsWith(`${serverName}-`)) return false;
     return hasPermission(groups, "game-hub:read", roleAssignments, gameHubScope(serverName), username);
   });
+}
+
+// ─── Route helpers shared by the logs/metrics API routes ────────────────────
+// (Response-producing guards live in @/lib/logs-route-helpers so this module
+// stays free of runtime next/server imports — it is loaded by non-route code.)
+
+export type GameHubAccessContext = Awaited<ReturnType<typeof getGameHubAccessContext>>;
+
+/**
+ * Parse an integer query param strictly (the ENTIRE string must be a decimal
+ * integer — partial parses like "500abc" are rejected) and clamp to
+ * [min, max]; anything invalid or below `min` falls back to `fallback`.
+ */
+export function clampIntParam(raw: string | null | undefined, fallback: number, min: number, max: number): number {
+  const trimmed = (raw ?? "").trim();
+  if (!/^-?\d+$/.test(trimmed)) return fallback;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < min) return fallback;
+  return Math.min(parsed, max);
+}
+
+/** Read one pod/container's log tail as plain text. */
+export async function fetchPodLogText(
+  coreApi: CoreV1Api,
+  opts: { namespace: string; pod: string; container?: string; tailLines: number; timestamps?: boolean },
+): Promise<string> {
+  return await coreApi.readNamespacedPodLog({
+    name: opts.pod,
+    namespace: opts.namespace,
+    container: opts.container,
+    tailLines: opts.tailLines,
+    ...(opts.timestamps ? { timestamps: true } : {}),
+  }) as string;
 }

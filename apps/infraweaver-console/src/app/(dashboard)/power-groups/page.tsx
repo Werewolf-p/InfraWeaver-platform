@@ -25,9 +25,9 @@ export default function PowerGroupsPage() {
   const { data: appsData } = useQuery({
     queryKey: ["argocd-applications"],
     queryFn: async () => {
-      const res = await fetch("/api/argocd/applications");
+      const res = await fetch("/api/argocd/apps");
       if (!res.ok) throw new Error("Failed to load apps");
-      return res.json() as Promise<{ items: ArgoItem[] }>;
+      return res.json() as Promise<ArgoItem[]>;
     },
   });
   const { data: groupsData } = useQuery({
@@ -40,7 +40,7 @@ export default function PowerGroupsPage() {
   });
 
   const appNames = useMemo(
-    () => (appsData?.items ?? []).map((a) => a.metadata?.name).filter((n): n is string => !!n).sort(),
+    () => (appsData ?? []).map((a) => a.metadata?.name).filter((n): n is string => !!n).sort(),
     [appsData],
   );
   const groups = groupsData?.groups ?? [];

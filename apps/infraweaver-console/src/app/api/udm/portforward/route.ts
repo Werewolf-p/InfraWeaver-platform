@@ -12,12 +12,10 @@
  * reveals the WAN address.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { auditLog } from "@/lib/audit-log";
-import { logAccess, logMutatingAccess, accessFieldsFromRequest } from "@/lib/access-log";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { logAccess, accessFieldsFromRequest } from "@/lib/access-log";
+import { withAuth } from "@/lib/with-auth";
 import { getUdmClientAsync } from "@/lib/udm/config";
 import { UdmError } from "@/lib/udm/client";
 import { findDuplicateNames, findDuplicateWanPorts } from "@/lib/udm/ports";
@@ -31,14 +29,7 @@ function udmErrorResponse(error: unknown): NextResponse {
   return NextResponse.json({ error: message }, { status: 502 });
 }
 
-export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "infra:read")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withAuth({ permission: "infra:read" }, async ({ req, session }) => {
   const client = await getUdmClientAsync();
   if (!client) return NextResponse.json({ error: "UDM connector not configured" }, { status: 503 });
 
@@ -63,25 +54,14 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     return udmErrorResponse(error);
   }
-}
+});
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  const actor = session?.user?.email ?? "unauthenticated";
-  if (!session) {
-    logMutatingAccess(req, actor, { status: 401 });
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "infra:write")) {
-    logMutatingAccess(req, actor, { status: 403 });
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  logMutatingAccess(req, actor);
-  if (!checkRateLimit(rateLimitKey("udm-portforward-upsert", req), 20, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
-
+export const POST = withAuth({
+  permission: "infra:write",
+  rateLimit: { name: "udm-portforward-upsert", limit: 20, windowMs: 60_000 },
+  logMutating: true,
+}, async ({ req, session }) => {
+  const actor = session.user?.email ?? "unauthenticated";
   const client = await getUdmClientAsync();
   if (!client) return NextResponse.json({ error: "UDM connector not configured" }, { status: 503 });
 
@@ -116,25 +96,14 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return udmErrorResponse(error);
   }
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  const actor = session?.user?.email ?? "unauthenticated";
-  if (!session) {
-    logMutatingAccess(req, actor, { status: 401 });
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "infra:write")) {
-    logMutatingAccess(req, actor, { status: 403 });
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-  logMutatingAccess(req, actor);
-  if (!checkRateLimit(rateLimitKey("udm-portforward-delete", req), 20, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
-
+export const DELETE = withAuth({
+  permission: "infra:write",
+  rateLimit: { name: "udm-portforward-delete", limit: 20, windowMs: 60_000 },
+  logMutating: true,
+}, async ({ req, session }) => {
+  const actor = session.user?.email ?? "unauthenticated";
   const client = await getUdmClientAsync();
   if (!client) return NextResponse.json({ error: "UDM connector not configured" }, { status: 503 });
 
@@ -148,4 +117,4 @@ export async function DELETE(req: NextRequest) {
   } catch (error) {
     return udmErrorResponse(error);
   }
-}
+});

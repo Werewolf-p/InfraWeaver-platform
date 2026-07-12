@@ -1,22 +1,15 @@
 import { NextRequest } from "next/server";
-import type { Permission } from "@/lib/rbac";
-import { apiError, apiSuccess, requireRoutePermissions, routeErrorResponse } from "@/lib/route-utils";
+import { apiError, apiSuccess, routeErrorResponse } from "@/lib/route-utils";
 import { countAcceptedFeedback } from "@/lib/feedback-store";
 import { isDispatchConfigured } from "@/lib/feedback-dispatch";
 import { startPublish } from "@/lib/feedback-pipeline";
-import { isFeedbackHost } from "@/lib/feedback-host";
-
-// Publishing drains feedback/staging → main and releases prod — the most
-// privileged action in the pipeline. Admin-gated + canonical-host only.
-const MANAGE: Permission[] = ["rbac:admin", "cluster:admin"];
+import { requireFeedbackManager } from "@/lib/feedback-host";
 
 // POST /api/feedback/publish — merge all accepted changes to main and release.
+// Publishing drains feedback/staging → main and releases prod — the most
+// privileged action in the pipeline. Admin-gated + canonical-host only.
 export async function POST(request: NextRequest) {
-  if (!isFeedbackHost(request.headers)) {
-    return apiError("Publish is only available on the canonical console host", { status: 403 });
-  }
-
-  const session = await requireRoutePermissions({ any: MANAGE });
+  const session = await requireFeedbackManager(request, "Publish is only available on the canonical console host");
   if (session instanceof Response) return session;
 
   try {

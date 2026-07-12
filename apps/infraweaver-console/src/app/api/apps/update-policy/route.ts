@@ -1,29 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGitAccessToken, gitReadFile, gitWriteFile } from "@/lib/git-provider";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { isK8sNotFound } from "@/lib/configmap-store";
+import { makeAppsApi, makeCustomApi } from "@/lib/kube-client";
+import { upsertNamespacedCustomObject } from "@/lib/k8s";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 import { withRoute } from "@/lib/route-utils";
 
-// ── Types ──────────────────────────────────────────────────────────────────────
-
-export type UpdateSchedule = "continuous" | "daily" | "weekly" | "monthly" | "manual";
-export type UpdateStrategy = "semver-patch" | "semver-minor" | "semver-major" | "digest" | "newest-build";
-export type DeploymentStrategy = "rolling" | "recreate";
-
-export interface UpdatePolicy {
-  enabled: boolean;
-  schedule: UpdateSchedule;
-  strategy: UpdateStrategy;
-  deploymentStrategy: DeploymentStrategy;
-  includePreRelease: boolean;
-  minimumAge: "none" | "7d" | "14d" | "30d";
-  autoMerge: boolean;
-  imageRef?: string;
-  imageConstraint?: string;
-}
-
-// ── Zod schema ─────────────────────────────────────────────────────────────────
+// ── Zod schema (types derived below) ──────────────────────────────────────────
 
 const UpdatePolicySchema = z.object({
   enabled: z.boolean(),
@@ -46,24 +31,20 @@ const PutBodySchema = z.object({
   policy: UpdatePolicySchema,
 });
 
+type UpdatePolicy = z.infer<typeof UpdatePolicySchema>;
+type UpdateSchedule = UpdatePolicy["schedule"];
+type UpdateStrategy = UpdatePolicy["strategy"];
+
 // ── Env ───────────────────────────────────────────────────────────────────────
 
-const K8S_HOST = "https://kubernetes.default.svc";
-const SA_TOKEN = process.env.CONSOLE_SA_TOKEN ?? "";
 const GIT_TOKEN = getGitAccessToken();
 
-// ── k8s helpers ───────────────────────────────────────────────────────────────
-
-function k8sReq(path: string, opts?: RequestInit) {
-  return fetch(`${K8S_HOST}${path}`, {
-    ...opts,
-    headers: {
-      Authorization: `Bearer ${SA_TOKEN}`,
-      "Content-Type": "application/json",
-      ...(opts?.headers ?? {}),
-    },
-  });
-}
+const ACIU = {
+  group: "argocd-image-updater.argoproj.io",
+  version: "v1alpha1",
+  namespace: "argocd",
+  plural: "imageupdaters",
+} as const;
 
 // ── Schedule / strategy mappings ──────────────────────────────────────────────
 
@@ -175,78 +156,46 @@ function buildRenovateRule(slug: string, policy: UpdatePolicy): RenovatePackageR
 // ── k8s ACIU CR operations ────────────────────────────────────────────────────
 
 async function getACIUCR(slug: string): Promise<{ found: boolean; resource?: Record<string, unknown> }> {
-  const res = await k8sReq(
-    `/apis/argocd-image-updater.argoproj.io/v1alpha1/namespaces/argocd/imageupdaters/${slug}-image-updater`
-  );
-  if (res.status === 404) return { found: false };
-  if (!res.ok) return { found: false };
-  const data = await res.json() as Record<string, unknown>;
-  return { found: true, resource: data };
-}
-
-async function applyACIUCR(slug: string, cr: Record<string, unknown>): Promise<void> {
-  const { found } = await getACIUCR(slug);
-  const path = `/apis/argocd-image-updater.argoproj.io/v1alpha1/namespaces/argocd/imageupdaters/${slug}-image-updater`;
-
-  if (found) {
-    // Get current resourceVersion for update
-    const existing = await k8sReq(path);
-    if (existing.ok) {
-      const existingData = await existing.json() as { metadata?: { resourceVersion?: string } };
-      const resourceVersion = existingData.metadata?.resourceVersion;
-      if (resourceVersion) {
-        (cr as { metadata: Record<string, unknown> }).metadata.resourceVersion = resourceVersion;
-      }
-    }
-    const res = await k8sReq(path, { method: "PUT", body: JSON.stringify(cr) });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`k8s PUT ImageUpdater failed: ${res.status} ${text}`);
-    }
-  } else {
-    const res = await k8sReq(
-      `/apis/argocd-image-updater.argoproj.io/v1alpha1/namespaces/argocd/imageupdaters`,
-      { method: "POST", body: JSON.stringify(cr) }
-    );
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`k8s POST ImageUpdater failed: ${res.status} ${text}`);
-    }
+  try {
+    const data = await makeCustomApi().getNamespacedCustomObject({
+      ...ACIU,
+      name: `${slug}-image-updater`,
+    }) as Record<string, unknown>;
+    return { found: true, resource: data };
+  } catch {
+    return { found: false };
   }
 }
 
+async function applyACIUCR(slug: string, cr: Record<string, unknown>): Promise<void> {
+  await upsertNamespacedCustomObject(makeCustomApi(), {
+    ...ACIU,
+    name: `${slug}-image-updater`,
+    body: cr,
+  });
+}
+
 async function deleteACIUCR(slug: string): Promise<void> {
-  const { found } = await getACIUCR(slug);
-  if (!found) return;
-  const res = await k8sReq(
-    `/apis/argocd-image-updater.argoproj.io/v1alpha1/namespaces/argocd/imageupdaters/${slug}-image-updater`,
-    { method: "DELETE" }
-  );
-  if (!res.ok && res.status !== 404) {
-    const text = await res.text();
-    throw new Error(`k8s DELETE ImageUpdater failed: ${res.status} ${text}`);
+  try {
+    await makeCustomApi().deleteNamespacedCustomObject({
+      ...ACIU,
+      name: `${slug}-image-updater`,
+    });
+  } catch (error) {
+    if (!isK8sNotFound(error)) throw error;
   }
 }
 
 // ── Image auto-detection ──────────────────────────────────────────────────────
 
 async function detectImage(slug: string): Promise<string | undefined> {
-  const res = await k8sReq(
-    `/apis/apps/v1/namespaces/${slug}/deployments`
-  );
-  if (!res.ok) return undefined;
-  const data = await res.json() as {
-    items?: Array<{
-      spec?: {
-        template?: {
-          spec?: {
-            containers?: Array<{ image?: string }>;
-          };
-        };
-      };
-    }>;
-  };
-  const image = data.items?.[0]?.spec?.template?.spec?.containers?.[0]?.image;
+  let image: string | undefined;
+  try {
+    const data = await makeAppsApi().listNamespacedDeployment({ namespace: slug });
+    image = data.items?.[0]?.spec?.template?.spec?.containers?.[0]?.image;
+  } catch {
+    return undefined;
+  }
   if (!image) return undefined;
   // Strip tag to get base image ref
   const colonIdx = image.lastIndexOf(":");

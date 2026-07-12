@@ -1,10 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import * as jsYaml from "js-yaml";
-import { auth } from "@/lib/auth";
 import { getGitAccessToken, gitReadFile, gitWriteFile } from "@/lib/git-provider";
 import { withAuth } from "@/lib/with-auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
 // 60-second in-memory cache for the platform editor GET response.
@@ -47,12 +44,6 @@ interface SettingDefinition {
   argoApp: string;
   unit?: string;
 }
-
-interface GitHubFileResponse {
-  content: string;
-  sha: string;
-}
-
 
 const SETTING_DEFS: SettingDefinition[] = [
   {
@@ -244,10 +235,6 @@ function ensureGitProviderConfig() {
   }
 }
 
-function decodeGitHubContent(content: string) {
-  return Buffer.from(content, "base64").toString("utf-8");
-}
-
 function buildCommitMessage(definitions: SettingDefinition[]) {
   const labels = Array.from(new Set(definitions.map((definition) => `${definition.group}: ${definition.label}`)));
   return `feat(platform): update ${labels.join(", ")} via InfraWeaver Console\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`;
@@ -283,11 +270,11 @@ function getSettingDefinition(key: string) {
   return SETTING_DEFS.find((definition) => definition.key === key);
 }
 
-async function getFileFromGitProvider(filePath: string) {
+async function getFileFromGitProvider(filePath: string): Promise<{ content: string; sha: string }> {
   ensureGitProviderConfig();
   const file = await gitReadFile(filePath);
   if (!file) throw new Error(`Git provider could not find ${filePath}`);
-  return { content: Buffer.from(file.content, "utf8").toString("base64"), sha: file.sha } as GitHubFileResponse;
+  return { content: file.content, sha: file.sha };
 }
 
 async function commitFileToGitProvider(filePath: string, content: string, sha: string, message: string) {
@@ -329,100 +316,78 @@ export const GET = withAuth({ permission: "config:read" }, async () => {
     return NextResponse.json(_platformEditorCache.data);
   }
 
-  try {
-    const uniqueFiles = Array.from(new Set(SETTING_DEFS.map((definition) => definition.file)));
-    const fileEntries = await Promise.all(
-      uniqueFiles.map(async (filePath) => {
-        const file = await getFileFromGitProvider(filePath);
-        const parsed = toRecord(jsYaml.load(decodeGitHubContent(file.content)));
-        return [filePath, { parsed, sha: file.sha }] as const;
-      }),
-    );
+  const uniqueFiles = Array.from(new Set(SETTING_DEFS.map((definition) => definition.file)));
+  const fileEntries = await Promise.all(
+    uniqueFiles.map(async (filePath) => {
+      const file = await getFileFromGitProvider(filePath);
+      const parsed = toRecord(jsYaml.load(file.content));
+      return [filePath, { parsed, sha: file.sha }] as const;
+    }),
+  );
 
-    const filesByPath = Object.fromEntries(fileEntries) as Record<string, { parsed: Record<string, unknown>; sha: string }>;
-    const values = Object.fromEntries(
-      SETTING_DEFS.map((definition) => [definition.key, getNestedPath(filesByPath[definition.file].parsed, definition.yamlPath)]),
-    );
-    const files = Object.fromEntries(uniqueFiles.map((filePath) => [filePath, filesByPath[filePath].sha]));
+  const filesByPath = Object.fromEntries(fileEntries) as Record<string, { parsed: Record<string, unknown>; sha: string }>;
+  const values = Object.fromEntries(
+    SETTING_DEFS.map((definition) => [definition.key, getNestedPath(filesByPath[definition.file].parsed, definition.yamlPath)]),
+  );
+  const files = Object.fromEntries(uniqueFiles.map((filePath) => [filePath, filesByPath[filePath].sha]));
 
-    const data = { schema: SETTING_DEFS, values, files };
-    _platformEditorCache = { fetchedAt: Date.now(), data };
-    return NextResponse.json(data);
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
+  const data = { schema: SETTING_DEFS, values, files };
+  _platformEditorCache = { fetchedAt: Date.now(), data };
+  return NextResponse.json(data);
 });
 
-export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const PUT = withAuth({ permission: "config:write" }, async ({ req, session }) => {
+  const parseResult = PlatformEditorPutSchema.safeParse(await req.json().catch(() => null));
+  if (!parseResult.success) {
+    return NextResponse.json({ error: parseResult.error.flatten() }, { status: 400 });
   }
+  const body = parseResult.data;
 
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "config:write")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const normalizedChangeMap = new Map<string, { definition: SettingDefinition; value: number | string }>();
 
-  try {
-    const parseResult = PlatformEditorPutSchema.safeParse(await req.json().catch(() => null));
-    if (!parseResult.success) {
-      return NextResponse.json({ error: parseResult.error.flatten() }, { status: 400 });
-    }
-    const body = parseResult.data;
-
-    if (!Array.isArray(body.changes) || body.changes.length === 0) {
-      return NextResponse.json({ error: "No changes provided" }, { status: 400 });
+  for (const change of body.changes) {
+    const definition = getSettingDefinition(change.key);
+    if (!definition) {
+      return NextResponse.json({ error: `Unknown setting: ${change.key}` }, { status: 400 });
     }
 
-    const normalizedChangeMap = new Map<string, { definition: SettingDefinition; value: number | string }>();
+    normalizedChangeMap.set(change.key, {
+      definition,
+      value: normalizeSettingValue(definition, change.value),
+    });
+  }
 
-    for (const change of body.changes) {
-      const definition = getSettingDefinition(change.key);
-      if (!definition) {
-        return NextResponse.json({ error: `Unknown setting: ${change.key}` }, { status: 400 });
+  const normalizedChanges = Array.from(normalizedChangeMap.values());
+  const changesByFile = normalizedChanges.reduce<Map<string, { definition: SettingDefinition; value: number | string }[]>>((map, change) => {
+    const fileChanges = map.get(change.definition.file) ?? [];
+    fileChanges.push(change);
+    map.set(change.definition.file, fileChanges);
+    return map;
+  }, new Map());
+
+  // Single-line subject (schema-enforced) plus a fixed machine-generated
+  // trailer, so the GitOps history always attributes console edits.
+  const commitSubject = body.commitMessage?.trim() || buildCommitMessage(normalizedChanges.map((change) => change.definition));
+  const actor = (session.user?.email ?? session.user?.name ?? "unknown").replace(/[\r\n]+/g, " ");
+  const commitMessage = `${commitSubject}\n\nVia: InfraWeaver console platform-editor (${actor})`;
+
+  await Promise.all(
+    Array.from(changesByFile.entries()).map(async ([filePath, fileChanges]) => {
+      const file = await getFileFromGitProvider(filePath);
+      const parsed = toRecord(jsYaml.load(file.content));
+
+      for (const change of fileChanges) {
+        setNestedPath(parsed, change.definition.yamlPath, change.value);
       }
 
-      normalizedChangeMap.set(change.key, {
-        definition,
-        value: normalizeSettingValue(definition, change.value),
-      });
-    }
+      const nextContent = jsYaml.dump(parsed, { lineWidth: -1, indent: 2 });
+      await commitFileToGitProvider(filePath, nextContent, file.sha, commitMessage);
+    }),
+  );
 
-    const normalizedChanges = Array.from(normalizedChangeMap.values());
-    const changesByFile = normalizedChanges.reduce<Map<string, { definition: SettingDefinition; value: number | string }[]>>((map, change) => {
-      const fileChanges = map.get(change.definition.file) ?? [];
-      fileChanges.push(change);
-      map.set(change.definition.file, fileChanges);
-      return map;
-    }, new Map());
-
-    // Single-line subject (schema-enforced) plus a fixed machine-generated
-    // trailer, so the GitOps history always attributes console edits.
-    const commitSubject = body.commitMessage?.trim() || buildCommitMessage(normalizedChanges.map((change) => change.definition));
-    const actor = (session.user?.email ?? session.user?.name ?? "unknown").replace(/[\r\n]+/g, " ");
-    const commitMessage = `${commitSubject}\n\nVia: InfraWeaver console platform-editor (${actor})`;
-
-    await Promise.all(
-      Array.from(changesByFile.entries()).map(async ([filePath, fileChanges]) => {
-        const file = await getFileFromGitProvider(filePath);
-        const parsed = toRecord(jsYaml.load(decodeGitHubContent(file.content)));
-
-        for (const change of fileChanges) {
-          setNestedPath(parsed, change.definition.yamlPath, change.value);
-        }
-
-        const nextContent = jsYaml.dump(parsed, { lineWidth: -1, indent: 2 });
-        await commitFileToGitProvider(filePath, nextContent, file.sha, commitMessage);
-      }),
-    );
-
-    _platformEditorCache = null; // invalidate so next GET fetches fresh values
-    return NextResponse.json({
-      ok: true,
-      affectedApps: Array.from(new Set(normalizedChanges.map((change) => change.definition.argoApp))),
-    });
-  } catch (error) {
-    return NextResponse.json({ error: safeError(error) }, { status: 500 });
-  }
-}
+  _platformEditorCache = null; // invalidate so next GET fetches fresh values
+  return NextResponse.json({
+    ok: true,
+    affectedApps: Array.from(new Set(normalizedChanges.map((change) => change.definition.argoApp))),
+  });
+});

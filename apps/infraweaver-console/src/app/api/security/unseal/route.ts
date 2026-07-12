@@ -1,15 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
+import { NextResponse } from "next/server";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { withRoute } from "@/lib/route-utils";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasSessionPermission(access, "cluster:admin")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+export const POST = withRoute("cluster:admin", async (req) => {
   if (!checkRateLimit(rateLimitKey("security-unseal", req), 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
@@ -30,4 +25,4 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: safeError(error) }, { status: 500 });
   }
-}
+});

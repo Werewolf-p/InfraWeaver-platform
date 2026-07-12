@@ -237,7 +237,7 @@ export function MonitoringView() {
   const eventsQuery = useQuery({
     queryKey: ["monitoring", "events"],
     queryFn: async () => {
-      const response = await fetch("/api/events");
+      const response = await fetch("/api/cluster/events");
       if (!response.ok) throw new Error("Failed to load recent events");
       return response.json() as Promise<{ events: K8sEvent[] }>;
     },

@@ -1,53 +1,37 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { getRequestClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
-import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
+import { NextResponse } from "next/server";
 import * as k8s from "@kubernetes/client-node";
+import { summarizeArgoAppHealth } from "@/lib/argocd-apps";
+import { getRequestClusterId } from "@/lib/cluster-context";
+import { listCustomItems, loadKubeConfig } from "@/lib/k8s";
+import { listItems } from "@/lib/kube-client";
+import { withRoute } from "@/lib/route-utils";
+import { collectKyvernoViolations } from "@/lib/security/kyverno";
+import { analyzePodSecurity } from "@/lib/security/pod-analysis";
+import type { PodSpec } from "@/lib/security/types";
 
-interface PodSpec {
-  metadata?: { name?: string; namespace?: string };
-  spec?: {
-    containers?: Array<{
-      name?: string;
-      image?: string;
-      resources?: { limits?: Record<string, string> };
-      securityContext?: {
-        privileged?: boolean;
-        runAsNonRoot?: boolean;
-        runAsUser?: number;
-        allowPrivilegeEscalation?: boolean;
-        readOnlyRootFilesystem?: boolean;
-        seccompProfile?: { type?: string };
-      };
-      volumeMounts?: Array<{ name?: string }>;
-    }>;
-    initContainers?: Array<{ name?: string; securityContext?: { privileged?: boolean } }>;
-    securityContext?: { runAsNonRoot?: boolean; runAsUser?: number; seccompProfile?: { type?: string } };
-    hostNetwork?: boolean;
-    hostPID?: boolean;
-    hostIPC?: boolean;
-    volumes?: Array<{ name?: string; hostPath?: { path?: string } }>;
-    serviceAccountName?: string;
-    nodeName?: string;
-  };
-  status?: { phase?: string };
-}
+/** Unwrap one entry of a Promise.allSettled fan-out into its list items ([] on rejection). */
+const settled = <T>(result: PromiseSettledResult<unknown>): T[] =>
+  result.status === "fulfilled" ? listItems<T>(result.value) : [];
 
-export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const access = await getSessionRBACContext(session, 60);
-  if (!hasAnySessionPermission(access, ["security:read"])) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+export const GET = withRoute("security:read", async (req) => {
   try {
-    const kc = loadKubeConfig(getRequestClusterId(request));
+    const kc = loadKubeConfig(getRequestClusterId(req));
     const coreApi = kc.makeApiClient(k8s.CoreV1Api);
     const policyApi = kc.makeApiClient(k8s.PolicyV1Api);
     const networkingApi = kc.makeApiClient(k8s.NetworkingV1Api);
     const customApi = kc.makeApiClient(k8s.CustomObjectsApi);
+
+    // Optional integrations report available:false (with empty/zero data)
+    // instead of fabricated placeholder values when they cannot be reached.
+    const available = {
+      externalSecrets: true,
+      kyverno: true,
+      argocd: true,
+      certs: true,
+      longhorn: true,
+      metallb: true,
+      openbao: false,
+    };
 
     const [
       podListRes,
@@ -67,79 +51,26 @@ export async function GET(request: NextRequest) {
       coreApi.listConfigMapForAllNamespaces(),
     ]);
 
-    const pods: PodSpec[] = podListRes.status === "fulfilled"
-      ? ((podListRes.value as { items?: unknown[] }).items ?? []) as PodSpec[]
-      : [];
-
-    const namespaces: string[] = nsListRes.status === "fulfilled"
-      ? ((nsListRes.value as { items?: unknown[] }).items ?? []).map((n: unknown) =>
-          (n as { metadata?: { name?: string } }).metadata?.name ?? "")
-      : ["default", "argocd", "longhorn-system", "monitoring", "authentik"];
-
-    const netpols: Array<{ metadata?: { namespace?: string } }> = netpolListRes.status === "fulfilled"
-      ? ((netpolListRes.value as { items?: unknown[] }).items ?? []) as Array<{ metadata?: { namespace?: string } }>
-      : [];
-
-    const pdbs: Array<{
+    const pods = settled<PodSpec>(podListRes);
+    const namespaces = settled<{ metadata?: { name?: string } }>(nsListRes).map((ns) => ns.metadata?.name ?? "");
+    const netpols = settled<{ metadata?: { namespace?: string } }>(netpolListRes);
+    const pdbs = settled<{
       metadata?: { name?: string; namespace?: string };
       spec?: { minAvailable?: number | string; maxUnavailable?: number | string; selector?: unknown };
       status?: { currentHealthy?: number; desiredHealthy?: number; disruptionsAllowed?: number; expectedPods?: number };
-    }> = pdbListRes.status === "fulfilled"
-      ? ((pdbListRes.value as { items?: unknown[] }).items ?? []) as typeof pdbs
-      : [];
-
-    const nodes: Array<{
+    }>(pdbListRes);
+    const nodes = settled<{
       metadata?: { name?: string };
       status?: { conditions?: Array<{ type?: string; status?: string }> };
-    }> = nodeListRes.status === "fulfilled"
-      ? ((nodeListRes.value as { items?: unknown[] }).items ?? []) as typeof nodes
-      : [];
-
-    const secretCount = secretListRes.status === "fulfilled"
-      ? ((secretListRes.value as { items?: unknown[] }).items ?? []).length : 0;
-    const cmCount = cmListRes.status === "fulfilled"
-      ? ((cmListRes.value as { items?: unknown[] }).items ?? []).length : 0;
+    }>(nodeListRes);
+    const secretCount = settled(secretListRes).length;
+    const cmCount = settled(cmListRes).length;
 
     // Pod security analysis
-    let rootPodCount = 0;
-    let privilegedCount = 0;
-    let hostPathCount = 0;
-    let noLimitsCount = 0;
-    const podSecurityIssues: Array<{
-      pod: string; namespace: string; severity: string;
-      issues: string[];
-    }> = [];
-
-    for (const pod of pods) {
-      if (pod.status?.phase !== "Running") continue;
-      const ns = pod.metadata?.namespace ?? "";
-      const name = pod.metadata?.name ?? "";
-      const issues: string[] = [];
-
-      const podSC = pod.spec?.securityContext;
-      const hasHostPath = (pod.spec?.volumes ?? []).some(v => v.hostPath);
-      if (hasHostPath) { hostPathCount++; issues.push("hostPath volume mount"); }
-
-      let podRunsAsRoot = podSC?.runAsNonRoot === false || podSC?.runAsUser === 0;
-
-      for (const c of pod.spec?.containers ?? []) {
-        const sc = c.securityContext;
-        if (sc?.privileged) { privilegedCount++; issues.push(`container '${c.name}' is privileged`); }
-        if (!c.resources?.limits) { noLimitsCount++; issues.push(`container '${c.name}' has no resource limits`); }
-        if (sc?.runAsNonRoot === false || sc?.runAsUser === 0) { podRunsAsRoot = true; }
-        if (!sc?.readOnlyRootFilesystem) { issues.push(`container '${c.name}' missing readOnlyRootFilesystem`); }
-        if (sc?.allowPrivilegeEscalation !== false) { issues.push(`container '${c.name}' allows privilege escalation`); }
-        if (!sc?.seccompProfile && !podSC?.seccompProfile) { issues.push(`container '${c.name}' missing seccompProfile`); }
-      }
-
-      if (podRunsAsRoot) { rootPodCount++; issues.push("runs as root or UID 0"); }
-
-      if (issues.length > 0) {
-        const severity = issues.some(i => i.includes("privileged") || i.includes("root"))
-          ? "Critical" : "Warning";
-        podSecurityIssues.push({ pod: name, namespace: ns, severity, issues });
-      }
-    }
+    const {
+      counts: { rootPodCount, privilegedCount, hostPathCount, noLimitsCount },
+      issues: podSecurityIssues,
+    } = analyzePodSecurity(pods);
 
     // Network policy coverage
     const namespacesWithNetpols = new Set(netpols.map(np => np.metadata?.namespace));
@@ -178,105 +109,61 @@ export async function GET(request: NextRequest) {
       name: string; namespace: string; ready: boolean; lastSyncTime: string | null; targetSecret: string;
     }> = [];
     try {
-      const esRes = await customApi.listClusterCustomObject({
-        group: "external-secrets.io", version: "v1beta1", plural: "externalsecrets",
-      });
-      const esItems = ((esRes as { items?: unknown[] }).items ?? []);
-      externalSecrets = esItems.map((es: unknown) => {
-        const e = es as {
-          metadata?: { name?: string; namespace?: string };
-          spec?: { target?: { name?: string } };
-          status?: { conditions?: Array<{ type?: string; status?: string; lastTransitionTime?: string }> };
-        };
-        const readyCond = (e.status?.conditions ?? []).find(c => c.type === "Ready");
+      const esItems = await listCustomItems<{
+        metadata?: { name?: string; namespace?: string };
+        spec?: { target?: { name?: string } };
+        status?: { conditions?: Array<{ type?: string; status?: string; lastTransitionTime?: string }> };
+      }>(customApi, { group: "external-secrets.io", version: "v1beta1", plural: "externalsecrets" });
+      externalSecrets = esItems.map((es) => {
+        const readyCond = (es.status?.conditions ?? []).find(c => c.type === "Ready");
         return {
-          name: e.metadata?.name ?? "",
-          namespace: e.metadata?.namespace ?? "",
+          name: es.metadata?.name ?? "",
+          namespace: es.metadata?.namespace ?? "",
           ready: readyCond?.status === "True",
           lastSyncTime: readyCond?.lastTransitionTime ?? null,
-          targetSecret: e.spec?.target?.name ?? e.metadata?.name ?? "",
+          targetSecret: es.spec?.target?.name ?? es.metadata?.name ?? "",
         };
       });
     } catch {
-      externalSecrets = [
-        { name: "authentik-secret", namespace: "authentik", ready: true, lastSyncTime: new Date(Date.now() - 300000).toISOString(), targetSecret: "authentik-secret" },
-        { name: "openbao-tokens", namespace: "infraweaver-console", ready: true, lastSyncTime: new Date(Date.now() - 120000).toISOString(), targetSecret: "openbao-tokens" },
-        { name: "cloudflare-api", namespace: "cert-manager", ready: false, lastSyncTime: new Date(Date.now() - 3600000).toISOString(), targetSecret: "cloudflare-api-token" },
-      ];
+      available.externalSecrets = false;
     }
 
-    // Kyverno Policy Reports
-    let kyvernoViolations: Array<{
-      name: string; namespace: string; severity: string; category: string; policy: string; resource: string; message: string;
-    }> = [];
-    try {
-      const prRes = await customApi.listClusterCustomObject({
-        group: "wgpolicyk8s.io", version: "v1alpha2", plural: "policyreports",
-      });
-      const reports = ((prRes as { items?: unknown[] }).items ?? []);
-      for (const report of reports) {
-        const r = report as {
-          metadata?: { name?: string; namespace?: string };
-          results?: Array<{
-            policy?: string; rule?: string; result?: string; severity?: string; category?: string;
-            resources?: Array<{ name?: string; namespace?: string; kind?: string }>;
-            message?: string;
-          }>;
-        };
-        for (const result of r.results ?? []) {
-          if (result.result === "fail") {
-            kyvernoViolations.push({
-              name: result.rule ?? result.policy ?? "",
-              namespace: r.metadata?.namespace ?? "",
-              severity: result.severity ?? "medium",
-              category: result.category ?? "Policy",
-              policy: result.policy ?? "",
-              resource: result.resources?.[0]?.name ?? "",
-              message: result.message ?? "",
-            });
-          }
-        }
-      }
-    } catch {
-      kyvernoViolations = [
-        { name: "require-pod-probes", namespace: "apps", severity: "medium", category: "Best Practices", policy: "require-pod-probes", resource: "wiki-js-789abc", message: "Liveness probe not configured" },
-        { name: "disallow-latest-tag", namespace: "monitoring", severity: "high", category: "Best Practices", policy: "disallow-latest-tag", resource: "gatus-def123", message: "Image uses :latest tag" },
-        { name: "require-non-root", namespace: "argocd", severity: "high", category: "Pod Security", policy: "require-non-root", resource: "argocd-server-abc123", message: "runAsNonRoot not enforced" },
-      ];
-    }
+    // Kyverno Policy Reports (missing CRDs contribute no violations)
+    const kyvernoViolations = (await collectKyvernoViolations(customApi, { plural: "policyreports" })).map((v) => ({
+      name: v.rule ?? v.policy,
+      namespace: v.namespace,
+      severity: v.severity,
+      category: v.category,
+      policy: v.policy,
+      resource: v.resource,
+      message: v.message,
+    }));
 
     // ArgoCD sync status
     let argocdOutOfSync = 0;
     try {
-      const argoRes = await customApi.listClusterCustomObject({
+      const argoApps = await listCustomItems<{ status?: { sync?: { status?: string } } }>(customApi, {
         group: "argoproj.io", version: "v1alpha1", plural: "applications",
       });
-      const argoApps = ((argoRes as { items?: unknown[] }).items ?? []);
-      argocdOutOfSync = argoApps.filter((app: unknown) => {
-        const a = app as { status?: { sync?: { status?: string } } };
-        return a.status?.sync?.status === "OutOfSync";
-      }).length;
+      argocdOutOfSync = summarizeArgoAppHealth(argoApps).outOfSync;
     } catch {
-      argocdOutOfSync = 2;
+      available.argocd = false;
     }
 
     // Cert-manager certificates
     let certCount = 0;
     let certRenewalPending = 0;
     try {
-      const certRes = await customApi.listClusterCustomObject({
+      const certs = await listCustomItems<{ status?: { conditions?: Array<{ type?: string; status?: string }> } }>(customApi, {
         group: "cert-manager.io", version: "v1", plural: "certificates",
       });
-      const certs = ((certRes as { items?: unknown[] }).items ?? []);
       certCount = certs.length;
-      certRenewalPending = certs.filter((c: unknown) => {
-        const cert = c as { status?: { conditions?: Array<{ type?: string; status?: string }> } };
+      certRenewalPending = certs.filter((cert) => {
         const ready = (cert.status?.conditions ?? []).find(cond => cond.type === "Ready");
         return ready?.status !== "True";
       }).length;
     } catch {
-      certCount = 8;
-      certRenewalPending = 1;
+      available.certs = false;
     }
 
     // Longhorn volumes
@@ -284,35 +171,28 @@ export async function GET(request: NextRequest) {
     let longhornDegraded = 0;
     let longhornFaulted = 0;
     try {
-      const volRes = await customApi.listClusterCustomObject({
-        group: "longhorn.io", version: "v1beta2", plural: "volumes",
-        namespace: "longhorn-system",
-      } as Parameters<typeof customApi.listClusterCustomObject>[0]);
-      const vols = ((volRes as { items?: unknown[] }).items ?? []);
+      const vols = await listCustomItems<{ status?: { robustness?: string } }>(customApi, {
+        group: "longhorn.io", version: "v1beta2", plural: "volumes", namespace: "longhorn-system",
+      });
       for (const vol of vols) {
-        const v = vol as { status?: { robustness?: string } };
-        const r = v.status?.robustness;
+        const r = vol.status?.robustness;
         if (r === "healthy") longhornHealthy++;
         else if (r === "degraded") longhornDegraded++;
         else longhornFaulted++;
       }
     } catch {
-      longhornHealthy = 12;
-      longhornDegraded = 1;
-      longhornFaulted = 0;
+      available.longhorn = false;
     }
 
     // MetalLB IP pool utilization
     let metallbPoolUsed = 0;
     let metallbPoolTotal = 0;
     try {
-      const poolRes = await customApi.listClusterCustomObject({
+      const pools = await listCustomItems<{ spec?: { addresses?: string[] } }>(customApi, {
         group: "metallb.io", version: "v1beta1", plural: "ipaddresspools",
       });
-      const pools = ((poolRes as { items?: unknown[] }).items ?? []);
       for (const pool of pools) {
-        const p = pool as { spec?: { addresses?: string[] } };
-        for (const addr of p.spec?.addresses ?? []) {
+        for (const addr of pool.spec?.addresses ?? []) {
           const parts = addr.split("-");
           if (parts.length === 2) {
             const start = parts[0].split(".").map(Number);
@@ -325,17 +205,15 @@ export async function GET(request: NextRequest) {
       }
       // Count services with LoadBalancer IPs
       const svcRes = await coreApi.listServiceForAllNamespaces();
-      metallbPoolUsed = ((svcRes as { items?: unknown[] }).items ?? []).filter((s: unknown) => {
-        const svc = s as { spec?: { type?: string }; status?: { loadBalancer?: { ingress?: unknown[] } } };
-        return svc.spec?.type === "LoadBalancer" && (svc.status?.loadBalancer?.ingress?.length ?? 0) > 0;
-      }).length;
+      metallbPoolUsed = listItems<{ spec?: { type?: string }; status?: { loadBalancer?: { ingress?: unknown[] } } }>(svcRes)
+        .filter((svc) => svc.spec?.type === "LoadBalancer" && (svc.status?.loadBalancer?.ingress?.length ?? 0) > 0)
+        .length;
     } catch {
-      metallbPoolTotal = 50;
-      metallbPoolUsed = 8;
+      available.metallb = false;
     }
 
     // OpenBao seal status (try HTTP API)
-    let openbaoStatus = { initialized: true, sealed: false, standby: false, version: "2.0.0", keyShares: 5, keyThreshold: 3 };
+    let openbaoStatus = { initialized: false, sealed: false, standby: false, version: "unknown", keyShares: 0, keyThreshold: 0 };
     try {
       const baoUrl = process.env.OPENBAO_ADDR ?? "http://openbao.openbao.svc.cluster.local:8200";
       const baoRes = await fetch(`${baoUrl}/v1/sys/health`, { signal: AbortSignal.timeout(3000) });
@@ -351,8 +229,9 @@ export async function GET(request: NextRequest) {
           keyShares: 5,
           keyThreshold: 3,
         };
+        available.openbao = true;
       }
-    } catch { /* use defaults */ }
+    } catch { /* leave unavailable zeros */ }
 
     // Image list from running pods
     const runningImages = Array.from(
@@ -393,9 +272,10 @@ export async function GET(request: NextRequest) {
       kyvernoViolations,
       openbaoStatus,
       runningImages,
+      available,
     });
   } catch (err) {
     console.error("Enhanced security API error:", err);
     return NextResponse.json({ error: "Kubernetes unavailable" }, { status: 503 });
   }
-}
+});

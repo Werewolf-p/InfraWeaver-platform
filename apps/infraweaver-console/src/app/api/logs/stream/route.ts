@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasSessionPermission } from "@/lib/session-rbac";
-import { canAccessLogsTarget, getGameHubAccessContext } from "@/lib/logs-access";
-import { createMockPodLogStreamResponse, createPodLogStreamResponse } from "@/lib/pod-log-stream";
+import { requireLogsTargetAccess } from "@/lib/logs-route-helpers";
+import { createPodLogStreamResponse } from "@/lib/pod-log-stream";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
+import { unavailableResponse } from "@/lib/route-utils";
 import { isValidContainerName, isValidK8sName, isValidNamespace } from "@/lib/validate";
 
+// Hand-rolled guard (not withAuth): the success path returns a plain SSE
+// `Response`, which the withAuth envelope would wrap in NextResponse.json.
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -25,14 +28,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid resource name" }, { status: 400 });
   }
 
-  const gameHubAccess = await getGameHubAccessContext(session, 60);
-  if (!canAccessLogsTarget(gameHubAccess.groups, gameHubAccess.username, gameHubAccess.roleAssignments, namespace, pod)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const targetAccess = await requireLogsTargetAccess(session, namespace, pod);
+  if (targetAccess instanceof NextResponse) return targetAccess;
 
   try {
     return createPodLogStreamResponse(namespace, pod, container, req.signal);
-  } catch {
-    return createMockPodLogStreamResponse();
+  } catch (error) {
+    // Fail closed — never fabricate a mock log stream when Kubernetes is
+    // unreachable; surface the canonical 503 instead.
+    return unavailableResponse(error);
   }
 }
