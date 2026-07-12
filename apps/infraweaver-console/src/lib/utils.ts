@@ -99,6 +99,15 @@ export class UserError extends Error {
   }
 }
 
+/**
+ * Raw error → message string for logs and internal error plumbing. Unlike
+ * safeError() below, this performs NO redaction or allowlisting — never send
+ * its output to end users; use safeError() for anything user-facing.
+ */
+export function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 function redactErrorMessage(message: string) {
   return message
     .replace(/https?:\/\/[^\s]+/gi, "[url]")

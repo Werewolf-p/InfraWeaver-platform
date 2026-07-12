@@ -178,6 +178,24 @@ export async function getArgocdAppsCached(clusterId?: string) {
   return { ...result, cacheStatus: "MISS" as const };
 }
 
+/**
+ * Health/sync counts in the shape lib/reliability's ArgocdHealthSnapshot /
+ * scoreArgocdHealth expect — consolidates the inline counting in
+ * /api/health/reliability. Accepts any structural subset of ArgoApplication.
+ * Use {@link summarizeArgocdApps} when you also need issues/status.
+ */
+export function summarizeArgoAppHealth(
+  apps: Array<{ status?: { health?: { status?: string }; sync?: { status?: string } } }>,
+): { healthy: number; degraded: number; progressing: number; outOfSync: number; total: number } {
+  return {
+    healthy: apps.filter((app) => app.status?.health?.status === "Healthy").length,
+    degraded: apps.filter((app) => app.status?.health?.status === "Degraded").length,
+    progressing: apps.filter((app) => app.status?.health?.status === "Progressing").length,
+    outOfSync: apps.filter((app) => app.status?.sync?.status === "OutOfSync").length,
+    total: apps.length,
+  };
+}
+
 export function summarizeArgocdApps(apps: ArgoApplication[]): ArgoAppSummary {
   const healthy = apps.filter((app) => app.status?.health?.status === "Healthy").length;
   const degraded = apps.filter((app) => app.status?.health?.status === "Degraded").length;

@@ -44,3 +44,48 @@ export function parseMemoryBytes(value: string | null | undefined): number {
   };
   return amount * (multipliers[unit] ?? 1);
 }
+
+/**
+ * Parse a Kubernetes CPU quantity (e.g. "250m", "1", "123456789n") into
+ * millicores. Millicores counterpart of parseCpuQuantity — same math as the
+ * cluster-metrics route's parseCpuToMillicores for its "n"/"m"/plain inputs,
+ * with garbage coerced to 0.
+ */
+export function parseCpuMillicores(value: string | null | undefined): number {
+  const millicores = parseCpuQuantity(value) * 1000;
+  return Number.isFinite(millicores) ? millicores : 0;
+}
+
+/**
+ * Parse a Kubernetes memory quantity (e.g. "512Mi", "2Gi", "524288Ki") into
+ * mebibytes. Mi counterpart of parseMemoryBytes — same Ki/Mi/Gi ladder as the
+ * cluster-metrics route's parseMemoryToKi (divided by 1024). May return a
+ * fractional value for decimal-unit inputs; callers round as needed.
+ */
+export function parseMemoryMi(value: string | null | undefined): number {
+  const bytes = parseMemoryBytes(value);
+  return Number.isFinite(bytes) ? bytes / (1024 * 1024) : 0;
+}
+
+export type QuantityKind = "cpu" | "memory";
+
+/**
+ * Format a resource amount as a Kubernetes quantity string.
+ *
+ * - `kind: "cpu"` — `value` is CPU cores. Whole cores stay bare ("2"), clean
+ *   tenths mirror the game-hub new page's formatCpu ("1.5"), anything finer is
+ *   emitted as millicores ("250m") so precision survives round-trips.
+ * - `kind: "memory"` — `value` is Mi. Whole Gi multiples collapse to Gi
+ *   (mirrors the game-hub new page's formatMemory), sub-1Mi values are emitted
+ *   as Ki, everything else stays Mi.
+ */
+export function formatQuantity(value: number, kind: QuantityKind): string {
+  if (kind === "cpu") {
+    if (Number.isInteger(value)) return String(value);
+    const millicores = Math.round(value * 1000);
+    if (millicores % 100 !== 0) return `${millicores}m`;
+    return value.toFixed(1).replace(/\.0$/, "");
+  }
+  if (value > 0 && value < 1) return `${Math.round(value * 1024)}Ki`;
+  return value % 1024 === 0 ? `${value / 1024}Gi` : `${Math.round(value)}Mi`;
+}

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { z } from "zod";
 
 /**
  * Validate a Kubernetes resource name (DNS subdomain: a-z0-9-.)
@@ -10,6 +11,19 @@ export function isValidK8sName(name: string): boolean {
 export function isValidNamespace(ns: string): boolean {
   return isValidK8sName(ns) && ns.length <= 63;
 }
+
+/**
+ * Zod counterparts of isValidK8sName/isValidNamespace for schema-validated
+ * route bodies. Built on the single DNS-1123 regex above — do not add a
+ * second copy of that regex.
+ */
+export const k8sNameSchema = z
+  .string()
+  .refine(isValidK8sName, "Invalid Kubernetes resource name (lowercase DNS-1123 subdomain, max 253 characters)");
+
+export const k8sNamespaceSchema = z
+  .string()
+  .refine(isValidNamespace, "Invalid Kubernetes namespace (lowercase DNS-1123 label, max 63 characters)");
 
 export function isValidContainerName(name: string): boolean {
   return /^[a-z0-9][a-z0-9\-]*[a-z0-9]$/.test(name) && name.length <= 63;

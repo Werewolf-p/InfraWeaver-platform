@@ -37,3 +37,30 @@ export function loadKubeConfig(clusterId?: string): k8s.KubeConfig {
   kubeConfigCache.set(cacheKey, kc);
   return kc;
 }
+
+/**
+ * Lists custom objects (cluster-scoped, or namespaced when `namespace` is set)
+ * and unwraps `.items`. The v1.x client types these responses as plain objects,
+ * so every call site casts to `{ items?: T[] }` — this centralizes that cast.
+ */
+export async function listCustomItems<T>(
+  customApi: k8s.CustomObjectsApi,
+  params: { group: string; version: string; plural: string; namespace?: string },
+): Promise<T[]> {
+  const { group, version, plural, namespace } = params;
+  const res = namespace
+    ? await customApi.listNamespacedCustomObject({ group, version, plural, namespace })
+    : await customApi.listClusterCustomObject({ group, version, plural });
+  return (res as { items?: T[] } | null | undefined)?.items ?? [];
+}
+
+/**
+ * Extracts the fulfilled values from a Promise.allSettled result, dropping
+ * rejections. For fan-out reads where partial results are acceptable — callers
+ * that must surface failures should inspect the rejected entries themselves.
+ */
+export function settledItems<T>(results: PromiseSettledResult<T>[]): T[] {
+  return results
+    .filter((result): result is PromiseFulfilledResult<T> => result.status === "fulfilled")
+    .map((result) => result.value);
+}
