@@ -193,6 +193,31 @@ function identityMatches(principalId: string, identities: string[]): boolean {
 }
 
 /**
+ * Ids of the custom groups the user belongs to via direct `members` entries or,
+ * when `authentikGroups` is given, via an Authentik group whose name matches the
+ * custom group's id or name.
+ */
+function memberGroupIdSet(
+  state: AccessControlState,
+  identities: string[],
+  authentikGroups: string[] = [],
+): Set<string> {
+  const userIds = identities.filter(Boolean);
+  const ids = new Set<string>();
+  for (const group of state.groups) {
+    const isMember =
+      group.members.some((member) => identityMatches(member, userIds)) ||
+      authentikGroups.some(
+        (g) =>
+          normalizeIdentity(g) === normalizeIdentity(group.id) ||
+          normalizeIdentity(g) === normalizeIdentity(group.name),
+      );
+    if (isMember) ids.add(group.id);
+  }
+  return ids;
+}
+
+/**
  * Compute the set of additional permissions a user gains from:
  *  - membership in custom groups
  *  - currently-active (non-expired) PIM elevations
@@ -210,26 +235,17 @@ export function computeExtraPermissions(
 ): Set<Permission> {
   const perms = new Set<Permission>();
   const userIds = identities.filter(Boolean);
-  const groupIds = new Set<string>();
+  const memberGroupIds = memberGroupIdSet(state, identities, authentikGroups);
 
   // Custom group membership grants the group's permissions.
   for (const group of state.groups) {
-    const isMember =
-      group.members.some((member) => identityMatches(member, userIds)) ||
-      authentikGroups.some(
-        (g) =>
-          normalizeIdentity(g) === normalizeIdentity(group.id) ||
-          normalizeIdentity(g) === normalizeIdentity(group.name),
-      );
-    if (isMember) {
-      groupIds.add(group.id);
-      // Enforce the custom-group deny-list at computation time, not only at
-      // authoring time: a directly-edited access-control ConfigMap must not be
-      // able to smuggle "*" or a platform-escalation permission (rbac:admin,
-      // cluster:admin/drain/scale, users:write, …) into a user's effective set.
-      for (const permission of group.permissions) {
-        if (isGroupAllowedPermission(permission)) perms.add(permission);
-      }
+    if (!memberGroupIds.has(group.id)) continue;
+    // Enforce the custom-group deny-list at computation time, not only at
+    // authoring time: a directly-edited access-control ConfigMap must not be
+    // able to smuggle "*" or a platform-escalation permission (rbac:admin,
+    // cluster:admin/drain/scale, users:write, …) into a user's effective set.
+    for (const permission of group.permissions) {
+      if (isGroupAllowedPermission(permission)) perms.add(permission);
     }
   }
 
@@ -254,11 +270,9 @@ export function eligibleRolesFor(
   authentikGroups: string[] = [],
 ): PimEligibility[] {
   const userIds = identities.filter(Boolean);
-  const memberGroupIds = new Set<string>(
-    state.groups
-      .filter((group) => group.members.some((member) => identityMatches(member, userIds)))
-      .map((group) => group.id),
-  );
+  // Membership here is via direct `members` only; Authentik groups join the
+  // normalized name comparison below instead (unchanged semantics).
+  const memberGroupIds = memberGroupIdSet(state, identities);
   const groupNames = new Set<string>([
     ...authentikGroups.map((g) => normalizeIdentity(g)),
     ...[...memberGroupIds].map((id) => normalizeIdentity(id)),

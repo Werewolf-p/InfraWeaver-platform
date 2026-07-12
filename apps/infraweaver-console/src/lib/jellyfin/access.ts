@@ -15,6 +15,7 @@
  */
 import "server-only";
 import { auditLog } from "@/lib/audit-log";
+import { DEFAULT_RETRY_DELAYS_MS, retryWithBackoff } from "@/lib/retry";
 import { loadUsersConfig } from "@/lib/users-config";
 import type { Permission } from "@/lib/rbac";
 import { computeDesiredAppUsers } from "@/lib/app-accounts/policy";
@@ -142,17 +143,15 @@ async function resolveEmail(username: string): Promise<string> {
   return match?.[1]?.email ?? "";
 }
 
-// Same cadence as the WordPress/NAS access reconciles.
-const ACCESS_SYNC_RETRY_DELAYS_MS = [1_000, 5_000, 15_000] as const;
-
 /**
  * Fan a grant/revoke on a Jellyfin-covering scope out to the real accounts, with
- * backoff — for the same reason storage does: a REVOKE that silently failed would
- * leave a disabled-in-intent user still able to log in. Revocation is a security
- * control, not best-effort. Called (fire-and-forget) from `syncAccessForScope` in
- * `lib/rbac-assignments.ts` via a lazy import (see the reported edit). Broad scopes
- * (`/`) are handled here too, since Jellyfin is a single instance — no fan-out
- * explosion to guard against, unlike per-share storage.
+ * backoff (the shared `retryWithBackoff` cadence, same as the WordPress/NAS access
+ * reconciles) — for the same reason storage does: a REVOKE that silently failed
+ * would leave a disabled-in-intent user still able to log in. Revocation is a
+ * security control, not best-effort. Called (fire-and-forget) from
+ * `syncAccessForScope` in `lib/rbac-assignments.ts` via a lazy import (see the
+ * reported edit). Broad scopes (`/`) are handled here too, since Jellyfin is a
+ * single instance — no fan-out explosion to guard against, unlike per-share storage.
  *
  * Exhausting the retries is a security event, not a log line: the caller is
  * fire-and-forget, so a terminal failure is the ONLY record that a revoked user may
@@ -161,24 +160,20 @@ const ACCESS_SYNC_RETRY_DELAYS_MS = [1_000, 5_000, 15_000] as const;
  */
 export async function reconcileJellyfinAccessWithRetry(scope: string): Promise<void> {
   if (!isJellyfinScope(scope)) return;
-  for (let attempt = 0; attempt <= ACCESS_SYNC_RETRY_DELAYS_MS.length; attempt++) {
-    try {
-      await syncJellyfinUsers();
-      return;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (attempt === ACCESS_SYNC_RETRY_DELAYS_MS.length) {
-        console.error(`[rbac] Jellyfin account sync for '${scope}' failed after ${attempt + 1} attempts; run it from the Jellyfin access panel:`, message);
-        await auditLog(
-          "jellyfin:access-sync",
-          "system",
-          `Jellyfin account sync for scope '${scope}' failed after ${attempt + 1} attempts; a revoked user may retain a working local login. Re-run it from the Jellyfin access panel. Last error: ${message}`,
-          { result: "failure", resource: scope },
-        );
-        return;
-      }
-      console.warn(`[rbac] Jellyfin account sync for '${scope}' attempt ${attempt + 1} failed, retrying:`, message);
-      await new Promise((resolve) => setTimeout(resolve, ACCESS_SYNC_RETRY_DELAYS_MS[attempt]));
-    }
+  try {
+    await retryWithBackoff(
+      `Jellyfin account sync for '${scope}'`,
+      () => syncJellyfinUsers(),
+      DEFAULT_RETRY_DELAYS_MS,
+      "run it from the Jellyfin access panel",
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await auditLog(
+      "jellyfin:access-sync",
+      "system",
+      `Jellyfin account sync for scope '${scope}' failed after ${DEFAULT_RETRY_DELAYS_MS.length + 1} attempts; a revoked user may retain a working local login. Re-run it from the Jellyfin access panel. Last error: ${message}`,
+      { result: "failure", resource: scope },
+    );
   }
 }

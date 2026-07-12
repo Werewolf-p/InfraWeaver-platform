@@ -1,10 +1,11 @@
 import * as k8s from "@kubernetes/client-node";
 import { apiCache } from "@/lib/api-cache";
 import { getClusterConfig, getDefaultClusterId } from "@/lib/cluster-context";
-import { loadKubeConfig } from "@/lib/k8s";
+import { listCustomItems, loadKubeConfig } from "@/lib/k8s";
 import { PERFORMANCE_CACHE_KEYS } from "@/lib/performance-cache";
 import { argocdApiBase } from "@/lib/platform-config";
 import { requestDedup } from "@/lib/request-dedup";
+import { createServiceFetch } from "@/lib/service-fetch";
 
 const DEFAULT_ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";
 const DEFAULT_ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
@@ -106,14 +107,12 @@ function getLastKnownApps(clusterId: string) {
 async function listApplicationCrds(clusterId?: string) {
   try {
     const customObjectsApi = loadKubeConfig(clusterId).makeApiClient(k8s.CustomObjectsApi);
-    const response = await customObjectsApi.listNamespacedCustomObject({
+    return await listCustomItems<ArgoApplication>(customObjectsApi, {
       group: "argoproj.io",
       version: "v1alpha1",
       namespace: "argocd",
       plural: "applications",
-    }) as { items?: ArgoApplication[] };
-
-    return Array.isArray(response.items) ? response.items : [];
+    });
   } catch {
     return null;
   }
@@ -121,16 +120,15 @@ async function listApplicationCrds(clusterId?: string) {
 
 async function fetchArgocdAppsUncached(clusterId?: string): Promise<ArgocdAppsFetchResult> {
   const connection = getArgocdConnection(clusterId);
+  const argoFetch = createServiceFetch({
+    baseUrl: connection.server,
+    token: connection.token,
+    headers: { "Content-Type": "application/json" },
+    timeoutMs: 5000,
+  });
 
   try {
-    const response = await fetch(`${connection.server}/api/v1/applications?limit=500`, {
-      headers: {
-        ...(connection.token ? { Authorization: `Bearer ${connection.token}` } : {}),
-        "Content-Type": "application/json",
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(5000),
-    });
+    const response = await argoFetch("/api/v1/applications?limit=500");
 
     if (response.ok) {
       const data = await response.json() as { items?: ArgoApplication[] };

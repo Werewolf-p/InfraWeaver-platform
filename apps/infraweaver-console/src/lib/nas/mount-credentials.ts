@@ -18,6 +18,7 @@
  * `force` re-mints (password rotation).
  */
 
+import { generatePassword } from "@/lib/crypto/password";
 import {
   ensureTruenasSmbAccounts,
   smbAccountName,
@@ -112,8 +113,14 @@ async function ensureSynologySmbAccounts(
   });
   if (!sid) throw new NasMountCredentialsError("Synology login failed — check the provider's stored credentials");
 
-  const { randomBytes } = await import("node:crypto");
-  const makePassword = () => `Iw${randomBytes(18).toString("base64url").replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)}7#`;
+  // `Iw…7#` affixes guarantee every SMB complexity class; the random core stays
+  // full-alphanumeric (the charset the old base64url derivation produced).
+  const makePassword = () =>
+    generatePassword({
+      length: 20,
+      alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+      affix: { prefix: "Iw", suffix: "7#" },
+    });
 
   const accounts = {} as NasSmbAccounts;
   for (const access of ["readonly", "readwrite"] as const) {

@@ -1,6 +1,7 @@
 import {
-  ALL_PERMISSIONS,
-  expandPermissionPattern,
+  expandToConcrete,
+  isAssignmentExpired,
+  permissionVerb,
   resolveRoleDefinition,
   scopeCovers,
   scopeLabel,
@@ -115,11 +116,6 @@ function resourceOf(permission: string): string {
   return separator === -1 ? permission : permission.slice(0, separator);
 }
 
-function verbOf(permission: string): string {
-  const separator = permission.indexOf(":");
-  return separator === -1 ? permission : permission.slice(separator + 1);
-}
-
 function nounFor(resource: string): string {
   return RESOURCE_NOUN[resource] ?? resource;
 }
@@ -153,7 +149,7 @@ function summarizeByResource(permissions: Iterable<string>, tone: RightTone, sco
     if (permission === "*") continue;
     const resource = resourceOf(permission);
     const wasMutating = mutatingByResource.get(resource) ?? false;
-    mutatingByResource.set(resource, wasMutating || isMutatingVerb(verbOf(permission)));
+    mutatingByResource.set(resource, wasMutating || isMutatingVerb(permissionVerb(permission)));
   }
 
   const rights: HumanRight[] = [];
@@ -176,22 +172,10 @@ function summarizeByResource(permissions: Iterable<string>, tone: RightTone, sco
 
 // ─── Effective computation ──────────────────────────────────────────────────
 
-function isExpired(assignment: { expiresAt?: string }, now: number): boolean {
-  if (!assignment.expiresAt) return false;
-  const ms = Date.parse(assignment.expiresAt);
-  return Number.isFinite(ms) && ms < now;
-}
-
 function isExpiringSoon(expiresAt: string | undefined, now: number): boolean {
   if (!expiresAt) return false;
   const ms = Date.parse(expiresAt);
   return Number.isFinite(ms) && ms - now > 0 && ms - now <= EXPIRING_SOON_MS;
-}
-
-/** Expands a granted pattern to the concrete permissions it confers ("*" → all). */
-function expandGranted(pattern: string): Permission[] {
-  if (pattern === "*") return ALL_PERMISSIONS.filter((p) => p !== "*");
-  return expandPermissionPattern(pattern);
 }
 
 type MinimalAssignment = { roleId: string; scope: string; effect?: "Allow" | "Deny"; expiresAt?: string };
@@ -213,17 +197,17 @@ function shapeAtScope(assignments: MinimalAssignment[], evalScope: string, now: 
   const allowPatterns = new Set<string>();
   const denyConcrete = new Set<Permission>();
   for (const assignment of assignments) {
-    if (isExpired(assignment, now)) continue;
+    if (isAssignmentExpired(assignment, now)) continue;
     if (!scopeCovers(assignment.scope, evalScope)) continue;
     const role = resolveRoleDefinition(assignment.roleId);
     if (!role) continue;
     if (assignment.effect === "Deny") {
-      for (const pattern of role.permissions) for (const concrete of expandGranted(pattern)) denyConcrete.add(concrete);
+      for (const pattern of role.permissions) for (const concrete of expandToConcrete(pattern)) denyConcrete.add(concrete);
     } else {
       for (const pattern of role.permissions) allowPatterns.add(pattern);
     }
     if (role.notActions) {
-      for (const pattern of role.notActions) for (const concrete of expandGranted(pattern)) denyConcrete.add(concrete);
+      for (const pattern of role.notActions) for (const concrete of expandToConcrete(pattern)) denyConcrete.add(concrete);
     }
   }
   return { allowPatterns, denyConcrete };
@@ -232,7 +216,7 @@ function shapeAtScope(assignments: MinimalAssignment[], evalScope: string, now: 
 /** Concrete allow at one scope = expand(allow patterns) − deny. */
 function concreteAtScope(shape: EffectiveShape): Set<Permission> {
   const allow = new Set<Permission>();
-  for (const pattern of shape.allowPatterns) for (const concrete of expandGranted(pattern)) allow.add(concrete);
+  for (const pattern of shape.allowPatterns) for (const concrete of expandToConcrete(pattern)) allow.add(concrete);
   for (const denied of shape.denyConcrete) allow.delete(denied);
   return allow;
 }
@@ -270,10 +254,10 @@ function allowRights(effective: { concrete: Set<Permission>; owner: boolean }): 
 function denyRights(assignments: Array<{ roleId: string; scope: string; effect?: "Allow" | "Deny"; expiresAt?: string }>, now: number): HumanRight[] {
   const byKey = new Map<string, HumanRight>();
   for (const assignment of assignments) {
-    if (assignment.effect !== "Deny" || isExpired(assignment, now)) continue;
+    if (assignment.effect !== "Deny" || isAssignmentExpired(assignment, now)) continue;
     const role = resolveRoleDefinition(assignment.roleId);
     if (!role) continue;
-    const concrete = role.permissions.flatMap(expandGranted);
+    const concrete = role.permissions.flatMap(expandToConcrete);
     for (const right of summarizeByResource(concrete, "deny", assignment.scope)) byKey.set(right.key, right);
   }
   return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label));
@@ -375,7 +359,7 @@ export function computeEffectivePreview(input: EffectivePreviewInput): Principal
     });
 
     const surviteGrants = grants.filter((g) => g.state !== "removed");
-    const hasExpiry = surviteGrants.some((g) => Boolean(g.expiresAt) && !isExpired({ expiresAt: g.expiresAt }, now));
+    const hasExpiry = surviteGrants.some((g) => Boolean(g.expiresAt) && !isAssignmentExpired({ expiresAt: g.expiresAt }, now));
     const expiringSoon = surviteGrants.some((g) => g.expiringSoon);
 
     previews.push({

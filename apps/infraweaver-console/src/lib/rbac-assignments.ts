@@ -2,6 +2,8 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { auditLog } from "@/lib/audit-log";
 import { ROOT_SCOPE, assignmentExceedsGranter, getBuiltInRoles, type Permission, type RoleAssignment } from "@/lib/rbac";
+import { retryWithBackoff } from "@/lib/retry";
+import { errorMessage } from "@/lib/utils";
 import { isNasScope, parseNasScope } from "@/lib/nas/scope";
 import {
   loadUsersConfig,
@@ -76,12 +78,30 @@ const WORDPRESS_SITE_SCOPE_RE = /^\/wordpress\/sites\/([a-z0-9][a-z0-9-]*[a-z0-9
  * to every site here — those converge via the addon's own reconcile — so core never
  * enumerates the cluster.
  */
-const ACCESS_SYNC_RETRY_DELAYS_MS = [1_000, 5_000, 15_000] as const;
-
 function syncWordpressAccessForScope(scope: string): void {
   const match = WORDPRESS_SITE_SCOPE_RE.exec(scope);
   if (!match) return;
-  void reconcileWordpressAccessWithRetry(match[1]);
+  const site = match[1];
+  // Retry with backoff because a REVOKE that silently fails would leave a user
+  // with access — access revocation is a security control, not best-effort. If
+  // every attempt fails the admin can force it via
+  // `POST /api/wordpress/sites/<site>/access`.
+  void retryWithBackoff(
+    `WordPress access sync for '${site}'`,
+    async () => {
+      const mod = await import("@/addons/wordpress-manager/lib/access");
+      await mod.syncSiteAccess(site);
+      // Best-effort follow-up: materialize the new grant set as WordPress
+      // accounts with mapped roles. Deliberately fire-and-forget — the Authentik
+      // reconcile above is the security control; this one re-runs on the next
+      // access sync if the site's pod isn't running right now.
+      void import("@/addons/wordpress-manager/lib/provision")
+        .then((provision) => provision.syncSiteWpUsers(site))
+        .catch((err) => console.warn(`[rbac] WordPress user sync for '${site}' skipped:`, errorMessage(err)));
+    },
+    undefined,
+    "run access sync manually",
+  ).catch(() => {});
 }
 
 /**
@@ -99,7 +119,19 @@ function syncStorageAccessForScope(scope: string): void {
   if (parsed) {
     // Reconciles the granted scope's groups and, for a folder, its share's groups
     // too — the pair an external-storage mount binds. See lib/nas/access.ts.
-    void reconcileStorageAccessWithRetry(parsed.provider, parsed.share, parsed.subfolder);
+    // Retry with backoff for the same reason the WordPress reconcile does: a
+    // REVOKE that silently fails would leave a user seeing a folder they no
+    // longer have rights to. Revocation is a security control, not best-effort.
+    const label = [parsed.provider, parsed.share, parsed.subfolder].filter(Boolean).join("/");
+    void retryWithBackoff(
+      `storage access sync for '${label}'`,
+      async () => {
+        const mod = await import("@/lib/nas/access");
+        await mod.syncShareAccess(parsed.provider, parsed.share, parsed.subfolder);
+      },
+      undefined,
+      "re-run it from the storage panel",
+    ).catch(() => {});
     return;
   }
 
@@ -111,58 +143,20 @@ function syncStorageAccessForScope(scope: string): void {
   // Skipping this is not cosmetic: revoking a broad grant would otherwise
   // reconcile nothing, leaving the user in the Authentik groups a previous sync
   // put them in — still seeing the folder in Nextcloud after their access was
-  // taken away. Revocation is a security control.
-  if (scope === ROOT_SCOPE || isNasScope(scope)) void reconcileBroadStorageScopeWithRetry(scope);
-}
-
-/** Same retry discipline as the per-folder reconcile, for the same reason. */
-async function reconcileBroadStorageScopeWithRetry(scope: string): Promise<void> {
-  for (let attempt = 0; attempt <= ACCESS_SYNC_RETRY_DELAYS_MS.length; attempt++) {
-    try {
-      const mod = await import("@/lib/nas/access");
-      const reconciled = await mod.syncStorageScopesUnder(scope);
-      if (reconciled.length > 0) {
-        console.warn(`[rbac] reconciled ${reconciled.length} storage scope(s) under '${scope}'`);
-      }
-      return;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (attempt === ACCESS_SYNC_RETRY_DELAYS_MS.length) {
-        console.error(
-          `[rbac] storage reconcile under '${scope}' failed after ${attempt + 1} attempts; re-run "Sync access groups" on each affected folder:`,
-          message,
-        );
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, ACCESS_SYNC_RETRY_DELAYS_MS[attempt]));
-    }
-  }
-}
-
-/**
- * Retry with backoff for the same reason the WordPress reconcile does: a REVOKE
- * that silently fails would leave a user seeing a folder they no longer have
- * rights to. Revocation is a security control, not best-effort.
- */
-async function reconcileStorageAccessWithRetry(provider: string, share: string, subfolder: string): Promise<void> {
-  const label = [provider, share, subfolder].filter(Boolean).join("/");
-  for (let attempt = 0; attempt <= ACCESS_SYNC_RETRY_DELAYS_MS.length; attempt++) {
-    try {
-      const mod = await import("@/lib/nas/access");
-      await mod.syncShareAccess(provider, share, subfolder);
-      return;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (attempt === ACCESS_SYNC_RETRY_DELAYS_MS.length) {
-        console.error(
-          `[rbac] storage access sync for '${label}' failed after ${attempt + 1} attempts; re-run it from the storage panel:`,
-          message,
-        );
-        return;
-      }
-      console.warn(`[rbac] storage access sync for '${label}' attempt ${attempt + 1} failed, retrying:`, message);
-      await new Promise((resolve) => setTimeout(resolve, ACCESS_SYNC_RETRY_DELAYS_MS[attempt]));
-    }
+  // taken away. Revocation is a security control, so same retry discipline.
+  if (scope === ROOT_SCOPE || isNasScope(scope)) {
+    void retryWithBackoff(
+      `storage reconcile under '${scope}'`,
+      async () => {
+        const mod = await import("@/lib/nas/access");
+        const reconciled = await mod.syncStorageScopesUnder(scope);
+        if (reconciled.length > 0) {
+          console.warn(`[rbac] reconciled ${reconciled.length} storage scope(s) under '${scope}'`);
+        }
+      },
+      undefined,
+      're-run "Sync access groups" on each affected folder',
+    ).catch(() => {});
   }
 }
 
@@ -177,7 +171,7 @@ async function reconcileStorageAccessWithRetry(provider: string, share: string, 
 function syncJellyfinAccessForScope(scope: string): void {
   void import("@/lib/jellyfin/access")
     .then((mod) => mod.reconcileJellyfinAccessWithRetry(scope))
-    .catch((err) => console.warn("[rbac] Jellyfin access sync skipped:", err instanceof Error ? err.message : err));
+    .catch((err) => console.warn("[rbac] Jellyfin access sync skipped:", errorMessage(err)));
 }
 
 /** Every downstream identity system a scope change can touch. */
@@ -185,40 +179,6 @@ function syncAccessForScope(scope: string): void {
   syncWordpressAccessForScope(scope);
   syncStorageAccessForScope(scope);
   syncJellyfinAccessForScope(scope);
-}
-
-/**
- * Reconcile a site's Authentik access group, retrying with backoff because a
- * REVOKE that silently fails would leave a user with access — access revocation is a
- * security control, not best-effort. Retries survive a transient Authentik outage;
- * if every attempt fails it is logged loudly and the admin can force it via
- * `POST /api/wordpress/sites/<site>/access`.
- */
-async function reconcileWordpressAccessWithRetry(site: string): Promise<void> {
-  for (let attempt = 0; attempt <= ACCESS_SYNC_RETRY_DELAYS_MS.length; attempt++) {
-    try {
-      const mod = await import("@/addons/wordpress-manager/lib/access");
-      await mod.syncSiteAccess(site);
-      // Best-effort follow-up: materialize the new grant set as WordPress
-      // accounts with mapped roles. Deliberately outside the retry loop — the
-      // Authentik reconcile above is the security control; this one re-runs on
-      // the next access sync if the site's pod isn't running right now.
-      void import("@/addons/wordpress-manager/lib/provision")
-        .then((provision) => provision.syncSiteWpUsers(site))
-        .catch((err) =>
-          console.warn(`[rbac] WordPress user sync for '${site}' skipped:`, err instanceof Error ? err.message : err),
-        );
-      return;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (attempt === ACCESS_SYNC_RETRY_DELAYS_MS.length) {
-        console.error(`[rbac] WordPress access sync for '${site}' failed after ${attempt + 1} attempts; run access sync manually:`, message);
-        return;
-      }
-      console.warn(`[rbac] WordPress access sync for '${site}' attempt ${attempt + 1} failed, retrying:`, message);
-      await new Promise((resolve) => setTimeout(resolve, ACCESS_SYNC_RETRY_DELAYS_MS[attempt]));
-    }
-  }
 }
 
 function sameEffect(a?: "Allow" | "Deny", b?: "Allow" | "Deny"): boolean {
@@ -229,63 +189,29 @@ export async function grantRoleAssignment(
   input: GrantAssignmentInput,
   ctx: AssignmentActionContext,
 ): Promise<AssignmentActionResult> {
-  if (!isKnownRole(input.roleId)) return { ok: false, status: 400, error: "Unknown role" };
-
-  // Privilege ceiling: never grant a role conferring permissions the granter lacks
-  // AT THE GRANT'S SCOPE (so a subtree Deny lowers the ceiling there).
-  if (assignmentExceedsGranter(ctx.granterPermsAt(input.scope), input.roleId)) {
-    await auditLog(
-      "rbac:assign:denied",
-      ctx.actor,
-      `Denied granting role '${input.roleId}' to ${input.principalType} '${input.principal}': exceeds granter permissions`,
-    );
-    return { ok: false, status: 403, error: "Cannot grant a role that exceeds your own permissions" };
+  const isGroup = input.principalType === "group";
+  const result = await applyRoleAssignments(
+    {
+      principalType: input.principalType,
+      principal: input.principal,
+      grants: [{ roleId: input.roleId, scope: input.scope, expiresAt: input.expiresAt, effect: input.effect }],
+      revokes: [],
+    },
+    ctx,
+    {
+      commitMessage: `rbac: grant ${input.roleId} to ${isGroup ? `group ${input.principal}` : input.principal} at ${input.scope}`,
+      auditEvent: "rbac:assign",
+      auditMessage: `Granted role '${input.roleId}' to ${isGroup ? `group '${input.principal}'` : `'${input.principal}'`} at scope '${input.scope}'`,
+    },
+  );
+  if (!result.ok) {
+    // Preserve the single-grant path's historical error strings.
+    if (result.status === 400) return { ok: false, status: 400, error: "Unknown role" };
+    if (result.status === 409) return { ok: false, status: 409, error: "Assignment already exists" };
+    return result;
   }
-
-  const file = await loadUsersConfig();
-
-  const newAssignment: RoleAssignment = {
-    id: randomUUID(),
-    roleId: input.roleId,
-    scope: input.scope,
-    principalType: input.principalType,
-    principalId: input.principal,
-    grantedBy: ctx.actor,
-    grantedAt: new Date().toISOString(),
-    ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
-    ...(input.effect ? { effect: input.effect } : {}),
-  };
-
-  if (input.principalType === "group") {
-    const groupName = input.principal;
-    const group = file.groups[groupName] ?? {};
-    const existing = normalizeGroupRoleAssignments(groupName, group.role_assignments);
-    if (existing.some((a) => a.roleId === input.roleId && a.scope === input.scope && sameEffect(a.effect, input.effect))) {
-      return { ok: false, status: 409, error: "Assignment already exists" };
-    }
-    const nextGroups = {
-      ...file.groups,
-      [groupName]: { ...group, role_assignments: [...existing, newAssignment] },
-    };
-    await saveUsersConfig(file.users, file.sha, `rbac: grant ${input.roleId} to group ${groupName} at ${input.scope}`, nextGroups);
-    await auditLog("rbac:assign", ctx.actor, `Granted role '${input.roleId}' to group '${groupName}' at scope '${input.scope}'`);
-    syncAccessForScope(input.scope);
-    return { ok: true, assignment: newAssignment };
-  }
-
-  const username = input.principal;
-  const user = file.users[username];
-  if (!user) return { ok: false, status: 404, error: "User not found" };
-  const existing = normalizeRoleAssignments(username, user.role_assignments);
-  if (existing.some((a) => a.roleId === input.roleId && a.scope === input.scope && sameEffect(a.effect, input.effect))) {
-    return { ok: false, status: 409, error: "Assignment already exists" };
-  }
-  file.users[username] = { ...user, role_assignments: [...existing, newAssignment] };
-  await saveUsersConfig(file.users, file.sha, `rbac: grant ${input.roleId} to ${username} at ${input.scope}`, file.groups);
-  await auditLog("rbac:assign", ctx.actor, `Granted role '${input.roleId}' to '${username}' at scope '${input.scope}'`);
-  syncAccessForScope(input.scope);
-  notifyRbacChange(username, existing, [...existing, newAssignment]);
-  return { ok: true, assignment: newAssignment };
+  // The batch appends its minted grants, so the new assignment is the last one.
+  return { ok: true, assignment: result.assignments[result.assignments.length - 1] };
 }
 
 /** A single addition in a batch apply — a grant with no id yet (minted here). */
@@ -320,6 +246,17 @@ export type ApplyAssignmentsResult =
   | { ok: true; assignments: RoleAssignment[]; grantedCount: number; revokedCount: number }
   | { ok: false; status: number; error: string };
 
+/**
+ * Overrides for the git commit message and audit-log entry, so the single-delta
+ * wrappers (`grantRoleAssignment`/`revokeRoleAssignment`) keep their historical
+ * event names and messages while delegating to the batch implementation.
+ */
+interface ApplyAuditLabels {
+  commitMessage: string;
+  auditEvent: string;
+  auditMessage: string;
+}
+
 /** Two assignments describe the same grant for the batch dedup check. */
 function sameGrantKey(a: { roleId: string; scope: string; effect?: "Allow" | "Deny" }, b: ApplyGrantDraft): boolean {
   return a.roleId === b.roleId && a.scope === b.scope && sameEffect(a.effect, b.effect);
@@ -343,6 +280,7 @@ function sameGrantKey(a: { roleId: string; scope: string; effect?: "Allow" | "De
 export async function applyRoleAssignments(
   input: ApplyAssignmentsInput,
   ctx: AssignmentActionContext,
+  labels?: ApplyAuditLabels,
 ): Promise<ApplyAssignmentsResult> {
   const isGroup = input.principalType === "group";
 
@@ -421,19 +359,21 @@ export async function applyRoleAssignments(
 
   const after = [...remaining, ...added];
   const summary = `${added.length} grant(s), ${removed.length} revoke(s)`;
+  const commitMessage =
+    labels?.commitMessage ?? `rbac: apply ${summary} to ${isGroup ? `group ${input.principal}` : input.principal}`;
 
   if (isGroup) {
     const nextGroups = { ...file.groups, [input.principal]: { ...(group ?? {}), role_assignments: after } };
-    await saveUsersConfig(file.users, file.sha, `rbac: apply ${summary} to group ${input.principal}`, nextGroups);
+    await saveUsersConfig(file.users, file.sha, commitMessage, nextGroups);
   } else {
     file.users[input.principal] = { ...user!, role_assignments: after };
-    await saveUsersConfig(file.users, file.sha, `rbac: apply ${summary} to ${input.principal}`, file.groups);
+    await saveUsersConfig(file.users, file.sha, commitMessage, file.groups);
   }
 
   await auditLog(
-    "rbac:assign:batch",
+    labels?.auditEvent ?? "rbac:assign:batch",
     ctx.actor,
-    `Applied ${summary} to ${input.principalType} '${input.principal}'`,
+    labels?.auditMessage ?? `Applied ${summary} to ${input.principalType} '${input.principal}'`,
   );
 
   // Reconcile every scope a delta touched, exactly once each.
@@ -456,59 +396,30 @@ export interface RevokeAssignmentInput {
 }
 
 /**
- * Privilege ceiling for revoke (mirrors the grant ceiling at `grantRoleAssignment`).
- * Revoking an assignment whose role confers permissions the revoker lacks is
+ * Revoke one assignment. The privilege ceiling mirrors the grant ceiling:
+ * revoking an assignment whose role confers permissions the revoker lacks is
  * denied — whether it is an Allow (revoking it is a lockout / denial-of-service,
  * e.g. removing an Owner "*") or a Deny (stripping it restores those permissions
- * to the target, i.e. escalation). Unknown roles are treated as "nothing to
- * assess" (returns false), same as grant.
+ * to the target, i.e. escalation). `applyRoleAssignments` enforces exactly that.
  */
-async function revokeExceedsCeiling(
-  removed: RoleAssignment,
-  input: RevokeAssignmentInput,
-  ctx: AssignmentActionContext,
-): Promise<boolean> {
-  if (!assignmentExceedsGranter(ctx.granterPermsAt(removed.scope), removed.roleId)) return false;
-  await auditLog(
-    "rbac:revoke:denied",
-    ctx.actor,
-    `Denied revoking assignment '${input.assignmentId}' (role '${removed.roleId}') from ${input.principalType} '${input.principal}': exceeds revoker permissions`,
-  );
-  return true;
-}
-
 export async function revokeRoleAssignment(input: RevokeAssignmentInput, ctx: AssignmentActionContext): Promise<RevokeResult> {
-  const file = await loadUsersConfig();
-
-  if (input.principalType === "group") {
-    const group = file.groups[input.principal];
-    const before = normalizeGroupRoleAssignments(input.principal, group?.role_assignments);
-    const removed = before.find((a) => a.id === input.assignmentId);
-    if (!removed) return { ok: false, status: 404, error: "Assignment not found" };
-    if (await revokeExceedsCeiling(removed, input, ctx)) {
-      return { ok: false, status: 403, error: "Cannot revoke a role that exceeds your own permissions" };
+  const isGroup = input.principalType === "group";
+  const result = await applyRoleAssignments(
+    { principalType: input.principalType, principal: input.principal, grants: [], revokes: [input.assignmentId] },
+    ctx,
+    {
+      commitMessage: `rbac: revoke assignment ${input.assignmentId} from ${isGroup ? `group ${input.principal}` : input.principal}`,
+      auditEvent: "rbac:revoke",
+      auditMessage: `Revoked assignment '${input.assignmentId}' from ${isGroup ? `group '${input.principal}'` : `'${input.principal}'`}`,
+    },
+  );
+  if (!result.ok) {
+    // Preserve the single-revoke path's historical error strings ("User not
+    // found" passes through; the batch's id-specific 404 becomes the generic one).
+    if (result.status === 404 && result.error !== "User not found") {
+      return { ok: false, status: 404, error: "Assignment not found" };
     }
-    const after = before.filter((a) => a.id !== input.assignmentId);
-    const nextGroups = { ...file.groups, [input.principal]: { ...group, role_assignments: after } };
-    await saveUsersConfig(file.users, file.sha, `rbac: revoke assignment ${input.assignmentId} from group ${input.principal}`, nextGroups);
-    await auditLog("rbac:revoke", ctx.actor, `Revoked assignment '${input.assignmentId}' from group '${input.principal}'`);
-    syncAccessForScope(removed.scope);
-    return { ok: true };
+    return result;
   }
-
-  const user = file.users[input.principal];
-  if (!user) return { ok: false, status: 404, error: "User not found" };
-  const before = normalizeRoleAssignments(input.principal, user.role_assignments);
-  const removed = before.find((a) => a.id === input.assignmentId);
-  if (!removed) return { ok: false, status: 404, error: "Assignment not found" };
-  if (await revokeExceedsCeiling(removed, input, ctx)) {
-    return { ok: false, status: 403, error: "Cannot revoke a role that exceeds your own permissions" };
-  }
-  const after = before.filter((a) => a.id !== input.assignmentId);
-  file.users[input.principal] = { ...user, role_assignments: after };
-  await saveUsersConfig(file.users, file.sha, `rbac: revoke assignment ${input.assignmentId} from ${input.principal}`, file.groups);
-  await auditLog("rbac:revoke", ctx.actor, `Revoked assignment '${input.assignmentId}' from '${input.principal}'`);
-  syncAccessForScope(removed.scope);
-  notifyRbacChange(input.principal, before, after);
   return { ok: true };
 }
