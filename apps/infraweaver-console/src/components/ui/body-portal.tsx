@@ -1,10 +1,17 @@
 "use client";
-import { useEffect, useState, type ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 interface BodyPortalProps {
   children: ReactNode;
 }
+
+// Client-mount gate. Server snapshot is `false`, client snapshot is `true`, so
+// children portal in only after hydration — same effect as a mount flag, but
+// without a setState-in-effect (react-hooks/set-state-in-effect).
+const subscribe = () => () => {};
+const getMounted = () => true;
+const getMountedServer = () => false;
 
 /**
  * Renders children into `document.body` via a portal, gated on client mount so
@@ -12,11 +19,7 @@ interface BodyPortalProps {
  * BodyPortal helpers on the apps/gameservers pages.
  */
 export function BodyPortal({ children }: BodyPortalProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useSyncExternalStore(subscribe, getMounted, getMountedServer);
 
   if (!mounted) return null;
   return createPortal(children, document.body);
