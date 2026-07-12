@@ -477,6 +477,21 @@ const ROLE_ALIASES: Record<string, BuiltInRoleId> = {
 
 export type LegacyRole = "admin" | "operator" | "viewer" | "unknown";
 
+/**
+ * Canonicalize the group names carried on a session before they drive RBAC.
+ * Some SSO providers (and undici header round-trips) deliver group names with
+ * surrounding whitespace — e.g. " platform-admins". Left untrimmed, every
+ * downstream match is exact-string (`groups.includes(...)`, the users.yaml
+ * `groups[name]` key lookup), so a whitespace-padded admin group silently
+ * resolves to zero permissions and the member gets a 403. Trim each name and
+ * drop the empties so " platform-admins" and "platform-admins" are the same
+ * principal everywhere.
+ */
+export function normalizeGroups(raw: readonly string[] | undefined): string[] {
+  if (!raw) return [];
+  return raw.map((group) => group.trim()).filter(Boolean);
+}
+
 export function getRole(groups: string[]): LegacyRole {
   if (groups.includes("platform-admins")) return "admin";
   if (groups.includes("platform-operators")) return "operator";

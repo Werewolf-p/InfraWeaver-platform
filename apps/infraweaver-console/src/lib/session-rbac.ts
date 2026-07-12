@@ -4,6 +4,7 @@ import {
   getEffectivePermissions,
   hasAssignedPermissionForScope,
   hasPermission,
+  normalizeGroups,
   type Permission,
   type RoleAssignment,
 } from "@/lib/rbac";
@@ -32,7 +33,7 @@ export async function getSessionRBACContext(
   session: Session | null,
   revalidateSeconds = 60,
 ): Promise<SessionRBACContext> {
-  const groups: string[] = (session?.user as { groups?: string[] } | undefined)?.groups ?? [];
+  const groups = normalizeGroups((session?.user as { groups?: string[] } | undefined)?.groups);
   const { username, roleAssignments: userAssignments } = await getRoleAssignmentsForSession(session, revalidateSeconds);
   // Fold in assignments granted to the session's groups (principalType "group").
   const groupAssignments = await getGroupRoleAssignmentsForSession(session, revalidateSeconds);

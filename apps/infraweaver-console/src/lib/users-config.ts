@@ -1,7 +1,7 @@
 import { dump, load } from "js-yaml";
 import type { Session } from "next-auth";
 import { getGitAccessToken, gitReadFile, gitWriteFile } from "@/lib/git-provider";
-import type { RoleAssignment } from "@/lib/rbac";
+import { normalizeGroups, type RoleAssignment } from "@/lib/rbac";
 
 const USERS_FILE_PATH = "users.yaml";
 
@@ -117,7 +117,7 @@ export async function getGroupRoleAssignmentsForSession(
   revalidateSeconds = 0,
 ): Promise<RoleAssignment[]> {
   if (!session) return [];
-  const groups: string[] = (session.user as { groups?: string[] } | undefined)?.groups ?? [];
+  const groups = normalizeGroups((session.user as { groups?: string[] } | undefined)?.groups);
   if (groups.length === 0) return [];
   const loaded = await loadUsersConfig(revalidateSeconds);
   const out: RoleAssignment[] = [];
