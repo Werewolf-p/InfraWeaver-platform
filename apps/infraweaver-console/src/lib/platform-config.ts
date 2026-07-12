@@ -180,20 +180,9 @@ export const PlatformIdentitySchema = z
 export type PlatformIdentityInput = z.infer<typeof PlatformIdentitySchema>;
 
 /** Fully-resolved identity — every field present (git → env → default). */
-export interface ResolvedPlatformIdentity {
-  baseDomain: string;
-  brandName: string;
-  registryHost: string;
-  argocdUrl: string;
-  authentikUrl: string;
-  authentikIssuer: string;
-  defaultCluster: string;
+export type ResolvedPlatformIdentity = Omit<Required<PlatformIdentityInput>, "tlsSecrets"> & {
   tlsSecrets: { public: string; internal: string };
-  authMiddleware: string;
-  internalHostAllowlist: string[];
-  externalRouteDomains: string[];
-  homepageServiceMap: Record<string, string>;
-}
+};
 
 /** Identity from env overrides + typed defaults (levels 2–3), no git. */
 export function envAndDefaultIdentity(): ResolvedPlatformIdentity {
@@ -213,19 +202,31 @@ export function envAndDefaultIdentity(): ResolvedPlatformIdentity {
   };
 }
 
+/** Pick only the truthy (git-provided, non-empty) scalar overrides from a partial identity. */
+function definedScalars<K extends keyof PlatformIdentityInput>(
+  git: PlatformIdentityInput,
+  keys: readonly K[],
+): Partial<Pick<PlatformIdentityInput, K>> {
+  return Object.fromEntries(
+    keys.filter((key) => git[key]).map((key) => [key, git[key]]),
+  ) as Partial<Pick<PlatformIdentityInput, K>>;
+}
+
 /** Overlay validated git-backed identity (level 1) onto the env/default base. */
 export function overlayIdentity(base: ResolvedPlatformIdentity, git: PlatformIdentityInput): ResolvedPlatformIdentity {
   return {
     ...base,
-    ...(git.baseDomain ? { baseDomain: git.baseDomain } : {}),
-    ...(git.brandName ? { brandName: git.brandName } : {}),
-    ...(git.registryHost ? { registryHost: git.registryHost } : {}),
-    ...(git.argocdUrl ? { argocdUrl: git.argocdUrl } : {}),
-    ...(git.authentikUrl ? { authentikUrl: git.authentikUrl } : {}),
-    ...(git.authentikIssuer ? { authentikIssuer: git.authentikIssuer } : {}),
-    ...(git.defaultCluster ? { defaultCluster: git.defaultCluster } : {}),
+    ...definedScalars(git, [
+      "baseDomain",
+      "brandName",
+      "registryHost",
+      "argocdUrl",
+      "authentikUrl",
+      "authentikIssuer",
+      "defaultCluster",
+      "authMiddleware",
+    ]),
     tlsSecrets: { ...base.tlsSecrets, ...(git.tlsSecrets ?? {}) },
-    ...(git.authMiddleware ? { authMiddleware: git.authMiddleware } : {}),
     // Collections are ADDITIVE — git entries extend the built-in defaults rather
     // than replace them, so forks add hosts/domains without dropping the
     // service hosts (and NAS hosts) the console relies on.

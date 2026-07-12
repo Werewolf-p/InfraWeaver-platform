@@ -1,3 +1,5 @@
+import { createServiceFetch } from "@/lib/service-fetch";
+
 const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const CF_ZONE_ID = process.env.CF_ZONE_ID;
 
@@ -69,28 +71,37 @@ function requireZoneId(zoneId?: string): string {
   return id;
 }
 
-function headers() {
-  assertToken();
-  return {
-    Authorization: `Bearer ${CF_TOKEN}`,
-    "Content-Type": "application/json",
-  };
-}
+const cfServiceFetch = createServiceFetch({
+  baseUrl: CF_BASE,
+  token: CF_TOKEN,
+  headers: { "Content-Type": "application/json" },
+});
 
 async function cfRequest<T>(path: string, options?: RequestInit): Promise<CloudflareEnvelope<T>> {
-  const res = await fetch(`${CF_BASE}${path}`, {
-    ...options,
-    cache: "no-store",
-    headers: {
-      ...headers(),
-      ...options?.headers,
-    },
-  });
+  assertToken();
+  const res = await cfServiceFetch(path, options);
   const data = await res.json() as CloudflareEnvelope<T>;
   if (!res.ok || !data.success) {
     throw new Error(data.errors?.[0]?.message ?? `Cloudflare API request failed (${res.status})`);
   }
   return data;
+}
+
+/** Fetch every page of a paginated Cloudflare list endpoint. */
+async function cfPaginate<T>(path: string, filters: Record<string, string> = {}, perPage = 100): Promise<T[]> {
+  let page = 1;
+  let totalPages = 1;
+  const items: T[] = [];
+
+  while (page <= totalPages) {
+    const params = new URLSearchParams({ per_page: String(perPage), page: String(page), ...filters });
+    const response = await cfRequest<T[]>(`${path}?${params}`);
+    items.push(...(response.result ?? []));
+    totalPages = response.result_info?.total_pages ?? 1;
+    page += 1;
+  }
+
+  return items;
 }
 
 export async function cfFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -104,20 +115,7 @@ export async function cfFetch<T>(path: string, options?: RequestInit): Promise<T
  * operator can deploy under — no domain list is ever hardcoded. Paginated.
  */
 export async function listZones(): Promise<CloudflareZone[]> {
-  const perPage = 50;
-  let page = 1;
-  let totalPages = 1;
-  const zones: CloudflareZone[] = [];
-
-  while (page <= totalPages) {
-    const params = new URLSearchParams({ per_page: String(perPage), page: String(page) });
-    const response = await cfRequest<CloudflareZone[]>(`/zones?${params}`);
-    zones.push(...(response.result ?? []));
-    totalPages = response.result_info?.total_pages ?? 1;
-    page += 1;
-  }
-
-  return zones;
+  return cfPaginate<CloudflareZone>("/zones", {}, 50);
 }
 
 /**
@@ -139,24 +137,10 @@ export async function listDnsRecords(filters: {
   name?: string;
   perPage?: number;
 } = {}, zoneId?: string): Promise<CloudflareDnsRecord[]> {
-  const zone = requireZoneId(zoneId);
-  const perPage = filters.perPage ?? 100;
-  let page = 1;
-  let totalPages = 1;
-  const records: CloudflareDnsRecord[] = [];
-
-  while (page <= totalPages) {
-    const params = new URLSearchParams({ per_page: String(perPage), page: String(page) });
-    if (filters.type) params.set("type", filters.type);
-    if (filters.name) params.set("name", filters.name);
-
-    const response = await cfRequest<CloudflareDnsRecord[]>(`/zones/${zone}/dns_records?${params}`);
-    records.push(...(response.result ?? []));
-    totalPages = response.result_info?.total_pages ?? 1;
-    page += 1;
-  }
-
-  return records;
+  return cfPaginate<CloudflareDnsRecord>(`/zones/${requireZoneId(zoneId)}/dns_records`, {
+    ...(filters.type ? { type: filters.type } : {}),
+    ...(filters.name ? { name: filters.name } : {}),
+  }, filters.perPage ?? 100);
 }
 
 export async function createDnsRecord(input: {

@@ -37,32 +37,27 @@ function countReadyNodes(nodes: k8s.V1Node[]) {
   return nodes.filter((node) => node.status?.conditions?.find((condition) => condition.type === "Ready")?.status === "True").length;
 }
 
-function buildPlatformStatus(totalNodes: number, readyNodes: number): PlatformStatusPayload {
-  return {
-    status: readyNodes === totalNodes ? "operational" : readyNodes > 0 ? "degraded" : "outage",
-    services: [
-      { name: "Kubernetes API", status: "operational", latencyMs: 12 },
-      { name: "Node Pool", status: readyNodes === totalNodes ? "operational" : "degraded", latencyMs: 0 },
-      { name: "ArgoCD", status: "operational", latencyMs: 45 },
-      { name: "Longhorn Storage", status: "operational", latencyMs: 8 },
-      { name: "Ingress", status: "operational", latencyMs: 3 },
-      { name: "Monitoring", status: "operational", latencyMs: 20 },
-    ],
-    metrics: { totalNodes, readyNodes, uptime: "99.97%" },
-    checkedAt: new Date().toISOString(),
-  };
-}
+/**
+ * Placeholder service rows shown on the home dashboard. Only "Node Pool" is
+ * derived from live data; the rest are static optimistic figures.
+ */
+const PLACEHOLDER_SERVICES: ReadonlyArray<{ latencyMs: number; name: string; status: string }> = [
+  { name: "Kubernetes API", status: "operational", latencyMs: 12 },
+  { name: "ArgoCD", status: "operational", latencyMs: 45 },
+  { name: "Longhorn Storage", status: "operational", latencyMs: 8 },
+  { name: "Ingress", status: "operational", latencyMs: 3 },
+  { name: "Monitoring", status: "operational", latencyMs: 20 },
+];
 
-function buildClusterHealth(totalNodes: number, readyNodes: number): ClusterHealthPayload {
+function buildNodeHealthPayload(totalNodes: number, readyNodes: number, allReadyStatus: string): PlatformStatusPayload {
+  const allReady = readyNodes === totalNodes;
+  const [kubernetesApi, ...staticServices] = PLACEHOLDER_SERVICES;
   return {
-    status: readyNodes === totalNodes ? "healthy" : readyNodes > 0 ? "degraded" : "outage",
+    status: allReady ? allReadyStatus : readyNodes > 0 ? "degraded" : "outage",
     services: [
-      { name: "Kubernetes API", status: "operational", latencyMs: 12 },
-      { name: "Node Pool", status: readyNodes === totalNodes ? "operational" : "degraded", latencyMs: 0 },
-      { name: "ArgoCD", status: "operational", latencyMs: 45 },
-      { name: "Longhorn Storage", status: "operational", latencyMs: 8 },
-      { name: "Ingress", status: "operational", latencyMs: 3 },
-      { name: "Monitoring", status: "operational", latencyMs: 20 },
+      { ...kubernetesApi },
+      { name: "Node Pool", status: allReady ? "operational" : "degraded", latencyMs: 0 },
+      ...staticServices.map((service) => ({ ...service })),
     ],
     metrics: { totalNodes, readyNodes, uptime: "99.97%" },
     checkedAt: new Date().toISOString(),
@@ -116,10 +111,10 @@ export async function loadHomeDashboardSummary(options: { includeArgocdSummary: 
 
   return {
     argocd: options.includeArgocdSummary ? summarizeArgocdApps(argocdResult.apps) : null,
-    clusterHealth: buildClusterHealth(nodesResponse.items.length, readyNodes),
+    clusterHealth: buildNodeHealthPayload(nodesResponse.items.length, readyNodes, "healthy"),
     events,
     homepageHealth,
-    platformStatus: buildPlatformStatus(nodesResponse.items.length, readyNodes),
+    platformStatus: buildNodeHealthPayload(nodesResponse.items.length, readyNodes, "operational"),
     pods,
   };
 }

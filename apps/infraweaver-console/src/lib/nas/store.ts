@@ -18,6 +18,7 @@
  */
 
 import { z } from "zod";
+import { filterValid } from "@/lib/zod-utils";
 import type { NasBackend } from "@/lib/nas/providers";
 
 const KV_MOUNT = process.env.OPENBAO_KV_MOUNT || "secret";
@@ -118,7 +119,13 @@ function vaultAuth(): { addr: string; token: string } {
 }
 
 /** `logicalPath` is a KV logical path (e.g. `platform/nas/creds/foo`); the KV
- *  mount + `data/` prefix are added here. */
+ *  mount + `data/` prefix are added here.
+ *
+ *  NOTE: intentionally NOT `@/lib/openbao/kv` — that helper imports
+ *  "server-only", which the plain-jest suites importing this module for real
+ *  (nas-store, nas-provider-resolve, internal-url-allowlist-server) cannot
+ *  resolve outside Next's webpack alias. The AbortController dance (instead of
+ *  `AbortSignal.timeout`) is also deliberate: jsdom-jest lacks the static. */
 async function vaultFetch(logicalPath: string, init: RequestInit): Promise<Response> {
   const { addr, token } = vaultAuth();
   const controller = new AbortController();
@@ -175,23 +182,12 @@ async function readRegistry(): Promise<NasRegistry> {
   const parsed = REGISTRY_SCHEMA.safeParse(data);
   if (parsed.success) return parsed.data;
   // Salvage rows individually so a single bad entry doesn't hide the rest.
-  const rawProviders = (data as { providers?: unknown[] }).providers;
-  const providers: StoredNasProvider[] = [];
-  if (Array.isArray(rawProviders)) {
-    for (const row of rawProviders) {
-      const parsedRow = STORED_PROVIDER_SCHEMA.safeParse(row);
-      if (parsedRow.success) providers.push(parsedRow.data);
-    }
-  }
-  const rawIds = (data as { suppressedEnvIds?: unknown[] }).suppressedEnvIds;
-  const suppressedEnvIds = Array.isArray(rawIds)
-    ? rawIds.filter((x): x is string => PROVIDER_ID_SCHEMA.safeParse(x).success)
-    : [];
-  const rawScopes = (data as { syncedScopes?: unknown[] }).syncedScopes;
-  const syncedScopes = Array.isArray(rawScopes)
-    ? rawScopes.filter((x): x is string => SYNCED_SCOPE_SCHEMA.safeParse(x).success)
-    : [];
-  return { providers, suppressedEnvIds, syncedScopes };
+  const raw = data as { providers?: unknown; suppressedEnvIds?: unknown; syncedScopes?: unknown };
+  return {
+    providers: filterValid(STORED_PROVIDER_SCHEMA, raw.providers),
+    suppressedEnvIds: filterValid(PROVIDER_ID_SCHEMA, raw.suppressedEnvIds),
+    syncedScopes: filterValid(SYNCED_SCOPE_SCHEMA, raw.syncedScopes),
+  };
 }
 
 /** Write the whole registry object (KV v2 write replaces the whole secret). */
