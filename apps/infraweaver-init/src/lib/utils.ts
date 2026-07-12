@@ -125,3 +125,9 @@ export function generatePassword(length = 24): string {
   crypto.getRandomValues(values)
   return Array.from(values, (n) => charset[n % charset.length]).join('')
 }
+
+/** Extract a human-readable message from an unknown thrown value. */
+export function errMessage(error: unknown, fallback?: string): string {
+  if (error instanceof Error) return error.message;
+  return fallback ?? String(error);
+}

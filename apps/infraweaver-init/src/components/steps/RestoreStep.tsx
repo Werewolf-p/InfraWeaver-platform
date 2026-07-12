@@ -7,7 +7,7 @@ import { listBackups, type TlsBackupItem, type PvcVolumeItem } from '@/lib/api'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { StepHeader } from '@/components/ui/StepHeader'
 import { useWizardStore } from '@/lib/store'
-import { staggerContainer } from '@/lib/utils'
+import { errMessage, staggerContainer } from '@/lib/utils'
 
 function CheckBox({ checked }: { checked: boolean }) {
   return (
@@ -43,7 +43,7 @@ export function RestoreStep() {
         }
       })
       .catch((err) => {
-        setFetchError(err instanceof Error ? err.message : 'Failed to load backup list')
+        setFetchError(errMessage(err, 'Failed to load backup list'))
       })
       .finally(() => setLoadingBackups(false))
   }, [])
