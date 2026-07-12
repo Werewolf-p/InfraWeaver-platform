@@ -18,6 +18,7 @@ import {
   restartServerPods,
   sendDiscordWebhook,
   upsertConfigMap,
+  waitForVolumeReleased,
   writeSavedCommands,
   type DiscordWebhookConfig,
   type GameHubClients,
@@ -260,6 +261,12 @@ const updateIdentity: ServerActionHandler = async ({ clients, name, body }) => {
 
 export const serverActionHandlers: Record<ServerPatchAction, ServerActionHandler> = {
   start: async ({ clients, name, webhookConfig }) => {
+    // A ReadWriteOnce PVC stays attached to the old pod until it fully
+    // terminates. If start races a just-issued stop, scaling to 1 now would
+    // schedule the new pod while the old one still holds the volume →
+    // Multi-Attach churn. Wait for the terminating pod (and its volume) to be
+    // released first; bounded, so a stalled termination still lets start through.
+    await waitForVolumeReleased(clients.coreApi, name);
     await clients.appsApi.patchNamespacedDeployment({
       name,
       namespace: GAME_HUB_NAMESPACE,

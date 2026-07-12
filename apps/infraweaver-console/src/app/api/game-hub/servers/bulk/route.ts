@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { auditLog } from "@/lib/audit-log";
 import { getGameHubAccessContext, hasGameHubPermission } from "@/lib/game-hub";
-import { GAME_HUB_NS, gracefulStopServer, makeGameHubClients, readServerEgg, restartServerPods } from "@/lib/game-hub-server";
+import { GAME_HUB_NS, gracefulStopServer, makeGameHubClients, readServerEgg, restartServerPods, waitForVolumeReleased } from "@/lib/game-hub-server";
 import { writeServerManifest } from "@/lib/game-hub-manifest";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { isValidK8sName } from "@/lib/validate";
@@ -98,6 +98,9 @@ export async function POST(req: NextRequest) {
             console.error(`writeServerManifest failed for bulk stop on ${name}:`, gitErr);
           });
         } else {
+          // Wait for a terminating pod's RWO volume to detach before scaling up,
+          // so a start racing a just-issued stop does not churn on Multi-Attach.
+          await waitForVolumeReleased(coreApi, name);
           await appsApi.patchNamespacedDeployment({
             name,
             namespace: GAME_HUB_NS,

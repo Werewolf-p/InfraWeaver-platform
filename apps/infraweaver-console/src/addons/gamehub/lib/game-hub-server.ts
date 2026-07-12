@@ -244,6 +244,38 @@ export async function scaleServerWorkload(appsApi: k8s.AppsV1Api, name: string, 
   }
 }
 
+/**
+ * Wait until any pod still terminating for this server has fully exited, so a
+ * start issued right after a stop does not schedule the new pod onto a
+ * ReadWriteOnce PVC the old (terminating) pod still holds — which triggers
+ * repeated `Multi-Attach error for volume` and churns the pod until the volume
+ * finally detaches.
+ *
+ * Only *terminating* pods (deletionTimestamp set) gate the start: an
+ * already-live pod means the server is up, so start stays idempotent and
+ * returns at once, and a genuinely stopped server (no pods) also returns on the
+ * first poll. Bounded and best-effort — returns false on timeout so the caller
+ * scales up anyway (no worse than not waiting), keeping the request from
+ * hanging when a termination stalls.
+ */
+export async function waitForVolumeReleased(
+  coreApi: k8s.CoreV1Api,
+  name: string,
+  timeoutMs = 15_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const pods = await coreApi
+      .listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` })
+      .catch(() => null);
+    // A failed list must not strand the start: fall through to the deadline
+    // check and retry until it passes, then let the caller proceed.
+    if (pods && !pods.items.some((pod) => pod.metadata?.deletionTimestamp)) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
 export async function getServerPod(coreApi: k8s.CoreV1Api, name: string, runningOnly = false) {
   const pods = await coreApi.listNamespacedPod({ namespace: GAME_HUB_NS, labelSelector: `app=${name}` });
   // Exclude pods being terminated — their phase stays "Running" during graceful shutdown
