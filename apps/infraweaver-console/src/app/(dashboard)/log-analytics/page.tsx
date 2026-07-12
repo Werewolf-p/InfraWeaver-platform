@@ -1,10 +1,11 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { FileText, BarChart2} from "lucide-react";
+import { BarChart2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { FilterSelect } from "@/components/ui/filter-select";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface Pod {
   name: string;
@@ -27,22 +28,15 @@ export default function LogAnalyticsPage() {
   const [selectedContainer, setSelectedContainer] = useState("");
   const [analyze, setAnalyze] = useState(false);
 
-  const { data: podsData } = useQuery({
+  const { data: podsData } = useApiQuery<Pod[]>({
     queryKey: ["pods"],
-    queryFn: async () => {
-      const res = await fetch("/api/pods");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<Pod[]>;
-    },
+    path: "/api/pods",
   });
 
-  const { data: analytics, isLoading } = useQuery({
+  const { data: analytics, isLoading } = useApiQuery<AnalyticsData>({
     queryKey: ["log-analytics", selectedNs, selectedPod, selectedContainer],
-    queryFn: async () => {
-      const res = await fetch(`/api/logs/analytics?namespace=${selectedNs}&pod=${selectedPod}&container=${selectedContainer}`);
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<AnalyticsData>;
-    },
+    path: "/api/logs/analytics",
+    request: { query: { namespace: selectedNs, pod: selectedPod, container: selectedContainer } },
     enabled: analyze && !!selectedPod && !!selectedContainer,
   });
 
@@ -56,32 +50,38 @@ export default function LogAnalyticsPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={BarChart2} title="Log Analytics" />
-      <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><FileText className="w-5 h-5 text-slate-500 dark:text-slate-400" />Log Analytics</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Analyze log patterns and error distribution</p>
-      </div>
+      <PageHeader icon={BarChart2} title="Log Analytics" subtitle="Analyze log patterns and error distribution" />
       <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Namespace</label>
-            <select value={selectedNs} onChange={e => { setSelectedNs(e.target.value); setSelectedPod(""); setSelectedContainer(""); setAnalyze(false); }} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50">
-              {namespaces.map(ns => <option key={ns} value={ns}>{ns}</option>)}
-            </select>
+            <FilterSelect
+              label="Namespace"
+              className="w-full"
+              value={selectedNs}
+              onChange={(value) => { setSelectedNs(value); setSelectedPod(""); setSelectedContainer(""); setAnalyze(false); }}
+              options={namespaces}
+            />
           </div>
           <div>
             <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Pod</label>
-            <select value={selectedPod} onChange={e => { setSelectedPod(e.target.value); setSelectedContainer(""); setAnalyze(false); }} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50">
-              <option value="">Select pod...</option>
-              {nsPods.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-            </select>
+            <FilterSelect
+              label="Pod"
+              className="w-full"
+              value={selectedPod}
+              onChange={(value) => { setSelectedPod(value); setSelectedContainer(""); setAnalyze(false); }}
+              options={[{ value: "", label: "Select pod..." }, ...nsPods.map(p => p.name)]}
+            />
           </div>
           <div>
             <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Container</label>
-            <select value={selectedContainer} onChange={e => { setSelectedContainer(e.target.value); setAnalyze(false); }} className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50">
-              <option value="">Select container...</option>
-              {(selectedPodObj?.containers ?? []).map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <FilterSelect
+              label="Container"
+              className="w-full"
+              value={selectedContainer}
+              onChange={(value) => { setSelectedContainer(value); setAnalyze(false); }}
+              options={[{ value: "", label: "Select container..." }, ...(selectedPodObj?.containers ?? [])]}
+            />
           </div>
         </div>
         <button onClick={() => setAnalyze(true)} disabled={!selectedPod || !selectedContainer} className="w-full py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">

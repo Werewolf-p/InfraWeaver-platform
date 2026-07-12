@@ -1,9 +1,9 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { ShieldCheck, Lock} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface Secret {
   namespace: string;
@@ -21,13 +21,9 @@ function dayColor(daysLeft: number, expired: boolean) {
 }
 
 export function SecretExpiryView() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useApiQuery<{ secrets: Secret[] }>({
     queryKey: ["security", "secrets"],
-    queryFn: async () => {
-      const res = await fetch("/api/security/secrets");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<{ secrets: Secret[] }>;
-    },
+    path: "/api/security/secrets",
   });
 
   const secrets = [...(data?.secrets ?? [])].sort((a, b) => a.daysLeft - b.daysLeft);

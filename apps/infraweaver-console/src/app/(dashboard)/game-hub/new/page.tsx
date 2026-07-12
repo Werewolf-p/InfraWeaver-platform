@@ -31,6 +31,11 @@ import { INTERNAL_DNS_DOMAIN, ROOT_DNS_DOMAIN } from "@/lib/dns";
 import type { CatalogCategory, CatalogEntry } from "@/lib/pelican-eggs";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+import { useDebounce } from "@/hooks/use-debounce";
+import { downloadTextFile } from "@/lib/download";
+import { fetchJson, FetchJsonError } from "@/lib/fetch-json";
+import { formatQuantity, parseCpuMillicores, parseMemoryMi } from "@/lib/k8s-quantity";
+import { sliderTrackStyle } from "@/lib/slider";
 import { explainEvent, severityFor, isNoiseEvent } from "@/addons/gamehub/lib/event-explain";
 
 const STEPS = [
@@ -79,62 +84,22 @@ function builtInIcon(egg: GameEgg) {
   return BUILT_IN_ICONS[egg.id] ?? "🎮";
 }
 
+// Egg default parsers — shared k8s-quantity parsing plus the wizard's
+// fallbacks (2Gi / 1 CPU / 10Gi) and floors (512Mi / 0.5 CPU / 5Gi).
 function parseMemoryToMi(value: string | undefined) {
-  const trimmed = (value ?? "2Gi").trim().toLowerCase();
-  const numeric = Number.parseFloat(trimmed.replace(/[^\d.]/g, "")) || 2048;
-  if (trimmed.endsWith("gi") || trimmed.endsWith("g")) return Math.round(numeric * 1024);
-  if (trimmed.endsWith("ki") || trimmed.endsWith("k")) return Math.max(512, Math.round(numeric / 1024));
-  return Math.max(512, Math.round(numeric));
-}
-
-function parseNodeMemoryToMi(value: string | undefined | null) {
-  const trimmed = (value ?? "").trim().toLowerCase();
-  if (!trimmed) return 0;
-  const numeric = Number.parseFloat(trimmed.replace(/[^\d.]/g, ""));
-  if (!Number.isFinite(numeric)) return 0;
-  if (trimmed.endsWith("ti") || trimmed.endsWith("t")) return Math.round(numeric * 1024 * 1024);
-  if (trimmed.endsWith("gi") || trimmed.endsWith("g")) return Math.round(numeric * 1024);
-  if (trimmed.endsWith("ki") || trimmed.endsWith("k")) return Math.round(numeric / 1024);
-  return Math.round(numeric);
-}
-
-function formatMemory(mi: number) {
-  return mi % 1024 === 0 ? `${mi / 1024}Gi` : `${mi}Mi`;
+  return Math.max(512, Math.round(parseMemoryMi(value ?? "2Gi")) || 2048);
 }
 
 function parseCpuToCores(value: string | undefined) {
-  const trimmed = (value ?? "1").trim().toLowerCase();
-  if (trimmed.endsWith("m")) {
-    return Math.max(0.5, Number.parseInt(trimmed.slice(0, -1), 10) / 1000);
-  }
-  return Math.max(0.5, Number.parseFloat(trimmed) || 1);
-}
-
-function parseNodeCpuToCores(value: string | undefined | null) {
-  const trimmed = (value ?? "").trim().toLowerCase();
-  if (!trimmed) return 0;
-  if (trimmed.endsWith("m")) return (Number.parseInt(trimmed.slice(0, -1), 10) || 0) / 1000;
-  return Number.parseFloat(trimmed) || 0;
-}
-
-function formatCpu(cores: number) {
-  return Number.isInteger(cores) ? String(cores) : cores.toFixed(1).replace(/\.0$/, "");
+  return Math.max(0.5, parseCpuMillicores(value ?? "1") / 1000 || 1);
 }
 
 function parseStorageToGi(value: string | undefined) {
-  const trimmed = (value ?? "10Gi").trim().toLowerCase();
-  const numeric = Number.parseFloat(trimmed.replace(/[^\d.]/g, "")) || 10;
-  if (trimmed.endsWith("ti") || trimmed.endsWith("t")) return Math.round(numeric * 1024);
-  if (trimmed.endsWith("mi") || trimmed.endsWith("m")) return Math.max(5, Math.round(numeric / 1024));
-  return Math.max(5, Math.round(numeric));
+  return Math.max(5, Math.round(parseMemoryMi(value ?? "10Gi") / 1024) || 10);
 }
 
-function sliderTrackStyle(value: number, min: number, max: number) {
-  const percent = ((Math.min(Math.max(value, min), max) - min) / Math.max(max - min, 1)) * 100;
-  return {
-    background: `linear-gradient(90deg, #0078D4 0%, #0078D4 ${percent}%, #1a1a1a ${percent}%, #1a1a1a 100%)`,
-  } as const;
-}
+const formatMemory = (mi: number) => formatQuantity(mi, "memory");
+const formatCpu = (cores: number) => formatQuantity(cores, "cpu");
 
 type GameHubCapacityNode = {
   name: string;
@@ -265,11 +230,6 @@ const GAME_RESOURCE_HINTS: Record<string, ResourceHint> = {
     cpu: "1 core is usually enough",
     storage: "5–10 Gi — world files are small",
   },
-  tshock: {
-    memory: "1–2 Gi — large worlds or mods may need more",
-    cpu: "1 core is usually enough",
-    storage: "5–10 Gi — world files are small",
-  },
   valheim: {
     memory: "4 Gi minimum, 6 Gi+ for many players",
     cpu: "2–4 cores recommended",
@@ -309,7 +269,8 @@ const GAME_RESOURCE_HINTS: Record<string, ResourceHint> = {
 
 function getResourceHint(egg: GameEgg | null): ResourceHint | null {
   if (!egg) return null;
-  return GAME_RESOURCE_HINTS[egg.id] ?? null;
+  // tshock is Terraria under the hood — same sizing guidance.
+  return GAME_RESOURCE_HINTS[egg.id === "tshock" ? "terraria" : egg.id] ?? null;
 }
 
 // ─── Fun server name generator ───────────────────────────────────────────────
@@ -413,35 +374,22 @@ export default function NewGameServerPage() {
 
   const { data: catalogData, isLoading: catalogLoading, error: catalogError } = useQuery({
     queryKey: ["game-hub", "pelican-catalog"],
-    queryFn: async () => {
-      const response = await fetch("/api/game-hub/eggs/catalog");
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({ error: "Failed to load egg catalog" })) as { error?: string };
-        throw new Error(errorPayload.error ?? "Failed to load egg catalog");
-      }
-      return response.json() as Promise<{ categories: CatalogCategory[]; total: number }>;
-    },
+    queryFn: () => fetchJson<{ categories: CatalogCategory[]; total: number }>("/api/game-hub/eggs/catalog"),
     staleTime: 3_600_000,
   });
 
   const { data: setupData } = useQuery({
     queryKey: ["game-hub", "setup"],
-    queryFn: async () => {
-      const response = await fetch("/api/game-hub/setup");
-      if (!response.ok) throw new Error("Failed to load storage classes");
-      return response.json() as Promise<{ storageClasses: Array<{ name: string; provisioner: string; isDefault: boolean }>; ready: boolean }>;
-    },
+    queryFn: () => fetchJson<{ storageClasses: Array<{ name: string; provisioner: string; isDefault: boolean }>; ready: boolean }>("/api/game-hub/setup"),
   });
 
   const { data: capacityData } = useQuery({
     queryKey: ["game-hub", "capacity", memoryMi, cpuCores, selectedBuiltInId, selectedRemoteEntry?.id],
     enabled: Boolean(selectedBuiltInId || selectedRemoteEntry),
     refetchInterval: 30_000,
-    queryFn: async () => {
+    queryFn: () => {
       const params = new URLSearchParams({ memory: formatMemory(memoryMi), cpu: formatCpu(cpuCores) });
-      const response = await fetch(`/api/game-hub/capacity?${params.toString()}`);
-      if (!response.ok) throw new Error("Failed to load cluster capacity");
-      return response.json() as Promise<GameHubCapacity>;
+      return fetchJson<GameHubCapacity>(`/api/game-hub/capacity?${params.toString()}`);
     },
   });
 
@@ -450,20 +398,20 @@ export default function NewGameServerPage() {
     enabled: step >= 3,
     staleTime: 60_000,
     refetchInterval: 60_000,
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/nodes");
-      if (!response.ok) throw new Error("Failed to load cluster nodes");
-      return response.json() as Promise<{ nodes: ClusterNode[] }>;
-    },
+    queryFn: () => fetchJson<{ nodes: ClusterNode[] }>("/api/cluster/nodes"),
   });
 
   // Server list for clone feature + name availability check
   const { data: serverListData } = useQuery({
     queryKey: ["game-hub", "servers-list"],
     queryFn: async () => {
-      const response = await fetch("/api/game-hub/servers");
-      if (!response.ok) return { servers: [] };
-      return response.json() as Promise<{ servers: Array<{ name: string; gameType: string; status: string }> }>;
+      try {
+        return await fetchJson<{ servers: Array<{ name: string; gameType: string; status: string }> }>("/api/game-hub/servers");
+      } catch (error) {
+        // API failure → empty list (as before); network errors still propagate.
+        if (error instanceof FetchJsonError) return { servers: [] as Array<{ name: string; gameType: string; status: string }> };
+        throw error;
+      }
     },
     staleTime: 60_000,
   });
@@ -474,18 +422,14 @@ export default function NewGameServerPage() {
     let alive = true;
     const pollStatus = async () => {
       try {
-        const r = await fetch(`/api/game-hub/servers/${deployedServerName}`);
-        if (!r.ok) return;
-        const d = await r.json() as { status: string; podPhase: string | null };
+        const d = await fetchJson<{ status: string; podPhase: string | null }>(`/api/game-hub/servers/${deployedServerName}`);
         if (d.status === "running") { if (alive) setInstallPhase("running"); }
         else if (d.podPhase === "Failed") { if (alive) setInstallPhase("error"); }
       } catch {}
     };
     const pollEvents = async () => {
       try {
-        const r = await fetch(`/api/game-hub/servers/${deployedServerName}/events`);
-        if (!r.ok) return;
-        const d = await r.json() as { events: Array<{ type: string; reason: string; message: string; timestamp: string | null; count?: number }> };
+        const d = await fetchJson<{ events: Array<{ type: string; reason: string; message: string; timestamp: string | null; count?: number }> }>(`/api/game-hub/servers/${deployedServerName}/events`);
         if (!alive) return;
         setInstallLog((prev) => {
           // Rebuild the log from the authoritative event list each poll and
@@ -539,14 +483,9 @@ export default function NewGameServerPage() {
   const remoteEggPath = selectedRemoteEntry?.path ?? null;
   const { data: remoteEggData, isLoading: remoteEggLoading, error: remoteEggError } = useQuery({
     queryKey: ["game-hub", "pelican-egg", remoteEggPath],
-    queryFn: async () => {
+    queryFn: () => {
       if (!remoteEggPath) throw new Error("No Pelican egg selected");
-      const response = await fetch(`/api/game-hub/eggs/catalog/${remoteEggPath}`);
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({ error: "Failed to load egg" })) as { error?: string };
-        throw new Error(errorPayload.error ?? "Failed to load egg");
-      }
-      return response.json() as Promise<{ egg: GameEgg; path: string; id: string }>;
+      return fetchJson<{ egg: GameEgg; path: string; id: string }>(`/api/game-hub/eggs/catalog/${remoteEggPath}`);
     },
     enabled: Boolean(remoteEggPath),
     staleTime: 3_600_000,
@@ -577,8 +516,8 @@ export default function NewGameServerPage() {
   }, null) ?? null;
   const selectedClusterNode = targetNode ? clusterNodes.find((node) => node.name === targetNode) ?? null : null;
   const selectedCapacityNode = targetNode ? capacityData?.nodes.find((node) => node.name === targetNode) ?? null : null;
-  const selectedNodeMemoryMi = parseNodeMemoryToMi(selectedClusterNode?.memory);
-  const selectedNodeCpuCores = parseNodeCpuToCores(selectedClusterNode?.cpu);
+  const selectedNodeMemoryMi = Math.round(parseMemoryMi(selectedClusterNode?.memory));
+  const selectedNodeCpuCores = parseCpuMillicores(selectedClusterNode?.cpu) / 1000;
   const selectedNodeProjectedMemoryPct = selectedCapacityNode?.allocatableMemoryBytes
     ? ((selectedCapacityNode.requestedMemoryBytes + (memoryMi * 1024 * 1024)) / selectedCapacityNode.allocatableMemoryBytes) * 100
     : null;
@@ -644,9 +583,12 @@ export default function NewGameServerPage() {
     enabled: !!mcVersion,
     staleTime: 60 * 60 * 1000,
     queryFn: async () => {
-      const res = await fetch(`/api/game-hub/java-compat?version=${encodeURIComponent(mcVersion!)}`);
-      if (!res.ok) return { requiredJava: null as number | null };
-      return (await res.json()) as { version: string; requiredJava: number | null };
+      try {
+        return await fetchJson<{ version: string; requiredJava: number | null }>(`/api/game-hub/java-compat?version=${encodeURIComponent(mcVersion!)}`);
+      } catch (error) {
+        if (error instanceof FetchJsonError) return { requiredJava: null as number | null };
+        throw error;
+      }
     },
   });
   const requiredJava = javaCompat?.requiredJava ?? null;
@@ -667,9 +609,12 @@ export default function NewGameServerPage() {
     enabled: isMinecraftEgg,
     staleTime: 60 * 60 * 1000,
     queryFn: async () => {
-      const res = await fetch("/api/game-hub/minecraft-versions");
-      if (!res.ok) return { versions: [] as string[], latestRelease: "" };
-      return (await res.json()) as { versions: string[]; latestRelease: string };
+      try {
+        return await fetchJson<{ versions: string[]; latestRelease: string }>("/api/game-hub/minecraft-versions");
+      } catch (error) {
+        if (error instanceof FetchJsonError) return { versions: [] as string[], latestRelease: "" };
+        throw error;
+      }
     },
   });
 
@@ -726,6 +671,33 @@ export default function NewGameServerPage() {
     }
   }, [clusterNodes, targetNode]);
 
+  // ─── Apply a stored wizard config to the form state ────────────────────────
+  // Common subset shared by draft-restore, import, and preset-load. EULA and
+  // egg selection are deliberately NOT part of this: drafts must never restore
+  // EULA acceptance, so those live in applySavedConfig below.
+  const applyWizardConfig = useCallback((cfg: Partial<WizardConfig>) => {
+    if (cfg.serverName) setServerName(cfg.serverName);
+    if (cfg.dnsType) setDnsType(cfg.dnsType);
+    if (cfg.dnsHostname) setDnsHostname(cfg.dnsHostname);
+    if (cfg.envValues) setEnvValues(cfg.envValues);
+    if (cfg.memoryMi) setMemoryMi(cfg.memoryMi);
+    if (cfg.cpuCores) setCpuCores(cfg.cpuCores);
+    if (cfg.storageGi) setStorageGi(cfg.storageGi);
+    if (cfg.storageClass) setStorageClass(cfg.storageClass);
+    setTargetNode(cfg.targetNode ?? "");
+    if (cfg.dockerImage) setSelectedDockerImage(cfg.dockerImage);
+  }, []);
+
+  // Full config application for imports and presets (adds EULA + egg selection).
+  const applySavedConfig = useCallback((cfg: WizardConfig) => {
+    applyWizardConfig(cfg);
+    if (cfg.eulaAccepted) setEulaAccepted(cfg.eulaAccepted);
+    if (cfg.eggSource === "built-in" && cfg.eggId) {
+      const egg = BUILT_IN_EGGS.find((eg) => eg.id === cfg.eggId);
+      if (egg) { setSourceTab("built-in"); setSelectedBuiltInId(egg.id); setSelectedRemoteEntry(null); }
+    }
+  }, [applyWizardConfig]);
+
   // ─── Load saved presets from localStorage on mount ────────────────────────
   useEffect(() => {
     try {
@@ -737,17 +709,7 @@ export default function NewGameServerPage() {
     try {
       const draft = localStorage.getItem(DRAFT_STORAGE_KEY);
       if (draft && !draftRestored) {
-        const d = JSON.parse(draft) as Partial<WizardConfig>;
-        if (d.serverName) setServerName(d.serverName);
-        if (d.dnsType) setDnsType(d.dnsType);
-        if (d.dnsHostname) setDnsHostname(d.dnsHostname);
-        if (d.envValues) setEnvValues(d.envValues);
-        if (d.memoryMi) setMemoryMi(d.memoryMi);
-        if (d.cpuCores) setCpuCores(d.cpuCores);
-        if (d.storageGi) setStorageGi(d.storageGi);
-        if (d.storageClass) setStorageClass(d.storageClass);
-        setTargetNode(d.targetNode ?? "");
-        if (d.dockerImage) setSelectedDockerImage(d.dockerImage);
+        applyWizardConfig(JSON.parse(draft) as Partial<WizardConfig>);
         setDraftRestored(true);
       }
     } catch {}
@@ -766,15 +728,14 @@ export default function NewGameServerPage() {
 
   // ─── Debounced server name availability check ────────────────────────────
   const normalizedName = normalizeServerName(serverName);
+  const debouncedName = useDebounce(normalizedName, 500);
   useEffect(() => {
+    const taken = debouncedName && serverListData?.servers
+      ? serverListData.servers.some((s) => s.name === debouncedName)
+      : null;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
-    if (!normalizedName || !serverListData?.servers) { setServerNameTaken(null); return; }
-    const id = setTimeout(() => {
-      const taken = serverListData.servers.some((s) => s.name === normalizedName);
-      setServerNameTaken(taken);
-    }, 500);
-    return () => clearTimeout(id);
-  }, [normalizedName, serverListData]);
+    setServerNameTaken(taken);
+  }, [debouncedName, serverListData]);
 
   const remoteCategories = useMemo(() => catalogData?.categories ?? [], [catalogData?.categories]);
   const remoteEggs = useMemo(() => remoteCategories.flatMap((category) =>
@@ -859,7 +820,7 @@ export default function NewGameServerPage() {
     setSelectedRemoteEntry(null);
     // Auto-suggest a name only if the user hasn't typed one yet
     if (!serverName.trim()) {
-      setServerName(egg.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""));
+      setServerName(normalizeServerName(egg.name));
     }
     setStep(2);
   }
@@ -870,7 +831,7 @@ export default function NewGameServerPage() {
     setSelectedBuiltInId(null);
     // Auto-suggest a name only if the user hasn't typed one yet
     if (!serverName.trim()) {
-      setServerName(entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""));
+      setServerName(normalizeServerName(entry.name));
     }
     setStep(2);
   }
@@ -897,18 +858,11 @@ export default function NewGameServerPage() {
         toast.error("Cluster memory pressure is high — deploying this server may cause service disruption");
       }
 
-      const response = await fetch("/api/game-hub/servers", {
+      const result = await fetchJson<{ name: string }>("/api/game-hub/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({ error: "Deployment failed" })) as { error?: string };
-        throw new Error(errorPayload.error ?? "Deployment failed");
-      }
-
-      const result = await response.json() as { name: string };
       setDeployedServerName(result.name);
       // Transition to install console instead of redirecting immediately
       setInstallPhase("deploying");
@@ -922,27 +876,27 @@ export default function NewGameServerPage() {
     }
   }
 
+  // ─── Snapshot the current wizard state as a portable config ────────────────
+  const buildWizardConfig = useCallback((): WizardConfig => ({
+    version: CONFIG_VERSION,
+    exportedAt: new Date().toISOString(),
+    eggSource: sourceTab,
+    eggId: selectedBuiltInId ?? selectedRemoteEntry?.id ?? null,
+    eggName: activeEgg?.name ?? null,
+    eggPath: selectedRemoteEntry?.path ?? null,
+    serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores,
+    storageGi, storageClass, dockerImage: selectedDockerImage, eulaAccepted, targetNode: targetNode || null,
+  }), [activeEgg, sourceTab, selectedBuiltInId, selectedRemoteEntry, serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted, targetNode]);
+
   // ─── Export current config as .iwconfig.json ───────────────────────────────
   const exportConfig = useCallback(() => {
     if (!activeEgg) return;
-    const config: WizardConfig = {
-      version: CONFIG_VERSION,
-      exportedAt: new Date().toISOString(),
-      eggSource: sourceTab,
-      eggId: selectedBuiltInId ?? selectedRemoteEntry?.id ?? null,
-      eggName: activeEgg.name,
-      eggPath: selectedRemoteEntry?.path ?? null,
-      serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores,
-      storageGi, storageClass, dockerImage: selectedDockerImage, eulaAccepted, targetNode: targetNode || null,
-    };
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${normalizeServerName(serverName) || "server"}-config.iwconfig.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [activeEgg, sourceTab, selectedBuiltInId, selectedRemoteEntry, serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted, targetNode]);
+    downloadTextFile(
+      `${normalizeServerName(serverName) || "server"}-config.iwconfig.json`,
+      JSON.stringify(buildWizardConfig(), null, 2),
+      "application/json",
+    );
+  }, [activeEgg, serverName, buildWizardConfig]);
 
   // ─── Import config from .iwconfig.json ────────────────────────────────────
   const handleImportConfig = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -953,21 +907,7 @@ export default function NewGameServerPage() {
       try {
         const cfg = JSON.parse(ev.target?.result as string) as WizardConfig;
         if (cfg.version !== CONFIG_VERSION) throw new Error("Unrecognised config version");
-        if (cfg.serverName) setServerName(cfg.serverName);
-        if (cfg.dnsType) setDnsType(cfg.dnsType);
-        if (cfg.dnsHostname) setDnsHostname(cfg.dnsHostname);
-        if (cfg.envValues) setEnvValues(cfg.envValues);
-        if (cfg.memoryMi) setMemoryMi(cfg.memoryMi);
-        if (cfg.cpuCores) setCpuCores(cfg.cpuCores);
-        if (cfg.storageGi) setStorageGi(cfg.storageGi);
-        if (cfg.storageClass) setStorageClass(cfg.storageClass);
-        setTargetNode(cfg.targetNode ?? "");
-        if (cfg.dockerImage) setSelectedDockerImage(cfg.dockerImage);
-        if (cfg.eulaAccepted) setEulaAccepted(cfg.eulaAccepted);
-        if (cfg.eggSource === "built-in" && cfg.eggId) {
-          const egg = BUILT_IN_EGGS.find((eg) => eg.id === cfg.eggId);
-          if (egg) { setSourceTab("built-in"); setSelectedBuiltInId(egg.id); setSelectedRemoteEntry(null); }
-        }
+        applySavedConfig(cfg);
         toast.success("Config imported — check the settings below");
         setStep(2);
       } catch (err) {
@@ -976,29 +916,19 @@ export default function NewGameServerPage() {
     };
     reader.readAsText(file);
     e.target.value = "";
-  }, []);
+  }, [applySavedConfig]);
 
   // ─── Save current config as a named preset ────────────────────────────────
   const savePreset = useCallback((presetName: string) => {
     if (!activeEgg || !presetName.trim()) return;
-    const preset: SavedPreset = {
-      version: CONFIG_VERSION,
-      exportedAt: new Date().toISOString(),
-      presetName: presetName.trim(),
-      eggSource: sourceTab,
-      eggId: selectedBuiltInId ?? selectedRemoteEntry?.id ?? null,
-      eggName: activeEgg.name,
-      eggPath: selectedRemoteEntry?.path ?? null,
-      serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores,
-      storageGi, storageClass, dockerImage: selectedDockerImage, eulaAccepted, targetNode: targetNode || null,
-    };
+    const preset: SavedPreset = { ...buildWizardConfig(), presetName: presetName.trim() };
     setSavedPresets((prev) => {
       const updated = [preset, ...prev.filter((p) => p.presetName !== presetName.trim())].slice(0, 10);
       try { localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(updated)); } catch {}
       return updated;
     });
     toast.success(`Preset "${presetName.trim()}" saved`);
-  }, [activeEgg, sourceTab, selectedBuiltInId, selectedRemoteEntry, serverName, dnsType, dnsHostname, envValues, memoryMi, cpuCores, storageGi, storageClass, selectedDockerImage, eulaAccepted, targetNode]);
+  }, [activeEgg, buildWizardConfig]);
 
   const deletePreset = useCallback((presetName: string) => {
     setSavedPresets((prev) => {
@@ -1009,24 +939,10 @@ export default function NewGameServerPage() {
   }, []);
 
   const loadPreset = useCallback((preset: SavedPreset) => {
-    if (preset.serverName) setServerName(preset.serverName);
-    if (preset.dnsType) setDnsType(preset.dnsType);
-    if (preset.dnsHostname) setDnsHostname(preset.dnsHostname);
-    if (preset.envValues) setEnvValues(preset.envValues);
-    if (preset.memoryMi) setMemoryMi(preset.memoryMi);
-    if (preset.cpuCores) setCpuCores(preset.cpuCores);
-    if (preset.storageGi) setStorageGi(preset.storageGi);
-    if (preset.storageClass) setStorageClass(preset.storageClass);
-    setTargetNode(preset.targetNode ?? "");
-    if (preset.dockerImage) setSelectedDockerImage(preset.dockerImage);
-    if (preset.eulaAccepted) setEulaAccepted(preset.eulaAccepted);
-    if (preset.eggSource === "built-in" && preset.eggId) {
-      const egg = BUILT_IN_EGGS.find((eg) => eg.id === preset.eggId);
-      if (egg) { setSourceTab("built-in"); setSelectedBuiltInId(egg.id); setSelectedRemoteEntry(null); }
-    }
+    applySavedConfig(preset);
     toast.success(`Preset "${preset.presetName}" loaded`);
     setStep(2);
-  }, []);
+  }, [applySavedConfig]);
 
   const summaryRows = [
     { label: "Egg Source", value: sourceTab === "built-in" ? "Built-in library" : "Pelican catalog" },

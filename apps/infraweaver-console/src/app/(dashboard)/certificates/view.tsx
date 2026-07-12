@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { cn } from "@/lib/utils";
 
 interface Certificate {
@@ -49,13 +49,10 @@ export function CertificatesView() {
   const [statusFilter, setStatusFilter] = useState<"all" | "expiring" | "renewal" | "not-ready">("all");
   const [renewalCutoff] = useState(() => Date.now() + 7 * 86_400_000);
 
-  const { data, isLoading, isFetching, refetch } = useQuery<CertificateResponse>({
+  const { data, isLoading, isFetching, refetch } = useApiQuery<CertificateResponse>({
     queryKey: ["certificates"],
-    queryFn: async () => {
-      const response = await fetch("/api/certificates", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to fetch certificates");
-      return response.json();
-    },
+    path: "/api/certificates",
+    request: { cache: "no-store" },
     refetchInterval: 120_000,
     staleTime: 60_000,
   });

@@ -1,11 +1,11 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Activity, RefreshCw } from "lucide-react";
 import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
 import { cn, timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface ServiceStatus {
   name: string;
@@ -36,13 +36,9 @@ export function StatusView() {
   const [refreshInterval, setRefreshInterval] = useState(30000);
   const [now, setNow] = useState(() => Date.now());
 
-  const { data, isLoading, refetch, dataUpdatedAt } = useQuery({
+  const { data, isLoading, refetch, dataUpdatedAt } = useApiQuery<PlatformStatus>({
     queryKey: ["platform", "status"],
-    queryFn: async () => {
-      const res = await fetch("/api/platform/status");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<PlatformStatus>;
-    },
+    path: "/api/platform/status",
     refetchInterval: refreshInterval || false,
   });
 
@@ -64,26 +60,20 @@ export function StatusView() {
       <PageHeader
         icon={Activity}
         title="Platform Status"
-        subtitle="Live health of all platform services"
+        subtitle={refreshInterval ? `Real-time system status · next auto-refresh in ${countdown}s` : "Auto-refresh paused"}
         actions={
-          <AutoRefreshControl
-            interval={refreshInterval}
-            onChange={setRefreshInterval}
-            onRefreshNow={() => void refetch()}
-          />
+          <>
+            <AutoRefreshControl
+              interval={refreshInterval}
+              onChange={setRefreshInterval}
+              onRefreshNow={() => void refetch()}
+            />
+            <button onClick={() => void refetch()} className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:text-gray-900 dark:hover:text-white">
+              <RefreshCw className="w-3.5 h-3.5" />Refresh
+            </button>
+          </>
         }
       />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-xl font-bold text-gray-900 dark:text-white"><Activity className="w-5 h-5 text-slate-500 dark:text-slate-400" />Platform Status</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {refreshInterval ? `Real-time system status · next auto-refresh in ${countdown}s` : "Auto-refresh paused"}
-          </p>
-        </div>
-        <button onClick={() => void refetch()} className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition-colors hover:text-gray-900 dark:hover:text-white">
-          <RefreshCw className="w-3.5 h-3.5" />Refresh
-        </button>
-      </div>
 
       <div className={cn("rounded-2xl border p-8 text-center", banner.bg)}>
         <p className={cn("text-3xl font-bold", banner.text)}>{banner.label}</p>

@@ -56,18 +56,25 @@ import {
 import { cn, formatBytes, timeAgo } from "@/lib/utils";
 import { describeEggVariableRules, getEggForGameType, validateEggVariable } from "@/lib/game-eggs";
 import { toast } from "@/lib/notify";
+import { nextCronRuns } from "@/lib/cron-utils";
+import { downloadTextFile } from "@/lib/download";
+import { parseCpuMillicores, parseMemoryMi } from "@/lib/k8s-quantity";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import Link from "next/link";
-import { ActivityTab as ActivityTabFeature } from "@/components/game-hub/server-detail/activity-tab";
+import { ActivityTab } from "@/components/game-hub/server-detail/activity-tab";
 import { BanList } from "@/components/game-hub/server-detail/ban-list";
 import { ConfigEditor } from "@/components/game-hub/server-detail/config-editor";
 import { ConsoleTab } from "@/components/game-hub/server-detail/console-tab";
-import { DashboardTab as DashboardTabFeature } from "@/components/game-hub/server-detail/dashboard-tab";
+import { DashboardTab } from "@/components/game-hub/server-detail/dashboard-tab";
 import { EnvTableEditor } from "@/components/game-hub/server-detail/env-table-editor";
 import { MiniOverviewDrawer } from "@/components/game-hub/server-detail/mini-overview-drawer";
 import { NotesTagsEditor } from "@/components/game-hub/server-detail/notes-tags-editor";
 import { KeyboardShortcutsDialog } from "@/components/game-hub/server-detail/keyboard-shortcuts";
 import { OpsManager } from "@/components/game-hub/server-detail/ops-manager";
-import { PlayersTab as PlayersTabFeature } from "@/components/game-hub/server-detail/players-tab";
+import { PlayersTab } from "@/components/game-hub/server-detail/players-tab";
 import { RconPanel } from "@/components/game-hub/server-detail/rcon-panel";
 import { WhitelistManager } from "@/components/game-hub/server-detail/whitelist-manager";
 import { WorldInfo } from "@/components/game-hub/server-detail/world-info";
@@ -188,31 +195,8 @@ function normalizeSavedCommands(
 }
 
 const GAME_HUB_TAB_STORAGE_PREFIX = "infraweaver:game-hub:tab";
-
-function readRecentFiles(name: string) {
-  if (typeof window === "undefined") return [] as string[];
-  try {
-    return JSON.parse(
-      localStorage.getItem(`${RECENT_FILES_KEY}:${name}`) ?? "[]",
-    ) as string[];
-  } catch {
-    return [] as string[];
-  }
-}
-
-function downloadTextFile(
-  filename: string,
-  content: string,
-  type = "text/plain",
-) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg"];
+const ARCHIVE_RE = /\.(tar\.gz|tgz|zip)$/i;
 
 function formatScheduledValue(value: string | null | undefined) {
   return value ? new Date(value).toISOString().slice(0, 16) : "";
@@ -256,26 +240,12 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function parseCpuMillicores(value: string | null | undefined) {
-  const trimmed = (value ?? "").trim().toLowerCase();
-  if (!trimmed) return 1000;
-  if (trimmed.endsWith("m")) {
-    return clampNumber(Number.parseInt(trimmed.slice(0, -1), 10) || 1000, 100, 4000);
-  }
-  return clampNumber(Math.round((Number.parseFloat(trimmed) || 1) * 1000), 100, 4000);
+function cpuLimitFromQuantity(value: string | null | undefined) {
+  return clampNumber(Math.round(parseCpuMillicores(value)) || 1000, 100, 4000);
 }
 
-function parseMemoryMi(value: string | null | undefined) {
-  const trimmed = (value ?? "").trim().toLowerCase();
-  if (!trimmed) return 2048;
-  const numeric = Number.parseFloat(trimmed.replace(/[^\d.]/g, "")) || 2048;
-  if (trimmed.endsWith("gi") || trimmed.endsWith("g")) {
-    return clampNumber(Math.round(numeric * 1024), 256, 8192);
-  }
-  if (trimmed.endsWith("ki") || trimmed.endsWith("k")) {
-    return clampNumber(Math.round(numeric / 1024), 256, 8192);
-  }
-  return clampNumber(Math.round(numeric), 256, 8192);
+function memLimitFromQuantity(value: string | null | undefined) {
+  return clampNumber(Math.round(parseMemoryMi(value)) || 2048, 256, 8192);
 }
 
 function sliderTrackStyle(value: number, min: number, max: number) {
@@ -330,6 +300,55 @@ function ThresholdPreview({
   );
 }
 
+function SettingsSliderRow({
+  value,
+  onValue,
+  min,
+  max,
+  rangeStep,
+  numberStep,
+  unit,
+  numberWidth,
+}: {
+  value: number;
+  onValue: (value: number) => void;
+  min: number;
+  max: number;
+  rangeStep: number;
+  numberStep?: number;
+  unit?: string;
+  numberWidth: string;
+}) {
+  const handleInput = (raw: string) =>
+    onValue(clampNumber(Number.parseInt(raw, 10) || min, min, max));
+  return (
+    <div className="flex items-center gap-3">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={rangeStep}
+        value={value}
+        onChange={(event) => handleInput(event.target.value)}
+        style={sliderTrackStyle(value, min, max)}
+        className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
+      />
+      <div className={cn(unit && "flex items-center gap-1", "rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5")}>
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={numberStep}
+          value={value}
+          onChange={(event) => handleInput(event.target.value)}
+          className={cn(numberWidth, "bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none")}
+        />
+        {unit ? <span className="text-xs text-gray-400 dark:text-[#666]">{unit}</span> : null}
+      </div>
+    </div>
+  );
+}
+
 function isSensitiveEnvName(name: string) {
   return /password|secret|key|token|api_key|auth|credential|private/i.test(name);
 }
@@ -358,58 +377,6 @@ function detectBackupSchedulePreset(value: string | null | undefined): BackupSch
   if (cron === "0 4 * * *") return "daily";
   if (cron === "0 4 * * 0") return "weekly";
   return "custom";
-}
-
-function parseCronPart(part: string, min: number, max: number) {
-  const values = new Set<number>();
-  if (part === "*") {
-    for (let value = min; value <= max; value += 1) values.add(value);
-    return values;
-  }
-  for (const token of part.split(",")) {
-    const [rangePart, stepPart] = token.split("/");
-    const step = Math.max(1, Number.parseInt(stepPart ?? "1", 10) || 1);
-    if (rangePart === "*") {
-      for (let value = min; value <= max; value += step) values.add(value);
-      continue;
-    }
-    const [startRaw, endRaw] = rangePart.split("-");
-    const start = clampNumber(Number.parseInt(startRaw, 10) || min, min, max);
-    const end = clampNumber(Number.parseInt(endRaw ?? startRaw, 10) || start, min, max);
-    for (let value = start; value <= end; value += step) values.add(value);
-  }
-  return values;
-}
-
-function matchesCronDate(date: Date, cronExpr: string) {
-  const parts = cronExpr.trim().split(/\s+/);
-  if (parts.length !== 5) return false;
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
-  return (
-    parseCronPart(minute, 0, 59).has(date.getMinutes()) &&
-    parseCronPart(hour, 0, 23).has(date.getHours()) &&
-    parseCronPart(dayOfMonth, 1, 31).has(date.getDate()) &&
-    parseCronPart(month, 1, 12).has(date.getMonth() + 1) &&
-    parseCronPart(dayOfWeek, 0, 6).has(date.getDay())
-  );
-}
-
-function nextCronRuns(cronExpr: string, count = 3) {
-  const runs: Date[] = [];
-  const expr = cronExpr.trim();
-  if (!expr || expr.split(/\s+/).length !== 5) return runs;
-  const cursor = new Date();
-  cursor.setSeconds(0, 0);
-  cursor.setMinutes(cursor.getMinutes() + 1);
-  let attempts = 0;
-  while (runs.length < count && attempts < 525600) {
-    if (matchesCronDate(cursor, expr)) {
-      runs.push(new Date(cursor));
-    }
-    cursor.setMinutes(cursor.getMinutes() + 1);
-    attempts += 1;
-  }
-  return runs;
 }
 
 type DiffLine = {
@@ -468,22 +435,6 @@ function buildUnifiedDiff(original: string, updated: string): DiffLine[] {
   return diff;
 }
 
-function DashboardTab({
-  server,
-  name,
-  connectivity,
-}: {
-  server: ServerDetail;
-  name: string;
-  connectivity?: ConnectivityDetails;
-}) {
-  return <DashboardTabFeature name={name} server={server} connectivity={connectivity} />;
-}
-
-function PlayersTab({ name, server }: { name: string; server: ServerDetail }) {
-  return <PlayersTabFeature name={name} server={server} />;
-}
-
 function FilesTab({
   name,
   mountPath,
@@ -496,18 +447,18 @@ function FilesTab({
 
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [fileTooLarge, setFileTooLarge] = useState<{ size: number } | null>(null);
-  const [saving, setSaving] = useState(false);
   const [loadingContent, setLoadingContent] = useState(false);
   const [pathHistory, setPathHistory] = useState<string[]>([mountPath]);
   const [mobilePane, setMobilePane] = useState<"files" | "editor">("files");
   const [fileSearch, setFileSearch] = useState("");
   const [sortKey, setSortKey] = useState<"name" | "size" | "modified">("name");
-  const [recentFiles, setRecentFiles] = useState<string[]>(() =>
-    readRecentFiles(name),
+  const [recentFiles, setRecentFiles] = useLocalStorage<string[]>(
+    `${RECENT_FILES_KEY}:${name}`,
+    [],
   );
   const originalContentRef = useRef<string | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
-  const saveFileRef = useRef<() => Promise<void>>(async () => undefined);
+  const { copy } = useCopyToClipboard();
 
   const {
     data: listing,
@@ -527,10 +478,8 @@ function FilesTab({
   });
 
   const fileExt = selectedFile?.name.split(".").pop()?.toLowerCase() ?? "";
-  const isImageFile = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(
-    fileExt,
-  );
-  const isArchiveFile = /\.(tar\.gz|tgz|zip)$/i.test(selectedFile?.name ?? "");
+  const isImageFile = IMAGE_EXTENSIONS.includes(fileExt);
+  const isArchiveFile = ARCHIVE_RE.test(selectedFile?.name ?? "");
   const isDirty = Boolean(
     selectedFile &&
       fileContent !== null &&
@@ -545,16 +494,30 @@ function FilesTab({
   );
   const changedDiffLines = diffLines.filter((line) => line.type !== "context").length;
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        `${RECENT_FILES_KEY}:${name}`,
-        JSON.stringify(recentFiles.slice(0, 5)),
+  const saveFileMutation = useMutationWithToast<unknown, { path: string; content: string }>({
+    mutationFn: ({ path, content }) =>
+      fetchJson(`/api/game-hub/servers/${name}/files/content`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, content }),
+      }),
+    successMessage: "File saved",
+    onSuccess: (_data, { content }) => {
+      originalContentRef.current = content;
+      setDiffOpen(false);
+      setSelectedFile((current) =>
+        current
+          ? {
+              ...current,
+              size: new Blob([content]).size,
+              modifiedAt: new Date().toISOString(),
+            }
+          : current,
       );
-    } catch {
-      // ignore
-    }
-  }, [name, recentFiles]);
+      refetch();
+    },
+  });
+  const saving = saveFileMutation.isPending;
 
   useEffect(() => {
     const handleSaveHotkey = (event: KeyboardEvent) => {
@@ -581,6 +544,23 @@ function FilesTab({
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [isDirty]);
 
+  function resetFileSelection() {
+    setDiffOpen(false);
+    setSelectedFile(null);
+    setFileContent(null);
+    setFileTooLarge(null);
+    originalContentRef.current = null;
+  }
+
+  function navigateTo(
+    path: string,
+    updateHistory: (history: string[]) => string[],
+  ) {
+    setPathHistory(updateHistory);
+    setCurrentPath(path);
+    resetFileSelection();
+  }
+
   async function openFile(entry: FileEntry) {
     if (
       isDirty &&
@@ -590,35 +570,24 @@ function FilesTab({
     )
       return;
     if (entry.type === "directory") {
-      setPathHistory((history) => [...history, entry.path]);
-      setCurrentPath(entry.path);
-      setDiffOpen(false);
-      setSelectedFile(null);
-      setFileContent(null);
-      setFileTooLarge(null);
-      originalContentRef.current = null;
+      navigateTo(entry.path, (history) => [...history, entry.path]);
       return;
     }
 
+    const isImage = IMAGE_EXTENSIONS.includes(
+      entry.name.split(".").pop()?.toLowerCase() ?? "",
+    );
     setDiffOpen(false);
     setSelectedFile(entry);
     setFileContent(null);
     setFileTooLarge(null);
     originalContentRef.current = null;
-    setLoadingContent(
-      !["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(
-        entry.name.split(".").pop()?.toLowerCase() ?? "",
-      ),
-    );
+    setLoadingContent(!isImage);
     setMobilePane("editor");
     setRecentFiles((prev) =>
       [entry.path, ...prev.filter((item) => item !== entry.path)].slice(0, 5),
     );
-    if (
-      ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(
-        entry.name.split(".").pop()?.toLowerCase() ?? "",
-      )
-    ) {
+    if (isImage) {
       setFileContent("");
       originalContentRef.current = "";
       return;
@@ -656,82 +625,44 @@ function FilesTab({
     }
   }
 
-  const saveFile = useCallback(async () => {
+  function saveFile() {
     if (!selectedFile || fileContent === null) return;
-    setSaving(true);
-    try {
-      await fetchJson(`/api/game-hub/servers/${name}/files/content`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: selectedFile.path, content: fileContent }),
-      });
-      originalContentRef.current = fileContent;
-      setDiffOpen(false);
-      setSelectedFile((current) =>
-        current
-          ? {
-              ...current,
-              size: new Blob([fileContent]).size,
-              modifiedAt: new Date().toISOString(),
-            }
-          : current,
-      );
-      toast.success("File saved");
-      refetch();
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setSaving(false);
-    }
-  }, [selectedFile, fileContent, name, refetch]);
-
-  useEffect(() => {
-    saveFileRef.current = saveFile;
-  }, [saveFile]);
-
-  async function deleteFile(entry: FileEntry) {
-    if (!confirm(`Delete ${entry.name}?`)) return;
-    try {
-      await fetchJson(
-        `/api/game-hub/servers/${name}/files?path=${encodeURIComponent(entry.path)}`,
-        { method: "DELETE" },
-      );
-      toast.success(`${entry.name} deleted`);
-      if (selectedFile?.path === entry.path) {
-        setDiffOpen(false);
-        setSelectedFile(null);
-        setFileContent(null);
-        originalContentRef.current = null;
-      }
-      refetch();
-    } catch (error) {
-      toast.error(String(error));
-    }
+    saveFileMutation.mutate({ path: selectedFile.path, content: fileContent });
   }
 
-  async function extractArchive(entry: FileEntry) {
-    try {
-      await fetchJson(`/api/game-hub/servers/${name}/files`, {
+  const deleteFileMutation = useMutationWithToast<unknown, FileEntry>({
+    mutationFn: (entry) =>
+      fetchJson(
+        `/api/game-hub/servers/${name}/files?path=${encodeURIComponent(entry.path)}`,
+        { method: "DELETE" },
+      ),
+    successMessage: (_data, entry) => `${entry.name} deleted`,
+    onSuccess: (_data, entry) => {
+      if (selectedFile?.path === entry.path) resetFileSelection();
+      refetch();
+    },
+  });
+
+  function deleteFile(entry: FileEntry) {
+    if (!confirm(`Delete ${entry.name}?`)) return;
+    deleteFileMutation.mutate(entry);
+  }
+
+  const extractMutation = useMutationWithToast<unknown, FileEntry>({
+    mutationFn: (entry) =>
+      fetchJson(`/api/game-hub/servers/${name}/files`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "extract", path: entry.path }),
-      });
-      toast.success(`Extracted ${entry.name}`);
-      refetch();
-    } catch (error) {
-      toast.error(String(error));
-    }
-  }
+      }),
+    successMessage: (_data, entry) => `Extracted ${entry.name}`,
+    onSuccess: () => refetch(),
+  });
 
   function goUp() {
     if (pathHistory.length <= 1) return;
     const nextHistory = pathHistory.slice(0, -1);
-    setPathHistory(nextHistory);
-    setCurrentPath(nextHistory[nextHistory.length - 1]);
-    setDiffOpen(false);
-    setSelectedFile(null);
-    setFileContent(null);
-    originalContentRef.current = null;
+    navigateTo(nextHistory[nextHistory.length - 1], () => nextHistory);
   }
 
   const sortedFiles = useMemo(() => {
@@ -782,14 +713,7 @@ function FilesTab({
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-none">
             <div className="flex items-center gap-1.5 w-max min-w-full text-[10px] font-mono text-gray-500 dark:text-[#777]">
               <button
-                onClick={() => {
-                  setCurrentPath(mountPath);
-                  setPathHistory([mountPath]);
-                  setDiffOpen(false);
-                  setSelectedFile(null);
-                  setFileContent(null);
-                  originalContentRef.current = null;
-                }}
+                onClick={() => navigateTo(mountPath, () => [mountPath])}
                 className="rounded px-1 py-0.5 hover:bg-gray-100 dark:hover:bg-[#1e1e1e]"
               >
                 root
@@ -800,17 +724,12 @@ function FilesTab({
                   <Fragment key={nextPath}>
                     <span>/</span>
                     <button
-                      onClick={() => {
-                        setCurrentPath(nextPath);
-                        setPathHistory((history) => [
+                      onClick={() =>
+                        navigateTo(nextPath, (history) => [
                           ...history.filter((path) => path !== nextPath),
                           nextPath,
-                        ]);
-                        setDiffOpen(false);
-                        setSelectedFile(null);
-                        setFileContent(null);
-                        originalContentRef.current = null;
-                      }}
+                        ])
+                      }
                       className="rounded px-1 py-0.5 hover:bg-gray-100 dark:hover:bg-[#1e1e1e]"
                     >
                       {part}
@@ -947,11 +866,11 @@ function FilesTab({
                   </span>
                 </div>
                 {entry.type !== "directory" &&
-                  /\.(tar\.gz|tgz|zip)$/i.test(entry.name) && (
+                  ARCHIVE_RE.test(entry.name) && (
                     <button
                       onClick={(event) => {
                         event.stopPropagation();
-                        void extractArchive(entry);
+                        extractMutation.mutate(entry);
                       }}
                       className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 dark:text-[#444] hover:text-green-300 transition-all"
                       title="Extract here"
@@ -1002,17 +921,14 @@ function FilesTab({
               </span>
             </div>
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(fileContent ?? "");
-                toast.success("Copied");
-              }}
+              onClick={() => void copy(fileContent ?? "", { successMessage: "Copied" })}
               className="p-1.5 text-gray-400 dark:text-[#444] hover:text-gray-700 dark:hover:text-[#888] flex-shrink-0"
             >
               <Copy className="w-3.5 h-3.5" />
             </button>
             {isArchiveFile && (
               <button
-                onClick={() => void extractArchive(selectedFile)}
+                onClick={() => extractMutation.mutate(selectedFile)}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#252525] text-gray-700 dark:text-[#d4d4d4] rounded-lg text-xs font-medium flex-shrink-0"
               >
                 <Package className="w-3 h-3" /> Extract
@@ -1025,23 +941,6 @@ function FilesTab({
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#252525] disabled:opacity-50 text-gray-700 dark:text-[#d4d4d4] rounded-lg text-xs font-medium flex-shrink-0"
               >
                 <FileText className="w-3 h-3" /> Show diff
-              </button>
-            )}
-            {!isImageFile && (
-              <button
-                onClick={() => {
-                  if (!isDirty) return;
-                  setDiffOpen(true);
-                }}
-                disabled={!isDirty || saving || loadingContent}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0078D4] hover:bg-[#0065B3] disabled:opacity-50 text-white rounded-lg text-xs font-medium flex-shrink-0"
-              >
-                {saving ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <Save className="w-3 h-3" />
-                )}{" "}
-                Save (Ctrl+S)
               </button>
             )}
           </div>
@@ -1188,9 +1087,7 @@ function FilesTab({
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
-                    void saveFileRef.current();
-                  }}
+                  onClick={saveFile}
                   disabled={saving}
                   className="inline-flex items-center gap-2 rounded-lg border border-[#0078D4]/40 bg-[#0078D4] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#0065B3] disabled:opacity-50"
                 >
@@ -1238,10 +1135,6 @@ function FilesTab({
       </div>
     </>
   );
-}
-
-function ActivityTab({ name }: { name: string }) {
-  return <ActivityTabFeature name={name} />;
 }
 
 // ─── Per-server RBAC Panel ────────────────────────────────────────────────────
@@ -1322,8 +1215,6 @@ function ServerRbacPanel({
   const [addRole, setAddRole] = useState<ServerAccessRole>(
     GAME_SERVER_ROLES[0].id,
   );
-  const [adding, setAdding] = useState(false);
-  const [removing, setRemoving] = useState<string | null>(null);
 
   const accessQuery = useQuery<ServerAccessResponse>({
     queryKey: ["game-hub", "server-access", serverName],
@@ -1354,52 +1245,55 @@ function ServerRbacPanel({
     });
   }
 
-  async function addAssignment() {
+  const addMutation = useMutationWithToast<unknown, { username: string; role: ServerAccessRole }>({
+    mutationFn: ({ username, role }) =>
+      fetchJson(`/api/game-hub/servers/${serverName}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, role }),
+      }),
+    successMessage: (_data, { username, role }) => `${role} granted to ${username}`,
+    onSuccess: () => {
+      setShowAdd(false);
+      void refreshAccess();
+    },
+  });
+  const adding = addMutation.isPending;
+
+  function addAssignment() {
     if (!canEdit) return;
     if (!addUsername) {
       toast.error("Select a user first");
       return;
     }
-
-    setAdding(true);
-    try {
-      await fetchJson(`/api/game-hub/servers/${serverName}/access`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: addUsername, role: addRole }),
-      });
-      toast.success(`${addRole} granted to ${addUsername}`);
-      setShowAdd(false);
-      await refreshAccess();
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setAdding(false);
-    }
+    addMutation.mutate({ username: addUsername, role: addRole });
   }
 
-  async function removeAssignment(assignment: ServerAccessAssignment) {
-    if (!canEdit) return;
-
-    setRemoving(`${assignment.user}:${assignment.role}`);
-    try {
+  const removeMutation = useMutationWithToast<unknown, ServerAccessAssignment>({
+    mutationFn: (assignment) => {
       const params = new URLSearchParams({
         username: assignment.user,
         role: assignment.role,
       });
-      await fetchJson(
+      return fetchJson(
         `/api/game-hub/servers/${serverName}/access?${params.toString()}`,
         {
           method: "DELETE",
         },
       );
-      toast.success(`Removed ${assignment.role} from ${assignment.user}`);
-      await refreshAccess();
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setRemoving(null);
-    }
+    },
+    successMessage: (_data, assignment) =>
+      `Removed ${assignment.role} from ${assignment.user}`,
+    onSuccess: () => void refreshAccess(),
+  });
+  const removing =
+    removeMutation.isPending && removeMutation.variables
+      ? `${removeMutation.variables.user}:${removeMutation.variables.role}`
+      : null;
+
+  function removeAssignment(assignment: ServerAccessAssignment) {
+    if (!canEdit) return;
+    removeMutation.mutate(assignment);
   }
 
   return (
@@ -1729,6 +1623,7 @@ function SettingsAccordion({
 
 function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const queryClient = useQueryClient();
+  const { copy } = useCopyToClipboard();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const defaultEgg = getEggForGameType(server.gameType);
   const defaultEnv = Object.fromEntries(
@@ -1778,11 +1673,9 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [hpaMin, setHpaMin] = useState(server.hpa.min);
   const [hpaMax, setHpaMax] = useState(server.hpa.max);
   const [hpaCpu, setHpaCpu] = useState(server.hpa.cpuTarget ?? 70);
-  const [scaleSaving, setScaleSaving] = useState(false);
   const autoRestart = server.restartPolicy === "Always";
-  const [memLimit, setMemLimit] = useState(parseMemoryMi(server.memory));
-  const [cpuLimit, setCpuLimit] = useState(parseCpuMillicores(server.cpu));
-  const [savingResources, setSavingResources] = useState(false);
+  const [memLimit, setMemLimit] = useState(memLimitFromQuantity(server.memory));
+  const [cpuLimit, setCpuLimit] = useState(cpuLimitFromQuantity(server.cpu));
   const [description, setDescription] = useState(server.description ?? "");
   const [icon, setIcon] = useState(server.icon ?? "🎮");
   const [accentColor, setAccentColor] = useState(normalizeAccentColor(server.annotations?.[ACCENT_ANNOTATION_KEY]));
@@ -1830,13 +1723,11 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       server.scheduleStop?.timezone ??
       getDefaultScheduleTimezone(),
   );
-  const [savingSchedule, setSavingSchedule] = useState(false);
   const [alertCpu, setAlertCpu] = useState(server.alertCpu ?? 80);
   const [alertMemory, setAlertMemory] = useState(server.alertMemory ?? 80);
   const [alertRestarts, setAlertRestarts] = useState(
     server.alertRestarts ?? 5,
   );
-  const [savingThresholds, setSavingThresholds] = useState(false);
   const [backupSchedulePreset, setBackupSchedulePreset] = useState<BackupSchedulePreset>(
     detectBackupSchedulePreset(server.backupSchedule),
   );
@@ -1846,8 +1737,6 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
   const [backupRetention, setBackupRetention] = useState(
     server.backupRetention ?? 7,
   );
-  const [savingBackupSchedule, setSavingBackupSchedule] = useState(false);
-  const [testingWebhook, setTestingWebhook] = useState(false);
   const [commandLabel, setCommandLabel] = useState("");
   const [commandText, setCommandText] = useState("");
   const [unsetApplyState, setUnsetApplyState] = useState<Record<string, "loading" | "done" | undefined>>({});
@@ -1911,34 +1800,41 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     retry: false,
   });
 
-  async function patchServer(body: unknown, successMessage: string) {
-    await fetchJson(`/api/game-hub/servers/${name}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    toast.success(successMessage);
-    refreshServerDetails();
-  }
+  const patchMutation = useMutationWithToast<
+    unknown,
+    { key?: string; body: unknown; successMessage: string }
+  >({
+    mutationFn: ({ body }) =>
+      fetchJson(`/api/game-hub/servers/${name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    successMessage: (_data, { successMessage }) => successMessage,
+    onSuccess: () => refreshServerDetails(),
+  });
+  const pendingPatch = patchMutation.isPending
+    ? patchMutation.variables?.key
+    : undefined;
+  const scaleSaving = pendingPatch === "scale";
+  const savingResources = pendingPatch === "resources";
+  const savingSchedule = pendingPatch === "schedule";
+  const savingThresholds = pendingPatch === "thresholds";
+  const savingBackupSchedule = pendingPatch === "backup-schedule";
 
-  async function saveReplicas() {
-    setScaleSaving(true);
-    try {
-      if (replicaMode === "static") {
-        await patchServer(
-          { action: "scale", replicas: staticCount },
-          `Set to ${staticCount} replica${staticCount !== 1 ? "s" : ""}`,
-        );
-      } else {
-        await patchServer(
-          { action: "set-hpa", hpaMin, hpaMax, hpaCpuTarget: hpaCpu },
-          `Auto-scale enabled: ${hpaMin}–${hpaMax} replicas @ ${hpaCpu}% CPU`,
-        );
-      }
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setScaleSaving(false);
+  function saveReplicas() {
+    if (replicaMode === "static") {
+      patchMutation.mutate({
+        key: "scale",
+        body: { action: "scale", replicas: staticCount },
+        successMessage: `Set to ${staticCount} replica${staticCount !== 1 ? "s" : ""}`,
+      });
+    } else {
+      patchMutation.mutate({
+        key: "scale",
+        body: { action: "set-hpa", hpaMin, hpaMax, hpaCpuTarget: hpaCpu },
+        successMessage: `Auto-scale enabled: ${hpaMin}–${hpaMax} replicas @ ${hpaCpu}% CPU`,
+      });
     }
   }
 
@@ -1946,23 +1842,16 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     toast.info("Crash restart is always enabled for deployment-backed Game Hub servers.");
   }
 
-
-  async function saveResources() {
-    setSavingResources(true);
-    try {
-      await patchServer(
-        {
-          action: "update-resources",
-          memory: `${memLimit}Mi`,
-          cpu: `${cpuLimit}m`,
-        },
-        "Resource limits updated",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setSavingResources(false);
-    }
+  function saveResources() {
+    patchMutation.mutate({
+      key: "resources",
+      body: {
+        action: "update-resources",
+        memory: `${memLimit}Mi`,
+        cpu: `${cpuLimit}m`,
+      },
+      successMessage: "Resource limits updated",
+    });
   }
 
   function toggleScheduleDay(day: string) {
@@ -1973,95 +1862,72 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     );
   }
 
-  async function saveSchedule() {
+  function saveSchedule() {
     if ((scheduleStartEnabled || scheduleStopEnabled) && scheduleDays.length === 0) {
       toast.error("Select at least one day");
       return;
     }
-    setSavingSchedule(true);
-    try {
-      await patchServer(
-        {
-          action: "set-schedule",
-          startSchedule: buildSchedulePayload(
-            scheduleStartEnabled,
-            scheduleStartTime,
-            scheduleDays,
-            scheduleTimezone,
-          ),
-          stopSchedule: buildSchedulePayload(
-            scheduleStopEnabled,
-            scheduleStopTime,
-            scheduleDays,
-            scheduleTimezone,
-          ),
-        },
-        "Power schedule saved",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setSavingSchedule(false);
-    }
+    patchMutation.mutate({
+      key: "schedule",
+      body: {
+        action: "set-schedule",
+        startSchedule: buildSchedulePayload(
+          scheduleStartEnabled,
+          scheduleStartTime,
+          scheduleDays,
+          scheduleTimezone,
+        ),
+        stopSchedule: buildSchedulePayload(
+          scheduleStopEnabled,
+          scheduleStopTime,
+          scheduleDays,
+          scheduleTimezone,
+        ),
+      },
+      successMessage: "Power schedule saved",
+    });
   }
 
-  async function saveAlertThresholds() {
-    setSavingThresholds(true);
-    try {
-      await patchServer(
-        {
-          action: "set-alert-thresholds",
-          alertCpu,
-          alertMemory,
-          alertRestarts,
-        },
-        "Alert thresholds saved",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setSavingThresholds(false);
-    }
+  function saveAlertThresholds() {
+    patchMutation.mutate({
+      key: "thresholds",
+      body: {
+        action: "set-alert-thresholds",
+        alertCpu,
+        alertMemory,
+        alertRestarts,
+      },
+      successMessage: "Alert thresholds saved",
+    });
   }
 
-  async function saveBackupSchedule() {
-    setSavingBackupSchedule(true);
-    try {
-      await patchServer(
-        {
-          action: "set-backup-schedule",
-          cronExpr:
-            backupSchedulePreset === "disabled"
-              ? ""
-              : backupSchedulePreset === "custom"
-                ? backupCronExpr.trim()
-                : backupCronExpr,
-          retention: clampNumber(Math.round(backupRetention), 1, 365),
-        },
-        "Backup schedule saved",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setSavingBackupSchedule(false);
-    }
+  function saveBackupSchedule() {
+    patchMutation.mutate({
+      key: "backup-schedule",
+      body: {
+        action: "set-backup-schedule",
+        cronExpr:
+          backupSchedulePreset === "disabled"
+            ? ""
+            : backupSchedulePreset === "custom"
+              ? backupCronExpr.trim()
+              : backupCronExpr,
+        retention: clampNumber(Math.round(backupRetention), 1, 365),
+      },
+      successMessage: "Backup schedule saved",
+    });
   }
 
-  async function testWebhook() {
-    setTestingWebhook(true);
-    try {
-      await fetchJson(`/api/game-hub/servers/${name}/webhooks`, {
+  const webhookMutation = useMutationWithToast<unknown, void>({
+    mutationFn: () =>
+      fetchJson(`/api/game-hub/servers/${name}/webhooks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "test" }),
-      });
-      toast.success("Test webhook sent");
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setTestingWebhook(false);
-    }
-  }
+      }),
+    successMessage: "Test webhook sent",
+  });
+  const testingWebhook = webhookMutation.isPending;
 
   async function applyUnsetEnvVar(entry: { name: string; defaultValue: string }, customValue?: string) {
     const valueToApply = customValue ?? entry.defaultValue;
@@ -2092,73 +1958,54 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     }
   }
 
-  async function saveIdentity() {
-    try {
-      await patchServer(
-        {
-          action: "update-identity",
-          description,
-          icon,
-          groups: groupsStr
-            .split(",")
-            .map((group) => group.trim())
-            .filter(Boolean),
-          annotations: {
-            ...(server.annotations ?? {}),
-            [ACCENT_ANNOTATION_KEY]: accentColor,
-          },
+  function saveIdentity() {
+    patchMutation.mutate({
+      body: {
+        action: "update-identity",
+        description,
+        icon,
+        groups: groupsStr
+          .split(",")
+          .map((group) => group.trim())
+          .filter(Boolean),
+        annotations: {
+          ...(server.annotations ?? {}),
+          [ACCENT_ANNOTATION_KEY]: accentColor,
         },
-        "Server identity updated",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    }
+      },
+      successMessage: "Server identity updated",
+    });
   }
 
-  async function saveImage() {
-    try {
-      await patchServer(
-        { action: "update-image", image },
-        "Container image updated",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    }
+  function saveImage() {
+    patchMutation.mutate({
+      body: { action: "update-image", image },
+      successMessage: "Container image updated",
+    });
   }
 
-  async function savePullPolicy() {
-    try {
-      await patchServer(
-        { action: "update-pull-policy", pullPolicy: imagePullPolicy },
-        "Pull policy updated",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    }
+  function savePullPolicy() {
+    patchMutation.mutate({
+      body: { action: "update-pull-policy", pullPolicy: imagePullPolicy },
+      successMessage: "Pull policy updated",
+    });
   }
 
-  async function saveStrategy() {
-    try {
-      await patchServer(
-        { action: "update-strategy", strategy: deploymentStrategy },
-        "Deployment strategy updated",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    }
+  function saveStrategy() {
+    patchMutation.mutate({
+      body: { action: "update-strategy", strategy: deploymentStrategy },
+      successMessage: "Deployment strategy updated",
+    });
   }
 
-  async function rollbackDeployment() {
-    try {
-      await fetchJson(`/api/game-hub/servers/${name}/rollback`, {
+  const rollbackMutation = useMutationWithToast<unknown, void>({
+    mutationFn: () =>
+      fetchJson(`/api/game-hub/servers/${name}/rollback`, {
         method: "POST",
-      });
-      toast.success("Rollback requested");
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
-    } catch (error) {
-      toast.error(String(error));
-    }
-  }
+      }),
+    successMessage: "Rollback requested",
+    invalidateKeys: [["game-hub", "server", name]],
+  });
 
   async function viewYaml() {
     setYamlLoading(true);
@@ -2199,82 +2046,69 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
     setServicePorts((ports) => ports.filter((port) => port.id !== id));
   }
 
-  async function savePorts() {
-    try {
-      const ports = servicePorts
-        .filter((port) => port.port > 0)
-        .map((port) => ({
-          name: port.name || undefined,
-          port: Number(port.port),
-          targetPort: Number(port.targetPort || port.port),
-          protocol: port.protocol as "TCP" | "UDP",
-        }));
-      await patchServer(
-        { action: "update-service-ports", ports },
-        "Service ports updated",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    }
+  function savePorts() {
+    const ports = servicePorts
+      .filter((port) => port.port > 0)
+      .map((port) => ({
+        name: port.name || undefined,
+        port: Number(port.port),
+        targetPort: Number(port.targetPort || port.port),
+        protocol: port.protocol as "TCP" | "UDP",
+      }));
+    patchMutation.mutate({
+      body: { action: "update-service-ports", ports },
+      successMessage: "Service ports updated",
+    });
   }
 
-  async function saveScheduledAction() {
-    try {
-      await patchServer(
-        {
-          action: "set-scheduled-action",
-          scheduledAction: scheduledAction === "none" ? null : scheduledAction,
-          scheduledTime: scheduledTime || null,
-        },
-        "Scheduled action updated",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    }
+  function saveScheduledAction() {
+    patchMutation.mutate({
+      body: {
+        action: "set-scheduled-action",
+        scheduledAction: scheduledAction === "none" ? null : scheduledAction,
+        scheduledTime: scheduledTime || null,
+      },
+      successMessage: "Scheduled action updated",
+    });
   }
 
-  async function createSnapshot() {
-    try {
-      await fetchJson(`/api/game-hub/servers/${name}/snapshot`, {
+  const snapshotMutation = useMutationWithToast<unknown, void>({
+    mutationFn: () =>
+      fetchJson(`/api/game-hub/servers/${name}/snapshot`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
-      });
-      toast.success("Snapshot requested");
-      refetchSnapshots();
-    } catch (error) {
-      toast.error(String(error));
-    }
-  }
+      }),
+    successMessage: "Snapshot requested",
+    onSuccess: () => void refetchSnapshots(),
+  });
 
-  async function saveQuickCommand() {
+  function saveQuickCommand() {
     const label = commandLabel.trim();
     const cmd = commandText.trim();
     if (!label || !cmd) {
       toast.error("Label and command are required");
       return;
     }
-    try {
-      await patchServer(
-        { action: "save-command", command: { label, cmd } },
-        "Saved command added",
-      );
-      setCommandLabel("");
-      setCommandText("");
-    } catch (error) {
-      toast.error(String(error));
-    }
+    patchMutation.mutate(
+      {
+        body: { action: "save-command", command: { label, cmd } },
+        successMessage: "Saved command added",
+      },
+      {
+        onSuccess: () => {
+          setCommandLabel("");
+          setCommandText("");
+        },
+      },
+    );
   }
 
-  async function deleteQuickCommand(entry: RuntimeSavedCommand) {
-    try {
-      await patchServer(
-        { action: "delete-saved-command", commandId: entry.id },
-        "Saved command removed",
-      );
-    } catch (error) {
-      toast.error(String(error));
-    }
+  function deleteQuickCommand(entry: RuntimeSavedCommand) {
+    patchMutation.mutate({
+      body: { action: "delete-saved-command", commandId: entry.id },
+      successMessage: "Saved command removed",
+    });
   }
 
   function exportServer() {
@@ -2317,7 +2151,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   </div>
                   <div className="flex gap-2 items-center">
                     <input
-                      type={/password|secret|token|key/i.test(entry.name) ? "password" : entry.fieldType === "integer" ? "number" : "text"}
+                      type={isSensitiveEnvName(entry.name) ? "password" : entry.fieldType === "integer" ? "number" : "text"}
                       value={editVal}
                       onChange={(e) => setUnsetEditValues((prev) => ({ ...prev, [entry.name]: e.target.value }))}
                       placeholder={entry.defaultValue || "Enter value…"}
@@ -2530,26 +2364,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         <div className="p-4 space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
-              <div className="flex min-w-0 items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="block truncate text-sm text-gray-900 dark:text-[#f2f2f2]">Enable scheduled start</p>
-                  <p className="truncate text-[11px] text-gray-500 dark:text-[#888]">Scale the server back to 1 replica on the selected days.</p>
-                </div>
-                <button
-                  onClick={() => setScheduleStartEnabled((current) => !current)}
-                  className={cn(
-                    "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                    scheduleStartEnabled ? "bg-[#3b82f6]" : "bg-gray-100 dark:bg-[#2a2a2a]",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow",
-                      scheduleStartEnabled ? "translate-x-5" : "translate-x-0",
-                    )}
-                  />
-                </button>
-              </div>
+              <ToggleSwitch
+                checked={scheduleStartEnabled}
+                onChange={setScheduleStartEnabled}
+                label="Enable scheduled start"
+                description="Scale the server back to 1 replica on the selected days."
+                size="lg"
+              />
               <input
                 type="time"
                 step={60}
@@ -2560,26 +2381,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               />
             </div>
             <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
-              <div className="flex min-w-0 items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="block truncate text-sm text-gray-900 dark:text-[#f2f2f2]">Enable scheduled stop</p>
-                  <p className="truncate text-[11px] text-gray-500 dark:text-[#888]">Scale the server down cleanly at the chosen time.</p>
-                </div>
-                <button
-                  onClick={() => setScheduleStopEnabled((current) => !current)}
-                  className={cn(
-                    "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                    scheduleStopEnabled ? "bg-[#3b82f6]" : "bg-gray-100 dark:bg-[#2a2a2a]",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow",
-                      scheduleStopEnabled ? "translate-x-5" : "translate-x-0",
-                    )}
-                  />
-                </button>
-              </div>
+              <ToggleSwitch
+                checked={scheduleStopEnabled}
+                onChange={setScheduleStopEnabled}
+                label="Enable scheduled stop"
+                description="Scale the server down cleanly at the chosen time."
+                size="lg"
+              />
               <input
                 type="time"
                 step={60}
@@ -2653,29 +2461,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">CPU threshold</label>
                 <span className="text-xs text-gray-900 dark:text-[#f2f2f2]">{alertCpu}%</span>
               </div>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={alertCpu}
-                  onChange={(event) => setAlertCpu(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
-                  style={sliderTrackStyle(alertCpu, 0, 100)}
-                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
-                />
-                <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5">
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={alertCpu}
-                    onChange={(event) => setAlertCpu(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
-                    className="w-12 bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
-                  />
-                  <span className="text-xs text-gray-400 dark:text-[#666]">%</span>
-                </div>
-              </div>
+              <SettingsSliderRow value={alertCpu} onValue={setAlertCpu} min={0} max={100} rangeStep={1} unit="%" numberWidth="w-12" />
               <ThresholdPreview label="CPU preview" value={alertCpu} max={100} suffix="%" />
             </div>
             <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
@@ -2683,29 +2469,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Memory threshold</label>
                 <span className="text-xs text-gray-900 dark:text-[#f2f2f2]">{alertMemory}%</span>
               </div>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={alertMemory}
-                  onChange={(event) => setAlertMemory(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
-                  style={sliderTrackStyle(alertMemory, 0, 100)}
-                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
-                />
-                <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5">
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={alertMemory}
-                    onChange={(event) => setAlertMemory(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 100))}
-                    className="w-12 bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
-                  />
-                  <span className="text-xs text-gray-400 dark:text-[#666]">%</span>
-                </div>
-              </div>
+              <SettingsSliderRow value={alertMemory} onValue={setAlertMemory} min={0} max={100} rangeStep={1} unit="%" numberWidth="w-12" />
               <ThresholdPreview label="Memory preview" value={alertMemory} max={100} suffix="%" />
             </div>
             <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
@@ -2713,28 +2477,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Restart threshold</label>
                 <span className="text-xs text-gray-900 dark:text-[#f2f2f2]">{alertRestarts}</span>
               </div>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={0}
-                  max={20}
-                  step={1}
-                  value={alertRestarts}
-                  onChange={(event) => setAlertRestarts(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 20))}
-                  style={sliderTrackStyle(alertRestarts, 0, 20)}
-                  className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
-                />
-                <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5">
-                  <input
-                    type="number"
-                    min={0}
-                    max={20}
-                    value={alertRestarts}
-                    onChange={(event) => setAlertRestarts(clampNumber(Number.parseInt(event.target.value, 10) || 0, 0, 20))}
-                    className="w-12 bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
-                  />
-                </div>
-              </div>
+              <SettingsSliderRow value={alertRestarts} onValue={setAlertRestarts} min={0} max={20} rangeStep={1} numberWidth="w-12" />
               <ThresholdPreview label="Restart preview" value={alertRestarts} max={20} suffix="" />
             </div>
           </div>
@@ -2752,7 +2495,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               Save Thresholds
             </button>
             <button
-              onClick={testWebhook}
+              onClick={() => webhookMutation.mutate()}
               disabled={testingWebhook}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 text-yellow-200 text-sm font-medium hover:bg-yellow-500/15 disabled:opacity-50"
             >
@@ -2785,60 +2528,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">CPU</label>
                   <span className="text-sm text-gray-900 dark:text-[#f2f2f2]">{cpuLimit}m</span>
                 </div>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    min={100}
-                    max={4000}
-                    step={100}
-                    value={cpuLimit}
-                    onChange={(event) => setCpuLimit(clampNumber(Number.parseInt(event.target.value, 10) || 100, 100, 4000))}
-                    style={sliderTrackStyle(cpuLimit, 100, 4000)}
-                    className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
-                  />
-                  <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5">
-                    <input
-                      type="number"
-                      min={100}
-                      max={4000}
-                      step={100}
-                      value={cpuLimit}
-                      onChange={(event) => setCpuLimit(clampNumber(Number.parseInt(event.target.value, 10) || 100, 100, 4000))}
-                      className="w-16 bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
-                    />
-                    <span className="text-xs text-gray-400 dark:text-[#666]">m</span>
-                  </div>
-                </div>
+                <SettingsSliderRow value={cpuLimit} onValue={setCpuLimit} min={100} max={4000} rangeStep={100} numberStep={100} unit="m" numberWidth="w-16" />
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Memory</label>
                   <span className="text-sm text-gray-900 dark:text-[#f2f2f2]">{memLimit} MB</span>
                 </div>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    min={256}
-                    max={8192}
-                    step={256}
-                    value={memLimit}
-                    onChange={(event) => setMemLimit(clampNumber(Number.parseInt(event.target.value, 10) || 256, 256, 8192))}
-                    style={sliderTrackStyle(memLimit, 256, 8192)}
-                    className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-white dark:bg-[#1a1a1a]"
-                  />
-                  <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-2.5 py-1.5">
-                    <input
-                      type="number"
-                      min={256}
-                      max={8192}
-                      step={256}
-                      value={memLimit}
-                      onChange={(event) => setMemLimit(clampNumber(Number.parseInt(event.target.value, 10) || 256, 256, 8192))}
-                      className="w-16 bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none"
-                    />
-                    <span className="text-xs text-gray-400 dark:text-[#666]">MB</span>
-                  </div>
-                </div>
+                <SettingsSliderRow value={memLimit} onValue={setMemLimit} min={256} max={8192} rangeStep={256} numberStep={256} unit="MB" numberWidth="w-16" />
               </div>
             </div>
             <button
@@ -3106,7 +2803,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={rollbackDeployment}
+              onClick={() => rollbackMutation.mutate()}
               className="px-3 py-2 rounded-lg bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] text-xs text-gray-700 dark:text-[#d4d4d4] hover:bg-gray-100 dark:hover:bg-[#222]"
             >
               Rollback
@@ -3357,7 +3054,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   Create CSI snapshots for {server.pvc?.name ?? "this PVC"}.
                 </p>
                 <button
-                  onClick={createSnapshot}
+                  onClick={() => snapshotMutation.mutate()}
                   className="px-3 py-2 rounded-lg bg-[#0078D4] text-white text-xs"
                 >
                   Create Snapshot
@@ -3553,10 +3250,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(yamlContent);
-                      toast.success("Copied");
-                    }}
+                    onClick={() => void copy(yamlContent, { successMessage: "Copied" })}
                     className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] text-xs text-gray-700 dark:text-[#d4d4d4]"
                   >
                     Copy
@@ -3598,10 +3292,9 @@ export default function ServerDetailPage() {
     if (typeof window === "undefined") return "dashboard";
     return (window.localStorage.getItem(`${GAME_HUB_TAB_STORAGE_PREFIX}:${name}`) as TabId | null) ?? "dashboard";
   });
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [mobileActionSheetOpen, setMobileActionSheetOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const queryClient = useQueryClient();
+  const { copy } = useCopyToClipboard();
 
   const {
     data: server,
@@ -3632,23 +3325,34 @@ export default function ServerDetailPage() {
     retry: false,
   });
 
-  const doAction = useCallback(async (action: string, successMessage?: string) => {
-    setActionLoading(action);
-    try {
-      await fetchJson(`/api/game-hub/servers/${name}`, {
+  const actionMutation = useMutationWithToast<
+    unknown,
+    { action: string; successMessage?: string }
+  >({
+    mutationFn: ({ action }) =>
+      fetchJson(`/api/game-hub/servers/${name}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
-      });
-      toast.success(successMessage ?? `${action} successful`);
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-    } catch (error) {
-      toast.error(String(error));
-    } finally {
-      setActionLoading(null);
-    }
-  }, [name, queryClient]);
+      }),
+    successMessage: (_data, { action, successMessage }) =>
+      successMessage ?? `${action} successful`,
+    invalidateKeys: [
+      ["game-hub", "server", name],
+      ["game-hub", "servers"],
+    ],
+  });
+  const { mutate: mutateAction } = actionMutation;
+  const actionLoading = actionMutation.isPending
+    ? actionMutation.variables?.action ?? null
+    : null;
+
+  const doAction = useCallback(
+    (action: string, successMessage?: string) => {
+      mutateAction({ action, successMessage });
+    },
+    [mutateAction],
+  );
 
   // Trust the API's authoritative status (it derives "stopped" from the desired
   // replica count, spec.replicas === 0) instead of re-deriving from live pod
@@ -3697,8 +3401,7 @@ export default function ServerDetailPage() {
 
   function copyConnectionInfo() {
     if (!connectionInfo) return;
-    navigator.clipboard.writeText(connectionInfo);
-    toast.success("Connection info copied");
+    void copy(connectionInfo, { successMessage: "Connection info copied" });
   }
 
   async function restartWithReason() {
@@ -3714,40 +3417,35 @@ export default function ServerDetailPage() {
           body: JSON.stringify({ action: "set-restart-reason", reason: trimmedReason }),
         });
       }
-      await doAction("restart", trimmedReason ? `Restarting — ${trimmedReason}` : "Restarting server");
+      doAction("restart", trimmedReason ? `Restarting — ${trimmedReason}` : "Restarting server");
     } catch (error) {
       toast.error(String(error));
     }
   }
 
-  async function toggleMaintenanceMode() {
-    if (!server) return;
-    try {
-      await fetchJson(`/api/game-hub/servers/${name}`, {
+  const maintenanceMutation = useMutationWithToast<unknown, { enabled: boolean }>({
+    mutationFn: ({ enabled }) =>
+      fetchJson(`/api/game-hub/servers/${name}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "set-maintenance",
-          enabled: !server.maintenanceMode,
-        }),
-      });
-      toast.success(
-        server.maintenanceMode
-          ? "Maintenance mode disabled"
-          : "Maintenance mode enabled",
-      );
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "server", name] });
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-    } catch (error) {
-      toast.error(String(error));
-    }
+        body: JSON.stringify({ action: "set-maintenance", enabled }),
+      }),
+    successMessage: (_data, { enabled }) =>
+      enabled ? "Maintenance mode enabled" : "Maintenance mode disabled",
+    invalidateKeys: [
+      ["game-hub", "server", name],
+      ["game-hub", "servers"],
+    ],
+  });
+
+  function toggleMaintenanceMode() {
+    if (!server) return;
+    maintenanceMutation.mutate({ enabled: !server.maintenanceMode });
   }
 
-  async function cloneCurrentServer() {
-    const newName = prompt("Clone server as", `${name}-copy`);
-    if (!newName) return;
-    try {
-      await fetchJson("/api/game-hub/servers", {
+  const cloneMutation = useMutationWithToast<unknown, { newName: string }>({
+    mutationFn: ({ newName }) =>
+      fetchJson("/api/game-hub/servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3755,12 +3453,15 @@ export default function ServerDetailPage() {
           source: name,
           newName,
         }),
-      });
-      toast.success("Clone started");
-      queryClient.invalidateQueries({ queryKey: ["game-hub", "servers"] });
-    } catch (error) {
-      toast.error(String(error));
-    }
+      }),
+    successMessage: "Clone started",
+    invalidateKeys: [["game-hub", "servers"]],
+  });
+
+  function cloneCurrentServer() {
+    const newName = prompt("Clone server as", `${name}-copy`);
+    if (!newName) return;
+    cloneMutation.mutate({ newName });
   }
 
   useEffect(() => {
@@ -4006,7 +3707,7 @@ export default function ServerDetailPage() {
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => { navigator.clipboard.writeText(clusterDnsHost); toast.success("DNS copied"); }}
+                  onClick={() => void copy(clusterDnsHost, { successMessage: "DNS copied" })}
                   className="inline-flex min-h-[36px] items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-mono text-emerald-200 transition-colors hover:bg-emerald-500/15"
                 >
                   <span className="truncate max-w-[260px]">DNS {clusterDnsHost}</span>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
-import { ShieldCheck, RefreshCw, ShieldOff, Lock, CheckCircle2, XCircle } from "lucide-react";
+import { ShieldCheck, RefreshCw, ShieldOff, Lock } from "lucide-react";
 import { PageHeader } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { podKey } from "./types";
@@ -133,33 +133,6 @@ export default function FirewallPage() {
           </LayoutGroup>
         )}
       </div>
-
-      <AnimatePresence>
-        {fw.toast && (
-          <motion.div
-            role="status"
-            aria-live="polite"
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={reduce ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.96 }}
-            transition={{ duration: 0.26, ease: EASE_OUT }}
-            className={cn(
-              "fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2.5 rounded-xl border px-4 py-2.5 text-sm shadow-lg backdrop-blur",
-              fw.toast.kind === "ok"
-                ? "border-emerald-300/60 bg-emerald-50/95 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200"
-                : "border-rose-300/60 bg-rose-50/95 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-200",
-            )}
-            onClick={fw.dismissToast}
-          >
-            {fw.toast.kind === "ok" ? (
-              <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
-            ) : (
-              <XCircle className="h-4 w-4 shrink-0" aria-hidden />
-            )}
-            <span>{fw.toast.text}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

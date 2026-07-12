@@ -1,11 +1,11 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Grid3x3, HelpCircle, MapPin, Shield, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { AccessMatrix } from "@/components/rbac/access-matrix";
 import { ScopeAccessPanel } from "@/components/rbac/scope-access-panel";
 import { ExplainWidget } from "@/components/rbac/explain-widget";
@@ -83,22 +83,14 @@ export default function RbacVizPage() {
   const [filter, setFilter] = useState<KindFilter>("all");
   const [search, setSearch] = useState("");
 
-  const platformQuery = useQuery({
+  const platformQuery = useApiQuery<PlatformSubjectsResponse>({
     queryKey: ["rbac", "subjects"],
-    queryFn: async () => {
-      const res = await fetch("/api/rbac/subjects");
-      if (!res.ok) throw new Error("Failed to load platform subjects");
-      return res.json() as Promise<PlatformSubjectsResponse>;
-    },
+    path: "/api/rbac/subjects",
   });
 
-  const k8sQuery = useQuery({
+  const k8sQuery = useApiQuery<K8sRbacData>({
     queryKey: ["security", "rbac"],
-    queryFn: async () => {
-      const res = await fetch("/api/security/rbac");
-      if (!res.ok) throw new Error("Failed to load service accounts");
-      return res.json() as Promise<K8sRbacData>;
-    },
+    path: "/api/security/rbac",
   });
 
   const subjects = useMemo<VizSubject[]>(() => {

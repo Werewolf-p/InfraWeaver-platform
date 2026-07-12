@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ExternalLink, Gamepad2, Globe, RefreshCw, Shield, Trash2 } from "lucide-react";
 import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -13,6 +12,7 @@ import { SkeletonTable } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { cn, timeAgo } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
 
 interface PortForwardRule {
@@ -71,25 +71,18 @@ export default function WanFirewallPage() {
     dataUpdatedAt,
     refetch,
     error,
-  } = useQuery({
+  } = useApiQuery<PortForwardResponse>({
     queryKey: ["udm", "portforward"],
-    queryFn: async () => {
-      const res = await fetch("/api/udm/portforward", { cache: "no-store" });
-      const payload = (await res.json()) as PortForwardResponse;
-      if (!res.ok) throw new Error(payload.error ?? "Failed to load port-forward rules");
-      return payload;
-    },
+    path: "/api/udm/portforward",
+    request: { cache: "no-store" },
     refetchInterval: refreshInterval || false,
     staleTime: refreshInterval ? Math.max(refreshInterval - 5000, 0) : 0,
   });
 
-  const { data: wan } = useQuery({
+  const { data: wan } = useApiQuery<WanStatus>({
     queryKey: ["udm", "wan"],
-    queryFn: async () => {
-      const res = await fetch("/api/udm/portforward?wan=true", { cache: "no-store" });
-      if (!res.ok) return null;
-      return (await res.json()) as WanStatus;
-    },
+    path: "/api/udm/portforward?wan=true",
+    request: { cache: "no-store" },
     staleTime: 60000,
   });
 
@@ -119,22 +112,24 @@ export default function WanFirewallPage() {
     }
   }
 
-  async function deleteRule() {
+  const deleteRuleMutation = useApiMutation<unknown, PortForwardRule>({
+    path: (rule) => `/api/udm/portforward?name=${encodeURIComponent(rule.name)}`,
+    method: "DELETE",
+    successMessage: (_data, rule) => `Deleted ${rule.name}`,
+    errorMessage: (mutationError) => mutationError.message || "Failed to delete rule",
+    onSuccess: async () => {
+      setRuleToDelete(null);
+      await refetch();
+    },
+  });
+
+  function deleteRule() {
     if (!ruleToDelete) return;
     if (!canWrite) {
       toast.error("You do not have permission to delete firewall rules");
       return;
     }
-    try {
-      const res = await fetch(`/api/udm/portforward?name=${encodeURIComponent(ruleToDelete.name)}`, { method: "DELETE" });
-      const payload = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(payload.error ?? "Failed to delete rule");
-      toast.success(`Deleted ${ruleToDelete.name}`);
-      setRuleToDelete(null);
-      await refetch();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete rule");
-    }
+    deleteRuleMutation.mutate(ruleToDelete);
   }
 
   return (
@@ -304,7 +299,7 @@ export default function WanFirewallPage() {
       <ConfirmDialog
         open={Boolean(ruleToDelete)}
         onCancel={() => setRuleToDelete(null)}
-        onConfirm={() => void deleteRule()}
+        onConfirm={deleteRule}
         title={`Delete ${ruleToDelete?.name ?? "rule"}?`}
         description={ruleToDelete ? `This closes WAN port ${ruleToDelete.dst_port} forwarding to ${ruleToDelete.fwd}:${ruleToDelete.fwd_port}.` : undefined}
         confirmText="Delete rule"

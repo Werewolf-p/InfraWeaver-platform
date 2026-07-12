@@ -21,16 +21,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
-
-interface TestResult {
-  id: string;
-  name: string;
-  category: string;
-  status: "pass" | "fail" | "warn" | "skip";
-  message: string;
-  detail?: string;
-  durationMs: number;
-}
+import { TestRunList, type TestResult } from "@/components/diagnostics/test-run-list";
 
 interface TestSuiteResponse {
   results: TestResult[];
@@ -49,29 +40,6 @@ const CATEGORIES: Array<{ id: string; label: string; icon: React.ElementType; de
   { id: "monitoring", label: "Monitoring", icon: Activity, description: "Prometheus, alerting, metrics collection" },
   { id: "certificates", label: "Certificates", icon: Award, description: "cert-manager, TLS certificates" },
 ];
-
-function statusIcon(status: TestResult["status"]) {
-  switch (status) {
-    case "pass": return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-    case "fail": return <XCircle className="h-4 w-4 text-destructive" />;
-    case "warn": return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
-    case "skip": return <MinusCircle className="h-4 w-4 text-muted-foreground" />;
-  }
-}
-
-function statusBadge(status: TestResult["status"]) {
-  const map = {
-    pass: "bg-green-500/10 text-green-600 dark:text-green-400",
-    fail: "bg-destructive/10 text-destructive",
-    warn: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
-    skip: "bg-muted text-muted-foreground",
-  };
-  return (
-    <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide", map[status])}>
-      {status}
-    </span>
-  );
-}
 
 function SummaryBar({ summary }: { summary: TestSuiteResponse["summary"] }) {
   const { total, pass, fail, warn, skip } = summary;
@@ -165,23 +133,8 @@ function CategoryCard({
       </div>
 
       {expanded && results.length > 0 && (
-        <div className="border-t border-border divide-y divide-border">
-          {results.map(r => (
-            <div key={r.id} className="flex items-start gap-3 px-4 py-3">
-              <div className="mt-0.5 shrink-0">{statusIcon(r.status)}</div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-foreground">{r.name}</span>
-                  {statusBadge(r.status)}
-                  <span className="text-xs text-muted-foreground">{r.durationMs}ms</span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-0.5">{r.message}</p>
-                {r.detail && (
-                  <p className="text-xs text-muted-foreground/70 mt-0.5 font-mono">{r.detail}</p>
-                )}
-              </div>
-            </div>
-          ))}
+        <div className="border-t border-border">
+          <TestRunList results={results} />
         </div>
       )}
     </div>

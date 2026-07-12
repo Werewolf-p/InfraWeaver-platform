@@ -1,12 +1,12 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { GitBranch, Play, RefreshCw, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ChevronRight } from "lucide-react";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { toast } from "@/lib/notify";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -48,39 +48,32 @@ function formatDuration(sec: number | null): string {
 export default function PipelinesPage() {
   const { isAdmin } = useRBAC();
   const qc = useQueryClient();
-  const [triggering, setTriggering] = useState<number | null>(null);
   const [confirmWorkflow, setConfirmWorkflow] = useState<Workflow | null>(null);
 
-  const { data, isLoading, refetch } = useQuery<{ workflows: Workflow[] }>({
+  const { data, isLoading, refetch } = useApiQuery<{ workflows: Workflow[] }>({
     queryKey: ["pipelines", "workflows"],
-    queryFn: async () => {
-      const res = await fetch("/api/pipelines");
-      return res.json();
-    },
+    path: "/api/pipelines",
     staleTime: 30000,
     refetchInterval: 60000,
   });
 
   const workflows = data?.workflows ?? [];
 
-  const handleTrigger = async (wf: Workflow) => {
-    setConfirmWorkflow(null);
-    setTriggering(wf.id);
-    try {
-      const res = await fetch("/api/pipelines", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workflowId: wf.id, ref: wf.lastRunBranch ?? "main" }),
-      });
-      if (!res.ok) throw new Error("Trigger failed");
-      toast.success(`Triggered: ${wf.name}`);
+  const triggerMutation = useApiMutation<unknown, { workflowId: number; ref: string; name: string }>({
+    path: "/api/pipelines",
+    request: ({ workflowId, ref }) => ({ json: { workflowId, ref } }),
+    successMessage: (_d, { name }) => `Triggered: ${name}`,
+    errorMessage: (_e, { name }) => `Failed to trigger ${name}`,
+    onSuccess: () => {
       setTimeout(() => { void qc.invalidateQueries({ queryKey: ["pipelines"] }); }, 3000);
-    } catch {
-      toast.error(`Failed to trigger ${wf.name}`);
-    } finally {
-      setTriggering(null);
-    }
+    },
+  });
+
+  const handleTrigger = (wf: Workflow) => {
+    setConfirmWorkflow(null);
+    triggerMutation.mutate({ workflowId: wf.id, ref: wf.lastRunBranch ?? "main", name: wf.name });
   };
+  const triggering = triggerMutation.isPending ? triggerMutation.variables?.workflowId ?? null : null;
 
   const successCount = workflows.filter(w => w.lastRunConclusion === "success").length;
   const failCount = workflows.filter(w => w.lastRunConclusion === "failure").length;
@@ -88,18 +81,12 @@ export default function PipelinesPage() {
 
   return (
     <div>
-      <PageHeader icon={GitBranch} title="Pipelines" />
-      <div className="relative rounded-xl overflow-hidden mb-6">
-        <div className="absolute inset-0 page-gradient-cluster pointer-events-none" />
-        <div className="relative flex items-start justify-between p-5 gap-4 flex-wrap">
-          <div>
-            <h2 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent flex items-center gap-2">
-              <GitBranch className="w-5 h-5 text-indigo-400" />
-              CI/CD Pipelines
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">GitHub Actions workflows for the InfraWeaver platform</p>
-          </div>
-          <div className="flex items-center gap-2">
+      <PageHeader
+        icon={GitBranch}
+        title="Pipelines"
+        subtitle="GitHub Actions workflows for the InfraWeaver platform"
+        actions={
+          <>
             <Link href="/cluster" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
               ← Cluster
             </Link>
@@ -107,9 +94,9 @@ export default function PipelinesPage() {
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {[

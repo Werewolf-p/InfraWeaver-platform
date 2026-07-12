@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Activity, Cpu, MemoryStick, RefreshCw } from "lucide-react";
 import { DashboardPanel } from "@/components/ui/dashboard-panel";
 import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 
@@ -93,24 +93,16 @@ function SectionTableSkeleton({ rows = 6 }: { rows?: number }) {
 export default function MemoryPage() {
   const [search, setSearch] = useState("");
 
-  const heatmapQuery = useQuery<MemoryHeatmapResponse>({
+  const heatmapQuery = useApiQuery<MemoryHeatmapResponse>({
     queryKey: queryKeys.cluster.memoryHeatmap(),
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/memory-heatmap");
-      if (!response.ok) throw new Error("Failed to load namespace memory data");
-      return response.json();
-    },
+    path: "/api/cluster/memory-heatmap",
     refetchInterval: 15_000,
     staleTime: 10_000,
   });
 
-  const topConsumersQuery = useQuery<TopConsumersResponse>({
+  const topConsumersQuery = useApiQuery<TopConsumersResponse>({
     queryKey: queryKeys.cluster.topConsumers(),
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/top-consumers");
-      if (!response.ok) throw new Error("Failed to load top consumers");
-      return response.json();
-    },
+    path: "/api/cluster/top-consumers",
     refetchInterval: 15_000,
     staleTime: 10_000,
   });

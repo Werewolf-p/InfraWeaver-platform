@@ -1,9 +1,9 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { GitBranch } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface ArgoApp {
   metadata: { name: string };
@@ -18,22 +18,14 @@ interface DiffResult {
 export default function GitopsDiffPage() {
   const [selectedApp, setSelectedApp] = useState<string>("");
 
-  const { data: appsData } = useQuery({
+  const { data: appsData } = useApiQuery<ArgoApp[]>({
     queryKey: ["argocd", "apps"],
-    queryFn: async () => {
-      const res = await fetch("/api/argocd/apps");
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<ArgoApp[]>;
-    },
+    path: "/api/argocd/apps",
   });
 
-  const { data: diffData, isLoading } = useQuery({
+  const { data: diffData, isLoading } = useApiQuery<DiffResult>({
     queryKey: ["argocd", "diff", selectedApp],
-    queryFn: async () => {
-      const res = await fetch(`/api/argocd/diff/${selectedApp}`);
-      if (!res.ok) throw new Error("Failed");
-      return res.json() as Promise<DiffResult>;
-    },
+    path: `/api/argocd/diff/${selectedApp}`,
     enabled: !!selectedApp,
   });
 

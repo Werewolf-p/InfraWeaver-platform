@@ -1,10 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Calendar, Play, RefreshCw, Search } from "lucide-react";
-import { toast } from "@/lib/notify";
-import { PageHeader } from "@/components/ui/page-header";
+import { Calendar, Play } from "lucide-react";
+import { DashboardStatCard, EmptyState, FilterSelect, KubeOfflineBanner, PageScaffold, RefreshButton, SearchInput } from "@/components/ui";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 
@@ -49,18 +48,21 @@ export default function CronJobsPage() {
   const [search, setSearch] = useState("");
   const [namespaceFilter, setNamespaceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "failing" | "suspended" | "active">("all");
-  const [triggeringId, setTriggeringId] = useState<string | null>(null);
 
-  const { data, isLoading, isFetching, refetch } = useQuery<CronJobsResponse>({
+  const { data, isLoading, isFetching, refetch } = useApiQuery<CronJobsResponse>({
     queryKey: ["cronjobs"],
-    queryFn: async () => {
-      const response = await fetch("/api/cluster/cronjobs", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to fetch cronjobs");
-      return response.json();
-    },
+    path: "/api/cluster/cronjobs",
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
+
+  const triggerMutation = useApiMutation<{ ok?: boolean; jobName?: string; simulated?: boolean }, CronJob>({
+    path: "/api/cluster/trigger-cronjob",
+    request: (cronjob) => ({ json: { namespace: cronjob.namespace, name: cronjob.name } }),
+    invalidateQueryKeys: [["cronjobs"]],
+    successMessage: (payload) => payload.simulated ? `Simulated run: ${payload.jobName}` : `Started ${payload.jobName}`,
+  });
+  const triggeringId = triggerMutation.isPending ? triggerMutation.variables?.id ?? null : null;
 
   const cronjobs = useMemo(() => data?.cronjobs ?? [], [data?.cronjobs]);
   const namespaces = useMemo(() => Array.from(new Set(cronjobs.map((cronjob) => cronjob.namespace))).sort(), [cronjobs]);
@@ -81,106 +83,55 @@ export default function CronJobsPage() {
 
   const canTrigger = can("cluster:admin");
 
-  async function handleTrigger(cronjob: CronJob) {
-    setTriggeringId(cronjob.id);
-    try {
-      const response = await fetch("/api/cluster/trigger-cronjob", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ namespace: cronjob.namespace, name: cronjob.name }),
-      });
-      const payload = await response.json() as { ok?: boolean; jobName?: string; simulated?: boolean; error?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "Failed to trigger CronJob");
-      toast.success(payload.simulated ? `Simulated run: ${payload.jobName}` : `Started ${payload.jobName}`);
-      await refetch();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to trigger CronJob");
-    } finally {
-      setTriggeringId(null);
-    }
-  }
-
   return (
-    <div className="space-y-6">
-      <PageHeader
-        icon={Calendar}
-        title="CronJobs"
-        subtitle="Scheduled workloads with next run prediction and one-click manual trigger"
-        badge={data?.live === false ? "offline" : "live"}
-        actions={
-          <button
-            onClick={() => void refetch()}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
-          >
-            <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
-            Refresh
-          </button>
-        }
-      />
-
-      {data?.live === false ? (
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          Kubernetes unavailable — CronJob data cannot be loaded. Check cluster connectivity.
-        </div>
-      ) : null}
+    <PageScaffold
+      icon={Calendar}
+      title="CronJobs"
+      subtitle="Scheduled workloads with next run prediction and one-click manual trigger"
+      badge={data?.live === false ? "offline" : "live"}
+      actions={<RefreshButton onClick={() => void refetch()} refreshing={isFetching} />}
+      loading={isLoading}
+      bodyClassName="space-y-6"
+    >
+      <KubeOfflineBanner show={data?.live === false} resource="CronJob data" />
 
       <div className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">CronJobs</p>
-          <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{data?.summary.total ?? 0}</p>
-        </div>
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-emerald-100/80">Active</p>
-          <p className="mt-2 text-3xl font-semibold text-emerald-300">{data?.summary.active ?? 0}</p>
-        </div>
-        <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-yellow-100/80">Suspended</p>
-          <p className="mt-2 text-3xl font-semibold text-yellow-200">{data?.summary.suspended ?? 0}</p>
-        </div>
-        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-red-100/80">Failing</p>
-          <p className="mt-2 text-3xl font-semibold text-red-300">{data?.summary.failing ?? 0}</p>
-        </div>
+        <DashboardStatCard label="CronJobs" value={data?.summary.total ?? 0} />
+        <DashboardStatCard label="Active" value={data?.summary.active ?? 0} tone="success" />
+        <DashboardStatCard label="Suspended" value={data?.summary.suspended ?? 0} tone="warning" />
+        <DashboardStatCard label="Failing" value={data?.summary.failing ?? 0} tone="danger" />
       </div>
 
       <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by name, namespace, image, or cron schedule…"
-              className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 py-2.5 pl-9 pr-3 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50"
-            />
-          </div>
-          <select
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search by name, namespace, image, or cron schedule…"
+            className="flex-1"
+          />
+          <FilterSelect
+            label="Filter by namespace"
             value={namespaceFilter}
-            onChange={(event) => setNamespaceFilter(event.target.value)}
-            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
-          >
-            <option value="all">All namespaces</option>
-            {namespaces.map((namespace) => <option key={namespace} value={namespace}>{namespace}</option>)}
-          </select>
-          <select
+            onChange={setNamespaceFilter}
+            options={[{ value: "all", label: "All namespaces" }, ...namespaces]}
+          />
+          <FilterSelect
+            label="Filter by state"
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
-            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
-          >
-            <option value="all">All states</option>
-            <option value="active">Active</option>
-            <option value="suspended">Suspended</option>
-            <option value="failing">Failing</option>
-          </select>
+            onChange={(value) => setStatusFilter(value as typeof statusFilter)}
+            options={[
+              { value: "all", label: "All states" },
+              { value: "active", label: "Active" },
+              { value: "suspended", label: "Suspended" },
+              { value: "failing", label: "Failing" },
+            ]}
+          />
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="grid gap-4 xl:grid-cols-2">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-64 rounded-2xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>
-      ) : filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 py-16 text-center text-sm text-slate-500">
-          No CronJobs matched the current filters.
-        </div>
+      {filtered.length === 0 ? (
+        <EmptyState icon={Calendar} title="No CronJobs matched the current filters." />
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {filtered.map((cronjob) => (
@@ -205,7 +156,7 @@ export default function CronJobsPage() {
                 </div>
                 {canTrigger ? (
                   <button
-                    onClick={() => void handleTrigger(cronjob)}
+                    onClick={() => triggerMutation.mutate(cronjob)}
                     disabled={triggeringId === cronjob.id}
                     className="inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-sm text-indigo-200 transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
@@ -264,6 +215,6 @@ export default function CronJobsPage() {
           ))}
         </div>
       )}
-    </div>
+    </PageScaffold>
   );
 }

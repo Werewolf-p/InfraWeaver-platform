@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Archive, CheckCircle2, Clock, HardDrive, RefreshCw, RotateCcw, XCircle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { apiClient } from "@/lib/api-client";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface LonghornBackup {
   name: string;
@@ -21,26 +23,6 @@ interface LonghornBackupVolume {
   lastBackupName: string | null;
   size: number;
   backups?: LonghornBackup[];
-}
-
-async function fetchBackups(): Promise<LonghornBackupVolume[]> {
-  const res = await fetch("/api/longhorn/backups");
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: string };
-    throw new Error(err.error ?? "Failed to load backups");
-  }
-  return res.json() as Promise<LonghornBackupVolume[]>;
-}
-
-async function triggerRestore(body: { volumeName: string; backupURL: string; targetVolumeName?: string }) {
-  const res = await fetch("/api/longhorn/restore", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json() as { ok?: boolean; message?: string; error?: string };
-  if (!res.ok) throw new Error(data.error ?? "Restore failed");
-  return data;
 }
 
 function formatBytes(bytes: number) {
@@ -101,20 +83,18 @@ function VolumeCard({ volume }: { volume: LonghornBackupVolume }) {
   const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
   const [restoreTarget, setRestoreTarget] = useState("");
 
-  const { data: backupsData, isLoading: backupsLoading } = useQuery({
+  const { data: backupsData, isLoading: backupsLoading } = useApiQuery<LonghornBackup[]>({
     queryKey: ["longhorn", "backups", volume.volumeName],
-    queryFn: async () => {
-      const res = await fetch(`/api/longhorn/backups/${encodeURIComponent(volume.volumeName)}`);
-      if (!res.ok) throw new Error("Failed to load");
-      return res.json() as Promise<LonghornBackup[]>;
-    },
+    path: `/api/longhorn/backups/${encodeURIComponent(volume.volumeName)}`,
     enabled: expanded,
   });
   const backupsList = backupsData ?? [];
 
   const restoreMut = useMutation({
     mutationFn: (args: { backupURL: string }) =>
-      triggerRestore({ volumeName: volume.volumeName, backupURL: args.backupURL, targetVolumeName: restoreTarget || undefined }),
+      apiClient.post<{ ok?: boolean; message?: string }>("/api/longhorn/restore", {
+        json: { volumeName: volume.volumeName, backupURL: args.backupURL, targetVolumeName: restoreTarget || undefined },
+      }),
     onSuccess: () => {
       setConfirmRestore(null);
       setRestoreTarget("");
@@ -230,9 +210,9 @@ function VolumeCard({ volume }: { volume: LonghornBackupVolume }) {
 }
 
 export function BackupsView() {
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, error, refetch } = useApiQuery<LonghornBackupVolume[]>({
     queryKey: ["longhorn", "backups"],
-    queryFn: fetchBackups,
+    path: "/api/longhorn/backups",
     refetchInterval: 60_000,
   });
 
@@ -247,17 +227,20 @@ export function BackupsView() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <div className="flex items-center justify-between">
-        <PageHeader icon={Archive} title="Backups" />
-        <button
-          type="button"
-          onClick={() => void refetch()}
-          className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 hover:bg-white/8 transition-colors"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </button>
-      </div>
+      <PageHeader
+        icon={Archive}
+        title="Backups"
+        actions={
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300 hover:bg-white/8 transition-colors"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

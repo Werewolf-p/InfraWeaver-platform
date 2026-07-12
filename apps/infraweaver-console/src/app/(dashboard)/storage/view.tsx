@@ -1,6 +1,5 @@
 "use client";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HardDrive, AlertCircle, CheckCircle2, Search, ArrowUpDown, Activity, Server, Lock, Unlock, Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { formatBytes, cn } from "@/lib/utils";
@@ -10,7 +9,9 @@ import { PageHeader } from "@/components/ui/page-header";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useApiQuery } from "@/hooks/use-api-query";
+import { useConfirm } from "@/hooks/use-confirm";
+import { useSlashFocus } from "@/hooks/use-slash-focus";
 import { NasFolderExplorer } from "@/components/nas/folder-explorer";
 import {
   useNasProviders,
@@ -78,11 +79,6 @@ const HEALTH_FILTERS: Array<{ value: HealthFilter; label: string }> = [
   { value: "critical", label: "Critical" },
 ];
 
-function isTypingTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-}
-
 function usagePct(volume: Pick<Volume, "size" | "actualSize">) {
   if (!volume.size || volume.size <= 0) return 0;
   return Math.min(100, Math.round((volume.actualSize / volume.size) * 100));
@@ -129,44 +125,30 @@ export function StorageVolumesView() {
   // Tabs: default to Longhorn (existing behaviour). "nas" swaps the lower
   // section for the NAS providers + mounts table (plan §4).
   const [tab, setTab] = useState<"longhorn" | "nas">("longhorn");
-  const { data: volumes, isLoading, dataUpdatedAt } = useQuery<Volume[]>({
+  const { data: volumes, isLoading, dataUpdatedAt } = useApiQuery<Volume[]>({
     queryKey: ["longhorn", "volumes"],
-    queryFn: async () => {
-      const res = await fetch("/api/longhorn/volumes");
-      if (!res.ok) throw new Error("Failed to fetch volumes");
-      return res.json();
-    },
+    path: "/api/longhorn/volumes",
     refetchInterval: 60000,
   });
 
-  const { data: backupData } = useQuery<BackupStatusResponse>({
+  const { data: backupData } = useApiQuery<BackupStatusResponse>({
     queryKey: ["longhorn", "backup-status"],
-    queryFn: async () => {
-      const res = await fetch("/api/longhorn/backup-status");
-      if (!res.ok) throw new Error("Failed to fetch Longhorn backup status");
-      return res.json();
-    },
+    path: "/api/longhorn/backup-status",
     staleTime: 60000,
     refetchInterval: 120000,
   });
 
-  const { data: breakdownData } = useQuery<{ breakdown: BreakdownEntry[] }>({
+  const { data: breakdownData } = useApiQuery<{ breakdown: BreakdownEntry[] }>({
     queryKey: ["storage", "breakdown"],
-    queryFn: async () => {
-      const res = await fetch("/api/storage/breakdown");
-      if (!res.ok) return { breakdown: [] };
-      return res.json();
-    },
+    path: "/api/storage/breakdown",
     staleTime: 60000,
     refetchInterval: 120000,
   });
+
+  useSlashFocus(searchRef);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "/" && !isTypingTarget(event.target)) {
-        event.preventDefault();
-        searchRef.current?.focus();
-      }
       if (event.key === "Escape" && search) {
         setSearch("");
       }
@@ -324,13 +306,26 @@ function NasSection() {
   const providersQuery = useNasProviders();
   const mountsQuery = useNasMounts();
   const deleteProvider = useNasDeleteProvider();
+  const { confirm, confirmDialog } = useConfirm();
   const providers = providersQuery.data ?? [];
   const mounts = useMemo(() => mountsQuery.data ?? [], [mountsQuery.data]);
   const [providerFilter, setProviderFilter] = useState<string>("all");
   const [accessFilter, setAccessFilter] = useState<"all" | "ro" | "rw">("all");
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<NasProvider | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<NasProvider | null>(null);
+
+  const requestDeleteProvider = async (provider: NasProvider) => {
+    const confirmed = await confirm({
+      title: "Remove NAS provider",
+      description:
+        provider.source === "openbao"
+          ? `Remove "${provider.name}" and its stored credentials from OpenBao? Existing mounts are not affected.`
+          : `Remove "${provider.name}" from the console? It will no longer appear here. You can re-add it any time with the Add provider wizard. Existing mounts are not affected.`,
+      confirmText: "Remove",
+      danger: true,
+    });
+    if (confirmed) deleteProvider.mutate(provider.id);
+  };
   const filteredMounts = useMemo(
     () => mounts.filter((m) => (providerFilter === "all" || m.provider === providerFilter) && (accessFilter === "all" || m.access === accessFilter)),
     [mounts, providerFilter, accessFilter],
@@ -400,7 +395,7 @@ function NasSection() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPendingDelete(p)}
+                    onClick={() => void requestDeleteProvider(p)}
                     aria-label={`Remove ${p.name}`}
                     title="Remove provider"
                     className="rounded-lg border border-gray-200 dark:border-white/10 p-1.5 text-slate-400 transition-colors hover:border-red-500/40 hover:text-red-400"
@@ -422,24 +417,7 @@ function NasSection() {
         initial={editing}
       />
 
-      <ConfirmDialog
-        open={Boolean(pendingDelete)}
-        title="Remove NAS provider"
-        description={
-          pendingDelete
-            ? pendingDelete.source === "openbao"
-              ? `Remove "${pendingDelete.name}" and its stored credentials from OpenBao? Existing mounts are not affected.`
-              : `Remove "${pendingDelete.name}" from the console? It will no longer appear here. You can re-add it any time with the Add provider wizard. Existing mounts are not affected.`
-            : ""
-        }
-        confirmText="Remove"
-        danger
-        onCancel={() => setPendingDelete(null)}
-        onConfirm={() => {
-          if (pendingDelete) deleteProvider.mutate(pendingDelete.id);
-          setPendingDelete(null);
-        }}
-      />
+      {confirmDialog}
 
       {/* Browse the NAS, carve out a folder, hand it to workloads. */}
       <NasFolderExplorer providers={providers} />

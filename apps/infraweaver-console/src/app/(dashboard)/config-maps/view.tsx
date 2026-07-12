@@ -1,14 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Globe, RefreshCw, Save, ShieldAlert, Trash2 } from "lucide-react";
-import { toast } from "@/lib/notify";
-import { useCluster } from "@/contexts/cluster-context";
-import { ConfirmDialog, EmptyState, PageScaffold, RelativeTime, SearchInput } from "@/components/ui";
-import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
+import { FileText, Save, ShieldAlert, Trash2 } from "lucide-react";
+import { ConfirmDialog, DashboardStatCard, EmptyState, FilterSelect, KubeOfflineBanner, PageScaffold, RefreshButton, RelativeTime, SearchInput, SingleClusterGuard } from "@/components/ui";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
-import { cn } from "@/lib/utils";
 
 interface ConfigMapItem {
   name: string;
@@ -37,44 +33,28 @@ function hasDraftChanges(current: Record<string, string>, draft: Record<string, 
 }
 
 export function ConfigMapsView() {
-  const { activeId } = useCluster();
-  const queryClient = useQueryClient();
   const { can } = useRBAC();
   const canManageConfigMaps = can("cluster:admin");
   const [search, setSearch] = useState("");
   const [namespaceFilter, setNamespaceFilter] = useState("all");
   const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});
-  const [savingId, setSavingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ConfigMapItem | null>(null);
   const [removedConfigMaps, setRemovedConfigMaps] = useState<Set<string>>(new Set());
 
-  const { data, isLoading, isFetching, refetch, isError, error } = useQuery<ConfigMapsResponse>({
+  const { data, isLoading, isFetching, refetch, isError, error } = useApiQuery<ConfigMapsResponse>({
     queryKey: ["config-maps"],
-    queryFn: async () => {
-      const response = await fetch("/api/config-maps", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to load ConfigMaps");
-      return response.json();
-    },
+    path: "/api/config-maps",
     staleTime: 30_000,
     refetchInterval: 60_000,
     enabled: canManageConfigMaps,
   });
 
-  const deleteMutation = useMutationWithToast<{ ok: boolean; simulated?: boolean }, { namespace: string; name: string }>({
-    mutationFn: async (vars) => {
-      const response = await fetch("/api/config-maps", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(vars),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error((payload as { error?: string }).error ?? "Failed to delete ConfigMap");
-      }
-      return payload as { ok: boolean; simulated?: boolean };
-    },
+  const deleteMutation = useApiMutation<{ ok: boolean; simulated?: boolean }, { namespace: string; name: string }>({
+    path: "/api/config-maps",
+    method: "DELETE",
+    request: (vars) => ({ json: vars }),
     successMessage: (payload, vars) => payload.simulated ? `Deleted ${vars.name} (simulated)` : `Deleted ${vars.name}`,
-    invalidateKeys: [["config-maps"]],
+    invalidateQueryKeys: [["config-maps"]],
     onSuccess: (_, vars) => {
       setRemovedConfigMaps((current) => {
         const next = new Set(current);
@@ -89,6 +69,14 @@ export function ConfigMapsView() {
       });
     },
   });
+
+  const saveMutation = useApiMutation<{ simulated?: boolean }, { namespace: string; name: string; data: Record<string, string> }>({
+    path: "/api/config-maps",
+    method: "PATCH",
+    successMessage: (payload, vars) => payload.simulated ? `Saved ${vars.name} (simulated)` : `Saved ${vars.name}`,
+    invalidateQueryKeys: [["config-maps"]],
+  });
+  const savingId = saveMutation.isPending && saveMutation.variables ? configMapId(saveMutation.variables) : null;
 
   const configMaps = useMemo(() => data?.configMaps ?? [], [data?.configMaps]);
   const visibleConfigMaps = useMemo(
@@ -113,70 +101,31 @@ export function ConfigMapsView() {
     });
   }, [namespaceFilter, search, visibleConfigMaps]);
 
-  if (activeId === "all") {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center">
-        <Globe className="mb-4 h-10 w-10 text-gray-700 dark:text-[#333]" />
-        <p className="text-sm font-medium text-gray-400 dark:text-[#666]">Select a specific cluster to view this page</p>
-        <p className="mt-1 text-xs text-gray-400 dark:text-[#444]">Use the cluster selector in the top bar</p>
-      </div>
-    );
-  }
-
-  async function handleSave(configMap: ConfigMapItem) {
-    const id = configMapId(configMap);
-    const draft = drafts[id] ?? configMap.data;
-    setSavingId(id);
-
-    try {
-      const response = await fetch("/api/config-maps", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ namespace: configMap.namespace, name: configMap.name, data: draft }),
-      });
-      const payload = await response.json() as { error?: string; simulated?: boolean };
-      if (!response.ok) throw new Error(payload.error ?? "Failed to save ConfigMap");
-      toast.success(payload.simulated ? `Saved ${configMap.name} (simulated)` : `Saved ${configMap.name}`);
-      await queryClient.invalidateQueries({ queryKey: ["config-maps"] });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save ConfigMap");
-    } finally {
-      setSavingId(null);
-    }
-  }
-
   if (!canManageConfigMaps) {
     return (
-      <PageScaffold icon={FileText} title="Config Maps" description="Cluster-wide ConfigMap editor for platform operators.">
-        <EmptyState
-          icon={ShieldAlert}
-          title="Cluster admin permission required"
-          description="This editor requires cluster:admin because the current RBAC model does not define infra:write."
-        />
-      </PageScaffold>
+      <SingleClusterGuard>
+        <PageScaffold icon={FileText} title="Config Maps" description="Cluster-wide ConfigMap editor for platform operators.">
+          <EmptyState
+            icon={ShieldAlert}
+            title="Cluster admin permission required"
+            description="This editor requires cluster:admin because the current RBAC model does not define infra:write."
+          />
+        </PageScaffold>
+      </SingleClusterGuard>
     );
   }
 
   return (
-    <>
+    <SingleClusterGuard>
       <PageScaffold
         icon={FileText}
         title="Config Maps"
         description="Review cluster ConfigMaps and edit data values inline without leaving the console."
-        actions={
-          <button
-            type="button"
-            onClick={() => void refetch()}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
-          >
-            <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
-            Refresh
-          </button>
-        }
+        actions={<RefreshButton onClick={() => void refetch()} refreshing={isFetching} />}
         loading={isLoading}
         isEmpty={!isLoading && !isError && filteredConfigMaps.length === 0}
         isError={isError}
-        errorDetail={(error as Error)?.message}
+        errorDetail={error?.message}
         emptyState={{
           icon: FileText,
           title: visibleConfigMaps.length === 0 ? "No ConfigMaps found" : "No ConfigMaps matched",
@@ -186,25 +135,16 @@ export function ConfigMapsView() {
         }}
       >
         <div className="space-y-6">
-          {data?.live === false ? (
-            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              Kubernetes unavailable — ConfigMap data cannot be loaded. Check cluster connectivity and service account permissions.
-            </div>
-          ) : null}
+          <KubeOfflineBanner
+            show={data?.live === false}
+            resource="ConfigMap data"
+            hint="Check cluster connectivity and service account permissions."
+          />
 
           <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">ConfigMaps</p>
-              <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{visibleConfigMaps.length}</p>
-            </div>
-            <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-indigo-100/80">Namespaces</p>
-              <p className="mt-2 text-3xl font-semibold text-indigo-200">{namespaces.length}</p>
-            </div>
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-emerald-100/80">Editable keys</p>
-              <p className="mt-2 text-3xl font-semibold text-emerald-200">{visibleConfigMaps.reduce((count, item) => count + item.keys.length, 0)}</p>
-            </div>
+            <DashboardStatCard label="ConfigMaps" value={visibleConfigMaps.length} />
+            <DashboardStatCard label="Namespaces" value={namespaces.length} tone="info" />
+            <DashboardStatCard label="Editable keys" value={visibleConfigMaps.reduce((count, item) => count + item.keys.length, 0)} tone="success" />
           </div>
 
           <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
@@ -215,16 +155,12 @@ export function ConfigMapsView() {
                 placeholder="Search ConfigMap name, namespace, or key…"
                 className="flex-1"
               />
-              <select
+              <FilterSelect
+                label="Filter by namespace"
                 value={namespaceFilter}
-                onChange={(event) => setNamespaceFilter(event.target.value)}
-                className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
-              >
-                <option value="all">All namespaces</option>
-                {namespaces.map((namespace) => (
-                  <option key={namespace} value={namespace}>{namespace}</option>
-                ))}
-              </select>
+                onChange={setNamespaceFilter}
+                options={[{ value: "all", label: "All namespaces" }, ...namespaces]}
+              />
             </div>
           </div>
 
@@ -257,7 +193,7 @@ export function ConfigMapsView() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => void handleSave(configMap)}
+                        onClick={() => saveMutation.mutate({ namespace: configMap.namespace, name: configMap.name, data: draft })}
                         disabled={!dirty || configMap.immutable || savingId === id}
                         className="inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -330,6 +266,6 @@ export function ConfigMapsView() {
         danger
         requireTyping={deleteTarget?.name}
       />
-    </>
+    </SingleClusterGuard>
   );
 }

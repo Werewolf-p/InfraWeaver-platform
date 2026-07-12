@@ -1,33 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Globe, RefreshCw, Search } from "lucide-react";
+import { Globe, Search } from "lucide-react";
 import { AccessTierBadge } from "@/components/access-tier-badge";
+import { FilterSelect } from "@/components/ui/filter-select";
+import { KubeOfflineBanner } from "@/components/ui/kube-offline-banner";
 import { PageHeader } from "@/components/ui/page-header";
+import { PillTabs } from "@/components/ui/pill-tabs";
+import { RefreshButton } from "@/components/ui/refresh-button";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { accessTierTabs, type AccessTier } from "@/lib/access-tier";
+import type { IngressResponse } from "@/lib/ingress";
 import { cn } from "@/lib/utils";
-
-interface IngressRoute {
-  id: string;
-  namespace: string;
-  name: string;
-  entryPoints: string[];
-  hosts: string[];
-  services: string[];
-  middlewares: string[];
-  authMiddlewares: string[];
-  accessTier: AccessTier;
-  tlsSecretName: string | null;
-  certResolver: string | null;
-  hasTls: boolean;
-}
-
-interface IngressResponse {
-  ingressRoutes: IngressRoute[];
-  live: boolean;
-  summary: { total: number; authProtected: number; tlsEnabled: number; hosts: number };
-}
 
 export function IngressView() {
   const [search, setSearch] = useState("");
@@ -36,13 +20,10 @@ export function IngressView() {
   const [tlsFilter, setTlsFilter] = useState<"all" | "tls" | "plain">("all");
   const [accessTierFilter, setAccessTierFilter] = useState<"all" | AccessTier>("all");
 
-  const { data, isLoading, isFetching, refetch } = useQuery<IngressResponse>({
+  const { data, isLoading, isFetching, refetch } = useApiQuery<IngressResponse>({
     queryKey: ["ingress-routes"],
-    queryFn: async () => {
-      const response = await fetch("/api/ingress", { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to fetch ingress routes");
-      return response.json();
-    },
+    path: "/api/ingress",
+    request: { cache: "no-store" },
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
@@ -71,22 +52,14 @@ export function IngressView() {
         title="Ingress"
         subtitle="Traefik IngressRoute audit for hosts, auth middleware, backends, and TLS"
         badge={data?.live === false ? "offline" : "live"}
-        actions={
-          <button
-            onClick={() => void refetch()}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
-          >
-            <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
-            Refresh
-          </button>
-        }
+        actions={<RefreshButton onClick={() => void refetch()} refreshing={isFetching} />}
       />
 
-      {data?.live === false ? (
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          Kubernetes unavailable — IngressRoute data cannot be loaded. Check Traefik and cluster connectivity.
-        </div>
-      ) : null}
+      <KubeOfflineBanner
+        show={data?.live === false}
+        resource="IngressRoute data"
+        hint="Check Traefik and cluster connectivity."
+      />
 
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
@@ -108,24 +81,13 @@ export function IngressView() {
       </div>
 
       <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
-        <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-4 dark:border-white/10">
-          {accessTierTabs().map((tab) => (
-            <button
-              key={tab.value}
-              type="button"
-              onClick={() => setAccessTierFilter(tab.value as "all" | AccessTier)}
-              className={cn(
-                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition",
-                accessTierFilter === tab.value
-                  ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-200"
-                  : "border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
-              )}
-            >
-              {tab.value === "all" ? <Globe className="h-4 w-4" /> : <AccessTierBadge tier={tab.value} compact className="h-6 min-w-6 px-1.5" />}
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </div>
+        <PillTabs
+          tabs={accessTierTabs()}
+          active={accessTierFilter}
+          onChange={setAccessTierFilter}
+          label="Access mode"
+          className="border-b border-gray-200 pb-4 dark:border-white/10"
+        />
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -136,32 +98,32 @@ export function IngressView() {
               className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 py-2.5 pl-9 pr-3 text-sm text-gray-900 dark:text-white outline-none focus:border-indigo-500/50"
             />
           </div>
-          <select
+          <FilterSelect
             value={namespaceFilter}
-            onChange={(event) => setNamespaceFilter(event.target.value)}
-            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
-          >
-            <option value="all">All namespaces</option>
-            {namespaces.map((namespace) => <option key={namespace} value={namespace}>{namespace}</option>)}
-          </select>
-          <select
+            onChange={setNamespaceFilter}
+            options={[{ value: "all", label: "All namespaces" }, ...namespaces]}
+            label="Namespace filter"
+          />
+          <FilterSelect
             value={authFilter}
-            onChange={(event) => setAuthFilter(event.target.value as typeof authFilter)}
-            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
-          >
-            <option value="all">Any auth</option>
-            <option value="auth">Auth middleware</option>
-            <option value="public">No auth middleware</option>
-          </select>
-          <select
+            onChange={(value) => setAuthFilter(value as typeof authFilter)}
+            options={[
+              { value: "all", label: "Any auth" },
+              { value: "auth", label: "Auth middleware" },
+              { value: "public", label: "No auth middleware" },
+            ]}
+            label="Auth filter"
+          />
+          <FilterSelect
             value={tlsFilter}
-            onChange={(event) => setTlsFilter(event.target.value as typeof tlsFilter)}
-            className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950 px-3 py-2.5 text-sm text-gray-900 dark:text-white outline-none"
-          >
-            <option value="all">Any TLS</option>
-            <option value="tls">TLS enabled</option>
-            <option value="plain">No TLS</option>
-          </select>
+            onChange={(value) => setTlsFilter(value as typeof tlsFilter)}
+            options={[
+              { value: "all", label: "Any TLS" },
+              { value: "tls", label: "TLS enabled" },
+              { value: "plain", label: "No TLS" },
+            ]}
+            label="TLS filter"
+          />
         </div>
       </div>
 

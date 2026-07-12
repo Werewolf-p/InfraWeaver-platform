@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Clock, KeyRound, Layers, Plus, ShieldCheck, Timer, Trash2, UserPlus, Users, X, Zap,
 } from "lucide-react";
 import { PageScaffold } from "@/components/ui/page-scaffold";
-import { apiClient, toApiErrorMessage } from "@/lib/api-client";
+import { SectionTabs } from "@/components/ui/section-tabs";
+import { toApiErrorMessage } from "@/lib/api-client";
 import { toast } from "@/lib/notify";
+import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { cn } from "@/lib/utils";
 import { INTERNAL_DOMAIN } from "@/lib/domain";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -70,10 +72,10 @@ export default function AccessPage() {
   const canManage = canAny(["rbac:admin", "cluster:admin"]);
   const [tab, setTab] = useState<TabId>("pim");
 
-  const tabs: Array<{ id: TabId; label: string; icon: typeof Zap }> = [
-    { id: "pim", label: "PIM (Just-in-Time)", icon: Zap },
-    { id: "groups", label: "Groups", icon: Users },
-    { id: "assignments", label: "Assignments", icon: Layers },
+  const tabs: Array<{ value: TabId; label: string; icon: typeof Zap }> = [
+    { value: "pim", label: "PIM (Just-in-Time)", icon: Zap },
+    { value: "groups", label: "Groups", icon: Users },
+    { value: "assignments", label: "Assignments", icon: Layers },
   ];
 
   return (
@@ -82,24 +84,12 @@ export default function AccessPage() {
       title="Access Management"
       subtitle="Custom groups, resource assignments, and privileged just-in-time elevation"
     >
-      <div className="mb-6 flex flex-wrap gap-2">
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition",
-              tab === id
-                ? "border-blue-500/50 bg-blue-500/10 text-blue-600 dark:text-blue-300"
-                : "border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5",
-            )}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
-      </div>
+      <SectionTabs
+        tabs={tabs}
+        activeTab={tab}
+        onTabChange={(value) => setTab(value as TabId)}
+        className="mb-6"
+      />
 
       {tab === "pim" && <PimTab canManage={canManage} />}
       {tab === "groups" && <GroupsTab canManage={canManage} />}
@@ -113,17 +103,16 @@ export default function AccessPage() {
 function PimTab({ canManage }: { canManage: boolean }) {
   const queryClient = useQueryClient();
   const [now, setNow] = useState(() => Date.now());
-  const [busy, setBusy] = useState<string | null>(null);
 
-  const eligibilityQuery = useQuery({
+  const eligibilityQuery = useApiQuery<EligibilityResponse>({
     queryKey: ["pim", "eligibility"],
-    queryFn: () => apiClient.get<EligibilityResponse>("/api/pim/eligibility"),
+    path: "/api/pim/eligibility",
     staleTime: 30_000,
   });
 
-  const activationsQuery = useQuery({
+  const activationsQuery = useApiQuery<ActivationsResponse>({
     queryKey: ["pim", "activations"],
-    queryFn: () => apiClient.get<ActivationsResponse>("/api/pim/activations"),
+    path: "/api/pim/activations",
     refetchInterval: 15_000,
   });
 
@@ -138,37 +127,19 @@ function PimTab({ canManage }: { canManage: boolean }) {
     queryClient.invalidateQueries({ queryKey: ["pim", "eligibility"] });
   }, [queryClient]);
 
-  const activate = useCallback(
-    async (role: string, durationMinutes: number, reason: string) => {
-      setBusy(role);
-      try {
-        await apiClient.post("/api/pim/activate", { json: { role, durationMinutes, reason } });
-        toast.success("Role activated");
-        refresh();
-      } catch (error) {
-        toast.error(toApiErrorMessage(error, "Activation failed"));
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh],
-  );
+  const activateMutation = useApiMutation<unknown, { role: string; durationMinutes: number; reason: string }>({
+    path: "/api/pim/activate",
+    successMessage: "Role activated",
+    errorMessage: (error) => toApiErrorMessage(error, "Activation failed"),
+    invalidateQueryKeys: [["pim", "activations"], ["pim", "eligibility"]],
+  });
 
-  const deactivate = useCallback(
-    async (id: string) => {
-      setBusy(id);
-      try {
-        await apiClient.post("/api/pim/deactivate", { json: { id } });
-        toast.success("Elevation deactivated");
-        refresh();
-      } catch (error) {
-        toast.error(toApiErrorMessage(error, "Deactivation failed"));
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh],
-  );
+  const deactivateMutation = useApiMutation<unknown, { id: string }>({
+    path: "/api/pim/deactivate",
+    successMessage: "Elevation deactivated",
+    errorMessage: (error) => toApiErrorMessage(error, "Deactivation failed"),
+    invalidateQueryKeys: [["pim", "activations"], ["pim", "eligibility"]],
+  });
 
   const eligible = eligibilityQuery.data?.eligible ?? [];
   const active = activationsQuery.data?.active ?? [];
@@ -207,8 +178,8 @@ function PimTab({ canManage }: { canManage: boolean }) {
                   </div>
                   <button
                     type="button"
-                    disabled={busy === activation.id}
-                    onClick={() => deactivate(activation.id)}
+                    disabled={deactivateMutation.isPending && deactivateMutation.variables?.id === activation.id}
+                    onClick={() => deactivateMutation.mutate({ id: activation.id })}
                     className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-300 hover:bg-red-500/10 disabled:opacity-50"
                   >
                     <X className="h-3.5 w-3.5" /> Deactivate now
@@ -236,9 +207,9 @@ function PimTab({ canManage }: { canManage: boolean }) {
               <EligibleRoleCard
                 key={entry.id}
                 entry={entry}
-                busy={busy === entry.role}
+                busy={activateMutation.isPending && activateMutation.variables?.role === entry.role}
                 alreadyActive={active.some((a) => a.role === entry.role)}
-                onActivate={activate}
+                onActivate={(role, durationMinutes, reason) => activateMutation.mutate({ role, durationMinutes, reason })}
               />
             ))}
           </div>
@@ -349,31 +320,26 @@ function EligibilityManager({
   const [principalType, setPrincipalType] = useState<"user" | "group">("user");
   const [principalId, setPrincipalId] = useState("");
   const [role, setRole] = useState<string>(roles[0]?.id ?? "security-reader");
-  const [busy, setBusy] = useState(false);
 
-  const add = async () => {
-    if (!principalId.trim()) return;
-    setBusy(true);
-    try {
-      await apiClient.post("/api/pim/eligibility", { json: { principalType, principalId, role } });
-      toast.success("Eligibility granted");
+  const addMutation = useApiMutation<unknown, { principalType: "user" | "group"; principalId: string; role: string }>({
+    path: "/api/pim/eligibility",
+    successMessage: "Eligibility granted",
+    onSuccess: () => {
       setPrincipalId("");
       onChange();
-    } catch (error) {
-      toast.error(toApiErrorMessage(error));
-    } finally {
-      setBusy(false);
-    }
+    },
+  });
+
+  const add = () => {
+    if (!principalId.trim()) return;
+    addMutation.mutate({ principalType, principalId, role });
   };
 
-  const remove = async (id: string) => {
-    try {
-      await apiClient.delete(`/api/pim/eligibility/${id}`);
-      onChange();
-    } catch (error) {
-      toast.error(toApiErrorMessage(error));
-    }
-  };
+  const removeMutation = useApiMutation<unknown, string>({
+    method: "DELETE",
+    path: (id) => `/api/pim/eligibility/${id}`,
+    onSuccess: () => onChange(),
+  });
 
   return (
     <section className="rounded-xl border border-gray-200 dark:border-white/10 p-4">
@@ -389,7 +355,7 @@ function EligibilityManager({
         <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-lg border border-gray-200 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm">
           {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
-        <button type="button" disabled={busy} onClick={add} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+        <button type="button" disabled={addMutation.isPending} onClick={add} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
           <Plus className="h-4 w-4" /> Grant
         </button>
       </div>
@@ -401,7 +367,7 @@ function EligibilityManager({
                 <span className="rounded bg-gray-200 dark:bg-white/10 px-1.5 py-0.5 text-xs">{entry.principalType}</span>{" "}
                 <strong>{entry.principalId}</strong> → {entry.role}
               </span>
-              <button type="button" onClick={() => remove(entry.id)} className="text-red-500 hover:text-red-600">
+              <button type="button" onClick={() => removeMutation.mutate(entry.id)} className="text-red-500 hover:text-red-600">
                 <Trash2 className="h-4 w-4" />
               </button>
             </li>
@@ -416,9 +382,9 @@ function EligibilityManager({
 
 function GroupsTab({ canManage }: { canManage: boolean }) {
   const queryClient = useQueryClient();
-  const groupsQuery = useQuery({
+  const groupsQuery = useApiQuery<{ groups: CustomGroup[] }>({
     queryKey: ["access", "groups"],
-    queryFn: () => apiClient.get<{ groups: CustomGroup[] }>("/api/groups"),
+    path: "/api/groups",
   });
   const [creating, setCreating] = useState(false);
 
@@ -449,15 +415,12 @@ function GroupsTab({ canManage }: { canManage: boolean }) {
 function GroupCard({ group, canManage, onChange }: { group: CustomGroup; canManage: boolean; onChange: () => void }) {
   const [editing, setEditing] = useState(false);
 
-  const remove = async () => {
-    try {
-      await apiClient.delete(`/api/groups/${group.id}`);
-      toast.success("Group deleted");
-      onChange();
-    } catch (error) {
-      toast.error(toApiErrorMessage(error));
-    }
-  };
+  const removeMutation = useApiMutation<unknown, void>({
+    method: "DELETE",
+    path: `/api/groups/${group.id}`,
+    successMessage: "Group deleted",
+    onSuccess: () => onChange(),
+  });
 
   if (editing) {
     return <GroupEditor group={group} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); onChange(); }} />;
@@ -473,7 +436,7 @@ function GroupCard({ group, canManage, onChange }: { group: CustomGroup; canMana
         {canManage && (
           <div className="flex gap-2">
             <button type="button" onClick={() => setEditing(true)} className="text-xs text-blue-600 hover:underline">Edit</button>
-            <button type="button" onClick={remove} className="text-red-500 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+            <button type="button" onClick={() => removeMutation.mutate()} className="text-red-500 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
           </div>
         )}
       </div>
@@ -492,30 +455,25 @@ function GroupEditor({ group, onClose, onSaved }: { group?: CustomGroup; onClose
   const [description, setDescription] = useState(group?.description ?? "");
   const [permissions, setPermissions] = useState<Permission[]>(group?.permissions ?? []);
   const [members, setMembers] = useState(group?.members.join(", ") ?? "");
-  const [busy, setBusy] = useState(false);
 
   const togglePerm = (p: Permission) =>
     setPermissions((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
 
-  const save = async () => {
+  const saveMutation = useApiMutation<unknown, { name: string; description: string; permissions: Permission[]; members: string[] }>({
+    method: group ? "PATCH" : "POST",
+    path: group ? `/api/groups/${group.id}` : "/api/groups",
+    successMessage: group ? "Group updated" : "Group created",
+    onSuccess: () => onSaved(),
+  });
+
+  const save = () => {
     if (!name.trim()) { toast.error("Name is required"); return; }
-    setBusy(true);
-    const payload = {
+    saveMutation.mutate({
       name,
       description,
       permissions,
       members: members.split(",").map((m) => m.trim()).filter(Boolean),
-    };
-    try {
-      if (group) await apiClient.patch(`/api/groups/${group.id}`, { json: payload });
-      else await apiClient.post("/api/groups", { json: payload });
-      toast.success(group ? "Group updated" : "Group created");
-      onSaved();
-    } catch (error) {
-      toast.error(toApiErrorMessage(error));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
@@ -541,7 +499,7 @@ function GroupEditor({ group, onClose, onSaved }: { group?: CustomGroup; onClose
       <p className="mt-3 mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">Members (comma-separated emails/usernames)</p>
       <input value={members} onChange={(e) => setMembers(e.target.value)} placeholder="alice@domain, bob@domain" className="w-full rounded-lg border border-gray-200 dark:border-white/10 bg-transparent px-2 py-1.5 text-sm" />
       <div className="mt-3 flex gap-2">
-        <button type="button" disabled={busy} onClick={save} className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">Save</button>
+        <button type="button" disabled={saveMutation.isPending} onClick={save} className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">Save</button>
         <button type="button" onClick={onClose} className="rounded-lg border border-gray-200 dark:border-white/10 px-3 py-1.5 text-sm">Cancel</button>
       </div>
     </div>
@@ -558,26 +516,23 @@ const RESOURCE_LABELS: Record<ResourceType, string> = {
 
 function AssignmentsTab({ canManage }: { canManage: boolean }) {
   const queryClient = useQueryClient();
-  const query = useQuery({
+  const query = useApiQuery<{ assignments: ResourceAssignment[] }>({
     queryKey: ["access", "assignments"],
-    queryFn: () => apiClient.get<{ assignments: ResourceAssignment[] }>("/api/access/assignments"),
+    path: "/api/access/assignments",
   });
-  const groupsQuery = useQuery({
+  const groupsQuery = useApiQuery<{ groups: CustomGroup[] }>({
     queryKey: ["access", "groups"],
-    queryFn: () => apiClient.get<{ groups: CustomGroup[] }>("/api/groups"),
+    path: "/api/groups",
   });
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["access", "assignments"] });
   const assignments = query.data?.assignments ?? [];
 
-  const remove = async (id: string) => {
-    try {
-      await apiClient.delete(`/api/access/assignments/${id}`);
-      refresh();
-    } catch (error) {
-      toast.error(toApiErrorMessage(error));
-    }
-  };
+  const removeMutation = useApiMutation<unknown, string>({
+    method: "DELETE",
+    path: (id) => `/api/access/assignments/${id}`,
+    onSuccess: () => refresh(),
+  });
 
   return (
     <div className="space-y-4">
@@ -603,7 +558,7 @@ function AssignmentsTab({ canManage }: { canManage: boolean }) {
                   <td className="px-4 py-2 text-gray-500">{a.permissions.join(", ") || "—"}</td>
                   {canManage && (
                     <td className="px-4 py-2 text-right">
-                      <button type="button" onClick={() => remove(a.id)} className="text-red-500 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+                      <button type="button" onClick={() => removeMutation.mutate(a.id)} className="text-red-500 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
                     </td>
                   )}
                 </tr>
@@ -622,28 +577,24 @@ function AssignmentEditor({ groups, onSaved }: { groups: CustomGroup[]; onSaved:
   const [resourceType, setResourceType] = useState<ResourceType>("app");
   const [resourceId, setResourceId] = useState("");
   const [permissions, setPermissions] = useState<Permission[]>([]);
-  const [busy, setBusy] = useState(false);
 
   const togglePerm = (p: Permission) =>
     setPermissions((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
 
-  const save = async () => {
-    if (!principalId.trim() || !resourceId.trim()) { toast.error("Principal and resource are required"); return; }
-    setBusy(true);
-    try {
-      await apiClient.post("/api/access/assignments", {
-        json: { principalType, principalId, resourceType, resourceId, permissions },
-      });
-      toast.success("Assignment created");
+  const saveMutation = useApiMutation<unknown, { principalType: "user" | "group"; principalId: string; resourceType: ResourceType; resourceId: string; permissions: Permission[] }>({
+    path: "/api/access/assignments",
+    successMessage: "Assignment created",
+    onSuccess: () => {
       setResourceId("");
       setPrincipalId("");
       setPermissions([]);
       onSaved();
-    } catch (error) {
-      toast.error(toApiErrorMessage(error));
-    } finally {
-      setBusy(false);
-    }
+    },
+  });
+
+  const save = () => {
+    if (!principalId.trim() || !resourceId.trim()) { toast.error("Principal and resource are required"); return; }
+    saveMutation.mutate({ principalType, principalId, resourceType, resourceId, permissions });
   };
 
   return (
@@ -671,7 +622,7 @@ function AssignmentEditor({ groups, onSaved }: { groups: CustomGroup[]; onSaved:
           <button key={p} type="button" onClick={() => togglePerm(p)} className={cn("rounded px-2 py-1 text-xs", permissions.includes(p) ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300")}>{p}</button>
         ))}
       </div>
-      <button type="button" disabled={busy} onClick={save} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+      <button type="button" disabled={saveMutation.isPending} onClick={save} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
         <Plus className="h-4 w-4" /> Add Assignment
       </button>
     </div>

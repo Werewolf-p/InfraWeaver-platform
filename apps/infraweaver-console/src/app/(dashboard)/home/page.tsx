@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Activity,
@@ -22,6 +21,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { cn, timeAgo } from "@/lib/utils";
 import type { ClusterEventPayload } from "@/lib/ops-data";
 import type { ArgoApp } from "@/types";
@@ -92,13 +92,7 @@ interface AppUsageRow {
   hotPod: string;
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Failed to load ${url}`);
-  }
-  return response.json() as Promise<T>;
-}
+const NO_STORE = { cache: "no-store" } as const;
 
 function getMetricDirection(isHealthy: boolean, isWarning = false): "up" | "down" | "flat" {
   if (isWarning) return "down";
@@ -106,45 +100,49 @@ function getMetricDirection(isHealthy: boolean, isWarning = false): "up" | "down
 }
 
 export default function HomePage() {
-  const clusterQuery = useQuery<ClusterHealthResponse>({
+  const clusterQuery = useApiQuery<ClusterHealthResponse>({
     queryKey: ["home", "cluster-health"],
-    queryFn: () => fetchJson<ClusterHealthResponse>("/api/health/cluster"),
+    path: "/api/health/cluster",
+    request: NO_STORE,
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
-  const appsQuery = useQuery<ArgoApp[]>({
+  const appsQuery = useApiQuery<ArgoApp[]>({
     queryKey: ["home", "apps"],
-    queryFn: () => fetchJson<ArgoApp[]>("/api/apps"),
+    path: "/api/apps",
+    request: NO_STORE,
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
-  const nodesQuery = useQuery<NodesResponse>({
+  const nodesQuery = useApiQuery<NodesResponse>({
     queryKey: ["home", "nodes"],
-    queryFn: () => fetchJson<NodesResponse>("/api/cluster/nodes"),
+    path: "/api/cluster/nodes",
+    request: NO_STORE,
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
-  const podsQuery = useQuery<PodItem[]>({
+  // /api/pods proxies the backend which returns { pods, clusterId }.
+  // Tolerate both the wrapped object and a bare array so the card never
+  // silently breaks on a `.filter` of a non-array.
+  const podsQuery = useApiQuery<PodItem[] | { pods?: PodItem[] }, PodItem[]>({
     queryKey: ["home", "pods"],
-    queryFn: async () => {
-      // /api/pods proxies the backend which returns { pods, clusterId }.
-      // Tolerate both the wrapped object and a bare array so the card never
-      // silently breaks on a `.filter` of a non-array.
-      const data = await fetchJson<PodItem[] | { pods?: PodItem[] }>("/api/pods");
-      return Array.isArray(data) ? data : data.pods ?? [];
-    },
+    path: "/api/pods",
+    request: NO_STORE,
+    select: (data) => (Array.isArray(data) ? data : data.pods ?? []),
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
-  const eventsQuery = useQuery<ClusterEventPayload>({
+  const eventsQuery = useApiQuery<ClusterEventPayload>({
     queryKey: ["home", "events"],
-    queryFn: () => fetchJson<ClusterEventPayload>("/api/cluster/events"),
+    path: "/api/cluster/events",
+    request: NO_STORE,
     staleTime: 20_000,
     refetchInterval: 60_000,
   });
-  const consumersQuery = useQuery<TopConsumersResponse>({
+  const consumersQuery = useApiQuery<TopConsumersResponse>({
     queryKey: ["home", "top-consumers"],
-    queryFn: () => fetchJson<TopConsumersResponse>("/api/cluster/top-consumers"),
+    path: "/api/cluster/top-consumers",
+    request: NO_STORE,
     staleTime: 20_000,
     refetchInterval: 60_000,
   });
