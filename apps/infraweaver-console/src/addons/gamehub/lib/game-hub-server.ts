@@ -3,20 +3,15 @@ import { createConfiguration, ServerConfiguration, type RequestContext, type Res
 import { randomBytes, randomUUID } from "crypto";
 import net from "net";
 import { Writable } from "stream";
-import { NextRequest, NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { getEggForGameType, type GameEgg, type SavedCommand } from "./game-eggs";
-import { GAME_HUB_NAMESPACE, hasGameHubPermission, parseEggConfig } from "./game-hub";
-import { validateK8sName } from "@/lib/api-security";
+import { GAME_HUB_NAMESPACE, parseEggConfig } from "./game-hub";
 import { auditLog } from "@/lib/audit-log";
-import { auth } from "@/lib/auth";
-import { getGameHubAccessContext } from "@/lib/logs-access";
 import { getEffectivePermissions, type Permission, type RoleAssignment } from "@/lib/rbac";
 import { loadKubeConfig } from "@/lib/k8s";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
 import { isPodInstalling } from "@/lib/pod-install-state";
-import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
-import { safeError, UserError } from "@/lib/utils";
+import { UserError } from "@/lib/utils";
 
 // Re-exported so callers importing via the `@/lib/game-hub-server` shim keep working.
 export { isPodInstalling };
@@ -1322,77 +1317,14 @@ export async function deleteCronJob(batchApi: k8s.BatchV1Api, name: string) {
 export { parseCpuQuantity, parseMemoryBytes } from "@/lib/k8s-quantity";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Route-handler helpers — consolidate the guard/error/audit boilerplate
-// repeated across app/api/game-hub/**/route.ts. These mirror the EXISTING
-// handler behavior byte-for-byte (envelopes, ordering, status codes) so
-// callers can adopt them without any semantic change.
+// Route-handler helpers — consolidate the audit/error boilerplate repeated
+// across app/api/game-hub/**/route.ts. These mirror the EXISTING handler
+// behavior byte-for-byte (envelopes, ordering, status codes) so callers can
+// adopt them without any semantic change. The next/server-coupled wrappers
+// (withGameHubAuth, toApiErrorResponse) live in ./game-hub-route so this domain
+// lib stays free of next/server; both are re-exported via the
+// `@/lib/game-hub-server` shim.
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** RBAC context cache window (seconds) used by every game-hub route. */
-const GAME_HUB_ACCESS_REVALIDATE_SECONDS = 60;
-
-/** Resolved scoped-RBAC context, as returned by getGameHubAccessContext. */
-export type GameHubAccessContext = Awaited<ReturnType<typeof getGameHubAccessContext>>;
-
-export interface GameHubRouteContext<P extends { name: string } = { name: string }> {
-  req: NextRequest;
-  session: Session;
-  /** Validated `[name]` route segment (K8s-name checked). */
-  name: string;
-  /** Scoped RBAC access context (60s revalidate window, matching existing routes). */
-  access: GameHubAccessContext;
-  /** All resolved dynamic route params. */
-  params: P;
-}
-
-export interface WithGameHubAuthOptions {
-  /** Per-server permission required (checked against the `/game-hub/servers/<name>` scope). */
-  permission: Permission;
-  /** Optional rate limit applied BEFORE auth, matching existing game-hub handlers. */
-  rateLimit?: { name: string; limit: number; windowMs: number };
-}
-
-/**
- * Wrap a per-server game-hub route handler with the guard chain every
- * `/api/game-hub/servers/[name]/...` handler currently repeats inline:
- *
- *   (optional) rate limit → 429 { error: "Rate limit exceeded" }
- *   auth()                → 401 { error: "Unauthorized" }
- *   await params → validateK8sName(name) → 400 (SecurityError envelope)
- *   getGameHubAccessContext(session, 60) → hasGameHubPermission(..., name)
- *                         → 403 { error: "Forbidden" }
- *
- * Error handling inside the handler is intentionally left to the caller (use
- * {@link toApiErrorResponse}) so each route keeps its own catch envelope.
- */
-export function withGameHubAuth<P extends { name: string } = { name: string }>(
-  options: WithGameHubAuthOptions,
-  handler: (ctx: GameHubRouteContext<P>) => Promise<Response> | Response,
-): (req: NextRequest, segment: { params: Promise<P> }) => Promise<Response> {
-  return async (req: NextRequest, segment: { params: Promise<P> }): Promise<Response> => {
-    if (options.rateLimit) {
-      const { name: limitName, limit, windowMs } = options.rateLimit;
-      if (!checkRateLimit(rateLimitKey(limitName, req), limit, windowMs)) {
-        return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
-      }
-    }
-
-    const session = await auth();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const params = await segment.params;
-    const { name } = params;
-    const nameErr = validateK8sName(name);
-    if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
-
-    const access = await getGameHubAccessContext(session, GAME_HUB_ACCESS_REVALIDATE_SECONDS);
-    if (!hasGameHubPermission(access.groups, access.username, access.roleAssignments, options.permission, name)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    return handler({ req, session, name, access, params });
-  };
-}
 
 /**
  * Double-write an audit record the way mutating game-hub routes do today:
@@ -1425,25 +1357,6 @@ export function k8sErrorStatus(error: unknown): number {
   const status = getKubernetesErrorStatus(error);
   if (status !== null) return status;
   return isKubernetesNotFoundError(error) ? 404 : 500;
-}
-
-/**
- * The canonical game-hub catch envelope, identical to the pattern repeated in
- * ~50 route handlers:
- *
- *   console.error(label, error);
- *   not-found  → 404 { error: "Not found" }
- *   otherwise  → 500 { error: safeError(error) }
- *
- * Routes with extra branches (e.g. isServerStartingError → 503) should check
- * those BEFORE falling through to this helper.
- */
-export function toApiErrorResponse(error: unknown, label: string): NextResponse {
-  console.error(label, error);
-  if (isKubernetesNotFoundError(error)) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  return NextResponse.json({ error: safeError(error) }, { status: 500 });
 }
 
 // ── Deployment annotation readers (dual `infraweaver.io/` + `infraweaver/`) ──
