@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getAppsApiForCluster, getAutoscalingApiForCluster, getBatchApiForCluster, getCoreApiForCluster, getCustomApiForCluster, getPolicyApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
 import { errMessage } from '../lib/errors.js';
+import { forbidden, invalidBody, upstream } from '../lib/responses.js';
 import { cpuToMillicores, kiToMi, parseCpuCores, parseMemBytes, parseMemGi } from '../lib/k8s-utils.js';
 import type { AppBindings } from '../types/index.js';
 
@@ -19,7 +20,7 @@ export const clusterRoute = new Hono<AppBindings>();
 
 clusterRoute.get('/status', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:read')) return forbidden(c);
   try {
     const coreApi = await getCoreApiForCluster(user.clusterId);
     const nodesRes = await coreApi.listNode();
@@ -59,7 +60,7 @@ clusterRoute.get('/status', async (c) => {
 
 clusterRoute.get('/node-pods', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:read')) return forbidden(c);
   try {
     const [coreApi, metricsApi] = await Promise.all([
       getCoreApiForCluster(user.clusterId),
@@ -118,13 +119,13 @@ clusterRoute.get('/node-pods', async (c) => {
 
     return c.json({ nodes, pods });
   } catch {
-    return c.json({ error: 'Failed to fetch node-pods' }, 502);
+    return upstream(c, 'Failed to fetch node-pods');
   }
 });
 
 clusterRoute.get('/memory-heatmap', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:read')) return forbidden(c);
   try {
     const coreApi = await getCoreApiForCluster(user.clusterId);
     const podsRes = await coreApi.listPodForAllNamespaces();
@@ -160,7 +161,7 @@ clusterRoute.get('/memory-heatmap', async (c) => {
 
 clusterRoute.get('/cost', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:read')) return forbidden(c);
   try {
     const coreApi = await getCoreApiForCluster(user.clusterId);
     const res = await coreApi.listPodForAllNamespaces();
@@ -189,11 +190,11 @@ clusterRoute.get('/cost', async (c) => {
 
 clusterRoute.post('/namespace-cleanup', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:admin')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:admin')) return forbidden(c);
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = namespaceCleanupSchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!parsed.success) return invalidBody(c, parsed.error);
   const { namespace } = parsed.data;
 
   const deleted: string[] = [];
@@ -230,7 +231,7 @@ clusterRoute.post('/namespace-cleanup', async (c) => {
 
 clusterRoute.post('/rollout', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:admin')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:admin')) return forbidden(c);
   try {
     const appsApi = await getAppsApiForCluster(user.clusterId);
     await appsApi.patchNamespacedDeployment({
@@ -246,7 +247,7 @@ clusterRoute.post('/rollout', async (c) => {
 
 clusterRoute.get('/export', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:read')) return forbidden(c);
   try {
     const [appsApi, coreApi] = await Promise.all([
       getAppsApiForCluster(user.clusterId),
@@ -281,7 +282,7 @@ const hpaPatchSchema = z.object({
 
 clusterRoute.get('/quotas', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:read')) return forbidden(c);
   try {
     const coreApi = await getCoreApiForCluster(user.clusterId);
     const res = await coreApi.listResourceQuotaForAllNamespaces();
@@ -291,13 +292,13 @@ clusterRoute.get('/quotas', async (c) => {
     });
     return c.json({ quotas });
   } catch {
-    return c.json({ error: 'Failed to fetch quotas' }, 502);
+    return upstream(c, 'Failed to fetch quotas');
   }
 });
 
 clusterRoute.get('/hpa', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:read')) return forbidden(c);
   try {
     const autoscalingApi = await getAutoscalingApiForCluster(user.clusterId);
     const res = await autoscalingApi.listHorizontalPodAutoscalerForAllNamespaces();
@@ -308,16 +309,16 @@ clusterRoute.get('/hpa', async (c) => {
     });
     return c.json({ hpas });
   } catch {
-    return c.json({ error: 'Failed to fetch HPAs' }, 502);
+    return upstream(c, 'Failed to fetch HPAs');
   }
 });
 
 clusterRoute.patch('/hpa', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:scale')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:scale')) return forbidden(c);
   const body = await c.req.json().catch(() => ({}));
   const parsed = hpaPatchSchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!parsed.success) return invalidBody(c, parsed.error);
   const { name, namespace, minReplicas, maxReplicas } = parsed.data;
   try {
     const autoscalingApi = await getAutoscalingApiForCluster(user.clusterId);
@@ -330,7 +331,7 @@ clusterRoute.patch('/hpa', async (c) => {
 
 clusterRoute.get('/pdbs', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:read')) return forbidden(c);
   try {
     const policyApi = await getPolicyApiForCluster(user.clusterId);
     const res = await policyApi.listPodDisruptionBudgetForAllNamespaces();
@@ -342,6 +343,6 @@ clusterRoute.get('/pdbs', async (c) => {
       .sort((a, b) => a.disruptionsAllowed - b.disruptionsAllowed || `${a.namespace}/${a.name}`.localeCompare(`${b.namespace}/${b.name}`));
     return c.json({ pdbs, live: true }, { headers: { 'Cache-Control': 'no-store' } });
   } catch {
-    return c.json({ error: 'Failed to fetch PDBs' }, 502);
+    return upstream(c, 'Failed to fetch PDBs');
   }
 });

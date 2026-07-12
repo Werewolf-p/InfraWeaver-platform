@@ -11,6 +11,7 @@ import {
   rejectDiscovery,
 } from '../lib/agent-registry.js';
 import { hasPermission } from '../lib/rbac.js';
+import { forbidden, notFound } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 export const agentsRoute = new Hono<AppBindings>();
@@ -21,7 +22,7 @@ const HUB_URL = process.env.HUB_URL ?? 'https://api.int.yourdomain.com';
 agentsRoute.get('/', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const agents = getConnectedAgents();
@@ -38,7 +39,7 @@ agentsRoute.get('/', async (c) => {
 agentsRoute.get('/pending', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:admin')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   return c.json({ pending: getPendingDiscoveries() });
@@ -54,14 +55,14 @@ agentsRoute.post(
   async (c) => {
     const user = c.get('user');
     if (!hasPermission(user, 'cluster:admin')) {
-      return c.json({ error: 'Forbidden' }, 403);
+      return forbidden(c);
     }
 
     const agentId = c.req.param('agentId');
     const { clusterId, clusterName, environment } = c.req.valid('json');
     const ok = approveDiscovery(agentId, clusterId, clusterName ?? clusterId);
     if (!ok) {
-      return c.json({ error: 'Discovery request not found or already processed' }, 404);
+      return notFound(c, 'Discovery request not found or already processed');
     }
 
     return c.json({ approved: true, clusterId, environment });
@@ -71,14 +72,14 @@ agentsRoute.post(
 agentsRoute.post('/pending/:agentId/reject', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:admin')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const agentId = c.req.param('agentId');
   const body = await c.req.json().catch(() => ({})) as { reason?: string };
   const ok = rejectDiscovery(agentId, body.reason ?? 'Rejected by admin');
   if (!ok) {
-    return c.json({ error: 'Discovery request not found' }, 404);
+    return notFound(c, 'Discovery request not found');
   }
 
   return c.json({ rejected: true });
@@ -95,7 +96,7 @@ agentsRoute.post(
   async (c) => {
     const user = c.get('user');
     if (!hasPermission(user, 'cluster:admin')) {
-      return c.json({ error: 'Forbidden — cluster:admin required' }, 403);
+      return forbidden(c, 'Forbidden — cluster:admin required');
     }
 
     const { clusterId, clusterName, environment, syncMode } = c.req.valid('json');
@@ -128,7 +129,7 @@ agentsRoute.get('/install/:token', async (c) => {
   // before it has credentials), so reject anything that is not a live, unexpired
   // registration token rather than minting a manifest for arbitrary input.
   if (!/^[a-f0-9]{64}$/.test(token) || !getPendingRegistration(token)) {
-    return c.json({ error: 'Invalid or expired install token' }, 404);
+    return notFound(c, 'Invalid or expired install token');
   }
   const manifest = generateInstallManifest(token);
 

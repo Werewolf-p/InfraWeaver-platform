@@ -2,6 +2,7 @@ import * as k8s from '@kubernetes/client-node';
 import { Hono } from 'hono';
 import { broadcastToAgents, getConnectedAgents, sendToAgent } from '../lib/agent-registry.js';
 import { hasPermission } from '../lib/rbac.js';
+import { forbidden } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 export const rbacSyncRoute = new Hono<AppBindings>();
@@ -9,7 +10,7 @@ export const rbacSyncRoute = new Hono<AppBindings>();
 rbacSyncRoute.get('/sync', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'rbac:admin')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const agents = getConnectedAgents();
@@ -29,7 +30,7 @@ rbacSyncRoute.get('/sync', async (c) => {
 rbacSyncRoute.post('/sync', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'rbac:admin')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const body = await c.req.json().catch(() => ({} as Record<string, unknown>));

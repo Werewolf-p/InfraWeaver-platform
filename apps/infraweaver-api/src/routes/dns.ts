@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
 import { errMessage } from '../lib/errors.js';
+import { forbidden } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 // Deployment-specific values come from the API process env; generic defaults
@@ -279,7 +280,7 @@ export const dnsRoute = new Hono<AppBindings>();
  */
 dnsRoute.get("/traefik-routes", async (c) => {
   const user = c.get("user");
-  if (!hasPermission(user, "config:read")) return c.json({ error: "Forbidden" }, 403);
+  if (!hasPermission(user, "config:read")) return forbidden(c);
 
   try {
     const customApi = await getCustomApiForCluster(user.clusterId);
@@ -364,7 +365,7 @@ dnsRoute.get("/traefik-routes", async (c) => {
  */
 dnsRoute.get("/presets", async (c) => {
   const user = c.get("user");
-  if (!hasPermission(user, "config:read")) return c.json({ error: "Forbidden" }, 403);
+  if (!hasPermission(user, "config:read")) return forbidden(c);
 
   const { category } = c.req.query() as { category?: string };
   const filtered = category
@@ -382,7 +383,7 @@ dnsRoute.get("/presets", async (c) => {
  */
 dnsRoute.post("/from-traefik", async (c) => {
   const user = c.get("user");
-  if (!hasPermission(user, "config:write")) return c.json({ error: "Forbidden" }, 403);
+  if (!hasPermission(user, "config:write")) return forbidden(c);
 
   const body = await c.req.json().catch(() => ({})) as {
     internalIp?: string;

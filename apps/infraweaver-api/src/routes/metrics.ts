@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getCoreApiForCluster, getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { forbidden, upstream } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 function parseCpuToMillicores(value: string | undefined): number {
@@ -53,7 +54,7 @@ export const metricsRoute = new Hono<AppBindings>();
 metricsRoute.get('/nodes', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   try {
@@ -107,14 +108,14 @@ metricsRoute.get('/nodes', async (c) => {
 
     return c.json({ metrics, timestamp: new Date().toISOString(), clusterId: user.clusterId });
   } catch {
-    return c.json({ error: 'Failed to fetch node metrics' }, 502);
+    return upstream(c, 'Failed to fetch node metrics');
   }
 });
 
 metricsRoute.get('/pods', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   try {
@@ -173,6 +174,6 @@ metricsRoute.get('/pods', async (c) => {
 
     return c.json({ pods, timestamp: new Date().toISOString(), clusterId: user.clusterId });
   } catch {
-    return c.json({ error: 'Failed to fetch pod metrics' }, 502);
+    return upstream(c, 'Failed to fetch pod metrics');
   }
 });

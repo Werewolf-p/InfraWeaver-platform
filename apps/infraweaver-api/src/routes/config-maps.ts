@@ -4,6 +4,7 @@ import * as k8s from '@kubernetes/client-node';
 import { getCoreApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
 import { errMessage } from '../lib/errors.js';
+import { forbidden, badRequest, invalidBody, upstream } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 const updateSchema = z.object({
@@ -27,7 +28,7 @@ export const configMapsRoute = new Hono<AppBindings>();
 
 configMapsRoute.get('/', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:admin')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:admin')) return forbidden(c);
   const namespace = c.req.query('namespace');
   try {
     const coreApi = await getCoreApiForCluster(user.clusterId);
@@ -45,13 +46,13 @@ configMapsRoute.get('/', async (c) => {
 
 configMapsRoute.patch('/:namespace/:name', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:admin')) return c.json({ error: 'Forbidden' }, 403);
-  if (user.clusterId === 'all') return c.json({ error: 'Select a specific cluster before performing this action' }, 400);
+  if (!hasPermission(user, 'cluster:admin')) return forbidden(c);
+  if (user.clusterId === 'all') return badRequest(c, 'Select a specific cluster before performing this action');
 
   const { namespace, name } = c.req.param();
   const body = await c.req.json().catch(() => ({}));
   const parsed = updateSchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!parsed.success) return invalidBody(c, parsed.error);
 
   try {
     const coreApi = await getCoreApiForCluster(user.clusterId);
@@ -60,14 +61,14 @@ configMapsRoute.patch('/:namespace/:name', async (c) => {
     const updated = await coreApi.readNamespacedConfigMap({ name, namespace });
     return c.json({ ok: true, configMap: toSummary(updated) });
   } catch (err) {
-    return c.json({ error: errMessage(err, 'Operation failed') }, 502);
+    return upstream(c, errMessage(err, 'Operation failed'));
   }
 });
 
 configMapsRoute.delete('/:namespace/:name', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:admin')) return c.json({ error: 'Forbidden' }, 403);
-  if (user.clusterId === 'all') return c.json({ error: 'Select a specific cluster before performing this action' }, 400);
+  if (!hasPermission(user, 'cluster:admin')) return forbidden(c);
+  if (user.clusterId === 'all') return badRequest(c, 'Select a specific cluster before performing this action');
 
   const { namespace, name } = c.req.param();
   try {
@@ -75,6 +76,6 @@ configMapsRoute.delete('/:namespace/:name', async (c) => {
     await coreApi.deleteNamespacedConfigMap({ namespace, name });
     return c.json({ ok: true, namespace, name });
   } catch (err) {
-    return c.json({ error: errMessage(err, 'Operation failed') }, 502);
+    return upstream(c, errMessage(err, 'Operation failed'));
   }
 });

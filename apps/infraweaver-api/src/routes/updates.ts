@@ -9,6 +9,7 @@ import {
 } from '../lib/git-provider.js';
 import { getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { badRequest, forbidden, notFound } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 interface ApplicationManifest {
@@ -535,7 +536,7 @@ export const updatesRoute = new Hono<AppBindings>();
 updatesRoute.get('/', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'apps:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const [manifests, liveApps] = await Promise.all([
@@ -612,12 +613,12 @@ updatesRoute.get('/', async (c) => {
 updatesRoute.get('/:appName/versions', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'apps:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const parsed = appNameSchema.safeParse(c.req.param());
   if (!parsed.success) {
-    return c.json({ error: 'Invalid app name' }, 400);
+    return badRequest(c, 'Invalid app name');
   }
 
   const manifests = await collectApplicationManifests();
@@ -631,24 +632,24 @@ updatesRoute.get('/:appName/versions', async (c) => {
 updatesRoute.post('/:appName', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'platform:update')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const parsedName = appNameSchema.safeParse(c.req.param());
   if (!parsedName.success) {
-    return c.json({ error: 'Invalid app name' }, 400);
+    return badRequest(c, 'Invalid app name');
   }
 
   const body = await c.req.json().catch(() => ({}));
   const parsedBody = updateBodySchema.safeParse(body);
   if (!parsedBody.success) {
-    return c.json({ error: 'Invalid request body' }, 400);
+    return badRequest(c, 'Invalid request body');
   }
 
   const manifests = await collectApplicationManifests();
   const manifest = findManifest(manifests, parsedName.data.appName);
   if (!manifest) {
-    return c.json({ error: 'Application manifest not found' }, 404);
+    return notFound(c, 'Application manifest not found');
   }
 
   try {

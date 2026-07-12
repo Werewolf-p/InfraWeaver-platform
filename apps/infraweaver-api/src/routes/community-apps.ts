@@ -4,6 +4,7 @@ import * as k8s from '@kubernetes/client-node';
 import { getCoreApiForCluster, getCustomApiForCluster, getKcForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
 import { errMessage } from '../lib/errors.js';
+import { forbidden, badRequest, invalidBody, notFound } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 const APP_SOURCE_RESOLUTION_ATTEMPTS = 6;
@@ -81,9 +82,9 @@ export const communityAppsRoute = new Hono<AppBindings>();
 
 communityAppsRoute.get('/:slug', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'apps:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'apps:read')) return forbidden(c);
   const { slug } = c.req.param();
-  if (!slugRe.test(slug)) return c.json({ error: 'Invalid slug' }, 400);
+  if (!slugRe.test(slug)) return badRequest(c, 'Invalid slug');
   try {
     const customApi = await getCustomApiForCluster(user.clusterId);
     const existing = await customApi.getNamespacedCustomObject({
@@ -100,10 +101,10 @@ communityAppsRoute.get('/:slug', async (c) => {
 
 communityAppsRoute.delete('/:slug', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'catalog:delete')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'catalog:delete')) return forbidden(c);
   const { slug } = c.req.param();
-  if (!slugRe.test(slug)) return c.json({ error: 'Invalid slug' }, 400);
-  if (isReservedNamespace(slug)) return c.json({ error: 'Refusing to delete a reserved namespace' }, 403);
+  if (!slugRe.test(slug)) return badRequest(c, 'Invalid slug');
+  if (isReservedNamespace(slug)) return forbidden(c, 'Refusing to delete a reserved namespace');
 
   const argoAppName = `catalog-${slug}-manifests`;
   try {
@@ -121,9 +122,9 @@ communityAppsRoute.delete('/:slug', async (c) => {
       group: 'argoproj.io', version: 'v1alpha1', namespace: 'argocd', plural: 'applications',
       name: argoAppName,
     }).catch(() => null) as { metadata?: { labels?: Record<string, string> } } | null;
-    if (!existing) return c.json({ error: 'Community app not found' }, 404);
+    if (!existing) return notFound(c, 'Community app not found');
     if (existing.metadata?.labels?.['infraweaver.io/source'] !== 'community-apps') {
-      return c.json({ error: 'Refusing to delete: not a community app' }, 403);
+      return forbidden(c, 'Refusing to delete: not a community app');
     }
 
     // 1. Remove finalizer so the app can be deleted instantly
@@ -149,20 +150,20 @@ communityAppsRoute.delete('/:slug', async (c) => {
 
 communityAppsRoute.post('/bootstrap-refresh', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'apps:write')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'apps:write')) return forbidden(c);
   await triggerBootstrapRefresh(user.clusterId);
   return c.json({ ok: true });
 });
 
 communityAppsRoute.post('/:slug/argocd-app', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'catalog:write')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'catalog:write')) return forbidden(c);
   const { slug } = c.req.param();
-  if (!slugRe.test(slug)) return c.json({ error: 'Invalid slug' }, 400);
+  if (!slugRe.test(slug)) return badRequest(c, 'Invalid slug');
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = argoAppBodySchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!parsed.success) return invalidBody(c, parsed.error);
   const { repoUrl, baseDir, namespace } = parsed.data;
 
   const argoAppName = `catalog-${slug}-manifests`;
@@ -213,16 +214,16 @@ communityAppsRoute.post('/:slug/argocd-app', async (c) => {
 // so ArgoCD's prune/selfHeal will not adopt or delete them.
 communityAppsRoute.post('/:slug/secrets', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'catalog:write')) return c.json({ error: 'Forbidden' }, 403);
-  if (user.clusterId === 'all') return c.json({ error: 'Select a specific cluster before performing this action' }, 400);
+  if (!hasPermission(user, 'catalog:write')) return forbidden(c);
+  if (user.clusterId === 'all') return badRequest(c, 'Select a specific cluster before performing this action');
   const { slug } = c.req.param();
-  if (!slugRe.test(slug)) return c.json({ error: 'Invalid slug' }, 400);
+  if (!slugRe.test(slug)) return badRequest(c, 'Invalid slug');
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = secretsBodySchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+  if (!parsed.success) return invalidBody(c, parsed.error);
   const { namespace, secrets } = parsed.data;
-  if (isReservedNamespace(namespace)) return c.json({ error: 'Refusing to write secrets into a reserved namespace' }, 403);
+  if (isReservedNamespace(namespace)) return forbidden(c, 'Refusing to write secrets into a reserved namespace');
 
   try {
     const [coreApi, customApi] = await Promise.all([
@@ -245,10 +246,10 @@ communityAppsRoute.post('/:slug/secrets', async (c) => {
     if (argoApp) {
       // Installed app: the namespace MUST be the Application's own destination.
       if (argoApp.metadata?.labels?.['infraweaver.io/source'] !== 'community-apps') {
-        return c.json({ error: 'Refusing to write secrets: not a community app' }, 403);
+        return forbidden(c, 'Refusing to write secrets: not a community app');
       }
       if (argoApp.spec?.destination?.namespace !== namespace) {
-        return c.json({ error: 'Namespace does not belong to this community app' }, 403);
+        return forbidden(c, 'Namespace does not belong to this community app');
       }
     } else if (existingNs) {
       // Fresh install (the ArgoCD Application is created right after this step,
@@ -256,7 +257,7 @@ communityAppsRoute.post('/:slug/secrets', async (c) => {
       // own — only one previously created (and labeled) for this exact app.
       const nsLabels = existingNs.metadata?.labels;
       if (nsLabels?.['infraweaver.io/source'] !== 'community-apps' || nsLabels?.['app.kubernetes.io/name'] !== slug) {
-        return c.json({ error: 'Namespace does not belong to this community app' }, 403);
+        return forbidden(c, 'Namespace does not belong to this community app');
       }
     }
 

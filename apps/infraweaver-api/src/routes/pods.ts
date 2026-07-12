@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getCoreApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { badRequest, forbidden, notFound, upstream } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 const podTargetSchema = z.object({
@@ -29,7 +30,7 @@ export const podsRoute = new Hono<AppBindings>();
 podsRoute.get('/', async (c) => {
   const user = c.get('user');
   if (!hasPermission(user, 'cluster:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const namespace = c.req.query('namespace');
@@ -77,7 +78,7 @@ podsRoute.get('/', async (c) => {
     }
     return c.json({ pods, clusterId: user.clusterId });
   } catch {
-    return c.json({ error: 'Failed to fetch pods' }, 502);
+    return upstream(c, 'Failed to fetch pods');
   }
 });
 
@@ -88,12 +89,12 @@ podsRoute.get('/:namespace/:name/logs', async (c) => {
   // Every built-in role holding apps:read also holds cluster:read, so this only
   // tightens weaker custom/scoped grants.
   if (!hasPermission(user, 'cluster:read')) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const parsed = podTargetSchema.safeParse(c.req.param());
   if (!parsed.success) {
-    return c.json({ error: 'Invalid pod target' }, 400);
+    return badRequest(c, 'Invalid pod target');
   }
 
   // System/infra namespaces require the security-read tier (same gate as the
@@ -103,7 +104,7 @@ podsRoute.get('/:namespace/:name/logs', async (c) => {
     && !hasPermission(user, 'security:read')
     && !hasPermission(user, 'cluster:admin')
   ) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return forbidden(c);
   }
 
   const tailLines = Math.min(Math.max(Number.parseInt(c.req.query('lines') ?? '500', 10) || 500, 1), 1000);
@@ -125,11 +126,11 @@ podsRoute.get('/:namespace/:name/logs', async (c) => {
     // raw query value, so a crafted name can't be used to manipulate the
     // request sent to the kube-apiserver.
     if (requested && !podContainers.includes(requested)) {
-      return c.json({ error: 'Unknown container for pod' }, 400);
+      return badRequest(c, 'Unknown container for pod');
     }
     const container = requested ?? podContainers[0];
     if (!container) {
-      return c.json({ error: 'Pod container not found' }, 404);
+      return notFound(c, 'Pod container not found');
     }
 
     const logs = await coreApi.readNamespacedPodLog({
@@ -143,6 +144,6 @@ podsRoute.get('/:namespace/:name/logs', async (c) => {
     c.header('Content-Type', 'text/plain; charset=utf-8');
     return c.body(logs);
   } catch {
-    return c.json({ error: 'Failed to fetch pod logs' }, 502);
+    return upstream(c, 'Failed to fetch pod logs');
   }
 });

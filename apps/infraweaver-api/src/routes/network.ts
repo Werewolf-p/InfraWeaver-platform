@@ -1,13 +1,14 @@
 import { Hono } from 'hono';
 import { getCoreApiForCluster, getCustomApiForCluster, getNetworkApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { forbidden } from '../lib/responses.js';
 import type { AppBindings } from '../types/index.js';
 
 export const networkRoute = new Hono<AppBindings>();
 
 networkRoute.get('/topology', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'config:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'config:read')) return forbidden(c);
   try {
     const [coreApi, customApi] = await Promise.all([
       getCoreApiForCluster(user.clusterId),
@@ -78,7 +79,7 @@ networkRoute.get('/topology', async (c) => {
 
 networkRoute.get('/policies', async (c) => {
   const user = c.get('user');
-  if (!hasPermission(user, 'cluster:read')) return c.json({ error: 'Forbidden' }, 403);
+  if (!hasPermission(user, 'cluster:read')) return forbidden(c);
   try {
     const netApi = await getNetworkApiForCluster(user.clusterId);
     const res = await netApi.listNetworkPolicyForAllNamespaces();
