@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as k8s from '@kubernetes/client-node';
 import { getCoreApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { errMessage } from '../lib/errors.js';
 import type { AppBindings } from '../types/index.js';
 
 const updateSchema = z.object({
@@ -59,7 +60,7 @@ configMapsRoute.patch('/:namespace/:name', async (c) => {
     const updated = await coreApi.readNamespacedConfigMap({ name, namespace });
     return c.json({ ok: true, configMap: toSummary(updated) });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : 'Operation failed' }, 502);
+    return c.json({ error: errMessage(err, 'Operation failed') }, 502);
   }
 });
 
@@ -74,6 +75,6 @@ configMapsRoute.delete('/:namespace/:name', async (c) => {
     await coreApi.deleteNamespacedConfigMap({ namespace, name });
     return c.json({ ok: true, namespace, name });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : 'Operation failed' }, 502);
+    return c.json({ error: errMessage(err, 'Operation failed') }, 502);
   }
 });

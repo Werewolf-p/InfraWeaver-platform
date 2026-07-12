@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { VERSION_SOURCES, type VersionSource, type VersionSourceType } from '../config/version-sources.js';
 import { getCluster } from '../lib/cluster-registry.js';
+import { errMessage } from '../lib/errors.js';
 import {
   githubGetFile, githubGetTree, githubPutFile,
   isOnedev, onedevGetFile, onedevGetTreeAndFiles, onedevPutFile,
@@ -658,7 +659,7 @@ updatesRoute.post('/:appName', async (c) => {
       message: `Updated ${manifest.appName} to ${parsedBody.data.version}`,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to update manifest';
+    const message = errMessage(error, 'Unable to update manifest');
     if (message === 'Version already set in GitOps manifest') {
       return c.json({ error: message }, 409);
     }

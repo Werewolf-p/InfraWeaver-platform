@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getCoreApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { errMessage } from '../lib/errors.js';
 import type { AppBindings } from '../types/index.js';
 
 const cordonSchema = z.object({ cordon: z.boolean() });
@@ -66,6 +67,6 @@ nodesRoute.patch('/:name/cordon', async (c) => {
     await coreApi.patchNode({ name, body: { spec: { unschedulable: parsed.data.cordon } }, fieldManager: 'infraweaver' });
     return c.json({ ok: true, node: name, cordon: parsed.data.cordon });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : 'Operation failed' }, 502);
+    return c.json({ ok: false, error: errMessage(err, 'Operation failed') }, 502);
   }
 });

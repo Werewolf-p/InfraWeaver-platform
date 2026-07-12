@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getAppsApiForCluster, getAutoscalingApiForCluster, getBatchApiForCluster, getCoreApiForCluster, getCustomApiForCluster, getPolicyApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { errMessage } from '../lib/errors.js';
 import { cpuToMillicores, kiToMi, parseCpuCores, parseMemBytes, parseMemGi } from '../lib/k8s-utils.js';
 import type { AppBindings } from '../types/index.js';
 
@@ -209,21 +210,21 @@ clusterRoute.post('/namespace-cleanup', async (c) => {
       const phase = pod.status?.phase;
       const isTerminating = pod.metadata?.deletionTimestamp != null && (pod.metadata.finalizers?.length ?? 0) > 0;
       if (reason === 'Evicted' || phase === 'Failed') {
-        try { await coreApi.deleteNamespacedPod({ name, namespace }); deleted.push(`pod/${name}`); } catch (e) { errors.push(`pod/${name}: ${e instanceof Error ? e.message : 'error'}`); }
+        try { await coreApi.deleteNamespacedPod({ name, namespace }); deleted.push(`pod/${name}`); } catch (e) { errors.push(`pod/${name}: ${errMessage(e, 'error')}`); }
       } else if (isTerminating) {
-        try { await coreApi.patchNamespacedPod({ name, namespace, body: { metadata: { finalizers: [] } } }); deleted.push(`pod/${name} (finalizers removed)`); } catch (e) { errors.push(`pod/${name}: ${e instanceof Error ? e.message : 'error'}`); }
+        try { await coreApi.patchNamespacedPod({ name, namespace, body: { metadata: { finalizers: [] } } }); deleted.push(`pod/${name} (finalizers removed)`); } catch (e) { errors.push(`pod/${name}: ${errMessage(e, 'error')}`); }
       }
     }
     const jobs = await batchApi.listNamespacedJob({ namespace });
     for (const job of jobs.items) {
       const name = job.metadata?.name ?? '';
       if ((job.status?.active ?? 0) === 0 && ((job.status?.succeeded ?? 0) > 0 || (job.status?.failed ?? 0) > 0)) {
-        try { await batchApi.deleteNamespacedJob({ name, namespace }); deleted.push(`job/${name}`); } catch (e) { errors.push(`job/${name}: ${e instanceof Error ? e.message : 'error'}`); }
+        try { await batchApi.deleteNamespacedJob({ name, namespace }); deleted.push(`job/${name}`); } catch (e) { errors.push(`job/${name}: ${errMessage(e, 'error')}`); }
       }
     }
     return c.json({ ok: true, deleted, errors });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : 'Operation failed' }, 502);
+    return c.json({ ok: false, error: errMessage(err, 'Operation failed') }, 502);
   }
 });
 
@@ -239,7 +240,7 @@ clusterRoute.post('/rollout', async (c) => {
     });
     return c.json({ ok: true });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : 'Operation failed' }, 502);
+    return c.json({ ok: false, error: errMessage(err, 'Operation failed') }, 502);
   }
 });
 
@@ -267,7 +268,7 @@ clusterRoute.get('/export', async (c) => {
       headers: { 'Content-Type': 'application/x-yaml', 'Content-Disposition': 'attachment; filename=cluster-state.yaml' },
     });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : 'Kubernetes unavailable' }, 503);
+    return c.json({ error: errMessage(err, 'Kubernetes unavailable') }, 503);
   }
 });
 
@@ -323,7 +324,7 @@ clusterRoute.patch('/hpa', async (c) => {
     await autoscalingApi.patchNamespacedHorizontalPodAutoscaler({ name, namespace, body: { spec: { minReplicas, maxReplicas } } });
     return c.json({ ok: true });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : 'Operation failed' }, 502);
+    return c.json({ ok: false, error: errMessage(err, 'Operation failed') }, 502);
   }
 });
 

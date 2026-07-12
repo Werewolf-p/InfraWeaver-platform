@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as k8s from '@kubernetes/client-node';
 import { getCoreApiForCluster, getCustomApiForCluster, getKcForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { errMessage } from '../lib/errors.js';
 import type { AppBindings } from '../types/index.js';
 
 const APP_SOURCE_RESOLUTION_ATTEMPTS = 6;
@@ -142,7 +143,7 @@ communityAppsRoute.delete('/:slug', async (c) => {
 
     return c.json({ ok: true });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : 'K8s cleanup failed' }, 502);
+    return c.json({ ok: false, error: errMessage(err, 'K8s cleanup failed') }, 502);
   }
 });
 
@@ -203,7 +204,7 @@ communityAppsRoute.post('/:slug/argocd-app', async (c) => {
 
     return c.json({ ok: true, argoAppName });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : 'Failed to create ArgoCD app' }, 502);
+    return c.json({ ok: false, error: errMessage(err, 'Failed to create ArgoCD app') }, 502);
   }
 });
 
@@ -302,6 +303,6 @@ communityAppsRoute.post('/:slug/secrets', async (c) => {
 
     return c.json({ ok: true, count: secrets.length });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : 'Failed to create secrets' }, 502);
+    return c.json({ ok: false, error: errMessage(err, 'Failed to create secrets') }, 502);
   }
 });

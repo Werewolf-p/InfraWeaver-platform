@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { errMessage } from './errors.js';
 
 const GITHUB_API = 'https://api.github.com';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? '';
@@ -90,7 +91,7 @@ function onedevRepoUrlWithAuth(): string {
 }
 
 function isPushRejection(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = errMessage(err);
   return /non-fast-forward|fetch first|push rejected|failed to push/i.test(msg);
 }
 

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getCoreApiForCluster, getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { errMessage } from '../lib/errors.js';
 import type { AppBindings } from '../types/index.js';
 
 export const secretsRoute = new Hono<AppBindings>();
@@ -64,6 +65,6 @@ secretsRoute.delete('/:namespace/:name', async (c) => {
     await coreApi.deleteNamespacedSecret({ namespace, name });
     return c.json({ ok: true, namespace, name });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : 'Operation failed' }, 502);
+    return c.json({ error: errMessage(err, 'Operation failed') }, 502);
   }
 });

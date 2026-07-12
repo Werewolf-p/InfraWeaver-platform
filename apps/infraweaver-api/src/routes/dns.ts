@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getCustomApiForCluster } from '../lib/k8s-client.js';
 import { hasPermission } from '../lib/rbac.js';
+import { errMessage } from '../lib/errors.js';
 import type { AppBindings } from '../types/index.js';
 
 // Deployment-specific values come from the API process env; generic defaults
@@ -352,7 +353,7 @@ dnsRoute.get("/traefik-routes", async (c) => {
       routes,
     });
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = errMessage(error);
     return c.json({ error: "Failed to list IngressRoutes", detail: msg }, 500);
   }
 });
@@ -453,7 +454,7 @@ dnsRoute.post("/from-traefik", async (c) => {
       suggestions: deduped,
     });
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = errMessage(error);
     return c.json({ error: "Failed to derive DNS records from Traefik", detail: msg }, 500);
   }
 });
