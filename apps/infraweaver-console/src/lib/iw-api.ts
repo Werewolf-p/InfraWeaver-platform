@@ -44,11 +44,25 @@ export function iwApiFetch(
 
   const headers = new Headers(init.headers);
   if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
-  headers.set('x-console-sig', sign(`${ts}:${method}:${signedPath}:${bodyHash}:${userId}:${roles}:${clusterId}`, secret));
-  headers.set('x-console-ts', ts);
+  // Set the identity headers FIRST, then sign over the values read back out of the
+  // Headers object rather than the raw in-memory strings. The fetch/undici Headers
+  // layer normalizes values on set (leading/trailing HTTP whitespace is trimmed),
+  // and the verifier rebuilds the signed message from the RECEIVED headers
+  // (infraweaver-api middleware/auth.ts). Signing the pre-normalization strings
+  // diverges from what is actually transmitted whenever a group name carries
+  // surrounding whitespace — e.g. a federated SSO realm's groups claim — so the
+  // signed bytes no longer equal the received bytes and every poll 401s with
+  // "Invalid signature". A superuser whose groups are transmission-clean is
+  // unaffected, which is exactly the asymmetry observed. Reading the values back
+  // guarantees signed == transmitted for every user.
   headers.set('x-user-id', userId);
   headers.set('x-user-roles', roles);
   headers.set('x-cluster-id', clusterId);
+  const signedUserId = headers.get('x-user-id') ?? '';
+  const signedRoles = headers.get('x-user-roles') ?? '';
+  const signedClusterId = headers.get('x-cluster-id') ?? '';
+  headers.set('x-console-sig', sign(`${ts}:${method}:${signedPath}:${bodyHash}:${signedUserId}:${signedRoles}:${signedClusterId}`, secret));
+  headers.set('x-console-ts', ts);
 
   return fetch(`${API_URL}/api/v1${path}`, {
     ...init,
