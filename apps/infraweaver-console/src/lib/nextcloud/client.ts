@@ -116,3 +116,67 @@ export async function setNextcloudUserPassword(userid: string, password: string)
   if (isOcsOk(statuscode)) return;
   throw new NextcloudError(`Nextcloud OCS set password failed: statuscode ${statuscode ?? "unknown"} (HTTP ${status})`);
 }
+
+/** OCS "user already exists" on create. Treated as idempotent success. */
+const OCS_USER_EXISTS = 102;
+/** OCS "group already exists" on create. Treated as idempotent success. */
+const OCS_GROUP_EXISTS = 102;
+
+/**
+ * Create a Nextcloud LOCAL (Database-backend) user via `POST /cloud/users`.
+ *
+ * This is the proactive companion to the OIDC just-in-time path: it materializes
+ * the account immediately after enrollment so WebDAV/native clients and reveal work
+ * without the person first completing a browser SSO login. The uid is set to the
+ * console username, which equals the OIDC `preferred_username`, so a later SSO login
+ * resolves to this same identity rather than forking a second account.
+ *
+ * Groups are NOT passed here (a not-yet-existing group would fail the whole create);
+ * membership is attached separately via {@link ensureNextcloudGroup} +
+ * {@link addNextcloudUserToGroup}. Idempotent: OCS 102 ("already exists") is a no-op
+ * success so a re-run — or a user already JIT-provisioned by SSO — is not an error.
+ */
+export async function createNextcloudUser(input: {
+  userid: string;
+  password: string;
+  email?: string;
+  displayName?: string;
+}): Promise<{ created: boolean }> {
+  const body = new URLSearchParams({ userid: input.userid, password: input.password });
+  if (input.email) body.set("email", input.email);
+  if (input.displayName) body.set("displayName", input.displayName);
+  const { status, statuscode } = await ocsRequest("POST", `/ocs/v2.php/cloud/users?format=json`, body);
+  if (isOcsOk(statuscode)) return { created: true };
+  if (statuscode === OCS_USER_EXISTS) return { created: false };
+  throw new NextcloudError(`Nextcloud OCS create user failed: statuscode ${statuscode ?? "unknown"} (HTTP ${status})`);
+}
+
+/**
+ * Ensure a Nextcloud group exists via `POST /cloud/groups`. A proactively-created
+ * Database user can only join a group that exists; OIDC users get theirs from the
+ * `nc_groups` claim, but that path has not run for a freshly-created local account.
+ * Idempotent: OCS 102 ("already exists") is a no-op success.
+ */
+export async function ensureNextcloudGroup(groupid: string): Promise<void> {
+  const body = new URLSearchParams({ groupid });
+  const { status, statuscode } = await ocsRequest("POST", `/ocs/v2.php/cloud/groups?format=json`, body);
+  if (isOcsOk(statuscode) || statuscode === OCS_GROUP_EXISTS) return;
+  throw new NextcloudError(`Nextcloud OCS create group failed: statuscode ${statuscode ?? "unknown"} (HTTP ${status})`);
+}
+
+/**
+ * Add a user to a Nextcloud group via `POST /cloud/users/{userid}/groups`. This is
+ * what binds the account to a storage mount (the `/Media` external mount is scoped
+ * with `files_external:applicable --add-group <name>`). Idempotent: re-adding a user
+ * already in the group returns OK.
+ */
+export async function addNextcloudUserToGroup(userid: string, groupid: string): Promise<void> {
+  const body = new URLSearchParams({ groupid });
+  const { status, statuscode } = await ocsRequest(
+    "POST",
+    `/ocs/v2.php/cloud/users/${encodeURIComponent(userid)}/groups?format=json`,
+    body,
+  );
+  if (isOcsOk(statuscode)) return;
+  throw new NextcloudError(`Nextcloud OCS add-to-group '${groupid}' failed: statuscode ${statuscode ?? "unknown"} (HTTP ${status})`);
+}

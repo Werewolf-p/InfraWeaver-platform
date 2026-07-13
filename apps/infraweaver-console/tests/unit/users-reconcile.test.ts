@@ -28,13 +28,26 @@ jest.mock("@/lib/mailer", () => ({
 
 jest.mock("@/lib/nas/scope", () => ({ isNasScope: (s: string) => s.startsWith("/nas") }));
 const mockSyncStorage = jest.fn(async () => ["group-rw"]);
-jest.mock("@/lib/nas/access", () => ({ syncStorageScopesUnder: (s: string) => mockSyncStorage(s) }));
+let mockGroupsByUser = new Map<string, string[]>();
+jest.mock("@/lib/nas/access", () => ({
+  syncStorageScopesUnder: (s: string) => mockSyncStorage(s),
+  computeStorageGroupsByUser: async () => mockGroupsByUser,
+}));
 
 const mockReconcileJf = jest.fn(async () => {});
 jest.mock("@/lib/jellyfin/access", () => ({
   isJellyfinScope: (s: string) => s === "/jellyfin" || s === "/" || s.startsWith("/jellyfin/"),
   JELLYFIN_SCOPE: "/jellyfin",
   reconcileJellyfinAccessWithRetry: (s: string) => mockReconcileJf(s),
+}));
+
+let mockNcConfigured = false;
+jest.mock("@/lib/nextcloud/config", () => ({ isNextcloudConfigured: () => mockNcConfigured }));
+const mockEnsureNcProvision = jest.fn(
+  async (input: { username: string; groups: string[] }) => ({ username: input.username, created: true, groups: input.groups }),
+);
+jest.mock("@/lib/nextcloud/provision", () => ({
+  ensureNextcloudUserProvisioned: (...a: unknown[]) => mockEnsureNcProvision(...(a as [{ username: string; groups: string[] }])),
 }));
 
 import { reconcileUsers, ensureEnrollmentInviteFor } from "@/lib/users/reconcile";
@@ -47,8 +60,12 @@ beforeEach(() => {
   mockSendInvite.mockClear();
   mockSyncStorage.mockClear();
   mockReconcileJf.mockClear();
+  mockEnsureNcProvision.mockClear();
+  mockEnsureNcProvision.mockImplementation(async (input) => ({ username: input.username, created: true, groups: input.groups }));
   mockMailerConfigured = true;
   mockHasLiveInvite = false;
+  mockNcConfigured = false;
+  mockGroupsByUser = new Map<string, string[]>();
   mockUsers = {};
 });
 
@@ -109,6 +126,60 @@ describe("reconcileUsers", () => {
     expect(mockReconcileJf).toHaveBeenCalledWith("/jellyfin");
     expect(s.storageScopesReconciled).toEqual(["/nas/truenas/infraweaver/media"]);
     expect(s.jellyfinReconciled).toBe(true);
+  });
+
+  it("proactively provisions Nextcloud for an enrolled user with storage groups", async () => {
+    mockNcConfigured = true;
+    mockFindUser.mockResolvedValue({ pk: 21 }); // enrolled
+    mockUsers = {
+      koen: {
+        email: "koen@example.com",
+        name: "Koen",
+        role_assignments: [{ roleId: "storage-contributor", scope: "/nas/truenas/infraweaver/media" }],
+      },
+    };
+    mockGroupsByUser = new Map([["koen", ["storage-truenas-infraweaver-media-abc-ro", "storage-truenas-infraweaver-media-abc-rw"]]]);
+    const s = await reconcileUsers();
+    expect(mockEnsureNcProvision).toHaveBeenCalledWith({
+      username: "koen",
+      email: "koen@example.com",
+      displayName: "Koen",
+      groups: ["storage-truenas-infraweaver-media-abc-ro", "storage-truenas-infraweaver-media-abc-rw"],
+    });
+    expect(s.nextcloudProvisioned).toEqual(["koen"]);
+    expect(mockAuditLog).toHaveBeenCalledWith("users:nextcloud-provision", "infraweaver", expect.any(String), expect.objectContaining({ result: "success" }));
+  });
+
+  it("does not report an already-existing Nextcloud account as newly provisioned", async () => {
+    mockNcConfigured = true;
+    mockFindUser.mockResolvedValue({ pk: 21 });
+    mockEnsureNcProvision.mockImplementation(async (input) => ({ username: input.username, created: false, groups: input.groups }));
+    mockUsers = { koen: { email: "koen@example.com", role_assignments: [{ roleId: "storage-contributor", scope: "/nas/truenas/infraweaver/media" }] } };
+    mockGroupsByUser = new Map([["koen", ["storage-truenas-infraweaver-media-abc-rw"]]]);
+    const s = await reconcileUsers();
+    expect(mockEnsureNcProvision).toHaveBeenCalled();
+    expect(s.nextcloudProvisioned).toEqual([]);
+  });
+
+  it("skips Nextcloud provisioning for an enrolled user with no storage groups", async () => {
+    mockNcConfigured = true;
+    mockFindUser.mockResolvedValue({ pk: 21 });
+    mockUsers = { koen: { email: "koen@example.com", role_assignments: [{ roleId: "jellyfin-user", scope: "/jellyfin" }] } };
+    // computeStorageGroupsByUser returns empty → but storage sync must have run for the
+    // block to be reached; a jellyfin-only user yields no storage scopes, so it's skipped.
+    const s = await reconcileUsers();
+    expect(mockEnsureNcProvision).not.toHaveBeenCalled();
+    expect(s.nextcloudProvisioned).toEqual([]);
+  });
+
+  it("does not provision Nextcloud when NC is not configured", async () => {
+    mockNcConfigured = false;
+    mockFindUser.mockResolvedValue({ pk: 21 });
+    mockUsers = { koen: { email: "koen@example.com", role_assignments: [{ roleId: "storage-contributor", scope: "/nas/truenas/infraweaver/media" }] } };
+    mockGroupsByUser = new Map([["koen", ["storage-truenas-infraweaver-media-abc-rw"]]]);
+    const s = await reconcileUsers();
+    expect(mockEnsureNcProvision).not.toHaveBeenCalled();
+    expect(s.nextcloudProvisioned).toEqual([]);
   });
 });
 

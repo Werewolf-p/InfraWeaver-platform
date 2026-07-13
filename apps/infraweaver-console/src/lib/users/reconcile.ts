@@ -32,8 +32,10 @@ import { findUserByUsername } from "@/lib/authentik";
 import { createEnrollmentInvitation, hasLiveInvitationForEmail } from "@/lib/authentik-invite";
 import { isMailerConfigured, sendInviteEmail } from "@/lib/mailer";
 import { isNasScope } from "@/lib/nas/scope";
-import { syncStorageScopesUnder } from "@/lib/nas/access";
+import { computeStorageGroupsByUser, syncStorageScopesUnder } from "@/lib/nas/access";
 import { isJellyfinScope, JELLYFIN_SCOPE, reconcileJellyfinAccessWithRetry } from "@/lib/jellyfin/access";
+import { isNextcloudConfigured } from "@/lib/nextcloud/config";
+import { ensureNextcloudUserProvisioned } from "@/lib/nextcloud/provision";
 import { errorMessage } from "@/lib/utils";
 
 export interface UsersReconcileSummary {
@@ -45,6 +47,8 @@ export interface UsersReconcileSummary {
   enrolled: string[];
   /** Storage scopes whose access groups were reconciled. */
   storageScopesReconciled: string[];
+  /** Enrolled users whose Nextcloud account was proactively created this run. */
+  nextcloudProvisioned: string[];
   /** Whether the Jellyfin scope was reconciled this run. */
   jellyfinReconciled: boolean;
   /** Users skipped because they have no email (cannot invite/notify). */
@@ -64,6 +68,7 @@ export async function reconcileUsers(): Promise<UsersReconcileSummary> {
     pendingEnrollment: [],
     enrolled: [],
     storageScopesReconciled: [],
+    nextcloudProvisioned: [],
     jellyfinReconciled: false,
     skippedNoEmail: [],
     errors: [],
@@ -71,6 +76,11 @@ export async function reconcileUsers(): Promise<UsersReconcileSummary> {
 
   const storageScopes = new Set<string>();
   let anyJellyfinGrant = false;
+  // Enrolled users (Authentik identity exists) with an email — candidates for
+  // proactive Nextcloud provisioning once the storage access groups are reconciled.
+  // The storage-group lookup below filters this to those who actually hold storage
+  // access (directly or via a group grant), so no per-user grant flag is needed here.
+  const enrolledUsers: Array<{ username: string; email: string; displayName?: string }> = [];
 
   for (const [username, user] of Object.entries(cfg.users)) {
     // Collect granted app scopes for the convergence pass below, regardless of
@@ -91,6 +101,7 @@ export async function reconcileUsers(): Promise<UsersReconcileSummary> {
       const identity = await findUserByUsername(username);
       if (identity) {
         summary.enrolled.push(username);
+        enrolledUsers.push({ username, email: user.email, ...(user.name ? { displayName: user.name } : {}) });
         continue;
       }
       // No Authentik login yet — ensure exactly one enrollment invite is out.
@@ -136,6 +147,42 @@ export async function reconcileUsers(): Promise<UsersReconcileSummary> {
       summary.jellyfinReconciled = true;
     } catch (e) {
       summary.errors.push({ subject: "jellyfin", error: errorMessage(e) });
+    }
+  }
+
+  // Proactive Nextcloud provisioning. The access groups are now reconciled, so an
+  // enrolled user's grant-derived storage groups are known; materialize their
+  // Nextcloud account (Database backend) in exactly those groups so WebDAV/native
+  // clients and credential reveal work immediately — without waiting for the person
+  // to complete a browser OIDC login (which is all the JIT path would otherwise give
+  // them). Idempotent: an already-present account (JIT or a prior tick) is only
+  // re-checked for group membership; its password is never reset. Gated on NC being
+  // configured so a dev/test env without OCS creds simply skips this.
+  if (isNextcloudConfigured() && enrolledUsers.length > 0 && summary.storageScopesReconciled.length > 0) {
+    let groupsByUser: Map<string, string[]>;
+    try {
+      groupsByUser = await computeStorageGroupsByUser();
+    } catch (e) {
+      groupsByUser = new Map();
+      summary.errors.push({ subject: "nextcloud:groups", error: errorMessage(e) });
+    }
+    for (const { username, email, displayName } of enrolledUsers) {
+      const groups = groupsByUser.get(username);
+      if (!groups || groups.length === 0) continue; // no storage access → no NC account needed
+      try {
+        const result = await ensureNextcloudUserProvisioned({ username, email, displayName, groups });
+        if (result.created) {
+          summary.nextcloudProvisioned.push(username);
+          await auditLog(
+            "users:nextcloud-provision",
+            "infraweaver",
+            `Provisioned Nextcloud account '${username}' in ${result.groups.length} storage group(s)`,
+            { resource: username, result: "success" },
+          );
+        }
+      } catch (e) {
+        summary.errors.push({ subject: `nextcloud:${username}`, error: errorMessage(e) });
+      }
     }
   }
 

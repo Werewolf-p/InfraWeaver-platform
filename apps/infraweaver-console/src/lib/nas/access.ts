@@ -127,6 +127,41 @@ export async function syncStorageScopesUnder(changedScope: string): Promise<stri
   return covered;
 }
 
+/**
+ * Which storage access groups each user belongs to, across every scope that has
+ * materialized groups. The inverse of the per-scope reconcile: the reconcile sets
+ * "who is in each group", this answers "which groups is each user in", which is
+ * exactly what proactive Nextcloud provisioning needs to place a freshly-created
+ * local account into the same groups its `/Media` mount binds to.
+ *
+ * Membership is a superset relation (`…-rw` ⊆ `…-ro`), so a writer appears under
+ * both its `-ro` and `-rw` group — mirroring the Authentik membership the OIDC
+ * `nc_groups` claim would otherwise carry. Derived purely from RBAC, so it can
+ * never diverge from the group memberships `syncScopeAccess` reconciles.
+ */
+export async function computeStorageGroupsByUser(): Promise<Map<string, string[]>> {
+  const scopes = await readSyncedStorageScopes();
+  const cfg = await loadUsersConfig();
+  const byUser = new Map<string, Set<string>>();
+  const add = (user: string, group: string): void => {
+    const set = byUser.get(user) ?? new Set<string>();
+    set.add(group);
+    byUser.set(user, set);
+  };
+
+  for (const scope of scopes) {
+    const parsed = parseNasScope(scope);
+    if (!parsed) continue;
+    const { provider, share, subfolder } = parsed;
+    const roName = storageAccessGroupName(provider, share, "readonly", subfolder);
+    const rwName = storageAccessGroupName(provider, share, "readwrite", subfolder);
+    for (const u of computeShareAccessUsers(provider, share, "readonly", cfg.users, cfg.groups, subfolder)) add(u, roName);
+    for (const u of computeShareAccessUsers(provider, share, "readwrite", cfg.users, cfg.groups, subfolder)) add(u, rwName);
+  }
+
+  return new Map([...byUser].map(([user, groups]) => [user, [...groups].sort()]));
+}
+
 /** Tear down a scope's access groups. Idempotent. */
 export async function removeShareAccess(provider: string, share: string, subfolder = ""): Promise<void> {
   await removeAppAccessGroup(storageAccessGroupName(provider, share, "readonly", subfolder));

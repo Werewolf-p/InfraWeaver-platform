@@ -18,7 +18,7 @@
 import "server-only";
 import nodemailer from "nodemailer";
 import type Mail from "nodemailer/lib/mailer";
-import { brandedEmailHtml, logoAttachment } from "@/lib/email-logo";
+import { brandedEmailHtml, ctaButton, escapeHtml, logoAttachment } from "@/lib/email-logo";
 
 /** SMTP transport config, read from env at send time. Nothing here is secret at rest —
  *  the username/password come from the ESO-projected `infraweaver-console-secret`. */
@@ -120,15 +120,17 @@ export async function sendInviteEmail(to: string, enrollmentUrl: string): Promis
     "",
     "This link is single-use and will expire. If you did not expect this invitation, you can ignore this email.",
   ].join("\n");
-  const html = [
-    `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#0f172a">`,
-    `<p>You have been invited to <strong>InfraWeaver</strong>.</p>`,
-    `<p><a href="${enrollmentUrl}" style="display:inline-block;padding:10px 18px;background:#4f46e5;color:#fff;border-radius:8px;text-decoration:none">Set up your account</a></p>`,
-    `<p style="font-size:13px;color:#475569">Or paste this link into your browser:<br><a href="${enrollmentUrl}">${enrollmentUrl}</a></p>`,
-    `<p style="font-size:12px;color:#94a3b8">This link is single-use and will expire. If you did not expect this invitation, you can ignore this email.</p>`,
-    `</div>`,
+  const safeUrl = escapeHtml(enrollmentUrl);
+  const inner = [
+    `<h1 style="margin:0 0 12px 0;font-size:22px;line-height:1.3;font-weight:700;letter-spacing:-.3px;color:#0f172a">You're invited to InfraWeaver</h1>`,
+    `<p style="margin:0 0 26px 0;font-size:15px;line-height:1.65;color:#475569">You've been granted access to InfraWeaver. Set up your account to sign in to your apps and storage — it only takes a minute.</p>`,
+    `<div style="margin:0 0 26px 0">${ctaButton(enrollmentUrl, "Set up your account")}</div>`,
+    `<p style="margin:0 0 6px 0;font-size:13px;line-height:1.5;color:#64748b">Or paste this link into your browser:</p>`,
+    `<p style="margin:0 0 22px 0;word-break:break-all"><a href="${safeUrl}" style="font-size:13px;color:#4f46e5;text-decoration:none">${safeUrl}</a></p>`,
+    `<p style="margin:0;font-size:12px;line-height:1.6;color:#94a3b8">This link is single-use and will expire. If you did not expect this invitation, you can safely ignore this email.</p>`,
   ].join("");
-  await sendMail({ to, subject, text, html: brandedEmailHtml(html), attachments: [logoAttachment()] });
+  const html = brandedEmailHtml(inner, { preview: "Set up your InfraWeaver account to access your apps and storage." });
+  await sendMail({ to, subject, text, html, attachments: [logoAttachment()] });
 }
 
 /**
@@ -159,18 +161,26 @@ export async function sendCredentialEmail(input: {
     "",
     "Please change your password after your first sign-in. If you did not expect this, contact the administrator.",
   ].join("\n");
-  const html = [
-    `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#0f172a">`,
-    `<p>An account has been created for you on <strong>${appLabel}</strong>.</p>`,
-    `<p>Sign in with these credentials:</p>`,
-    `<table style="border-collapse:collapse;font-size:14px">`,
-    `<tr><td style="padding:2px 12px 2px 0;color:#475569">Username</td><td><code>${username}</code></td></tr>`,
-    `<tr><td style="padding:2px 12px 2px 0;color:#475569">Password</td><td><code>${password}</code></td></tr>`,
-    `<tr><td style="padding:2px 12px 2px 0;color:#475569">Sign in</td><td><a href="${launchUrl}">${launchUrl}</a></td></tr>`,
+  const safeLabel = escapeHtml(appLabel);
+  const safeUser = escapeHtml(username);
+  const safePass = escapeHtml(password);
+  const safeUrl = escapeHtml(launchUrl);
+  const credRow = (label: string, valueHtml: string): string =>
+    `<tr><td style="padding:11px 14px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:#64748b;border-bottom:1px solid #eef1f6;white-space:nowrap;vertical-align:middle">${label}</td>` +
+    `<td style="padding:11px 14px;font-size:14px;color:#0f172a;border-bottom:1px solid #eef1f6;vertical-align:middle;word-break:break-all">${valueHtml}</td></tr>`;
+  const inner = [
+    `<h1 style="margin:0 0 12px 0;font-size:22px;line-height:1.3;font-weight:700;letter-spacing:-.3px;color:#0f172a">Your ${safeLabel} sign-in is ready</h1>`,
+    `<p style="margin:0 0 22px 0;font-size:15px;line-height:1.65;color:#475569">An account has been created for you on <strong>${safeLabel}</strong>. Use these credentials to sign in:</p>`,
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:separate;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;margin:0 0 22px 0">`,
+    credRow("Username", `<code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;color:#0f172a">${safeUser}</code>`),
+    credRow("Password", `<code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;color:#0f172a;background-color:#f1f5f9;padding:3px 8px;border-radius:6px">${safePass}</code>`),
+    // Last row: no bottom border.
+    `<tr><td style="padding:11px 14px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:#64748b;white-space:nowrap;vertical-align:middle">Sign in</td>` +
+      `<td style="padding:11px 14px;font-size:14px;vertical-align:middle;word-break:break-all"><a href="${safeUrl}" style="color:#4f46e5;text-decoration:none">${safeUrl}</a></td></tr>`,
     `</table>`,
-    `<p style="font-size:13px;color:#475569">Please change your password after your first sign-in.</p>`,
-    `<p style="font-size:12px;color:#94a3b8">If you did not expect this, contact the administrator.</p>`,
-    `</div>`,
+    `<div style="margin:0 0 22px 0">${ctaButton(launchUrl, `Open ${safeLabel}`)}</div>`,
+    `<p style="margin:0;font-size:12px;line-height:1.6;color:#94a3b8">Please change your password after your first sign-in. If you did not expect this, contact your administrator.</p>`,
   ].join("");
-  await sendMail({ to, subject, text, html: brandedEmailHtml(html), attachments: [logoAttachment()] });
+  const html = brandedEmailHtml(inner, { preview: `Your ${appLabel} account is ready — sign in with the credentials inside.` });
+  await sendMail({ to, subject, text, html, attachments: [logoAttachment()] });
 }
