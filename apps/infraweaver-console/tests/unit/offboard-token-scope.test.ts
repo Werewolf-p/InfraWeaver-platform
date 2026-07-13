@@ -158,3 +158,62 @@ describe("offboard token revocation is scoped to the target user's pk", () => {
     expect(revokeStep(body)?.message).toBe("Revoked 0 token(s)");
   });
 });
+
+/** Invoke with a real request body (drives the deleteIdentity flag). */
+function invokeWithBody(body: unknown, username = TARGET) {
+  return POST({ json: async () => body } as never, { params: Promise.resolve({ username }) });
+}
+const stepNamed = (
+  body: { steps: Array<{ name: string; success: boolean; message: string }> },
+  name: string,
+) => body.steps.find((s) => s.name === name);
+const patchesUser = () => calls.filter((c) => c.path === `/core/users/${TARGET_PK}/` && c.method === "PATCH");
+const deletesUser = () => calls.filter((c) => c.path === `/core/users/${TARGET_PK}/` && c.method === "DELETE");
+
+describe("offboard tolerates a missing Authentik user (invited-but-never-enrolled / local-only)", () => {
+  test("does not 404; skips SSO teardown but still deprovisions app accounts + config", async () => {
+    const { offboardJellyfinUser } = require("@/lib/jellyfin/access");
+    const { deprovisionNextcloudUser } = require("@/lib/nextcloud/deprovision");
+    calls = [];
+    authentikFetch.mockImplementation(async (path: string, options?: { method?: string }) => {
+      calls.push({ path, method: options?.method ?? "GET" });
+      return res(true, {});
+    });
+    findUserByUsername.mockResolvedValue(null); // no SSO identity
+
+    const { body, status } = await invokeWithBody({ deleteIdentity: true });
+
+    expect(status).toBe(200);
+    // No Authentik calls at all — nothing to disable, delete, revoke, or unbind.
+    expect(calls).toEqual([]);
+    // App-account + config cleanup still runs so nothing local is left behind.
+    expect(offboardJellyfinUser).toHaveBeenCalledWith(TARGET);
+    expect(deprovisionNextcloudUser).toHaveBeenCalledWith(TARGET);
+    expect(stepNamed(body, "Authentik account")?.success).toBe(true);
+  });
+});
+
+describe("delete vs offboard identity action", () => {
+  test("deleteIdentity=true HARD-DELETEs the Authentik user, never merely disables it", async () => {
+    installAuthentik([]);
+
+    const { body, status } = await invokeWithBody({ deleteIdentity: true });
+
+    expect(status).toBe(200);
+    expect(deletesUser()).toHaveLength(1);
+    expect(patchesUser()).toHaveLength(0);
+    expect(stepNamed(body, "Delete Authentik account")?.success).toBe(true);
+    expect(stepNamed(body, "Disable account")).toBeUndefined();
+  });
+
+  test("no deleteIdentity flag disables the account and retains it for audit", async () => {
+    installAuthentik([]);
+
+    const { body } = await invokeWithBody({});
+
+    expect(patchesUser()).toHaveLength(1);
+    expect(deletesUser()).toHaveLength(0);
+    expect(stepNamed(body, "Disable account")?.success).toBe(true);
+    expect(stepNamed(body, "Delete Authentik account")).toBeUndefined();
+  });
+});

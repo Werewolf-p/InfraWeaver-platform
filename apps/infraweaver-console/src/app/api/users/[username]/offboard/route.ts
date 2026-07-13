@@ -15,7 +15,7 @@ interface OffboardStep {
 }
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ username: string }> }
 ) {
   const session = await auth();
@@ -29,73 +29,113 @@ export async function POST(
 
   const { username } = await params;
 
-  const user = await findUserByUsername(username);
-  if (!user) return NextResponse.json({ error: "User not found in Authentik" }, { status: 404 });
+  // deleteIdentity=true is the "Delete" action: it HARD-DELETES the Authentik user
+  // object (not just disables it) so nothing is left behind. Absent/false body =
+  // classic offboard (disable + retain the disabled account for audit).
+  let deleteIdentity = false;
+  try {
+    const body = await req.json();
+    deleteIdentity = body?.deleteIdentity === true;
+  } catch {
+    // Empty/invalid body → default offboard (disable) semantics.
+  }
 
+  // The Authentik user may legitimately NOT exist: a user invited but never enrolled,
+  // or one with only local app accounts (Jellyfin/Nextcloud) and no SSO identity. That
+  // must NOT abort the cleanup — otherwise those half-provisioned users can never be
+  // removed and their local accounts leak forever. Treat a missing user as "no SSO
+  // identity to tear down" and continue with app-account + config removal.
+  const user = await findUserByUsername(username);
+
+  // Self-guard without depending on the Authentik record (which may be absent):
+  // block deleting your own account by username, and by email when the record exists.
   const selfEmail = (session.user as { email?: string }).email ?? "";
-  if (user.email === selfEmail) {
+  const isSelf =
+    (access.username && access.username === username) ||
+    (!!user && user.email === selfEmail);
+  if (isSelf) {
     return NextResponse.json({ error: "Cannot offboard yourself" }, { status: 400 });
   }
 
   const steps: OffboardStep[] = [];
 
-  // Step 1: Disable account
-  try {
-    const r = await authentikFetch(`/core/users/${user.pk}/`, {
-      method: "PATCH",
-      body: JSON.stringify({ is_active: false }),
+  if (!user) {
+    // No SSO identity — record it and fall through to app-account + config cleanup.
+    steps.push({
+      name: "Authentik account",
+      success: true,
+      message: "No Authentik account found (invited but never enrolled, or local-only) — nothing to disable/delete",
     });
-    steps.push({ name: "Disable account", success: r.ok, message: r.ok ? "Account disabled" : `HTTP ${r.status}` });
-  } catch (e) {
-    steps.push({ name: "Disable account", success: false, message: safeError(e) });
-  }
-
-  // Step 2: Revoke tokens.
-  // The token list MUST be scoped by `user__username` — NOT `user=<username>`.
-  // Authentik silently IGNORES an unrecognized query filter and returns EVERY token
-  // in the system, so `?user=<username>` (a string where the ignored `user` filter
-  // wants a pk) once returned all tokens and this loop deleted the console's own
-  // admin token and the embedded outpost's API token — a self-inflicted outage.
-  // Defense in depth: even with the correct filter, only delete a token whose owner
-  // is actually this user, and count only deletes that succeeded.
-  try {
-    const r = await authentikFetch(`/core/tokens/?user__username=${encodeURIComponent(username)}`);
-    if (!r.ok) throw new Error(`List tokens: HTTP ${r.status}`);
-    const data = await r.json();
-    const tokens: Array<{ identifier: string; user?: number }> = data.results ?? [];
-    let revoked = 0;
-    for (const token of tokens) {
-      if (token.user !== user.pk) continue; // never touch another principal's token
-      const del = await authentikFetch(`/core/tokens/${encodeURIComponent(token.identifier)}/`, { method: "DELETE" });
-      if (del.ok) revoked++;
+  } else {
+    // Step 1: Revoke tokens.
+    // The token list MUST be scoped by `user__username` — NOT `user=<username>`.
+    // Authentik silently IGNORES an unrecognized query filter and returns EVERY token
+    // in the system, so `?user=<username>` (a string where the ignored `user` filter
+    // wants a pk) once returned all tokens and this loop deleted the console's own
+    // admin token and the embedded outpost's API token — a self-inflicted outage.
+    // Defense in depth: even with the correct filter, only delete a token whose owner
+    // is actually this user, and count only deletes that succeeded.
+    try {
+      const r = await authentikFetch(`/core/tokens/?user__username=${encodeURIComponent(username)}`);
+      if (!r.ok) throw new Error(`List tokens: HTTP ${r.status}`);
+      const data = await r.json();
+      const tokens: Array<{ identifier: string; user?: number }> = data.results ?? [];
+      let revoked = 0;
+      for (const token of tokens) {
+        if (token.user !== user.pk) continue; // never touch another principal's token
+        const del = await authentikFetch(`/core/tokens/${encodeURIComponent(token.identifier)}/`, { method: "DELETE" });
+        if (del.ok) revoked++;
+      }
+      steps.push({ name: "Revoke tokens", success: true, message: `Revoked ${revoked} token(s)` });
+    } catch (e) {
+      steps.push({ name: "Revoke tokens", success: false, message: safeError(e) });
     }
-    steps.push({ name: "Revoke tokens", success: true, message: `Revoked ${revoked} token(s)` });
-  } catch (e) {
-    steps.push({ name: "Revoke tokens", success: false, message: safeError(e) });
-  }
 
-  // Step 3: Remove from groups.
-  // Use the user object's OWN `groups` (the authoritative pk array the user serializer
-  // already returned) rather than a `?member_by_username=` group query — that filter is
-  // likewise ignored by Authentik and returns an unrelated page of groups, so the old
-  // code removed the user from groups they were never in and never from the ones they
-  // were. `groups` was captured before Step 1 disabled the account; disabling does not
-  // change membership, so it is still accurate here.
-  try {
-    const groupPks: string[] = Array.isArray(user.groups)
-      ? user.groups.filter((pk: unknown): pk is string => typeof pk === "string")
-      : [];
-    let removed = 0;
-    for (const groupPk of groupPks) {
-      const resp = await authentikFetch(`/core/groups/${encodeURIComponent(groupPk)}/remove_user/`, {
-        method: "POST",
-        body: JSON.stringify({ pk: user.pk }),
-      });
-      if (resp.ok) removed++;
+    // Step 2: Remove from groups.
+    // Use the user object's OWN `groups` (the authoritative pk array the user serializer
+    // already returned) rather than a `?member_by_username=` group query — that filter is
+    // likewise ignored by Authentik and returns an unrelated page of groups, so the old
+    // code removed the user from groups they were never in and never from the ones they
+    // were. Membership is read from the record fetched above; the disable/delete below
+    // does not change it beforehand, so it is still accurate here.
+    try {
+      const groupPks: string[] = Array.isArray(user.groups)
+        ? user.groups.filter((pk: unknown): pk is string => typeof pk === "string")
+        : [];
+      let removed = 0;
+      for (const groupPk of groupPks) {
+        const resp = await authentikFetch(`/core/groups/${encodeURIComponent(groupPk)}/remove_user/`, {
+          method: "POST",
+          body: JSON.stringify({ pk: user.pk }),
+        });
+        if (resp.ok) removed++;
+      }
+      steps.push({ name: "Remove from groups", success: true, message: `Removed from ${removed} group(s)` });
+    } catch (e) {
+      steps.push({ name: "Remove from groups", success: false, message: safeError(e) });
     }
-    steps.push({ name: "Remove from groups", success: true, message: `Removed from ${removed} group(s)` });
-  } catch (e) {
-    steps.push({ name: "Remove from groups", success: false, message: safeError(e) });
+
+    // Step 3: Final identity action. "Delete" HARD-DELETES the Authentik user so nothing
+    // is left; plain offboard disables it and keeps the disabled record for audit. The
+    // explicit token-revoke + group-strip above already ran as defense in depth.
+    if (deleteIdentity) {
+      try {
+        const r = await authentikFetch(`/core/users/${user.pk}/`, { method: "DELETE" });
+        steps.push({ name: "Delete Authentik account", success: r.ok, message: r.ok ? "Account deleted" : `HTTP ${r.status}` });
+      } catch (e) {
+        steps.push({ name: "Delete Authentik account", success: false, message: safeError(e) });
+      }
+    } else {
+      try {
+        const r = await authentikFetch(`/core/users/${user.pk}/`, {
+          method: "PATCH",
+          body: JSON.stringify({ is_active: false }),
+        });
+        steps.push({ name: "Disable account", success: r.ok, message: r.ok ? "Account disabled" : `HTTP ${r.status}` });
+      } catch (e) {
+        steps.push({ name: "Disable account", success: false, message: safeError(e) });
+      }
+    }
   }
 
   // Step 4: Delete the Jellyfin local account + its OpenBao app-account record.
@@ -109,10 +149,10 @@ export async function POST(
     steps.push({ name: "Delete Jellyfin account", success: false, message: safeError(e) });
   }
 
-  // Step 5: Delete the residual Nextcloud user row. Access is already revoked by the
-  // Authentik disable + group-strip above (Nextcloud is SSO/group-driven); this removes
-  // the leftover DB record via the OCS API. It never touches /Media (an external
-  // TrueNAS mount, not the user's home).
+  // Step 5: Delete the residual Nextcloud user row. Where an Authentik account existed,
+  // access is already revoked by the disable/delete + group-strip above (Nextcloud is
+  // SSO/group-driven); this removes the leftover DB record via the OCS API. It never
+  // touches /Media (an external TrueNAS mount, not the user's home).
   try {
     const result = await deprovisionNextcloudUser(username);
     steps.push({ name: "Delete Nextcloud user", success: true, message: result.message });
@@ -125,7 +165,8 @@ export async function POST(
     const { users, sha } = await loadUsersConfig();
     if (users[username]) {
       delete users[username];
-      await saveUsersConfig(users, sha, `chore: offboard user ${username}`);
+      const verb = deleteIdentity ? "delete" : "offboard";
+      await saveUsersConfig(users, sha, `chore: ${verb} user ${username}`);
       steps.push({ name: "Remove from users.yaml", success: true, message: "User removed from config" });
     } else {
       steps.push({ name: "Remove from users.yaml", success: true, message: "User not in config (skipped)" });
@@ -134,6 +175,7 @@ export async function POST(
     steps.push({ name: "Remove from users.yaml", success: false, message: safeError(e) });
   }
 
-  await auditLog("users:offboard", session.user?.email ?? "unknown", `Offboarded ${username}`);
+  const action = deleteIdentity ? "users:delete" : "users:offboard";
+  await auditLog(action, session.user?.email ?? "unknown", `${deleteIdentity ? "Deleted" : "Offboarded"} ${username}`);
   return NextResponse.json({ steps });
 }

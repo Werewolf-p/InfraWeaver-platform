@@ -440,7 +440,7 @@ function DeleteConfirmModal({
     >
       <div className="space-y-4">
         <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-100">
-          This will permanently remove <span className="font-semibold">@{user.username}</span> from the platform, revoke related access, and remove their saved assignments.
+          This permanently deletes <span className="font-semibold">@{user.username}</span> everywhere: the Authentik login, group memberships and tokens, the Jellyfin and Nextcloud accounts, all RBAC assignments, and the platform config row. Nothing is left behind, and it cannot be undone.
         </div>
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Confirm username</label>
@@ -629,7 +629,7 @@ function UserMobileCard({ user, isAdmin, isSelf, onEdit, onDelete, actionsDropdo
 }
 
 export default function UsersPage() {
-  const { data, isLoading } = useUsersConfig();
+  const { data, isLoading, refetch } = useUsersConfig();
   const saveMutation = useSaveUsersConfig();
   const { isAdmin } = useRBAC();
   const { data: session } = useSession();
@@ -724,13 +724,28 @@ export default function UsersPage() {
       toast.error("Cannot delete the last admin account");
       return;
     }
-    const updated = users.filter(u => u.username !== deleteUser.username);
+    // Delete runs the full offboard chain with a hard identity delete, so no orphaned
+    // Authentik user, Jellyfin/Nextcloud account, token, or config row is left behind.
+    // (Deleting only from users.yaml used to leak every one of those.)
     try {
-      await saveMutation.mutateAsync({ users: updated, sha: data?.sha });
-      toast.success(`Deleted @${deleteUser.username}`);
+      const res = await fetch(`/api/users/${deleteUser.username}/offboard`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deleteIdentity: true }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result?.error ?? "Failed to delete user");
+      const steps: Array<{ name: string; success: boolean }> = result.steps ?? [];
+      const failed = steps.filter(s => !s.success);
+      if (failed.length > 0) {
+        toast.error(`Deleted @${deleteUser.username}, but ${failed.length} step(s) failed: ${failed.map(s => s.name).join(", ")}`);
+      } else {
+        toast.success(`Deleted @${deleteUser.username} — all accounts and access removed`);
+      }
       setDeleteUser(null);
-    } catch {
-      toast.error("Failed to delete user");
+      await refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete user");
     }
   };
 
