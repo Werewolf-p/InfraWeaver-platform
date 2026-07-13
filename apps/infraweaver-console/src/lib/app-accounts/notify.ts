@@ -1,39 +1,65 @@
 /**
  * Credential delivery — SERVER ONLY.
  *
- * The finding that shapes this file: InfraWeaver has NO first-party SMTP sender.
- * Authentik is configured to send its OWN templated mail (recovery/invite) via
- * `secret/platform/authentik` SMTP creds, but there is no path to send an arbitrary
- * "here is your Jellyfin password" body, and the console has no mailer dependency.
- * See docs/app-account-provisioning.md.
+ * Delivery is two-tier:
+ *   1. PUSH — when a first-party SMTP sender is configured (`isMailerConfigured`),
+ *      the notifier emails the username+password straight to the user so a granted
+ *      Jellyfin account is usable without an operator touching it. A send failure is
+ *      NOT swallowed: it propagates so the engine records `pendingHandoff` and the
+ *      pull path below takes over.
+ *   2. PULL (fallback) — the credential is already at rest in OpenBao (the reconcile
+ *      wrote it), so an admin reveals it in the console for an out-of-band hand-off.
+ *      Used when SMTP is unconfigured, or after a push failure.
  *
- * So the default notifier does NOT invent an SMTP client. It:
- *   1. relies on the credential already being in OpenBao (the reconcile wrote it),
- *      so an admin can reveal it in the console for an out-of-band hand-off; and
- *   2. writes an audit line recording the hand-off — WITHOUT the password — so the
- *      event is visible and attributable.
+ * Either way an audit line is written for attributability — the pull line never
+ * carries the password.
  *
- * The {@link AccountNotifier} contract is the seam: dropping in an SMTP- or
- * Authentik-invitation-backed notifier is a new file wired at the call site, with
- * no change to the engine. That notifier is where a real email would be sent.
+ * The {@link AccountNotifier} contract remains the seam: a different transport is a
+ * drop-in with no change to the engine.
  */
 import "server-only";
 import { auditLog } from "@/lib/audit-log";
+import { isMailerConfigured, sendCredentialEmail } from "@/lib/mailer";
 import type { AccountNotifier, ProvisionedCredential } from "@/lib/app-accounts/types";
 
-/**
- * Default notifier. Never logs or transmits the plaintext password — it is already
- * safely at rest in OpenBao and is surfaced only through the authenticated console
- * reveal. This records that a credential is ready for `email` to be handed off.
- */
 export const consoleAccountNotifier: AccountNotifier = {
   async notifyProvisioned(credential: ProvisionedCredential): Promise<void> {
+    if (isMailerConfigured()) {
+      try {
+        await sendCredentialEmail({
+          to: credential.email,
+          appLabel: credential.appLabel,
+          launchUrl: credential.launchUrl,
+          username: credential.username,
+          password: credential.password,
+        });
+      } catch (err) {
+        // Push failed — record it and rethrow so the engine flags pendingHandoff and
+        // an operator completes delivery via the OpenBao-backed console reveal.
+        await auditLog(
+          "app-account:handoff-failed",
+          "infraweaver",
+          `Failed to email ${credential.appLabel} credentials for '${credential.username}' to ${credential.email}; credential stored for console reveal (${credential.launchUrl})`,
+          { resource: `${credential.appId}/${credential.username}` },
+        );
+        throw err;
+      }
+      await auditLog(
+        "app-account:provisioned",
+        "infraweaver",
+        // The password went to the user over SMTP, never into this log line.
+        `Provisioned ${credential.appLabel} account '${credential.username}' for ${credential.email}; credentials emailed (${credential.launchUrl})`,
+        { resource: `${credential.appId}/${credential.username}` },
+      );
+      return;
+    }
+
+    // No SMTP sender wired: fall back to pull-based hand-off. The credential lives in
+    // OpenBao at secret/platform/app-accounts/<app>/users/<username>; deliver it from
+    // the console's reveal flow, not from this log line (password excluded).
     await auditLog(
       "app-account:provisioned",
       "infraweaver",
-      // Deliberately excludes the password. The credential lives in OpenBao at
-      // secret/platform/app-accounts/<app>/users/<username>; deliver it from the
-      // console's reveal flow, not from this log line.
       `Provisioned ${credential.appLabel} account '${credential.username}' for ${credential.email}; credential stored for hand-off (${credential.launchUrl})`,
       { resource: `${credential.appId}/${credential.username}` },
     );

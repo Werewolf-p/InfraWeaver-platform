@@ -121,3 +121,47 @@ export async function sendInviteEmail(to: string, enrollmentUrl: string): Promis
   ].join("");
   await sendMail({ to, subject, text, html });
 }
+
+/**
+ * Deliver a freshly-provisioned local app account's credentials. Used for apps that
+ * cannot federate via OIDC (Jellyfin), where the user needs a username+password to
+ * sign in. The same password is at rest in OpenBao for an in-console reveal; this is
+ * the push path that removes the manual hand-off. All fields are console-controlled
+ * (username is validated, password is generated from a fixed alphabet), so they are
+ * safe to interpolate into the HTML body.
+ */
+export async function sendCredentialEmail(input: {
+  to: string;
+  appLabel: string;
+  launchUrl: string;
+  username: string;
+  password: string;
+}): Promise<void> {
+  const { to, appLabel, launchUrl, username, password } = input;
+  const subject = `Your ${appLabel} sign-in`;
+  const text = [
+    `An account has been created for you on ${appLabel}.`,
+    "",
+    "Sign in with these credentials:",
+    "",
+    `  Username: ${username}`,
+    `  Password: ${password}`,
+    `  Sign in:  ${launchUrl}`,
+    "",
+    "Please change your password after your first sign-in. If you did not expect this, contact the administrator.",
+  ].join("\n");
+  const html = [
+    `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.6;color:#0f172a">`,
+    `<p>An account has been created for you on <strong>${appLabel}</strong>.</p>`,
+    `<p>Sign in with these credentials:</p>`,
+    `<table style="border-collapse:collapse;font-size:14px">`,
+    `<tr><td style="padding:2px 12px 2px 0;color:#475569">Username</td><td><code>${username}</code></td></tr>`,
+    `<tr><td style="padding:2px 12px 2px 0;color:#475569">Password</td><td><code>${password}</code></td></tr>`,
+    `<tr><td style="padding:2px 12px 2px 0;color:#475569">Sign in</td><td><a href="${launchUrl}">${launchUrl}</a></td></tr>`,
+    `</table>`,
+    `<p style="font-size:13px;color:#475569">Please change your password after your first sign-in.</p>`,
+    `<p style="font-size:12px;color:#94a3b8">If you did not expect this, contact the administrator.</p>`,
+    `</div>`,
+  ].join("");
+  await sendMail({ to, subject, text, html });
+}
