@@ -9,8 +9,12 @@ jest.mock("@/lib/users-config", () => ({
   loadUsersConfig: async () => ({ users: mockUsers, groups: {}, sha: "sha", raw: "" }),
 }));
 
-const mockFindUser = jest.fn(async (_u: string): Promise<{ pk: number } | null> => null);
-jest.mock("@/lib/authentik", () => ({ findUserByUsername: (u: string) => mockFindUser(u) }));
+const mockFindUser = jest.fn(async (_u: string): Promise<{ pk: number; username?: string } | null> => null);
+const mockFindUserByEmail = jest.fn(async (_e: string): Promise<{ pk: number; username?: string } | null> => null);
+jest.mock("@/lib/authentik", () => ({
+  findUserByUsername: (u: string) => mockFindUser(u),
+  findUserByEmail: (e: string) => mockFindUserByEmail(e),
+}));
 
 const mockCreateInvite = jest.fn(async () => ({ url: "https://auth.example/if/flow/x/?itoken=tok", token: "tok" }));
 let mockHasLiveInvite = false;
@@ -59,6 +63,8 @@ beforeEach(() => {
   mockAuditLog.mockClear();
   mockFindUser.mockClear();
   mockFindUser.mockResolvedValue(null);
+  mockFindUserByEmail.mockClear();
+  mockFindUserByEmail.mockResolvedValue(null);
   mockCreateInvite.mockClear();
   mockSendInvite.mockClear();
   mockSyncStorage.mockClear();
@@ -175,6 +181,17 @@ describe("reconcileUsers", () => {
     const s = await reconcileUsers();
     expect(mockEnsureNcProvision).not.toHaveBeenCalled();
     expect(s.nextcloudProvisioned).toEqual([]);
+  });
+
+  it("resolves the Authentik username by email and provisions NC under it when the users.yaml key drifted", async () => {
+    mockNcConfigured = true;
+    mockFindUser.mockResolvedValue(null); // 'koen' is not an Authentik username
+    mockFindUserByEmail.mockResolvedValue({ pk: 30, username: "koenluppers" }); // but the email matches
+    mockUsers = { koen: { email: "koen@example.com", role_assignments: [{ roleId: "storage-contributor", scope: "/nas/truenas/infraweaver/media" }] } };
+    mockGroupsByUser = new Map([["koen", ["storage-x-rw"]]]); // groups keyed by the users.yaml key
+    const s = await reconcileUsers();
+    expect(s.enrolled).toContain("koenluppers"); // canonical AK username, not the drifted key
+    expect(mockEnsureNcProvision).toHaveBeenCalledWith(expect.objectContaining({ username: "koenluppers", groups: ["storage-x-rw"] }));
   });
 
   it("runs the enrollment-grant bridge and surfaces what it seeded", async () => {

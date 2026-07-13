@@ -89,6 +89,12 @@ export const POST = withRoute(["users:write", "rbac:admin"], async (req: NextReq
   if (presetGrants.length > 0) fixedData.iw_roles = presetGrants;
 
   const expires = new Date(Date.now() + expiryHours * 3600 * 1000).toISOString();
+  // Do NOT bind the invitation to a `flow`. On Authentik 2026.5.4 an invitation with a
+  // `flow` set is NOT matched by the InvitationStage when the link is opened via that
+  // same flow's URL — the stage answers "Invalid invite/invite not found" and denies
+  // enrollment. The flow is already selected by the link PATH (/if/flow/<slug>/), so the
+  // `flow` field is redundant; omitting it makes the token resolve and the flow advance
+  // to the prompt. (`flowPk` is still resolved above purely as an existence gate.)
   const r = await authentikFetch("/stages/invitation/invitations/", {
     method: "POST",
     body: JSON.stringify({
@@ -96,7 +102,6 @@ export const POST = withRoute(["users:write", "rbac:admin"], async (req: NextReq
       name: `invite-${crypto.randomUUID()}`,
       expires,
       single_use: true,
-      flow: flowPk,
       fixed_data: fixedData,
     }),
   });

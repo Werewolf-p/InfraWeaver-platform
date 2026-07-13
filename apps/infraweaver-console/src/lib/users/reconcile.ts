@@ -28,7 +28,7 @@
 import "server-only";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig } from "@/lib/users-config";
-import { findUserByUsername } from "@/lib/authentik";
+import { findUserByEmail, findUserByUsername } from "@/lib/authentik";
 import { createEnrollmentInvitation, hasLiveInvitationForEmail } from "@/lib/authentik-invite";
 import { isMailerConfigured, sendInviteEmail } from "@/lib/mailer";
 import { isNasScope } from "@/lib/nas/scope";
@@ -95,7 +95,10 @@ export async function reconcileUsers(): Promise<UsersReconcileSummary> {
   // proactive Nextcloud provisioning once the storage access groups are reconciled.
   // The storage-group lookup below filters this to those who actually hold storage
   // access (directly or via a group grant), so no per-user grant flag is needed here.
-  const enrolledUsers: Array<{ username: string; email: string; displayName?: string }> = [];
+  // `username` is the canonical Authentik username (used to create app accounts);
+  // `yamlKey` is the users.yaml key the grants/storage-groups are computed under (equal
+  // in the normal case; differ only when a hand-entered key drifted from the real one).
+  const enrolledUsers: Array<{ username: string; yamlKey: string; email: string; displayName?: string }> = [];
 
   for (const [username, user] of Object.entries(cfg.users)) {
     // Collect granted app scopes for the convergence pass below, regardless of
@@ -113,10 +116,17 @@ export async function reconcileUsers(): Promise<UsersReconcileSummary> {
     }
 
     try {
-      const identity = await findUserByUsername(username);
+      // Enrollment identity: match by the users.yaml key first, then fall back to the
+      // EMAIL. Authentik is the source of truth for the username (the person chooses it
+      // at enrollment); resolving by email yields their real account even if the
+      // users.yaml key was hand-entered differently. The canonical Authentik username is
+      // then what downstream provisioning uses, so Nextcloud + Jellyfin accounts are
+      // created under the SAME username as the SSO identity — never a drifted key.
+      const identity = (await findUserByUsername(username)) ?? (await findUserByEmail(user.email));
       if (identity) {
-        summary.enrolled.push(username);
-        enrolledUsers.push({ username, email: user.email, ...(user.name ? { displayName: user.name } : {}) });
+        const canonical = typeof identity.username === "string" && identity.username ? identity.username : username;
+        summary.enrolled.push(canonical);
+        enrolledUsers.push({ username: canonical, yamlKey: username, email: user.email, ...(user.name ? { displayName: user.name } : {}) });
         continue;
       }
       // No Authentik login yet — ensure exactly one enrollment invite is out.
@@ -181,8 +191,11 @@ export async function reconcileUsers(): Promise<UsersReconcileSummary> {
       groupsByUser = new Map();
       summary.errors.push({ subject: "nextcloud:groups", error: errorMessage(e) });
     }
-    for (const { username, email, displayName } of enrolledUsers) {
-      const groups = groupsByUser.get(username);
+    for (const { username, yamlKey, email, displayName } of enrolledUsers) {
+      // Groups are computed under the users.yaml key; the NC account is created under the
+      // canonical Authentik username. They match in the normal case; the fallback keeps a
+      // drifted key working.
+      const groups = groupsByUser.get(yamlKey) ?? groupsByUser.get(username);
       if (!groups || groups.length === 0) continue; // no storage access → no NC account needed
       try {
         const result = await ensureNextcloudUserProvisioned({ username, email, displayName, groups });
