@@ -41,6 +41,9 @@ jest.mock("@/lib/jellyfin/access", () => ({
   reconcileJellyfinAccessWithRetry: (s: string) => mockReconcileJf(s),
 }));
 
+const mockBridge = jest.fn(async () => [] as string[]);
+jest.mock("@/lib/users/enrollment-grants", () => ({ bridgeEnrollmentGrants: () => mockBridge() }));
+
 let mockNcConfigured = false;
 jest.mock("@/lib/nextcloud/config", () => ({ isNextcloudConfigured: () => mockNcConfigured }));
 const mockEnsureNcProvision = jest.fn(
@@ -62,6 +65,8 @@ beforeEach(() => {
   mockReconcileJf.mockClear();
   mockEnsureNcProvision.mockClear();
   mockEnsureNcProvision.mockImplementation(async (input) => ({ username: input.username, created: true, groups: input.groups }));
+  mockBridge.mockClear();
+  mockBridge.mockResolvedValue([]);
   mockMailerConfigured = true;
   mockHasLiveInvite = false;
   mockNcConfigured = false;
@@ -170,6 +175,14 @@ describe("reconcileUsers", () => {
     const s = await reconcileUsers();
     expect(mockEnsureNcProvision).not.toHaveBeenCalled();
     expect(s.nextcloudProvisioned).toEqual([]);
+  });
+
+  it("runs the enrollment-grant bridge and surfaces what it seeded", async () => {
+    mockBridge.mockResolvedValue(["newbie"]);
+    mockUsers = {};
+    const s = await reconcileUsers();
+    expect(mockBridge).toHaveBeenCalled();
+    expect(s.enrollmentGrantsSeeded).toEqual(["newbie"]);
   });
 
   it("does not provision Nextcloud when NC is not configured", async () => {

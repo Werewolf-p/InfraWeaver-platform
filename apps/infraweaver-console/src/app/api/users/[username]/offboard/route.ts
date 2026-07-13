@@ -7,6 +7,8 @@ import { loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
 import { offboardJellyfinUser } from "@/lib/jellyfin/access";
 import { deprovisionNextcloudUser } from "@/lib/nextcloud/deprovision";
+import { openBaoAppAccountStore } from "@/lib/app-accounts/store";
+import { NEXTCLOUD_APP_ID } from "@/lib/nextcloud/config";
 
 interface OffboardStep {
   name: string;
@@ -155,6 +157,16 @@ export async function POST(
   // touches /Media (an external TrueNAS mount, not the user's home).
   try {
     const result = await deprovisionNextcloudUser(username);
+    // Also drop the stored Nextcloud local credential so no revealable password
+    // outlives the user. The Jellyfin step (offboardJellyfinUser) already clears its
+    // own OpenBao record; this makes Nextcloud symmetric — without it, a deleted
+    // user's Nextcloud password lingered in OpenBao (observed on a real delete).
+    // Best-effort: an orphaned credential is harmless and must not fail the step.
+    try {
+      await openBaoAppAccountStore.deleteCredential(NEXTCLOUD_APP_ID, username);
+    } catch {
+      // swallowed — user + access already gone; a stray secret is cleaned on next audit
+    }
     steps.push({ name: "Delete Nextcloud user", success: true, message: result.message });
   } catch (e) {
     steps.push({ name: "Delete Nextcloud user", success: false, message: safeError(e) });

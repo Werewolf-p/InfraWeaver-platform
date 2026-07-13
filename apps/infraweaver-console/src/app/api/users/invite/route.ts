@@ -8,6 +8,7 @@ import { sendInviteEmail } from "@/lib/mailer";
 import { withRoute } from "@/lib/route-utils";
 import { sessionActor } from "@/lib/user-guards";
 import { safeError } from "@/lib/utils";
+import { expandPresetGrants, isAccessPresetId } from "@/lib/users/access-presets";
 
 const InviteBody = z.object({
   email: z.string().email().max(254),
@@ -20,6 +21,15 @@ const InviteBody = z.object({
     .optional()
     .default([])
     .transform((names) => names.map((name) => name.trim()).filter(Boolean)),
+  // Access presets ("all" | "jellyfin" | "storage") expand to RBAC grants and ride
+  // along on the invitation so the enrolled user is auto-provisioned. Unknown ids
+  // are dropped rather than rejected so a future preset can be added client-first.
+  access: z
+    .array(z.string().max(32))
+    .max(10)
+    .optional()
+    .default([])
+    .transform((ids) => ids.filter(isAccessPresetId)),
   expiryHours: z.number().int().min(1).max(168).optional().default(24),
 });
 
@@ -42,13 +52,18 @@ export const POST = withRoute(["users:write", "rbac:admin"], async (req: NextReq
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const { email, groups, expiryHours } = parsed.data;
+  const { email, groups, access: presets, expiryHours } = parsed.data;
 
   // C4: assigning groups on an invite can grant privileges — gate it behind
   // rbac:admin so a users:write operator cannot escalate via group membership.
   if (groups.length > 0 && !hasSessionPermission(access, "rbac:admin")) {
     return NextResponse.json({ error: "Forbidden: group assignment requires rbac:admin" }, { status: 403 });
   }
+
+  // Access presets expand to app-level RBAC grants (Jellyfin, Nextcloud storage) —
+  // low-privilege app access, so the invite gate (users:write/rbac:admin) suffices;
+  // they never confer platform admin the way an arbitrary group could.
+  const presetGrants = expandPresetGrants(presets);
 
   // The invitation must be bound to a real enrollment flow, otherwise the link
   // 404s. Resolve the flow's pk up front and fail clearly if the blueprint that
@@ -63,8 +78,15 @@ export const POST = withRoute(["users:write", "rbac:admin"], async (req: NextReq
   // at user-write and adds the new account to each PRE-EXISTING Authentik group
   // (unknown names are ignored; it never creates groups). Membership is thus
   // applied in-band by the flow, so no separate post-enrollment grant is needed.
+  // `iw_roles` rides on fixed_data → prompt_data → and, since the user-write stage
+  // persists unrecognized prompt keys as user attributes, lands on the enrolled
+  // account as `attributes.iw_roles`. The reconcile loop reads that attribute and
+  // materializes the grants in users.yaml keyed by the ACTUAL chosen username (which
+  // is unknown here, at invite time), then auto-provisions. Carrying it as an
+  // attribute — rather than guessing the username now — is what makes it robust.
   const fixedData: Record<string, unknown> = { email };
   if (groups.length > 0) fixedData.groups = groups;
+  if (presetGrants.length > 0) fixedData.iw_roles = presetGrants;
 
   const expires = new Date(Date.now() + expiryHours * 3600 * 1000).toISOString();
   const r = await authentikFetch("/stages/invitation/invitations/", {
@@ -103,10 +125,11 @@ export const POST = withRoute(["users:write", "rbac:admin"], async (req: NextReq
     console.error(`[users:invite] enrollment email to ${email} failed; the link is still returned for manual hand-off:`, emailError);
   }
 
+  const accessNote = presets.length > 0 ? ` [access: ${presets.join(", ")}]` : "";
   await auditLog(
     "users:invite",
     sessionActor(session),
-    `Invited ${email}${emailed ? " (emailed)" : ` (email failed: ${emailError})`}`,
+    `Invited ${email}${accessNote}${emailed ? " (emailed)" : ` (email failed: ${emailError})`}`,
     { result: emailed ? "success" : "failure" },
   );
   return NextResponse.json({ url, emailed, ...(emailError ? { emailError } : {}) });

@@ -36,9 +36,12 @@ import { computeStorageGroupsByUser, syncStorageScopesUnder } from "@/lib/nas/ac
 import { isJellyfinScope, JELLYFIN_SCOPE, reconcileJellyfinAccessWithRetry } from "@/lib/jellyfin/access";
 import { isNextcloudConfigured } from "@/lib/nextcloud/config";
 import { ensureNextcloudUserProvisioned } from "@/lib/nextcloud/provision";
+import { bridgeEnrollmentGrants } from "@/lib/users/enrollment-grants";
 import { errorMessage } from "@/lib/utils";
 
 export interface UsersReconcileSummary {
+  /** Users whose invite-chosen access presets were materialized into users.yaml this run. */
+  enrollmentGrantsSeeded: string[];
   /** Users who had an enrollment invite auto-sent this run. */
   invited: string[];
   /** Users with an outstanding invite, awaiting the person to enroll. */
@@ -62,8 +65,20 @@ export interface UsersReconcileSummary {
  * user: one user's failure is recorded and never aborts the rest.
  */
 export async function reconcileUsers(): Promise<UsersReconcileSummary> {
+  // First, bridge any invite-chosen access presets that landed on freshly enrolled
+  // accounts (as `attributes.iw_roles`) into users.yaml grants, keyed by the actual
+  // username. Runs BEFORE the config is read so the seeded grants converge THIS tick.
+  // Best-effort — a bridge failure must never abort the reconcile.
+  let enrollmentGrantsSeeded: string[] = [];
+  try {
+    enrollmentGrantsSeeded = await bridgeEnrollmentGrants();
+  } catch {
+    // swallowed; grants re-seed next tick (idempotent)
+  }
+
   const cfg = await loadUsersConfig();
   const summary: UsersReconcileSummary = {
+    enrollmentGrantsSeeded,
     invited: [],
     pendingEnrollment: [],
     enrolled: [],

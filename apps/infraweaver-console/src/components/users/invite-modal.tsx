@@ -2,7 +2,7 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
-import { X, Mail, Copy, Check, ChevronDown, Users } from "lucide-react";
+import { X, Mail, Copy, Check, ChevronDown, Users, AppWindow } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useApiQuery } from "@/hooks/use-api-query";
@@ -26,6 +26,15 @@ const EXPIRY_OPTIONS = [
   { label: "7 days", value: 168 },
 ];
 
+// Access presets — app-level access the invitee is auto-provisioned with on
+// enrollment (server maps these ids to RBAC grants in lib/users/access-presets.ts).
+// Ids MUST match the server's ACCESS_PRESETS.
+const ACCESS_OPTIONS = [
+  { id: "all", label: "All apps", description: "Jellyfin + Nextcloud storage" },
+  { id: "jellyfin", label: "Jellyfin", description: "Media streaming account" },
+  { id: "storage", label: "Storage (Nextcloud)", description: "Nextcloud /Media read-write" },
+];
+
 const inputCls = "w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm";
 
 export function InviteModal({ open, onClose }: Props) {
@@ -41,6 +50,13 @@ export function InviteModal({ open, onClose }: Props) {
   const [inviteUrl, setInviteUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [selectedAccess, setSelectedAccess] = useState<string[]>([]);
+
+  function toggleAccess(id: string) {
+    setSelectedAccess((current) =>
+      current.includes(id) ? current.filter((a) => a !== id) : [...current, id],
+    );
+  }
 
   // Load the RBAC groups an admin can grant on invite. Only fetched when the
   // modal is open for an rbac:admin operator, so a normal inviter never calls it.
@@ -73,7 +89,7 @@ export function InviteModal({ open, onClose }: Props) {
       const response = await fetch("/api/users/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, groups: canAssignGroups ? selectedGroups : [], expiryHours }),
+        body: JSON.stringify({ email, groups: canAssignGroups ? selectedGroups : [], access: selectedAccess, expiryHours }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Failed");
@@ -99,6 +115,7 @@ export function InviteModal({ open, onClose }: Props) {
     setInviteUrl("");
     setCopied(false);
     setSelectedGroups([]);
+    setSelectedAccess([]);
     onClose();
   }
 
@@ -151,12 +168,45 @@ export function InviteModal({ open, onClose }: Props) {
                 />
               </div>
 
+              <div>
+                <label className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">
+                  <AppWindow className="h-4 w-4 text-[#3b82f6]" />
+                  App access
+                  <span className="font-normal text-gray-400 dark:text-[#666]">(optional)</span>
+                </label>
+                <p className="mb-2 text-sm text-gray-400 dark:text-[#666]">
+                  Pick what they get. It&apos;s provisioned automatically when they finish enrolling — no extra steps.
+                </p>
+                <div className="space-y-1 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-2">
+                  {ACCESS_OPTIONS.map((option) => {
+                    const checked = selectedAccess.includes(option.id);
+                    return (
+                      <label
+                        key={option.id}
+                        className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleAccess(option.id)}
+                          className="h-4 w-4 shrink-0 rounded border-gray-300 dark:border-[#2a2a2a] text-[#3b82f6] focus:ring-[#3b82f6]"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm text-gray-900 dark:text-[#f2f2f2]">{option.label}</span>
+                          <span className="block truncate text-xs text-gray-400 dark:text-[#666]">{option.description}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
               {canAssignGroups && (
                 <div>
                   <label className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">
                     <Users className="h-4 w-4 text-[#3b82f6]" />
                     Grant RBAC groups
-                    <span className="font-normal text-gray-400 dark:text-[#666]">(optional)</span>
+                    <span className="font-normal text-gray-400 dark:text-[#666]">(advanced, optional)</span>
                   </label>
                   <p className="mb-2 text-sm text-gray-400 dark:text-[#666]">
                     The new account joins these groups when they finish enrolling, inheriting each group&apos;s roles.
