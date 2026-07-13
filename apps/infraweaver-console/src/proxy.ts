@@ -146,6 +146,20 @@ export default auth(async (req) => {
       return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
     }
 
+    // Internal cron caller: the users-reconcile CronJob POSTs here with a shared
+    // token instead of a session (see lib/users/reconcile.ts). Same fail-closed
+    // contract as the health-sweep bypass above — a missing/wrong token falls
+    // through to the normal auth path and is rejected; the route handler
+    // re-validates the token (defence in depth). Kept ahead of the
+    // rate-limit/CSRF/auth blocks so the sole authenticator is the token.
+    if (
+      pathname === "/api/users/reconcile" &&
+      req.method === "POST" &&
+      internalCronTokenMatches(req.headers.get("x-internal-cron-token"), process.env.USERS_RECONCILE_CRON_TOKEN)
+    ) {
+      return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
+    }
+
     // Cross-deployment ("upstream") feedback ingest: a fork forwards an
     // HMAC-signed copy of user feedback to the canonical endpoint with NO session
     // and NO same-origin Origin (it is a server-side fetch). Let a POST carrying

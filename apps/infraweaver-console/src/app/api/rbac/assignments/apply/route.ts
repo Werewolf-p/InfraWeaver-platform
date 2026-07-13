@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionEffectivePermissions, getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { applyRoleAssignments } from "@/lib/rbac-assignments";
+import { ensureEnrollmentInviteFor } from "@/lib/users/reconcile";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
@@ -73,6 +74,13 @@ export async function PUT(req: NextRequest) {
       { granterPermsAt, actor },
     );
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+    // Fully-automated onboarding: granting access to a user who has no Authentik
+    // login yet auto-sends their enrollment ("setup") mail so they never sit
+    // access-less waiting for an operator. Fire-and-forget and self-swallowing —
+    // it must never fail or delay the grant. Groups/skip logic live in the helper.
+    if (principalType === "user" && outcome.grantedCount > 0) {
+      void ensureEnrollmentInviteFor(principal).catch(() => {});
+    }
     return NextResponse.json({
       ok: true,
       assignments: outcome.assignments.map((a) => ({ ...a, username: principal })),

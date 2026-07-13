@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="InfraWeaver">
+  <title>InfraWeaver mark</title>
+  <defs>
+    <linearGradient id="iwTile" x1="24" y1="24" x2="232" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+    <linearGradient id="iwStrand" x1="72" y1="72" x2="184" y2="184" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c7d2fe"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="208" height="208" rx="52" fill="url(#iwTile)"/>
+  <g fill="url(#iwStrand)">
+    <rect x="72" y="87" width="112" height="26" rx="13"/>
+    <rect x="72" y="143" width="112" height="26" rx="13"/>
+    <rect x="87" y="72" width="26" height="112" rx="13"/>
+    <rect x="143" y="72" width="26" height="112" rx="13"/>
+    <rect x="128" y="87" width="56" height="26" rx="13"/>
+    <rect x="72" y="143" width="56" height="26" rx="13"/>
+  </g>
+</svg>

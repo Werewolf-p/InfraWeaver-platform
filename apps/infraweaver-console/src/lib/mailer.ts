@@ -17,6 +17,8 @@
  */
 import "server-only";
 import nodemailer from "nodemailer";
+import type Mail from "nodemailer/lib/mailer";
+import { brandedEmailHtml, logoAttachment } from "@/lib/email-logo";
 
 /** SMTP transport config, read from env at send time. Nothing here is secret at rest —
  *  the username/password come from the ESO-projected `infraweaver-console-secret`. */
@@ -82,7 +84,13 @@ function getTransport(config: SmtpConfig): nodemailer.Transporter {
  * rejection such as O365's 550) — callers that must not fail their whole operation on
  * a bounce catch it and report the delivery as failed instead.
  */
-export async function sendMail(input: { to: string; subject: string; text: string; html?: string }): Promise<void> {
+export async function sendMail(input: {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  attachments?: Mail.Attachment[];
+}): Promise<void> {
   const config = resolveSmtpConfig();
   if (!config) throw new Error("SMTP is not configured (SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD)");
 
@@ -94,6 +102,7 @@ export async function sendMail(input: { to: string; subject: string; text: strin
     subject: input.subject,
     text: input.text,
     ...(input.html ? { html: input.html } : {}),
+    ...(input.attachments && input.attachments.length > 0 ? { attachments: input.attachments } : {}),
   });
 }
 
@@ -119,7 +128,7 @@ export async function sendInviteEmail(to: string, enrollmentUrl: string): Promis
     `<p style="font-size:12px;color:#94a3b8">This link is single-use and will expire. If you did not expect this invitation, you can ignore this email.</p>`,
     `</div>`,
   ].join("");
-  await sendMail({ to, subject, text, html });
+  await sendMail({ to, subject, text, html: brandedEmailHtml(html), attachments: [logoAttachment()] });
 }
 
 /**
@@ -163,5 +172,5 @@ export async function sendCredentialEmail(input: {
     `<p style="font-size:12px;color:#94a3b8">If you did not expect this, contact the administrator.</p>`,
     `</div>`,
   ].join("");
-  await sendMail({ to, subject, text, html });
+  await sendMail({ to, subject, text, html: brandedEmailHtml(html), attachments: [logoAttachment()] });
 }
