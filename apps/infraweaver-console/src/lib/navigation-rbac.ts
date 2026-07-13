@@ -43,7 +43,7 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/wordpress": { any: ["wordpress:read"], scopePrefix: "/wordpress/" },
   "/gameservers": { any: ["infra:read"] },
   "/pod-shell": { any: ["cluster:admin"] },
-  "/rbac-viz": { any: ["rbac:admin"] },
+  "/rbac": { any: ["rbac:admin"] },
   "/resource-optimizer": { any: ["infra:read"] },
   "/app-graph": { any: ["apps:read"] },
   "/log-analytics": { any: ["cluster:read", "infra:read"] },
@@ -65,7 +65,6 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/admin/updates": { any: ["platform:update"] },
   "/registry": { any: ["config:read"] },
   "/settings/addons": { any: ["config:read"] },
-  "/settings/rbac": { any: ["rbac:admin"] },
   "/settings/infrastructure": { any: ["infra:read"] },
 };
 

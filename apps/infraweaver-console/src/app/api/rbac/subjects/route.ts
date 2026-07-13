@@ -9,7 +9,7 @@ import {
   type PermissionPattern,
   type RoleAssignment,
 } from "@/lib/rbac";
-import type { PlatformSubject, PlatformSubjectsResponse, SubjectBinding } from "@/app/(dashboard)/rbac-viz/types";
+import type { PlatformSubject, PlatformSubjectsResponse, SubjectBinding } from "@/lib/rbac-viz-types";
 
 /**
  * Builds a resolved binding from a roleId + scope, looking up the concrete

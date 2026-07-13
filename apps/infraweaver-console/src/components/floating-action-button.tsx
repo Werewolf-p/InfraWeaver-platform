@@ -70,7 +70,7 @@ export function FloatingActionButton() {
     if (pathname === "/routes" && searchParams?.get("tab") === "dns" && can("config:write")) {
       items.push({ icon: Globe, label: "Add DNS Record", color: "bg-teal-500/20 border-teal-500/30 text-teal-300", onClick: () => { setOpen(false); window.dispatchEvent(new CustomEvent("fab:dns:add")); } });
     }
-    if ((pathname.startsWith("/users") || pathname === "/settings/rbac") && can("users:invite")) {
+    if ((pathname.startsWith("/users") || pathname === "/rbac") && can("users:invite")) {
       items.push({ icon: UserPlus, label: "Invite User", color: "bg-purple-500/20 border-purple-500/30 text-purple-300", onClick: () => { setOpen(false); window.dispatchEvent(new CustomEvent("fab:users:invite")); } });
     }
     if ((pathname === "/apps" || pathname === "/community-apps") && can("catalog:write")) {

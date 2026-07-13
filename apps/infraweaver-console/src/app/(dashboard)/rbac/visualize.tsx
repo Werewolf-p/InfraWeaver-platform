@@ -1,19 +1,18 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { useMemo, useState } from "react";
-import { Grid3x3, HelpCircle, MapPin, Shield, Users } from "lucide-react";
+import { Grid3x3, HelpCircle, MapPin, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PageHeader } from "@/components/ui/page-header";
-import { useApiQuery } from "@/hooks/use-api-query";
 import { AccessMatrix } from "@/components/rbac/access-matrix";
 import { ScopeAccessPanel } from "@/components/rbac/scope-access-panel";
 import { ExplainWidget } from "@/components/rbac/explain-widget";
 import { SubjectsPanel, type KindFilter } from "./subjects-panel";
 import { SubjectDetailPanel } from "./subject-detail-panel";
-import type { PlatformSubjectsResponse, SubjectBinding, SubjectKind } from "./types";
+import type { PlatformSubjectsResponse, SubjectBinding, SubjectKind } from "@/lib/rbac-viz-types";
+import type { GrantIntent } from "./resources";
 
 type VizTab = "matrix" | "subjects" | "resource" | "explain";
+
 const TABS: { id: VizTab; label: string; icon: React.ElementType }[] = [
   { id: "matrix", label: "Access matrix", icon: Grid3x3 },
   { id: "subjects", label: "By subject", icon: Users },
@@ -35,7 +34,7 @@ interface K8sServiceAccount {
   isClusterAdmin: boolean;
 }
 
-interface K8sRbacData {
+export interface K8sRbacData {
   serviceAccounts: K8sServiceAccount[];
   bindings: K8sBinding[];
 }
@@ -77,36 +76,30 @@ function serviceAccountSubjects(data: K8sRbacData | undefined): VizSubject[] {
   });
 }
 
-export default function RbacVizPage() {
+interface VisualizeProps {
+  platformData?: PlatformSubjectsResponse;
+  k8sData?: K8sRbacData;
+  isLoading: boolean;
+  onGrantHere: (intent: GrantIntent) => void;
+}
+
+/** The read-only "who can do what, where" surface — matrix, subject, resource, explain. */
+export function Visualize({ platformData, k8sData, isLoading, onGrantHere }: VisualizeProps) {
   const [tab, setTab] = useState<VizTab>("matrix");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<KindFilter>("all");
   const [search, setSearch] = useState("");
 
-  const platformQuery = useApiQuery<PlatformSubjectsResponse>({
-    queryKey: ["rbac", "subjects"],
-    path: "/api/rbac/subjects",
-  });
-
-  const k8sQuery = useApiQuery<K8sRbacData>({
-    queryKey: ["security", "rbac"],
-    path: "/api/security/rbac",
-  });
-
   const subjects = useMemo<VizSubject[]>(() => {
-    const users = platformQuery.data?.users ?? [];
-    const groups = platformQuery.data?.groups ?? [];
-    return [...users, ...groups, ...serviceAccountSubjects(k8sQuery.data)];
-  }, [platformQuery.data, k8sQuery.data]);
+    const users = platformData?.users ?? [];
+    const groups = platformData?.groups ?? [];
+    return [...users, ...groups, ...serviceAccountSubjects(k8sData)];
+  }, [platformData, k8sData]);
 
   const selected = useMemo(() => subjects.find((subject) => subject.id === selectedId) ?? null, [subjects, selectedId]);
 
-  const isLoading = platformQuery.isLoading || k8sQuery.isLoading;
-
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Shield} title="RBAC Visualizer" description="See who has access to what, where — an Azure-portal-style view of every principal, scope, and grant, with inheritance, expiry, and deny handling." />
-
+    <div className="space-y-4">
       <div className="flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1 dark:border-white/10 dark:bg-white/5">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
@@ -125,10 +118,10 @@ export default function RbacVizPage() {
       </div>
 
       {tab === "matrix" && <AccessMatrix />}
-      {tab === "resource" && <ScopeAccessPanel />}
+      {tab === "resource" && <ScopeAccessPanel onGrantHere={(scope) => onGrantHere({ scope })} />}
       {tab === "explain" && <ExplainWidget />}
-      {tab === "subjects" && (
-        isLoading ? (
+      {tab === "subjects" &&
+        (isLoading ? (
           <div className="grid gap-4 lg:grid-cols-2">
             {[0, 1].map((i) => (
               <div key={i} className="h-96 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" />
@@ -145,10 +138,12 @@ export default function RbacVizPage() {
               search={search}
               onSearchChange={setSearch}
             />
-            <SubjectDetailPanel subject={selected} />
+            <SubjectDetailPanel
+              subject={selected}
+              onGrantHere={(subject) => onGrantHere({ subject })}
+            />
           </div>
-        )
-      )}
-    </motion.div>
+        ))}
+    </div>
   );
 }

@@ -11,7 +11,7 @@ import {
 import { EXPIRING_SOON_MS } from "@/lib/rbac-access-matrix";
 
 /**
- * Pure model behind the settings/rbac "effective access preview".
+ * Pure model behind the RBAC page's "effective access preview".
  *
  * The editor stages edits client-side (grants to add, existing-assignment ids to
  * revoke) and only writes them on Apply. This module answers, for every principal

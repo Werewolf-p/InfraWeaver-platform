@@ -151,7 +151,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
         keywords: ["pim", "privileged", "elevation", "elevate", "just-in-time", "jit", "roles", "access", "identity", "activation", "eligible", "assignments", "groups"],
       },
       { href: "/users", icon: Users, label: "User Management", shortcut: "G M", description: "Manage users, groups, and SSO", pinnable: true, keywords: ["accounts", "sso", "groups", "members"] },
-      { href: "/rbac-viz", icon: Shield, label: "RBAC Visualizer", description: "Visual RBAC permission explorer", keywords: ["roles", "permissions", "graph"] },
+      { href: "/rbac", icon: Shield, label: "RBAC", description: "Visualize access and assign rights across the platform", keywords: ["roles", "permissions", "graph", "assign", "grant", "revoke", "access", "rbac"] },
     ],
   },
   {
@@ -167,7 +167,6 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       { href: "/maintenance", icon: Settings, label: "Maintenance", description: "Drain, cordon, and node maintenance" },
       { href: "/admin/updates", icon: ArrowUpCircle, label: "Update Manager", description: "Review GitOps versions and commit application updates", pinnable: true },
       { href: "/settings/platform", icon: ArrowUpCircle, label: "Platform Updates", description: "Pull latest InfraWeaver platform code and scripts from Onedev", pinnable: true },
-      { href: "/settings/rbac", icon: Shield, label: "RBAC", description: "Manage role assignments and permissions (RBAC)", keywords: ["roles", "permissions", "role assignments"] },
       navItemFromPage("/settings"),
       { href: "/settings/addons", icon: Puzzle, label: "Addons", description: "Enable/disable platform addons and features" },
       navItemFromPage("/settings/infrastructure"),

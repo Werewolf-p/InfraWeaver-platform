@@ -1,5 +1,5 @@
 import { isStrictAncestorScope, scopeAncestors, scopeLabel, scopeParent } from "@/lib/rbac";
-import type { SubjectBinding } from "./types";
+import type { SubjectBinding } from "@/lib/rbac-viz-types";
 
 /** A grant cascading into a node from an ancestor scope. */
 export interface InheritedGrant {

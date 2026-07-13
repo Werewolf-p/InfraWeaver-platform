@@ -1,5 +1,5 @@
-import { buildScopeTree, flattenScopeTree } from "@/app/(dashboard)/rbac-viz/scope-tree";
-import type { SubjectBinding } from "@/app/(dashboard)/rbac-viz/types";
+import { buildScopeTree, flattenScopeTree } from "@/app/(dashboard)/rbac/scope-tree";
+import type { SubjectBinding } from "@/lib/rbac-viz-types";
 
 function binding(roleId: string, scope: string): SubjectBinding {
   return {

@@ -25,8 +25,8 @@ describe("IA restructure — navigation groups", () => {
       "/network", "/gameservers", "/network/firewall", // networking (hub)
       "/registry", "/config", "/secrets", "/storage", // storage & config hubs
       "/monitoring", "/alert-silence", "/tests", "/events", // observability (diagnostics hub)
-      "/rbac-viz", "/access", // security & access
-      "/gitops-diff", "/settings/rbac", "/settings/addons", // platform
+      "/rbac", "/access", // security & access
+      "/gitops-diff", "/settings/addons", // platform
     ]) {
       expect(hrefs.has(href)).toBe(true);
     }

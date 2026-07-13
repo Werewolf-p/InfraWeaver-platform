@@ -2,7 +2,7 @@
 
 import * as Select from "@radix-ui/react-select";
 import { Check, ChevronDown, Search, User, Users, Server } from "lucide-react";
-import type { SubjectKind } from "./types";
+import type { SubjectKind } from "@/lib/rbac-viz-types";
 
 interface VizSubject {
   id: string;

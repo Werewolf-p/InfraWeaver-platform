@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CornerDownRight, Loader2, MapPin, ShieldBan, User, Users } from "lucide-react";
+import { CornerDownRight, Loader2, MapPin, ShieldBan, User, Users, Plus } from "lucide-react";
 import { ROLE_COLOR_CLASSES, STATIC_SCOPES } from "@/lib/rbac";
 import type { ScopeAccessEntry } from "@/lib/rbac-access-matrix";
 
@@ -37,7 +37,7 @@ function EntryRow({ entry }: { entry: ScopeAccessEntry }) {
   );
 }
 
-export function ScopeAccessPanel() {
+export function ScopeAccessPanel({ onGrantHere }: { onGrantHere?: (scope: string) => void }) {
   const [scope, setScope] = useState("/");
 
   const { data, isLoading } = useQuery<ScopeAccessResponse>({
@@ -68,8 +68,18 @@ export function ScopeAccessPanel() {
       </div>
 
       <div className="rounded-xl border border-gray-200 dark:border-white/10">
-        <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Access on {data?.scopeLabel ?? scope}
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Access on {data?.scopeLabel ?? scope}
+          </span>
+          {onGrantHere && (
+            <button
+              onClick={() => onGrantHere(scope)}
+              className="flex items-center gap-1.5 rounded-lg bg-[#0078D4] px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-[#006cbd]"
+            >
+              <Plus className="h-3 w-3" /> Grant access here
+            </button>
+          )}
         </div>
         {isLoading ? (
           <div className="flex h-24 items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>

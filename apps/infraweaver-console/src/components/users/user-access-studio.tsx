@@ -1,75 +1,100 @@
 "use client";
 
-// Access Studio — one board to set a single person's access to the platform's
-// two headline services: Jellyfin (media) and Nextcloud folders (files).
+// Access Studio — the account & credential board for a single person's Jellyfin
+// login, the one service SSO can't fully cover (native/TV apps need a local
+// account with a generated password).
 //
-// Deliberately a COMPOSITION, not a rewrite. Jellyfin and folder access remain
-// two independent grants (see the sibling panels this replaces in the user
-// detail); this only unifies where an admin sets them, so the act of "give this
-// person access" is one obvious, visual place instead of three panels buried
-// below the roster. Every mutation routes through the same hooks — and therefore
-// the same audited, privilege-ceiling-checked `grantRoleAssignment` — the old
-// panels used, so nothing about the backend contract changes.
+// Rights ASSIGNMENT — granting or revoking Jellyfin, folders, or any resource —
+// now lives in the unified /rbac page. What stays here is user-lifecycle
+// credential management: reveal the generated password, reset it, and reconcile
+// every account against RBAC. Every mutation still routes through the same
+// audited, privilege-ceiling-checked hooks the retired grant panels used, so
+// nothing about the backend contract changes.
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
 import {
+  Check,
   Clapperboard,
   Clock,
+  Copy,
+  ExternalLink,
   Eye,
   EyeOff,
-  ExternalLink,
-  Folder,
-  FolderTree,
   KeyRound,
   Loader2,
-  Lock,
-  Pencil,
-  Plus,
   RefreshCw,
   Shield,
   ShieldCheck,
-  Trash2,
   UserRound,
 } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
-import { scopeLabel, type RoleAssignment } from "@/lib/rbac";
 import type { PlatformUser } from "@/hooks/use-users-config";
 import {
-  useGrantJellyfinAccess,
   useJellyfinAccess,
   useResetJellyfinCredential,
   useRevealJellyfinCredential,
-  useRevokeJellyfinAccess,
   useSyncJellyfinUsers,
   type JellyfinCredential,
-  type JellyfinRoleId,
 } from "@/hooks/use-jellyfin-access";
-import { useRevokeStorageAccess } from "@/hooks/use-storage-access";
-import { CredentialCard, GrantJellyfinSheet } from "./user-jellyfin-access-panel";
-import { GrantFolderSheet } from "./user-storage-access-panel";
 
 interface Props {
   user: PlatformUser | null;
   isAdmin: boolean;
 }
 
-/** A folder grant reads read-write for a contributor, read-only otherwise. */
-function folderAccessLabel(roleId: string): { label: string; rw: boolean } {
-  return roleId === "storage-contributor" ? { label: "RW", rw: true } : { label: "RO", rw: false };
+/** The revealed password, shown once behind an explicit click. */
+function CredentialCard({ credential, onHide }: { credential: JellyfinCredential; onHide: () => void }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="mt-2 rounded-xl border border-purple-500/20 bg-purple-500/5 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-slate-700 dark:text-slate-300">Jellyfin sign-in</p>
+        <button type="button" onClick={onHide} className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-gray-900 dark:hover:text-white">
+          <EyeOff className="h-3 w-3" /> Hide
+        </button>
+      </div>
+      <dl className="mt-1.5 space-y-1 text-[11px]">
+        <div className="flex gap-2">
+          <dt className="w-16 shrink-0 text-slate-500">Server</dt>
+          <dd className="truncate font-mono text-slate-700 dark:text-slate-300">{credential.launchUrl}</dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="w-16 shrink-0 text-slate-500">Username</dt>
+          <dd className="font-mono text-slate-700 dark:text-slate-300">{credential.username}</dd>
+        </div>
+        <div className="flex items-center gap-2">
+          <dt className="w-16 shrink-0 text-slate-500">Password</dt>
+          <dd className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-mono text-slate-700 dark:text-slate-300">{credential.password}</span>
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(credential.password);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+              className="shrink-0 rounded p-1 text-slate-500 transition-colors hover:text-gray-900 dark:hover:text-white"
+              title="Copy password"
+            >
+              {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+            </button>
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+        Use this in the Jellyfin app on a TV or phone, where SSO does not work. Signing in on the web can still use SSO.
+      </p>
+    </div>
+  );
 }
 
-function isStorageScope(scope: string): boolean {
-  return scope === "/nas" || scope.startsWith("/nas/");
-}
-
-/** Small state dot + word, so a service's status is legible at a glance. */
-function StatusDot({ tone, label }: { tone: "on" | "off" | "admin" | "warn"; label: string }) {
+/** Small state dot + word, so the account's status is legible at a glance. */
+function StatusDot({ tone, label }: { tone: "on" | "off" | "admin"; label: string }) {
   const color =
     tone === "on" ? "bg-emerald-500" :
     tone === "admin" ? "bg-purple-500" :
-    tone === "warn" ? "bg-amber-500" :
     "bg-slate-400/60";
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
@@ -79,73 +104,16 @@ function StatusDot({ tone, label }: { tone: "on" | "off" | "admin" | "warn"; lab
   );
 }
 
-/** The frosted shell every service tile shares — a branded corner glow + header. */
-function ServiceTile({
-  icon: Icon,
-  title,
-  subtitle,
-  accentFrom,
-  accentTo,
-  status,
-  action,
-  children,
-}: {
-  icon: typeof Clapperboard;
-  title: string;
-  subtitle: string;
-  accentFrom: string;
-  accentTo: string;
-  status: React.ReactNode;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 transition-shadow hover:shadow-lg dark:border-[#2a2a2a] dark:bg-[#0f0f0f]">
-      {/* branded corner glow */}
-      <div className={cn("pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full opacity-20 blur-3xl transition-opacity group-hover:opacity-40 bg-gradient-to-br", accentFrom, accentTo)} />
-      <div className="relative mb-4 flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm", accentFrom, accentTo)}>
-            <Icon className="h-5 w-5" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold text-gray-900 dark:text-white">{title}</p>
-            <p className="text-[11px] text-slate-500">{subtitle}</p>
-            <div className="mt-1">{status}</div>
-          </div>
-        </div>
-        {action}
-      </div>
-      <div className="relative">{children}</div>
-    </div>
-  );
-}
-
 export function UserAccessStudio({ user, isAdmin }: Props) {
-  const [grantingJellyfin, setGrantingJellyfin] = useState(false);
-  const [grantingFolder, setGrantingFolder] = useState(false);
   const [credential, setCredential] = useState<JellyfinCredential | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
 
   const jellyfinQuery = useJellyfinAccess(Boolean(user));
-  const grantJellyfin = useGrantJellyfinAccess();
-  const revokeJellyfin = useRevokeJellyfinAccess();
   const reveal = useRevealJellyfinCredential();
   const resetCred = useResetJellyfinCredential();
   const sync = useSyncJellyfinUsers();
-  const revokeStorage = useRevokeStorageAccess();
-
-  const assignmentsQuery = useQuery<{ role_assignments: RoleAssignment[] }>({
-    queryKey: ["users-config", user?.username, "rbac"],
-    queryFn: async () => {
-      const res = await fetch(`/api/users-config/${user?.username}/rbac`);
-      if (!res.ok) throw new Error("Failed to load role assignments");
-      return (await res.json()) as { role_assignments: RoleAssignment[] };
-    },
-    enabled: Boolean(user?.username),
-  });
 
   const jellyfinGrants = useMemo(
     () =>
@@ -154,10 +122,6 @@ export function UserAccessStudio({ user, isAdmin }: Props) {
       ),
     [jellyfinQuery.data, user?.username],
   );
-  const folderGrants = useMemo(
-    () => (assignmentsQuery.data?.role_assignments ?? []).filter((a) => isStorageScope(a.scope)),
-    [assignmentsQuery.data],
-  );
 
   if (!user) return null;
 
@@ -165,23 +129,11 @@ export function UserAccessStudio({ user, isAdmin }: Props) {
   const launchUrl = jellyfinQuery.data?.launchUrl;
   const jellyfinGrant = jellyfinGrants[0];
   const jellyfinAdmin = jellyfinGrant?.roleId === "jellyfin-admin";
-  const grantCount = jellyfinGrants.length + folderGrants.length;
 
   function resetBanners() {
     setError(null);
     setNotice(null);
     setWarning(null);
-  }
-
-  async function quickGrantJellyfin(roleId: JellyfinRoleId) {
-    resetBanners();
-    setCredential(null);
-    try {
-      await grantJellyfin.mutateAsync({ roleId, principalType: "user", principal: user!.username });
-      setNotice(`Jellyfin account provisioning for ${user!.name || user!.username}. Reveal the password below to hand it off.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to grant Jellyfin access");
-    }
   }
 
   async function submitRevealJellyfin() {
@@ -203,27 +155,6 @@ export function UserAccessStudio({ user, isAdmin }: Props) {
       setNotice(`New Jellyfin password generated for ${user!.username}. Reveal it below and hand it off.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reset credential");
-    }
-  }
-
-  async function submitRevokeJellyfin() {
-    resetBanners();
-    setCredential(null);
-    try {
-      await revokeJellyfin.mutateAsync({ assignmentId: jellyfinGrant!.id, principalType: "user", principal: user!.username });
-      setNotice(`Jellyfin account for ${user!.username} will be disabled — watch history is kept.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to revoke Jellyfin access");
-    }
-  }
-
-  async function submitRevokeFolder(assignment: RoleAssignment) {
-    resetBanners();
-    try {
-      await revokeStorage.mutateAsync({ assignmentId: assignment.id, principalType: "user", principal: user!.username });
-      await assignmentsQuery.refetch();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to revoke folder access");
     }
   }
 
@@ -260,9 +191,9 @@ export function UserAccessStudio({ user, isAdmin }: Props) {
       transition={{ duration: 0.25 }}
       className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-[#242424] dark:bg-[#0b0b0b]"
     >
-      {/* Hero band — makes the studio the unmissable answer to "where do I set access". */}
+      {/* Hero band */}
       <div className="relative overflow-hidden border-b border-gray-200 px-5 py-4 dark:border-[#1c1c1c]">
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#AA5CC3]/10 to-[#0082C9]/10" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#AA5CC3]/10 to-[#00A4DC]/10" />
         <div className="relative flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/15 text-base font-bold text-indigo-600 ring-1 ring-inset ring-indigo-500/30 dark:text-indigo-300">
@@ -270,16 +201,16 @@ export function UserAccessStudio({ user, isAdmin }: Props) {
             </span>
             <div>
               <h3 className="text-base font-semibold text-gray-900 dark:text-white">
-                Access · {user.name || user.username}
+                Jellyfin account · {user.name || user.username}
               </h3>
               <p className="text-xs text-slate-500">
-                Set what {user.name || user.username} can reach — media and files, in one place.
+                Reveal, reset, and reconcile the local sign-in for TV &amp; mobile apps.
               </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="rounded-full border border-gray-200 bg-white/60 px-3 py-1 text-xs font-medium text-slate-600 backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
-              {grantCount === 0 ? "No access yet" : `${grantCount} grant${grantCount === 1 ? "" : "s"} active`}
+              {jellyfinGrant ? (jellyfinAdmin ? "Administrator" : "Account active") : "No account"}
             </span>
             {canManage ? (
               <button
@@ -296,25 +227,29 @@ export function UserAccessStudio({ user, isAdmin }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 p-5 lg:grid-cols-2">
-        {/* ── Jellyfin ─────────────────────────────────────────────── */}
-        <ServiceTile
-          icon={Clapperboard}
-          title="Jellyfin"
-          subtitle="Media on TV & mobile"
-          accentFrom="from-[#AA5CC3]"
-          accentTo="to-[#00A4DC]"
-          status={
-            jellyfinQuery.isLoading ? (
-              <StatusDot tone="off" label="Loading…" />
-            ) : jellyfinGrant ? (
-              <StatusDot tone={jellyfinAdmin ? "admin" : "on"} label={jellyfinAdmin ? "Administrator" : "Active account"} />
-            ) : (
-              <StatusDot tone="off" label="No account" />
-            )
-          }
-          action={
-            jellyfinGrant && canManage ? (
+      <div className="p-5">
+        <div className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 transition-shadow hover:shadow-lg dark:border-[#2a2a2a] dark:bg-[#0f0f0f]">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-gradient-to-br from-[#AA5CC3] to-[#00A4DC] opacity-20 blur-3xl transition-opacity group-hover:opacity-40" />
+          <div className="relative mb-4 flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#AA5CC3] to-[#00A4DC] text-white shadow-sm">
+                <Clapperboard className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">Jellyfin</p>
+                <p className="text-[11px] text-slate-500">Media on TV &amp; mobile</p>
+                <div className="mt-1">
+                  {jellyfinQuery.isLoading ? (
+                    <StatusDot tone="off" label="Loading…" />
+                  ) : jellyfinGrant ? (
+                    <StatusDot tone={jellyfinAdmin ? "admin" : "on"} label={jellyfinAdmin ? "Administrator" : "Active account"} />
+                  ) : (
+                    <StatusDot tone="off" label="No account" />
+                  )}
+                </div>
+              </div>
+            </div>
+            {jellyfinGrant && canManage ? (
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -334,158 +269,52 @@ export function UserAccessStudio({ user, isAdmin }: Props) {
                 >
                   {resetCred.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void submitRevokeJellyfin()}
-                  disabled={revokeJellyfin.isPending}
-                  title="Revoke Jellyfin access (disables the account, keeps history)"
-                  className="rounded-lg border border-gray-200 p-1.5 text-slate-500 transition-colors hover:border-red-500/40 hover:text-red-500 disabled:opacity-40 dark:border-white/10"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
               </div>
-            ) : null
-          }
-        >
-          {jellyfinGrant ? (
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                <span className="inline-flex items-center gap-1">
-                  {jellyfinAdmin ? <Shield className="h-3 w-3 text-purple-500" /> : <UserRound className="h-3 w-3" />}
-                  {jellyfinAdmin ? "Admin" : "User"}
-                </span>
-                <span>Granted by {jellyfinGrant.grantedBy}</span>
-                {jellyfinGrant.expiresAt ? (
-                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                    <Clock className="h-3 w-3" /> expires {formatDate(jellyfinGrant.expiresAt)}
+            ) : null}
+          </div>
+
+          <div className="relative">
+            {jellyfinGrant ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                  <span className="inline-flex items-center gap-1">
+                    {jellyfinAdmin ? <Shield className="h-3 w-3 text-purple-500" /> : <UserRound className="h-3 w-3" />}
+                    {jellyfinAdmin ? "Admin" : "User"}
                   </span>
+                  <span>Granted by {jellyfinGrant.grantedBy}</span>
+                  {jellyfinGrant.expiresAt ? (
+                    <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                      <Clock className="h-3 w-3" /> expires {formatDate(jellyfinGrant.expiresAt)}
+                    </span>
+                  ) : null}
+                </div>
+                {launchUrl ? (
+                  <a
+                    href={launchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-purple-600 hover:underline dark:text-purple-300"
+                  >
+                    <ExternalLink className="h-3 w-3" /> Open Jellyfin
+                  </a>
                 ) : null}
+                {credential ? <CredentialCard credential={credential} onHide={() => setCredential(null)} /> : null}
               </div>
-              {launchUrl ? (
-                <a
-                  href={launchUrl}
-                  target="_blank"
-                  rel="noreferrer"
+            ) : (
+              <div className="space-y-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-white/10 dark:bg-white/5">
+                <p className="text-xs text-slate-500">
+                  No Jellyfin account. Grant one from the RBAC page — this card then manages its sign-in.
+                </p>
+                <Link
+                  href="/rbac"
                   className="inline-flex items-center gap-1 text-[11px] font-medium text-purple-600 hover:underline dark:text-purple-300"
                 >
-                  <ExternalLink className="h-3 w-3" /> Open Jellyfin
-                </a>
-              ) : null}
-              {credential ? <CredentialCard credential={credential} onHide={() => setCredential(null)} /> : null}
-            </div>
-          ) : canManage ? (
-            <div className="space-y-2">
-              <p className="text-xs text-slate-500">Grant a local account so TV and mobile apps can sign in — SSO covers only the web.</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void quickGrantJellyfin("jellyfin-user")}
-                  disabled={grantJellyfin.isPending}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-purple-500/30 bg-purple-500/15 px-3 py-2 text-xs font-semibold text-purple-700 transition-colors hover:bg-purple-500/25 disabled:opacity-50 dark:text-purple-200"
-                >
-                  {grantJellyfin.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserRound className="h-3.5 w-3.5" />}
-                  Grant User
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void quickGrantJellyfin("jellyfin-admin")}
-                  disabled={grantJellyfin.isPending}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-100 px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:border-purple-500/40 hover:text-purple-600 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
-                >
-                  <Shield className="h-3.5 w-3.5" />
-                  Grant Admin
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGrantingJellyfin(true)}
-                  className="inline-flex items-center gap-1.5 rounded-xl px-2 py-2 text-xs font-medium text-slate-500 transition-colors hover:text-gray-900 dark:hover:text-white"
-                >
-                  <Clock className="h-3.5 w-3.5" /> with expiry…
-                </button>
+                  <ShieldCheck className="h-3 w-3" /> Assign access in RBAC
+                </Link>
               </div>
-            </div>
-          ) : (
-            <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs text-slate-500 dark:border-white/10 dark:bg-white/5">
-              No Jellyfin account.
-            </p>
-          )}
-        </ServiceTile>
-
-        {/* ── Nextcloud folders ────────────────────────────────────── */}
-        <ServiceTile
-          icon={FolderTree}
-          title="Nextcloud folders"
-          subtitle="Files & shares"
-          accentFrom="from-[#0082C9]"
-          accentTo="to-[#0078D4]"
-          status={
-            assignmentsQuery.isLoading ? (
-              <StatusDot tone="off" label="Loading…" />
-            ) : folderGrants.length ? (
-              <StatusDot tone="on" label={`${folderGrants.length} folder${folderGrants.length === 1 ? "" : "s"}`} />
-            ) : (
-              <StatusDot tone="off" label="No folders" />
-            )
-          }
-          action={
-            canManage ? (
-              <button
-                type="button"
-                onClick={() => setGrantingFolder(true)}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#0078D4]/30 bg-[#0078D4]/10 px-2.5 py-1.5 text-xs font-medium text-[#0078D4] transition-colors hover:bg-[#0078D4]/20 dark:text-[#7cb9ff]"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Grant folder
-              </button>
-            ) : null
-          }
-        >
-          {folderGrants.length === 0 ? (
-            <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs text-slate-500 dark:border-white/10 dark:bg-white/5">
-              No folder grants. This person sees no NAS storage — and no external storage in Nextcloud.
-            </p>
-          ) : (
-            <ul className="space-y-1.5">
-              {folderGrants.map((assignment) => {
-                const access = folderAccessLabel(assignment.roleId);
-                return (
-                  <li
-                    key={assignment.id}
-                    className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]"
-                  >
-                    <Folder className="h-4 w-4 shrink-0 text-[#0078D4] dark:text-[#7cb9ff]" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{scopeLabel(assignment.scope)}</p>
-                      <p className="truncate font-mono text-[10px] text-slate-500">{assignment.scope}</p>
-                    </div>
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold",
-                        access.rw
-                          ? "bg-teal-500/15 text-teal-600 dark:text-teal-300"
-                          : "bg-slate-500/15 text-slate-600 dark:text-slate-300",
-                      )}
-                    >
-                      {access.rw ? <Pencil className="h-2.5 w-2.5" /> : <Lock className="h-2.5 w-2.5" />}
-                      {access.label}
-                    </span>
-                    {canManage ? (
-                      <button
-                        type="button"
-                        onClick={() => void submitRevokeFolder(assignment)}
-                        disabled={revokeStorage.isPending}
-                        title="Revoke this folder grant"
-                        className="shrink-0 rounded-lg border border-gray-200 p-1.5 text-slate-500 transition-colors hover:border-red-500/40 hover:text-red-500 disabled:opacity-40 dark:border-white/10"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </ServiceTile>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Banners + footer note */}
@@ -500,31 +329,10 @@ export function UserAccessStudio({ user, isAdmin }: Props) {
       <div className="flex items-start gap-2 border-t border-gray-200 px-5 py-3 text-[11px] leading-snug text-slate-500 dark:border-[#1c1c1c]">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
         <span>
-          Grants apply automatically: Jellyfin provisions a local account with a generated password, and folders appear in the
-          person&apos;s Nextcloud Files. Both are audited and honour the RBAC privilege ceiling.
+          The Jellyfin password is generated, stored encrypted, and never emailed. Reveal it to hand it off, or reset it to
+          recover a forgotten login. Every action is audited and honours the RBAC privilege ceiling.
         </span>
       </div>
-
-      {grantingJellyfin ? (
-        <GrantJellyfinSheet
-          username={user.username}
-          open
-          onClose={() => {
-            setGrantingJellyfin(false);
-            void jellyfinQuery.refetch();
-          }}
-        />
-      ) : null}
-      {grantingFolder ? (
-        <GrantFolderSheet
-          username={user.username}
-          open
-          onClose={() => {
-            setGrantingFolder(false);
-            void assignmentsQuery.refetch();
-          }}
-        />
-      ) : null}
     </motion.section>
   );
 }

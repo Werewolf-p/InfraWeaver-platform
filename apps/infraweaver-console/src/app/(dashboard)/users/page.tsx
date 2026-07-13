@@ -21,8 +21,6 @@ import { HorizontalScrollHint } from "@/components/ui/horizontal-scroll-hint";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { StorageTab } from "@/components/users/storage-tab";
-import { RoleAssignmentsPanel } from "@/components/users/role-assignments-panel";
-import { UserAccessPanel } from "@/components/users/user-access-panel";
 import { UserAccessStudio } from "@/components/users/user-access-studio";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 
@@ -970,9 +968,23 @@ export default function UsersPage() {
 
           <UserAccessStudio user={selectedUser} isAdmin={isAdmin} />
 
-          <UserAccessPanel user={selectedUser} isAdmin={isAdmin} />
-
-          <RoleAssignmentsPanel user={selectedUser} isAdmin={isAdmin} />
+          {selectedUser && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4">
+              <div className="flex min-w-0 items-center gap-2">
+                <ShieldCheck className="w-4 h-4 shrink-0 text-blue-400" />
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Assigning rights moved to the RBAC page — grant or revoke {selectedUser.name || selectedUser.username}&apos;s access to clusters, apps, storage, and services there.
+                </p>
+              </div>
+              <Link
+                href="/rbac"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-500/20 dark:text-blue-300"
+              >
+                Manage this user&apos;s access in RBAC
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          )}
 
           {/* Permission Matrix */}
           <div>

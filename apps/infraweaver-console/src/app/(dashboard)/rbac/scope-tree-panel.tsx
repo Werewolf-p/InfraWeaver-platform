@@ -3,7 +3,7 @@
 import { CornerDownRight, FolderTree, MapPin } from "lucide-react";
 import { ROLE_COLOR_CLASSES } from "@/lib/rbac";
 import { buildScopeTree, flattenScopeTree, type ScopeTreeNode } from "./scope-tree";
-import type { SubjectBinding } from "./types";
+import type { SubjectBinding } from "@/lib/rbac-viz-types";
 
 const INDENT_PER_DEPTH_REM = 1.1;
 

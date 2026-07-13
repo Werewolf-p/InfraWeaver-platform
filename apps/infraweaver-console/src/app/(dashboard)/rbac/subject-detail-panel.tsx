@@ -1,10 +1,11 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { KeyRound, Layers, ShieldCheck, Clock, Users } from "lucide-react";
+import { KeyRound, Layers, ShieldCheck, Clock, Users, Plus } from "lucide-react";
 import { ROLE_COLOR_CLASSES } from "@/lib/rbac";
 import { ScopeTreePanel } from "./scope-tree-panel";
-import type { SubjectBinding, SubjectKind } from "./types";
+import type { SubjectBinding, SubjectKind } from "@/lib/rbac-viz-types";
+import type { GrantSubjectRef } from "./resources";
 
 interface VizSubject {
   id: string;
@@ -28,9 +29,11 @@ function bindingBadge(binding: SubjectBinding): string {
 
 interface SubjectDetailPanelProps {
   subject: VizSubject | null;
+  /** When provided (and the subject is a user/group), shows a "Grant here" deep-link. */
+  onGrantHere?: (subject: GrantSubjectRef) => void;
 }
 
-export function SubjectDetailPanel({ subject }: SubjectDetailPanelProps) {
+export function SubjectDetailPanel({ subject, onGrantHere }: SubjectDetailPanelProps) {
   if (!subject) {
     return (
       <div className="flex h-full min-h-[20rem] flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/40 p-8 text-center">
@@ -50,12 +53,28 @@ export function SubjectDetailPanel({ subject }: SubjectDetailPanelProps) {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-5 rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-5 backdrop-blur-sm"
     >
-      <div>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">
-          {KIND_LABEL[subject.kind]}
-        </span>
-        <h3 className="mt-2 break-all text-lg font-bold text-gray-900 dark:text-white">{subject.name}</h3>
-        {subject.secondary ? <p className="text-sm text-slate-500 dark:text-slate-400">{subject.secondary}</p> : null}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">
+            {KIND_LABEL[subject.kind]}
+          </span>
+          <h3 className="mt-2 break-all text-lg font-bold text-gray-900 dark:text-white">{subject.name}</h3>
+          {subject.secondary ? <p className="text-sm text-slate-500 dark:text-slate-400">{subject.secondary}</p> : null}
+        </div>
+        {onGrantHere && subject.kind !== "ServiceAccount" ? (
+          <button
+            onClick={() =>
+              onGrantHere({
+                principalType: subject.kind === "Group" ? "group" : "user",
+                principal: subject.name,
+                principalLabel: subject.kind === "User" ? (subject.secondary || subject.name) : subject.name,
+              })
+            }
+            className="flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-[#0078D4] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#006cbd]"
+          >
+            <Plus className="h-3.5 w-3.5" /> Grant here
+          </button>
+        ) : null}
       </div>
 
       <section>
