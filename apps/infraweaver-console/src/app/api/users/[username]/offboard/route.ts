@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
-import { findUserByUsername, authentikFetch } from "@/lib/authentik";
+import { findUserByUsername, findUserByEmail, authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
-import { loadUsersConfig, saveUsersConfig } from "@/lib/users-config";
+import { loadUsersConfig, saveUsersConfig, type LoadedUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
 import { offboardJellyfinUser } from "@/lib/jellyfin/access";
 import { deprovisionNextcloudUser } from "@/lib/nextcloud/deprovision";
@@ -42,12 +42,31 @@ export async function POST(
     // Empty/invalid body → default offboard (disable) semantics.
   }
 
+  // Load the roster row up front. Its email lets us resolve the Authentik identity
+  // by email when the username no longer matches (case drift, or a post-invite
+  // rename) — without that fallback, disable/delete silently skips the SSO account
+  // and the identity is orphaned. The same load (and its sha) is reused for the
+  // users.yaml removal at the end, so this is one fetch, not two.
+  let usersConfig: LoadedUsersConfig | null = null;
+  try {
+    usersConfig = await loadUsersConfig(0);
+  } catch {
+    // users.yaml unreadable — proceed without the email fallback; step 6 reports it.
+  }
+  const row = usersConfig?.users?.[username];
+
   // The Authentik user may legitimately NOT exist: a user invited but never enrolled,
   // or one with only local app accounts (Jellyfin/Nextcloud) and no SSO identity. That
   // must NOT abort the cleanup — otherwise those half-provisioned users can never be
   // removed and their local accounts leak forever. Treat a missing user as "no SSO
   // identity to tear down" and continue with app-account + config removal.
-  const user = await findUserByUsername(username);
+  //
+  // Resolve by username first, then fall back to the roster email: a username/case
+  // mismatch must not orphan the identity by making the username lookup miss a user
+  // that plainly exists under a different email-matched record.
+  const user =
+    (await findUserByUsername(username)) ??
+    (row?.email ? await findUserByEmail(row.email) : null);
 
   // Self-guard without depending on the Authentik record (which may be absent):
   // block deleting your own account by username, and by email when the record exists.
@@ -172,9 +191,10 @@ export async function POST(
     steps.push({ name: "Delete Nextcloud user", success: false, message: safeError(e) });
   }
 
-  // Step 6: Remove from users.yaml
+  // Step 6: Remove from users.yaml. Reuse the roster load from the top (one fetch,
+  // consistent sha); re-load only if that initial load failed.
   try {
-    const { users, sha } = await loadUsersConfig();
+    const { users, sha } = usersConfig ?? (await loadUsersConfig(0));
     if (users[username]) {
       delete users[username];
       const verb = deleteIdentity ? "delete" : "offboard";

@@ -48,9 +48,11 @@ jest.mock("@/lib/users-config", () => ({
 }));
 
 const findUserByUsername = jest.fn();
+const findUserByEmail = jest.fn(async () => null);
 const authentikFetch = jest.fn();
 jest.mock("@/lib/authentik", () => ({
   findUserByUsername: (...a: unknown[]) => findUserByUsername(...a),
+  findUserByEmail: (...a: unknown[]) => findUserByEmail(...a),
   authentikFetch: (...a: unknown[]) => authentikFetch(...a),
 }));
 
@@ -215,5 +217,58 @@ describe("delete vs offboard identity action", () => {
     expect(deletesUser()).toHaveLength(0);
     expect(stepNamed(body, "Disable account")?.success).toBe(true);
     expect(stepNamed(body, "Delete Authentik account")).toBeUndefined();
+  });
+});
+
+/**
+ * A username/case mismatch (or a post-invite rename) must not orphan the SSO
+ * identity: when the username lookup misses, the route falls back to the roster
+ * email so the real Authentik record is still torn down. Kept last in the file
+ * because it overrides the shared loadUsersConfig mock.
+ */
+describe("offboard resolves the Authentik identity by email when the username misses", () => {
+  const EMAIL_PK = 99;
+  const { loadUsersConfig } = require("@/lib/users-config");
+
+  afterEach(() => {
+    // Restore the shared defaults these tests override, so nothing leaks.
+    loadUsersConfig.mockResolvedValue({ users: {}, sha: "sha" });
+    findUserByEmail.mockResolvedValue(null);
+  });
+
+  test("username lookup null + roster email → tears down the email-matched identity", async () => {
+    loadUsersConfig.mockResolvedValue({
+      users: { [TARGET]: { email: "victim@example.com" } },
+      sha: "sha",
+    });
+    calls = [];
+    authentikFetch.mockImplementation(async (path: string, options?: { method?: string }) => {
+      calls.push({ path, method: options?.method ?? "GET" });
+      if (path.startsWith("/core/tokens/?")) return res(true, { results: [] });
+      return res(true, {});
+    });
+    findUserByUsername.mockResolvedValue(null); // username no longer matches
+    findUserByEmail.mockResolvedValue({ pk: EMAIL_PK, email: "victim@example.com", groups: [], is_active: true });
+
+    const { body, status } = await invokeWithBody({ deleteIdentity: true });
+
+    expect(status).toBe(200);
+    expect(findUserByEmail).toHaveBeenCalledWith("victim@example.com");
+    // The email-matched record is actually DELETEd — not silently orphaned.
+    expect(calls.some((c) => c.path === `/core/users/${EMAIL_PK}/` && c.method === "DELETE")).toBe(true);
+    expect(stepNamed(body, "Delete Authentik account")?.success).toBe(true);
+  });
+
+  test("email fallback is skipped when the username already resolves", async () => {
+    loadUsersConfig.mockResolvedValue({
+      users: { [TARGET]: { email: "victim@example.com" } },
+      sha: "sha",
+    });
+    installAuthentik([]); // findUserByUsername resolves to TARGET_PK
+
+    await invokeWithBody({});
+
+    expect(findUserByEmail).not.toHaveBeenCalled();
+    expect(patchesUser()).toHaveLength(1);
   });
 });
