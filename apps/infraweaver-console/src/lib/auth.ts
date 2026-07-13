@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import type { NextAuthConfig } from "next-auth";
 import { auditLog } from "@/lib/audit-log";
+import { normalizeGroups } from "@/lib/rbac";
 
 interface AuthentikProfile {
   email?: string | null;
@@ -215,9 +216,17 @@ export const authConfig: NextAuthConfig = {
     },
     async session({ session, token }) {
       const user = session.user as typeof session.user & { groups?: string[] };
-      user.groups = Array.isArray(token.groups)
-        ? token.groups.filter((group): group is string => typeof group === "string")
-        : [];
+      // Canonicalize once at the session boundary so every downstream consumer
+      // (including the raw `session.user.groups` reads that don't call
+      // normalizeGroups themselves) sees trimmed names. Some SSO providers and
+      // undici header round-trips deliver group names with surrounding
+      // whitespace; left untrimmed, exact-string matches (getRole,
+      // groups.includes) silently resolve a padded admin group to zero perms.
+      user.groups = normalizeGroups(
+        Array.isArray(token.groups)
+          ? token.groups.filter((group): group is string => typeof group === "string")
+          : [],
+      );
       session.user = user;
       return session;
     },

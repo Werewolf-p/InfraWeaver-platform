@@ -60,8 +60,12 @@ export const POST = withRoute(null, async (req: NextRequest, session, access) =>
   if (!SAFE_SCOPE_RE.test(body.scope)) return NextResponse.json({ error: "Invalid scope" }, { status: 400 });
 
   const principalType = body.principalType ?? (body.group ? "group" : "user");
-  const principal = principalType === "group" ? (body.group ?? body.username) : body.username;
-  if (!principal) return NextResponse.json({ error: "Missing principal (username or group)" }, { status: 400 });
+  const rawPrincipal = principalType === "group" ? (body.group ?? body.username) : body.username;
+  if (!rawPrincipal) return NextResponse.json({ error: "Missing principal (username or group)" }, { status: 400 });
+  // Trim group names before validation/persist: SAFE_GROUP_RE allows internal
+  // spaces, so a padded " platform-admins" would otherwise pass and be stored as
+  // a distinct users.yaml key no (trimmed) session group can match.
+  const principal = principalType === "group" ? rawPrincipal.trim() : rawPrincipal;
   if (principalType === "group" && !SAFE_GROUP_RE.test(principal)) return NextResponse.json({ error: "Invalid group name" }, { status: 400 });
 
   const granterPermsAt = (scope: string) => getSessionEffectivePermissions(access, scope);

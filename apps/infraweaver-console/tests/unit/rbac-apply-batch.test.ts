@@ -236,4 +236,29 @@ describe("applyRoleAssignments — group principal", () => {
     expect(saveUsersConfig).toHaveBeenCalledTimes(1);
     expect(notifyRoleAssignmentChangeByEmail).not.toHaveBeenCalled();
   });
+
+  it("trims a whitespace-padded group principal so it can't be stored as a padded key", async () => {
+    // The authoritative store-side choke point: even a caller that bypasses the
+    // route's trim must not persist " media-team " as a distinct users.yaml key.
+    loadUsersConfig.mockResolvedValue({ users: {}, groups: {}, sha: "sha-1" });
+
+    const result = await applyRoleAssignments(
+      {
+        principalType: "group",
+        principal: " media-team ",
+        revokes: [],
+        grants: [{ roleId: "jellyfin-user", scope: "/jellyfin" }],
+      },
+      { granterPermsAt: () => permsForRole("platform-owner"), actor: "owner@x" },
+    );
+
+    expect(result).toMatchObject({ ok: true, grantedCount: 1 });
+
+    // The persisted key is trimmed…
+    const savedGroups = saveUsersConfig.mock.calls[0][3] as Record<string, { role_assignments: RoleAssignment[] }>;
+    expect(Object.keys(savedGroups)).toEqual(["media-team"]);
+    // …and the minted assignment names the trimmed group as its principal, so a
+    // (trimmed) session group will actually match it.
+    expect(savedGroups["media-team"].role_assignments[0].principalId).toBe("media-team");
+  });
 });

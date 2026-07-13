@@ -52,8 +52,13 @@ export async function PUT(req: NextRequest) {
   }
 
   const principalType = body.principalType ?? (body.group ? "group" : "user");
-  const principal = principalType === "group" ? (body.group ?? body.username) : body.username;
-  if (!principal) return NextResponse.json({ error: "Missing principal (username or group)" }, { status: 400 });
+  const rawPrincipal = principalType === "group" ? (body.group ?? body.username) : body.username;
+  if (!rawPrincipal) return NextResponse.json({ error: "Missing principal (username or group)" }, { status: 400 });
+  // Trim group names before validation/persist: SAFE_GROUP_RE allows internal
+  // spaces, so a padded " platform-admins" would otherwise pass and be stored as
+  // a distinct users.yaml key no (trimmed) session group can match. A name that
+  // is only whitespace trims to "" and fails the min-length regex below.
+  const principal = principalType === "group" ? rawPrincipal.trim() : rawPrincipal;
   if (principalType === "group" && !SAFE_GROUP_RE.test(principal)) return NextResponse.json({ error: "Invalid group name" }, { status: 400 });
 
   if (body.grants.length === 0 && body.revokes.length === 0) {

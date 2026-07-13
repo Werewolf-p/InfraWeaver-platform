@@ -278,10 +278,19 @@ function sameGrantKey(a: { roleId: string; scope: string; effect?: "Allow" | "De
  * many members) — mirroring the single-delta paths.
  */
 export async function applyRoleAssignments(
-  input: ApplyAssignmentsInput,
+  rawInput: ApplyAssignmentsInput,
   ctx: AssignmentActionContext,
   labels?: ApplyAuditLabels,
 ): Promise<ApplyAssignmentsResult> {
+  // Store-side invariant: a group principal is persisted verbatim as a
+  // users.yaml key (`file.groups[principal]`). Trim it here — the single choke
+  // point every write path (grant/revoke/batch) funnels through — so a
+  // whitespace-padded " platform-admins" can never land as a distinct key that
+  // no (already-trimmed) session group will ever match.
+  const input: ApplyAssignmentsInput =
+    rawInput.principalType === "group"
+      ? { ...rawInput, principal: rawInput.principal.trim() }
+      : rawInput;
   const isGroup = input.principalType === "group";
 
   // Reject unknown roles before touching git (matches grantRoleAssignment).

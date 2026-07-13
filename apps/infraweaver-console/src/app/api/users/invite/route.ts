@@ -11,7 +11,15 @@ import { safeError } from "@/lib/utils";
 
 const InviteBody = z.object({
   email: z.string().email().max(254),
-  groups: z.array(z.string().max(64)).max(20).optional().default([]),
+  // Trim each group name and drop empties so a padded " platform-admins" can't
+  // ride onto the invitation's fixed_data (and matches how session groups are
+  // canonicalized everywhere else).
+  groups: z
+    .array(z.string().max(64))
+    .max(20)
+    .optional()
+    .default([])
+    .transform((names) => names.map((name) => name.trim()).filter(Boolean)),
   expiryHours: z.number().int().min(1).max(168).optional().default(24),
 });
 

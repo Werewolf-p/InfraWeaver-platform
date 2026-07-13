@@ -169,6 +169,43 @@ describe("PUT /api/rbac/assignments/apply — group body routes to the group pri
   });
 });
 
+describe("PUT /api/rbac/assignments/apply — group names are trimmed before persist", () => {
+  it("stores a whitespace-padded group under its trimmed users.yaml key", async () => {
+    loadUsersConfig.mockResolvedValue({ users: {}, groups: {}, sha: "sha-1" });
+
+    const res = await PUT(
+      putReq({
+        principalType: "group",
+        group: " media-team ",
+        grants: [{ roleId: "jellyfin-user", scope: "/jellyfin" }],
+        revokes: [],
+      }),
+    );
+
+    expect(res.status).toBe(200);
+
+    // The route trims before handing off, so the library never sees the padding…
+    const applied = mockApply.mock.calls[0][0] as { principal: string };
+    expect(applied.principal).toBe("media-team");
+
+    // …and the persisted key is the trimmed name — a padded " media-team " can
+    // never land as a distinct key no (trimmed) session group would ever match.
+    const savedGroups = saveUsersConfig.mock.calls[0][3] as Record<string, unknown>;
+    expect(Object.keys(savedGroups)).toEqual(["media-team"]);
+  });
+
+  it("rejects a whitespace-only group name with 400 and never writes", async () => {
+    loadUsersConfig.mockResolvedValue({ users: {}, groups: {}, sha: "sha-1" });
+
+    const res = await PUT(
+      putReq({ principalType: "group", group: "   ", grants: [{ roleId: "jellyfin-user", scope: "/jellyfin" }], revokes: [] }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(saveUsersConfig).not.toHaveBeenCalled();
+  });
+});
+
 describe("PUT /api/rbac/assignments/apply — same-scope swap sends exactly one email", () => {
   it("fires ONE notifyRbacChange for a user revoke+grant at the same scope", async () => {
     loadUsersConfig.mockResolvedValue({
