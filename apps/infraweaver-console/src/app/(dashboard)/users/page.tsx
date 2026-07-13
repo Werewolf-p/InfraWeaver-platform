@@ -981,7 +981,7 @@ export default function UsersPage() {
             )}
           </div>
 
-          <UserAccessStudio user={selectedUser} isAdmin={isAdmin} />
+          <UserAccessStudio user={selectedUser} isAdmin={isAdmin} currentUsername={currentUsername} />
 
           {selectedUser && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4">
