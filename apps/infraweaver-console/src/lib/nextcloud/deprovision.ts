@@ -15,30 +15,9 @@
  * TrueNAS mount, not the user's home, and `user:delete` does not touch it.
  */
 import "server-only";
+import { OCS_TIMEOUT_MS, nextcloudAdmin, nextcloudAuthHeader, nextcloudBaseUrl } from "@/lib/nextcloud/config";
 
-const OCS_TIMEOUT_MS = Number(process.env.NEXTCLOUD_TIMEOUT_MS) || 10_000;
-
-/** In-cluster base URL for Nextcloud's OCS API; the svc DNS name is a trusted domain. */
-function nextcloudBaseUrl(): string {
-  return (process.env.NEXTCLOUD_URL || "http://nextcloud.nextcloud.svc.cluster.local").replace(/\/+$/, "");
-}
-
-interface NextcloudAdmin {
-  user: string;
-  password: string;
-}
-
-function nextcloudAdmin(): NextcloudAdmin | null {
-  const user = (process.env.NEXTCLOUD_ADMIN_USER || "").trim();
-  const password = process.env.NEXTCLOUD_ADMIN_PASSWORD || "";
-  if (!user || !password) return null;
-  return { user, password };
-}
-
-/** True when the console has the admin credential needed to delete a Nextcloud user. */
-export function isNextcloudConfigured(): boolean {
-  return nextcloudAdmin() !== null;
-}
+export { isNextcloudConfigured } from "@/lib/nextcloud/config";
 
 export interface NextcloudDeprovisionResult {
   deleted: boolean;
@@ -68,7 +47,7 @@ export async function deprovisionNextcloudUser(username: string): Promise<Nextcl
   }
 
   const url = `${nextcloudBaseUrl()}/ocs/v2.php/cloud/users/${encodeURIComponent(username)}?format=json`;
-  const authHeader = `Basic ${Buffer.from(`${admin.user}:${admin.password}`).toString("base64")}`;
+  const authHeader = nextcloudAuthHeader(admin);
 
   let res: Response;
   try {
