@@ -73,7 +73,14 @@ export async function createEnrollmentInvitation(input: {
 
   const fixedData: Record<string, unknown> = { email };
   if (groups.length > 0) fixedData.groups = groups;
-  if (presetGrants.length > 0) fixedData.iw_roles = presetGrants;
+  // Stash the preset grants under the DOTTED key `attributes.iw_roles`, not a bare
+  // `iw_roles`. Authentik's user-write stage only persists a prompt/fixed_data key to
+  // the account when it is a real User field or is prefixed `attributes.` — any other
+  // key (a bare `iw_roles`) hits the stage's final branch and is silently DROPPED, so
+  // the grants never reach the enrolled account and the reconcile bridge can't see
+  // them. `attributes.iw_roles` makes user-write write `user.attributes.iw_roles`,
+  // which is exactly what bridgeEnrollmentGrants reads.
+  if (presetGrants.length > 0) fixedData["attributes.iw_roles"] = presetGrants;
 
   const expires = new Date(Date.now() + expiryHours * 3600 * 1000).toISOString();
   const r = await authentikFetch("/stages/invitation/invitations/", {
