@@ -122,8 +122,8 @@ export function InviteModal({ open, onClose }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-50 w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
+        <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/70" />
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[61] w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
           <div className="mb-5 flex items-center justify-between gap-3">
             <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">
               <Mail className="h-4 w-4 text-[#3b82f6]" />
@@ -261,7 +261,7 @@ export function InviteModal({ open, onClose }: Props) {
                     <ChevronDown className="h-4 w-4 text-gray-500 dark:text-[#888]" />
                   </Select.Trigger>
                   <Select.Portal>
-                    <Select.Content className="z-[60] overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl">
+                    <Select.Content className="z-[70] overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl">
                       <Select.Viewport className="p-1">
                         {EXPIRY_OPTIONS.map((option) => (
                           <Select.Item
