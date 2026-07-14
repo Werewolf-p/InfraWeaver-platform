@@ -3,6 +3,7 @@ import { getRequestClusterId } from "@/lib/cluster-context";
 import { makeKc } from "@/lib/kube-client";
 import { withAuth } from "@/lib/with-auth";
 import * as k8s from "@kubernetes/client-node";
+import type { AppAccountProvider, AppAccountStore, AppUserAccount, RosterEntry } from "@/lib/app-accounts/types";
 
 const PROBE_TIMEOUT_MS = 5000;
 
@@ -356,6 +357,133 @@ export const GET = withAuth({ permission: "cluster:admin" }, async ({ req }) => 
       });
       if (!direct || direct.pk !== 1) return { status: "fail", message: "Username-matched identity not resolved directly" };
       return { status: "pass", message: "Drifted identity resolved by email (DELETE targets its pk); exact-match skips the fallback" };
+    }),
+    () => runTest("sec-offboard-appaccount-drift", "Offboard deprovisions app accounts by CANONICAL username (drift does not orphan)", "security", async () => {
+      // Regression pin for the app-account offboard drift fix (commit 639c756c).
+      //
+      // Local app accounts — a Jellyfin login, a Nextcloud OCS user row — are created
+      // under the CANONICAL Authentik username the person chose at enrollment: reconcile
+      // provisions under `identity.username`. Offboard once deprovisioned by the RAW route
+      // key, so a username/case drift (route key `e2edrift`, canonical `e2ephoenix`) tore
+      // down the SSO identity (resolved by email) while the Jellyfin/Nextcloud accounts —
+      // under the canonical name — were ORPHANED forever: a leaked login + a revealable
+      // stored credential outliving the user. The fix keys deprovision off
+      // `canonicalAppUsername(identity, routeKey)` — the same seam reconcile provisions
+      // under — so the provision and deprovision keys can never diverge.
+      //
+      // Exercised in-process with stub resolvers + in-memory app fakes; no live Authentik,
+      // Jellyfin, or Nextcloud is touched. Jellyfin runs the REAL `deprovisionAppUser`
+      // engine (the exact delegate `offboardJellyfinUser` uses); Nextcloud's OCS is modeled
+      // by userid, matching `DELETE /ocs/v2.php/cloud/users/<userid>`. A negative control
+      // (deprovision by the raw key) proves the assertion has teeth — i.e. that it would
+      // actually catch a regression back to raw-key deprovision rather than pass vacuously.
+      const { resolveAuthentikIdentity, canonicalAppUsername } = await import("@/lib/users/resolve-identity");
+      const { deprovisionAppUser } = await import("@/lib/app-accounts/reconcile");
+
+      const ROUTE_KEY = "e2edrift"; // the drifted users.yaml / route key offboard is called with
+      const CANONICAL = "e2ephoenix"; // the enrollment name the app accounts actually live under
+      const EMAIL = "e2edrift@example.com";
+      const IDENTITY_PK = 424242;
+      const JF_SERVICE = "iw-jellyfin";
+      const key = (u: string) => u.trim().toLowerCase();
+
+      // 1) Resolve the drifted route key to its canonical identity (username misses, email
+      //    hits), then derive the app-account key exactly as the offboard route does.
+      const identity = await resolveAuthentikIdentity(ROUTE_KEY, EMAIL, {
+        findUserByUsername: async () => null, // drifted: the username lookup misses
+        findUserByEmail: async (email) => (email === EMAIL ? { pk: IDENTITY_PK, username: CANONICAL, email } : null),
+      });
+      const appUsername = canonicalAppUsername(identity, ROUTE_KEY);
+      if (appUsername !== CANONICAL) {
+        return {
+          status: "fail",
+          message: `App-account key drifted: expected canonical '${CANONICAL}', got '${appUsername}'`,
+          detail: "Deprovision would target the raw route key and orphan the canonical Jellyfin/Nextcloud accounts",
+        };
+      }
+
+      // In-memory app + store factories. `makeJf` models a Jellyfin instance whose
+      // listUsers() is the "candidates" a live server returns; `makeStore` is the durable
+      // roster/credential state the engine clears. Both are seeded under the CANONICAL name.
+      const makeJf = (seeded: string[]) => {
+        const users = new Map<string, AppUserAccount>([["svc", { id: "svc", username: JF_SERVICE, role: "admin", disabled: false }]]);
+        for (const u of seeded) users.set(u, { id: u, username: u, role: "user", disabled: false });
+        const provider: AppAccountProvider = {
+          appId: "jellyfin",
+          appLabel: "Jellyfin",
+          launchUrl: "https://jf.example",
+          serviceAccountUsername: JF_SERVICE,
+          async ensureServiceAccount() {},
+          async listUsers() { return [...users.values()]; },
+          async createUser(username: string) { const a: AppUserAccount = { id: username, username, role: "user", disabled: false }; users.set(username, a); return a; },
+          async setUserRole() {},
+          async disableUser() {},
+          async enableUser() {},
+          async deleteUser(id: string) { users.delete(id); },
+          async resetPassword() {},
+        };
+        // Candidates = every account minus the service account, the set an orphan check scans.
+        return { provider, candidates: () => [...users.values()].map((a) => a.username).filter((u) => key(u) !== key(JF_SERVICE)) };
+      };
+      const makeStore = (seeded: string): AppAccountStore => {
+        let roster: RosterEntry[] = [{ username: seeded, providerUserId: seeded, provisionedAt: "seed" }];
+        return {
+          async loadRoster() { return [...roster]; },
+          async addRosterEntry(_appId: string, entry: RosterEntry) { roster.push(entry); },
+          async markNotified() {},
+          async removeRosterEntry(_appId: string, username: string) { roster = roster.filter((e) => key(e.username) !== key(username)); },
+          async writeCredential() {},
+          async deleteCredential() {},
+        };
+      };
+
+      // 2) Jellyfin — run the REAL deprovision engine over the resolved (canonical) key.
+      const jf = makeJf([CANONICAL]);
+      await deprovisionAppUser(jf.provider, appUsername, makeStore(CANONICAL));
+      const jfSurvivors = jf.candidates().filter((u) => key(u) === key(CANONICAL));
+      if (jfSurvivors.length > 0) {
+        return {
+          status: "fail",
+          message: "Jellyfin candidate for the canonical account survived offboard-by-drifted-key (orphaned)",
+          detail: `Remaining candidates: ${jf.candidates().join(", ") || "none"}`,
+        };
+      }
+
+      // 3) Nextcloud OCS — DELETE /ocs/v2.php/cloud/users/<userid> targets the userid in the
+      //    path, and the offboard route also clears the stored NC credential; both key off
+      //    the SAME appUsername. Model the OCS user set + credential set and delete by appUsername.
+      const ncOcs = new Set([key(CANONICAL)]);
+      const ncCreds = new Set([key(CANONICAL)]);
+      ncOcs.delete(key(appUsername));
+      ncCreds.delete(key(appUsername));
+      if (ncOcs.has(key(CANONICAL)) || ncCreds.has(key(CANONICAL))) {
+        return {
+          status: "fail",
+          message: "Nextcloud OCS user (or its stored credential) for the canonical account survived offboard-by-drifted-key",
+          detail: `OCS delete targeted userid '${appUsername}', leaving canonical '${CANONICAL}' behind`,
+        };
+      }
+
+      // 4) Teeth — the pre-fix behavior (deprovision by the RAW route key) MUST miss the
+      //    canonical accounts. If it didn't, the assertions above would pass no matter what.
+      const jfRaw = makeJf([CANONICAL]);
+      await deprovisionAppUser(jfRaw.provider, ROUTE_KEY, makeStore(CANONICAL));
+      const jfRawOrphan = jfRaw.candidates().some((u) => key(u) === key(CANONICAL));
+      const ncRaw = new Set([key(CANONICAL)]);
+      ncRaw.delete(key(ROUTE_KEY));
+      const ncRawOrphan = ncRaw.has(key(CANONICAL));
+      if (!jfRawOrphan || !ncRawOrphan) {
+        return {
+          status: "fail",
+          message: "Drift assertion has NO teeth: deprovision by the raw route key did not orphan the canonical accounts",
+          detail: "The probe cannot distinguish the fixed path from the buggy one — its scenario no longer reproduces the drift",
+        };
+      }
+
+      return {
+        status: "pass",
+        message: "Offboard deprovisions Jellyfin + Nextcloud by canonical username; JF candidates and NC OCS both empty, raw-key control orphans",
+      };
     }),
 
     // ── Stability (enterprise stability agent) ────────────────────────────
