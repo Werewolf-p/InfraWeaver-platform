@@ -160,6 +160,21 @@ export default auth(async (req) => {
       return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
     }
 
+    // Internal cron caller: the roster-drift CronJob GETs here with a shared token
+    // instead of a session (see lib/security/roster-drift.ts). Read-only, so no CSRF
+    // concern — the session gate is the only wall to pass. Same fail-closed contract
+    // as the reconcile bypass above: a missing/wrong token falls through to the auth
+    // wall and is rejected; the route handler re-validates the token (defence in
+    // depth). Kept ahead of the rate-limit/auth blocks so the sole authenticator is
+    // the token.
+    if (
+      pathname === "/api/security/roster-drift" &&
+      req.method === "GET" &&
+      internalCronTokenMatches(req.headers.get("x-internal-cron-token"), process.env.ROSTER_DRIFT_CRON_TOKEN)
+    ) {
+      return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
+    }
+
     // Cross-deployment ("upstream") feedback ingest: a fork forwards an
     // HMAC-signed copy of user feedback to the canonical endpoint with NO session
     // and NO same-origin Origin (it is a server-side fetch). Let a POST carrying

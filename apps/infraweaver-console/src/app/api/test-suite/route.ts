@@ -485,6 +485,43 @@ export const GET = withAuth({ permission: "cluster:admin" }, async ({ req }) => 
         message: "Offboard deprovisions Jellyfin + Nextcloud by canonical username; JF candidates and NC OCS both empty, raw-key control orphans",
       };
     }),
+    () => runTest("sec-roster-drift", "Authentik roster has no unmanaged privileged accounts", "security", async () => {
+      // Live drift check: lists the Authentik directory and flags every ACTIVE
+      // account users.yaml does not account for (excluding ak-outpost-* service
+      // accounts), escalating when an unmanaged/suspicious account is privileged.
+      // Shares lib/security/roster-drift with the scheduled GET /api/security/
+      // roster-drift CronJob endpoint, so the console self-test and the cron alert
+      // apply the exact same flag rules. Degrades to `skip` when Authentik or the
+      // users.yaml git provider is unreachable from this context (inconclusive,
+      // not a failure).
+      const { detectRosterDrift } = await import("@/lib/security/roster-drift");
+      let report;
+      try {
+        report = await detectRosterDrift();
+      } catch (e) {
+        return { status: "skip", message: `Roster drift check unavailable: ${extractK8sMessage(e)}` };
+      }
+      if (report.alert) {
+        return {
+          status: "fail",
+          message: `${report.privilegedUnmanaged.length} unmanaged PRIVILEGED account(s) in Authentik`,
+          detail: report.privilegedUnmanaged
+            .map((e) => `${e.username} [${e.privilegedVia ?? "privileged"}] — ${e.reasons.join("+")}`)
+            .join("; "),
+        };
+      }
+      if (report.drift.length > 0) {
+        return {
+          status: "warn",
+          message: `${report.drift.length} unmanaged/suspicious account(s) (none privileged)`,
+          detail: report.drift.map((e) => `${e.username} — ${e.reasons.join("+")}`).join("; "),
+        };
+      }
+      return {
+        status: "pass",
+        message: `All ${report.scanned} active account(s) managed (${report.excluded} outpost SA excluded)`,
+      };
+    }),
 
     // ── Stability (enterprise stability agent) ────────────────────────────
     () => runTest("stab-ping", "Public /api/ping endpoint responds", "stability", async () => {
