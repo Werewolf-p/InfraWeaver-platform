@@ -26,13 +26,41 @@ const EXPIRY_OPTIONS = [
   { label: "7 days", value: 168 },
 ];
 
-// Access presets — app-level access the invitee is auto-provisioned with on
-// enrollment (server maps these ids to RBAC grants in lib/users/access-presets.ts).
-// Ids MUST match the server's ACCESS_PRESETS.
-const ACCESS_OPTIONS = [
-  { id: "all", label: "All apps", description: "Jellyfin + Nextcloud storage" },
-  { id: "jellyfin", label: "Jellyfin", description: "Media streaming account" },
-  { id: "storage", label: "Storage (Nextcloud)", description: "Nextcloud /Media read-write" },
+// App access catalog — the invitee picks an app, then a role within it. Each
+// role's `presetId` is auto-provisioned on enrollment (the server maps ids to
+// RBAC grants in lib/users/access-presets.ts). Ids MUST match ACCESS_PRESETS.
+// `privileged` roles (app admin) are only offered to, and only accepted from,
+// rbac:admin operators — the server enforces the same ceiling.
+interface AppRoleOption {
+  presetId: string;
+  label: string;
+  description: string;
+  privileged?: boolean;
+}
+
+interface AppAccessOption {
+  id: string;
+  label: string;
+  roles: AppRoleOption[];
+}
+
+const APP_CATALOG: AppAccessOption[] = [
+  {
+    id: "jellyfin",
+    label: "Jellyfin",
+    roles: [
+      { presetId: "jellyfin-user", label: "User", description: "Stream media" },
+      { presetId: "jellyfin-admin", label: "Admin", description: "Manage the Jellyfin server", privileged: true },
+    ],
+  },
+  {
+    id: "storage",
+    label: "Nextcloud storage",
+    roles: [
+      { presetId: "storage-viewer", label: "Read-only", description: "View the /Media folder" },
+      { presetId: "storage-contributor", label: "Read-write", description: "Upload to /Media" },
+    ],
+  },
 ];
 
 const inputCls = "w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm";
@@ -50,12 +78,18 @@ export function InviteModal({ open, onClose }: Props) {
   const [inviteUrl, setInviteUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
-  const [selectedAccess, setSelectedAccess] = useState<string[]>([]);
+  // One role per app, keyed by app id (value is the chosen preset id). Selecting
+  // the same role again clears that app's access.
+  const [appRoles, setAppRoles] = useState<Record<string, string>>({});
+  const [openApp, setOpenApp] = useState<string | null>(null);
 
-  function toggleAccess(id: string) {
-    setSelectedAccess((current) =>
-      current.includes(id) ? current.filter((a) => a !== id) : [...current, id],
-    );
+  function selectRole(appId: string, presetId: string) {
+    setAppRoles((current) => {
+      if (current[appId] === presetId) {
+        return Object.fromEntries(Object.entries(current).filter(([key]) => key !== appId));
+      }
+      return { ...current, [appId]: presetId };
+    });
   }
 
   // Load the RBAC groups an admin can grant on invite. Only fetched when the
@@ -89,7 +123,7 @@ export function InviteModal({ open, onClose }: Props) {
       const response = await fetch("/api/users/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, groups: canAssignGroups ? selectedGroups : [], access: selectedAccess, expiryHours }),
+        body: JSON.stringify({ email, groups: canAssignGroups ? selectedGroups : [], access: Object.values(appRoles), expiryHours }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Failed");
@@ -115,7 +149,8 @@ export function InviteModal({ open, onClose }: Props) {
     setInviteUrl("");
     setCopied(false);
     setSelectedGroups([]);
-    setSelectedAccess([]);
+    setAppRoles({});
+    setOpenApp(null);
     onClose();
   }
 
@@ -175,27 +210,72 @@ export function InviteModal({ open, onClose }: Props) {
                   <span className="font-normal text-gray-400 dark:text-[#666]">(optional)</span>
                 </label>
                 <p className="mb-2 text-sm text-gray-400 dark:text-[#666]">
-                  Pick what they get. It&apos;s provisioned automatically when they finish enrolling — no extra steps.
+                  Pick an app, then a role. It&apos;s provisioned automatically when they finish enrolling — no extra steps.
                 </p>
-                <div className="space-y-1 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-2">
-                  {ACCESS_OPTIONS.map((option) => {
-                    const checked = selectedAccess.includes(option.id);
+                <div className="space-y-2">
+                  {APP_CATALOG.map((app) => {
+                    const visibleRoles = app.roles.filter((role) => !role.privileged || canAssignGroups);
+                    if (visibleRoles.length === 0) return null;
+                    const selectedPreset = appRoles[app.id];
+                    const selectedRole = visibleRoles.find((role) => role.presetId === selectedPreset);
+                    const isOpen = openApp === app.id;
                     return (
-                      <label
-                        key={option.id}
-                        className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
+                      <div
+                        key={app.id}
+                        className="overflow-hidden rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d]"
                       >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleAccess(option.id)}
-                          className="h-4 w-4 shrink-0 rounded border-gray-300 dark:border-[#2a2a2a] text-[#3b82f6] focus:ring-[#3b82f6]"
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm text-gray-900 dark:text-[#f2f2f2]">{option.label}</span>
-                          <span className="block truncate text-xs text-gray-400 dark:text-[#666]">{option.description}</span>
-                        </span>
-                      </label>
+                        <button
+                          type="button"
+                          onClick={() => setOpenApp((current) => (current === app.id ? null : app.id))}
+                          aria-expanded={isOpen}
+                          className="flex min-h-[52px] w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{app.label}</span>
+                            <span
+                              className={`block truncate text-xs ${selectedRole ? "text-[#3b82f6]" : "text-gray-400 dark:text-[#666]"}`}
+                            >
+                              {selectedRole ? selectedRole.label : "No access"}
+                            </span>
+                          </span>
+                          <ChevronDown
+                            className={`h-4 w-4 shrink-0 text-gray-500 dark:text-[#888] transition-transform ${isOpen ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        {isOpen && (
+                          <div className="space-y-1 border-t border-gray-200 dark:border-[#2a2a2a] p-2">
+                            {visibleRoles.map((role) => {
+                              const active = selectedPreset === role.presetId;
+                              return (
+                                <button
+                                  key={role.presetId}
+                                  type="button"
+                                  onClick={() => selectRole(app.id, role.presetId)}
+                                  aria-pressed={active}
+                                  className={`flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${active ? "bg-[#3b82f6]/10 dark:bg-[#3b82f6]/15" : "hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"}`}
+                                >
+                                  <span
+                                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${active ? "border-[#3b82f6] bg-[#3b82f6] text-white" : "border-gray-300 dark:border-[#3a3a3a]"}`}
+                                  >
+                                    {active && <Check className="h-3 w-3" />}
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="flex items-center gap-2">
+                                      <span className="truncate text-sm text-gray-900 dark:text-[#f2f2f2]">{role.label}</span>
+                                      {role.privileged && (
+                                        <span className="shrink-0 rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                                          Admin
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className="block truncate text-xs text-gray-400 dark:text-[#666]">{role.description}</span>
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>

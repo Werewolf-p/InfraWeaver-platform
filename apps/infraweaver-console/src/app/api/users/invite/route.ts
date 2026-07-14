@@ -7,7 +7,7 @@ import { createEnrollmentInvitation } from "@/lib/authentik-invite";
 import { withRoute } from "@/lib/route-utils";
 import { sessionActor } from "@/lib/user-guards";
 import { safeError } from "@/lib/utils";
-import { expandPresetGrants, isAccessPresetId } from "@/lib/users/access-presets";
+import { expandPresetGrants, isAccessPresetId, isPrivilegedPresetId } from "@/lib/users/access-presets";
 
 const InviteBody = z.object({
   email: z.string().email().max(254),
@@ -46,11 +46,22 @@ export const POST = withRoute(["users:write", "rbac:admin"], async (req: NextReq
     return NextResponse.json({ error: "Forbidden: group assignment requires rbac:admin" }, { status: 403 });
   }
 
-  // Access presets expand to app-level RBAC grants (Jellyfin, Nextcloud storage) —
-  // low-privilege app access, so the invite gate (users:write/rbac:admin) suffices;
-  // they never confer platform admin the way an arbitrary group could. `groups`
-  // (rbac:admin only) and these presets ride on the invitation's fixed_data; the
-  // shared helper owns that shape and the no-flow binding (see createEnrollmentInvitation).
+  // Admin-tier presets (e.g. Jellyfin administrator) confer elevated privileges
+  // inside the app, so gate them behind rbac:admin — the same ceiling as group
+  // grants — rather than letting a users:write operator hand out app admin.
+  const privilegedPresets = presets.filter(isPrivilegedPresetId);
+  if (privilegedPresets.length > 0 && !hasSessionPermission(access, "rbac:admin")) {
+    return NextResponse.json(
+      { error: `Forbidden: admin-tier access requires rbac:admin (${privilegedPresets.join(", ")})` },
+      { status: 403 },
+    );
+  }
+
+  // The remaining presets expand to app-level RBAC grants (Jellyfin user, Nextcloud
+  // storage) — low-privilege app access, so the invite gate (users:write/rbac:admin)
+  // suffices; they never confer platform admin the way an arbitrary group could.
+  // `groups` (rbac:admin only) and these presets ride on the invitation's fixed_data;
+  // the shared helper owns that shape and the no-flow binding (see createEnrollmentInvitation).
   const presetGrants = expandPresetGrants(presets);
 
   let url: string;
