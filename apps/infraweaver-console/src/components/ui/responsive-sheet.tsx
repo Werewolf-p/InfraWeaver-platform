@@ -83,7 +83,7 @@ export function ResponsiveSheet({
             aria-modal="true"
             aria-labelledby={titleId}
             className={cn(
-              "fixed inset-x-0 bottom-0 top-0 z-[51] flex flex-col bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:overflow-hidden sm:rounded-[28px] sm:border sm:border-gray-200 dark:border-[#222]",
+              "fixed inset-x-0 bottom-0 z-[51] flex max-h-[92dvh] flex-col overflow-hidden rounded-t-[28px] bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[28px] sm:border sm:border-gray-200 dark:border-[#222]",
               sizeClassMap[size],
               className,
             )}
