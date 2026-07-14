@@ -23,7 +23,8 @@ import { generateAppPassword } from "@/lib/app-accounts/password";
 import { syncAppUsers, deprovisionAppUser, type AppUserSyncSummary, type DeprovisionResult } from "@/lib/app-accounts/reconcile";
 import { openBaoAppAccountStore } from "@/lib/app-accounts/store";
 import { consoleAccountNotifier } from "@/lib/app-accounts/notify";
-import type { AppPermissionPair } from "@/lib/app-accounts/types";
+import type { AppPermissionPair, DesiredAppUser } from "@/lib/app-accounts/types";
+import { resolveAuthentikIdentity } from "@/lib/users/resolve-identity";
 import { JELLYFIN_APP_ID, jellyfinLaunchUrl } from "@/lib/jellyfin/config";
 import { JellyfinAccountProvider } from "@/lib/jellyfin/provider";
 
@@ -51,9 +52,16 @@ export function isJellyfinScope(scope: string): boolean {
 
 /**
  * Materialize the current RBAC grants as Jellyfin local accounts: everyone with
- * `jellyfin:read` at `/jellyfin` gets an account (admins mapped to Jellyfin
- * administrators), newly-authorized users get a random password + a credential
- * notification, and revoked users are disabled. Idempotent.
+ * `jellyfin:read` at `/jellyfin` who has ALSO enrolled in Authentik gets an account
+ * (admins mapped to Jellyfin administrators), newly-authorized users get a random
+ * password + a credential notification, and revoked users are disabled. Idempotent.
+ *
+ * Enrollment gate: a Jellyfin account is created only AFTER the person's Authentik
+ * SSO identity exists, and it is keyed by the CANONICAL Authentik username (the name
+ * the user chose at enrollment) — never the users.yaml key, which can drift. This is
+ * what keeps the Jellyfin login identical to the SSO login instead of a confusing
+ * second name. A user with a Jellyfin grant but no Authentik identity yet is deferred
+ * to a later tick (the reconcile re-runs after they enroll).
  */
 export async function syncJellyfinUsers(): Promise<AppUserSyncSummary> {
   const cfg = await loadUsersConfig();
@@ -64,10 +72,33 @@ export async function syncJellyfinUsers(): Promise<AppUserSyncSummary> {
     cfg.users,
     cfg.groups,
   );
-  return syncAppUsers(new JellyfinAccountProvider(), desired, {
-    store: openBaoAppAccountStore,
-    notifier: consoleAccountNotifier,
-  });
+
+  // Existing managed accounts. A user already on the roster is, by construction,
+  // already enrolled — keep them in the desired set even if the Authentik lookup
+  // below transiently misses (a 5xx/timeout collapses to null), so an Authentik blip
+  // can never false-revoke a working account. Genuinely revoked users have no grant
+  // and so never reach this loop; syncAppUsers still disables them via the roster diff.
+  const roster = await openBaoAppAccountStore.loadRoster(JELLYFIN_APP_ID);
+  const provisioned = new Set(roster.map((e) => usernameKey(e.username)));
+
+  const gated: DesiredAppUser[] = [];
+  for (const u of desired.users) {
+    const identity = await resolveAuthentikIdentity(u.username, u.email);
+    if (identity) {
+      const canonical =
+        typeof identity.username === "string" && identity.username ? identity.username : u.username;
+      gated.push({ ...u, username: canonical });
+    } else if (provisioned.has(usernameKey(u.username))) {
+      gated.push(u); // already provisioned (thus enrolled); keep to avoid false-revoke
+    }
+    // else: grant present but not enrolled yet and no account — defer to a later tick.
+  }
+
+  return syncAppUsers(
+    new JellyfinAccountProvider(),
+    { users: gated, skippedNoEmail: desired.skippedNoEmail },
+    { store: openBaoAppAccountStore, notifier: consoleAccountNotifier },
+  );
 }
 
 /**

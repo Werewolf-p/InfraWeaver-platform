@@ -15,6 +15,7 @@
 import "server-only";
 import { authentikFetch } from "@/lib/authentik";
 import { publicHost } from "@/lib/domain";
+import type { PresetGrant } from "@/lib/users/access-presets";
 
 /**
  * Enrollment flow the invite link resolves to. Provisioned by the infra
@@ -39,25 +40,40 @@ export interface EnrollmentInvitation {
 }
 
 /**
- * Create a single-use Authentik enrollment invitation and return its link.
+ * Create a single-use Authentik enrollment invitation and return its link. This is
+ * the ONE place an enrollment invitation is minted — both the interactive
+ * `POST /api/users/invite` route and the automated reconcile call it, so the
+ * fixed_data shape and the (no-)flow binding can never drift between them.
  *
  * `groups` (Authentik group NAMES) ride on the invitation's `fixed_data` and are
  * applied at enrollment by the bounded `default-invitation-group-grant` policy,
  * which only adds PRE-EXISTING groups (unknown names ignored; never creates
- * groups). Throws if the enrollment flow is not provisioned — the caller decides
- * whether that is fatal.
+ * groups). `presetGrants` ride on `fixed_data.iw_roles` → prompt_data → and, since
+ * the user-write stage persists unrecognized prompt keys as user attributes, land
+ * on the enrolled account as `attributes.iw_roles`, which the reconcile bridges
+ * into users.yaml grants keyed by the actual chosen username.
+ *
+ * The invitation is deliberately created with NO `flow`. On Authentik 2026.5.4 an
+ * invitation with a `flow` set is NOT matched by the InvitationStage when the link
+ * is opened via that same flow's URL — the stage answers "Invalid invite/invite not
+ * found" and denies enrollment. The flow is already selected by the link PATH
+ * (/if/flow/<slug>/), so the field is redundant; the flow pk is still resolved as an
+ * existence gate. Throws if the enrollment flow is not provisioned — the caller
+ * decides whether that is fatal.
  */
 export async function createEnrollmentInvitation(input: {
   email: string;
   groups?: string[];
+  presetGrants?: PresetGrant[];
   expiryHours?: number;
 }): Promise<EnrollmentInvitation> {
-  const { email, groups = [], expiryHours = 168 } = input;
+  const { email, groups = [], presetGrants = [], expiryHours = 168 } = input;
   const flowPk = await resolveInvitationFlowPk();
   if (!flowPk) throw new Error("Authentik invitation flow is not configured");
 
   const fixedData: Record<string, unknown> = { email };
   if (groups.length > 0) fixedData.groups = groups;
+  if (presetGrants.length > 0) fixedData.iw_roles = presetGrants;
 
   const expires = new Date(Date.now() + expiryHours * 3600 * 1000).toISOString();
   const r = await authentikFetch("/stages/invitation/invitations/", {
@@ -67,7 +83,6 @@ export async function createEnrollmentInvitation(input: {
       name: `invite-${globalThis.crypto.randomUUID()}`,
       expires,
       single_use: true,
-      flow: flowPk,
       fixed_data: fixedData,
     }),
   });

@@ -103,9 +103,10 @@ export async function reconcileUsers(): Promise<UsersReconcileSummary> {
 
   for (const [username, user] of Object.entries(cfg.users)) {
     // Collect granted app scopes for the convergence pass below, regardless of
-    // enrollment state (Jellyfin is username-keyed and provisions even pre-enroll;
-    // storage group membership no-ops for a not-yet-existing identity and attaches
-    // on the tick after the user enrolls).
+    // enrollment state. The convergence pass is itself enrollment-aware: Jellyfin
+    // accounts are created only once the Authentik identity exists (keyed by the
+    // canonical username), and storage group membership no-ops for a not-yet-existing
+    // identity and attaches on the tick after the user enrolls.
     for (const grant of user.role_assignments ?? []) {
       if (isNasScope(grant.scope)) storageScopes.add(grant.scope);
       if (isJellyfinScope(grant.scope)) anyJellyfinGrant = true;

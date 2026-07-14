@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasSessionPermission } from "@/lib/session-rbac";
-import { authentikFetch } from "@/lib/authentik";
 import { auditLog } from "@/lib/audit-log";
 import { z } from "zod";
-import { publicHost } from "@/lib/domain";
 import { sendInviteEmail } from "@/lib/mailer";
+import { createEnrollmentInvitation } from "@/lib/authentik-invite";
 import { withRoute } from "@/lib/route-utils";
 import { sessionActor } from "@/lib/user-guards";
 import { safeError } from "@/lib/utils";
@@ -33,19 +32,6 @@ const InviteBody = z.object({
   expiryHours: z.number().int().min(1).max(168).optional().default(24),
 });
 
-// Enrollment flow the invite link resolves to. Provisioned by the infra
-// `authentik-blueprint-invitation-flow` blueprint. Overridable for non-default
-// Authentik installs.
-const INVITATION_FLOW_SLUG = process.env.AUTHENTIK_INVITATION_FLOW_SLUG ?? "default-invitation-flow";
-
-/** Resolve the invitation enrollment flow's pk by slug; null if it is absent. */
-async function resolveInvitationFlowPk(): Promise<string | null> {
-  const r = await authentikFetch(`/flows/instances/?slug=${encodeURIComponent(INVITATION_FLOW_SLUG)}`);
-  if (!r.ok) return null;
-  const data = (await r.json()) as { results?: Array<{ pk: string; slug: string }> };
-  return data.results?.find((f) => f.slug === INVITATION_FLOW_SLUG)?.pk ?? null;
-}
-
 // C4: raise the gate — issuing invitations requires users:write / rbac:admin.
 export const POST = withRoute(["users:write", "rbac:admin"], async (req: NextRequest, session, access) => {
   const parsed = InviteBody.safeParse(await req.json());
@@ -62,59 +48,20 @@ export const POST = withRoute(["users:write", "rbac:admin"], async (req: NextReq
 
   // Access presets expand to app-level RBAC grants (Jellyfin, Nextcloud storage) —
   // low-privilege app access, so the invite gate (users:write/rbac:admin) suffices;
-  // they never confer platform admin the way an arbitrary group could.
+  // they never confer platform admin the way an arbitrary group could. `groups`
+  // (rbac:admin only) and these presets ride on the invitation's fixed_data; the
+  // shared helper owns that shape and the no-flow binding (see createEnrollmentInvitation).
   const presetGrants = expandPresetGrants(presets);
 
-  // The invitation must be bound to a real enrollment flow, otherwise the link
-  // 404s. Resolve the flow's pk up front and fail clearly if the blueprint that
-  // provisions it has not synced yet.
-  const flowPk = await resolveInvitationFlowPk();
-  if (!flowPk) {
-    return NextResponse.json({ error: "Invitation flow is not configured" }, { status: 502 });
-  }
-
-  // `groups` (rbac:admin only) ride along on the invitation's fixed_data. The
-  // enrollment flow's bounded `default-invitation-group-grant` policy reads them
-  // at user-write and adds the new account to each PRE-EXISTING Authentik group
-  // (unknown names are ignored; it never creates groups). Membership is thus
-  // applied in-band by the flow, so no separate post-enrollment grant is needed.
-  // `iw_roles` rides on fixed_data → prompt_data → and, since the user-write stage
-  // persists unrecognized prompt keys as user attributes, lands on the enrolled
-  // account as `attributes.iw_roles`. The reconcile loop reads that attribute and
-  // materializes the grants in users.yaml keyed by the ACTUAL chosen username (which
-  // is unknown here, at invite time), then auto-provisions. Carrying it as an
-  // attribute — rather than guessing the username now — is what makes it robust.
-  const fixedData: Record<string, unknown> = { email };
-  if (groups.length > 0) fixedData.groups = groups;
-  if (presetGrants.length > 0) fixedData.iw_roles = presetGrants;
-
-  const expires = new Date(Date.now() + expiryHours * 3600 * 1000).toISOString();
-  // Do NOT bind the invitation to a `flow`. On Authentik 2026.5.4 an invitation with a
-  // `flow` set is NOT matched by the InvitationStage when the link is opened via that
-  // same flow's URL — the stage answers "Invalid invite/invite not found" and denies
-  // enrollment. The flow is already selected by the link PATH (/if/flow/<slug>/), so the
-  // `flow` field is redundant; omitting it makes the token resolve and the flow advance
-  // to the prompt. (`flowPk` is still resolved above purely as an existence gate.)
-  const r = await authentikFetch("/stages/invitation/invitations/", {
-    method: "POST",
-    body: JSON.stringify({
-      // `name` is a required unique slug on Authentik's Invitation model.
-      name: `invite-${crypto.randomUUID()}`,
-      expires,
-      single_use: true,
-      fixed_data: fixedData,
-    }),
-  });
-
-  if (!r.ok) {
-    // Do not reflect Authentik's raw error body to the client.
+  let url: string;
+  try {
+    ({ url } = await createEnrollmentInvitation({ email, groups, presetGrants, expiryHours }));
+  } catch (e) {
+    // Flow not provisioned yet, or Authentik rejected the invitation. Do not reflect
+    // Authentik's raw error to the client.
+    console.error(`[users:invite] could not create enrollment invitation for ${email}:`, safeError(e));
     return NextResponse.json({ error: "Failed to create invitation" }, { status: 502 });
   }
-
-  const inv = await r.json();
-  const token = inv.pk ?? inv.invite_uuid ?? "";
-  const authentikBaseUrl = process.env.AUTHENTIK_PUBLIC_URL ?? `https://${publicHost("auth")}`;
-  const url = `${authentikBaseUrl}/if/flow/${INVITATION_FLOW_SLUG}/?itoken=${token}`;
 
   // Deliver the link by email — the whole point of an invite. A bounce (SMTP down,
   // O365 rejecting the From, mail not yet wired) must NOT fail the invite: the token

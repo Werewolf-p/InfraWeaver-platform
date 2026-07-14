@@ -16,7 +16,11 @@ jest.mock("@/lib/audit-log", () => ({ auditLog: (...args: unknown[]) => mockAudi
 jest.mock("@/lib/app-accounts/reconcile", () => ({ syncAppUsers: (...args: unknown[]) => mockSyncAppUsers(...args) }));
 jest.mock("@/lib/users-config", () => ({ loadUsersConfig: async () => ({ users: {}, groups: {}, sha: "", raw: "" }) }));
 jest.mock("@/lib/app-accounts/policy", () => ({ computeDesiredAppUsers: () => ({ users: [], skippedNoEmail: [] }) }));
-jest.mock("@/lib/app-accounts/store", () => ({ openBaoAppAccountStore: {} }));
+// syncJellyfinUsers now loads the roster (to avoid false-revoking an already-provisioned
+// account on an Authentik blip) and resolves Authentik identity per desired user before
+// syncing; stub both so this suite stays focused on the retry/audit behavior.
+jest.mock("@/lib/app-accounts/store", () => ({ openBaoAppAccountStore: { loadRoster: async () => [] } }));
+jest.mock("@/lib/users/resolve-identity", () => ({ resolveAuthentikIdentity: async () => null }));
 jest.mock("@/lib/app-accounts/notify", () => ({ consoleAccountNotifier: {} }));
 jest.mock("@/lib/jellyfin/provider", () => ({ JellyfinAccountProvider: class {} }));
 
