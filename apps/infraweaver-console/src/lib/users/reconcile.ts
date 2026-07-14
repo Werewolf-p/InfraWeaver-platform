@@ -29,7 +29,7 @@ import "server-only";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig } from "@/lib/users-config";
 import { findUserByUsername } from "@/lib/authentik";
-import { resolveAuthentikIdentity } from "@/lib/users/resolve-identity";
+import { resolveAuthentikIdentity, canonicalAppUsername } from "@/lib/users/resolve-identity";
 import { createEnrollmentInvitation, hasLiveInvitationForEmail } from "@/lib/authentik-invite";
 import { isMailerConfigured, sendInviteEmail } from "@/lib/mailer";
 import { isNasScope } from "@/lib/nas/scope";
@@ -126,7 +126,7 @@ export async function reconcileUsers(): Promise<UsersReconcileSummary> {
       // created under the SAME username as the SSO identity — never a drifted key.
       const identity = await resolveAuthentikIdentity(username, user.email);
       if (identity) {
-        const canonical = typeof identity.username === "string" && identity.username ? identity.username : username;
+        const canonical = canonicalAppUsername(identity, username);
         summary.enrolled.push(canonical);
         enrolledUsers.push({ username: canonical, yamlKey: username, email: user.email, ...(user.name ? { displayName: user.name } : {}) });
         continue;

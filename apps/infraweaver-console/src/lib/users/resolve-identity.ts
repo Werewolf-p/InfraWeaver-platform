@@ -45,3 +45,26 @@ export async function resolveAuthentikIdentity(
     (rosterEmail ? await resolvers.findUserByEmail(rosterEmail) : null)
   );
 }
+
+/**
+ * The username under which a user's LOCAL app accounts (Jellyfin, Nextcloud) live.
+ *
+ * App accounts are always created under the CANONICAL Authentik username — the name
+ * the person chose at enrollment — never the (possibly hand-entered, possibly drifted)
+ * users.yaml / route key. So provisioning AND deprovisioning MUST key off the SAME
+ * canonical name: reconcile creates them under `identity.username`, so offboard must
+ * delete them under `identity.username` too, or a username/case drift orphans the
+ * local login and its stored credential (the SSO account is torn down, the app
+ * accounts leak forever). Falls back to `fallbackKey` only when there is no SSO
+ * identity (a local-only user), which is the only name they could have been created
+ * under. This is the shared seam so reconcile's provision key and offboard's
+ * deprovision key can never diverge.
+ */
+export function canonicalAppUsername(
+  identity: AuthentikUserRecord | null,
+  fallbackKey: string,
+): string {
+  return identity && typeof identity.username === "string" && identity.username
+    ? identity.username
+    : fallbackKey;
+}

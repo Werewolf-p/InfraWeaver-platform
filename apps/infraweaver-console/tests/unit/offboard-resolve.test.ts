@@ -22,7 +22,7 @@ jest.mock("@/lib/authentik", () => ({
   findUserByEmail: jest.fn(async () => null),
 }));
 
-import { resolveAuthentikIdentity } from "@/lib/users/resolve-identity";
+import { resolveAuthentikIdentity, canonicalAppUsername } from "@/lib/users/resolve-identity";
 
 const DRIFT_PK = 987654321;
 const EMAIL = "testdrift@example.com";
@@ -77,5 +77,39 @@ describe("resolveAuthentikIdentity — username→email drift", () => {
     });
 
     expect(resolved).toBeNull();
+  });
+});
+
+/**
+ * Regression pin for the offboard app-account drift bug.
+ *
+ * App accounts (Jellyfin, Nextcloud) are created under the CANONICAL Authentik
+ * username — reconcile provisions under `identity.username`. Offboard used to
+ * deprovision by the RAW route key, so on drift (route key `e2edrift`, canonical
+ * `e2ephoenix`) the SSO account was resolved-by-email and torn down while the
+ * Jellyfin/Nextcloud accounts (under `e2ephoenix`) were orphaned forever.
+ *
+ * `canonicalAppUsername` is the shared seam both reconcile (provision) and offboard
+ * (deprovision) now key off, so those two names can never diverge.
+ */
+describe("canonicalAppUsername — app-account deprovision key", () => {
+  test("drift: resolved identity → its canonical username, NOT the raw route key", () => {
+    const identity = { pk: DRIFT_PK, username: "e2ephoenix", email: EMAIL };
+    // The route was called with the drifted roster key; the account lives under canonical.
+    expect(canonicalAppUsername(identity, "e2edrift")).toBe("e2ephoenix");
+  });
+
+  test("no SSO identity (local-only user) → falls back to the route key", () => {
+    // Only name a local-only user's Jellyfin/Nextcloud account could exist under.
+    expect(canonicalAppUsername(null, "localonly")).toBe("localonly");
+  });
+
+  test("identity without a username → falls back to the route key", () => {
+    expect(canonicalAppUsername({ pk: DRIFT_PK, email: EMAIL }, "koen")).toBe("koen");
+  });
+
+  test("no drift: canonical equals the route key → unchanged", () => {
+    const identity = { pk: 1, username: "koen", email: EMAIL };
+    expect(canonicalAppUsername(identity, "koen")).toBe("koen");
   });
 });

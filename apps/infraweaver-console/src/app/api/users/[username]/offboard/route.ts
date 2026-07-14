@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
 import { authentikFetch } from "@/lib/authentik";
-import { resolveAuthentikIdentity } from "@/lib/users/resolve-identity";
+import { resolveAuthentikIdentity, canonicalAppUsername } from "@/lib/users/resolve-identity";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig, saveUsersConfig, type LoadedUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
@@ -78,6 +78,16 @@ export async function POST(
   if (isSelf) {
     return NextResponse.json({ error: "Cannot offboard yourself" }, { status: 400 });
   }
+
+  // The local app accounts (Jellyfin, Nextcloud) were created under the CANONICAL
+  // Authentik username (reconcile provisions under identity.username), which on a
+  // username/case drift or post-invite rename is NOT the route key we were called
+  // with. Deprovisioning by the raw route key would then miss those accounts and
+  // orphan the local login + its stored credential — the same drift class the SSO
+  // teardown above already fixes via resolveAuthentikIdentity. Key the app-account
+  // teardown off the same resolved identity; fall back to the route key only for a
+  // local-only user (no SSO identity), the only name they could exist under.
+  const appUsername = canonicalAppUsername(user, username);
 
   const steps: OffboardStep[] = [];
 
@@ -165,7 +175,7 @@ export async function POST(
   // clears the roster row + stored credential so no orphaned login or revealable
   // password outlives the user. Idempotent — no account is a clean no-op.
   try {
-    const result = await offboardJellyfinUser(username);
+    const result = await offboardJellyfinUser(appUsername);
     steps.push({ name: "Delete Jellyfin account", success: true, message: result.message });
   } catch (e) {
     steps.push({ name: "Delete Jellyfin account", success: false, message: safeError(e) });
@@ -176,14 +186,14 @@ export async function POST(
   // SSO/group-driven); this removes the leftover DB record via the OCS API. It never
   // touches /Media (an external TrueNAS mount, not the user's home).
   try {
-    const result = await deprovisionNextcloudUser(username);
+    const result = await deprovisionNextcloudUser(appUsername);
     // Also drop the stored Nextcloud local credential so no revealable password
     // outlives the user. The Jellyfin step (offboardJellyfinUser) already clears its
     // own OpenBao record; this makes Nextcloud symmetric — without it, a deleted
     // user's Nextcloud password lingered in OpenBao (observed on a real delete).
     // Best-effort: an orphaned credential is harmless and must not fail the step.
     try {
-      await openBaoAppAccountStore.deleteCredential(NEXTCLOUD_APP_ID, username);
+      await openBaoAppAccountStore.deleteCredential(NEXTCLOUD_APP_ID, appUsername);
     } catch {
       // swallowed — user + access already gone; a stray secret is cleaned on next audit
     }
