@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getSessionRBACContext, hasAnySessionPermission } from "@/lib/session-rbac";
-import { findUserByUsername, findUserByEmail, authentikFetch } from "@/lib/authentik";
+import { authentikFetch } from "@/lib/authentik";
+import { resolveAuthentikIdentity } from "@/lib/users/resolve-identity";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig, saveUsersConfig, type LoadedUsersConfig } from "@/lib/users-config";
 import { safeError } from "@/lib/utils";
@@ -63,10 +64,10 @@ export async function POST(
   //
   // Resolve by username first, then fall back to the roster email: a username/case
   // mismatch must not orphan the identity by making the username lookup miss a user
-  // that plainly exists under a different email-matched record.
-  const user =
-    (await findUserByUsername(username)) ??
-    (row?.email ? await findUserByEmail(row.email) : null);
+  // that plainly exists under a different email-matched record. The fallback lives in
+  // resolveAuthentikIdentity so the same guard covers reconcile and is exercised by
+  // the `sec-offboard-drift` runtime self-test in /api/test-suite.
+  const user = await resolveAuthentikIdentity(username, row?.email);
 
   // Self-guard without depending on the Authentik record (which may be absent):
   // block deleting your own account by username, and by email when the record exists.

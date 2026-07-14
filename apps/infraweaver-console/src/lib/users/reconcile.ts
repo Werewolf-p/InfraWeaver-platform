@@ -28,7 +28,8 @@
 import "server-only";
 import { auditLog } from "@/lib/audit-log";
 import { loadUsersConfig } from "@/lib/users-config";
-import { findUserByEmail, findUserByUsername } from "@/lib/authentik";
+import { findUserByUsername } from "@/lib/authentik";
+import { resolveAuthentikIdentity } from "@/lib/users/resolve-identity";
 import { createEnrollmentInvitation, hasLiveInvitationForEmail } from "@/lib/authentik-invite";
 import { isMailerConfigured, sendInviteEmail } from "@/lib/mailer";
 import { isNasScope } from "@/lib/nas/scope";
@@ -122,7 +123,7 @@ export async function reconcileUsers(): Promise<UsersReconcileSummary> {
       // users.yaml key was hand-entered differently. The canonical Authentik username is
       // then what downstream provisioning uses, so Nextcloud + Jellyfin accounts are
       // created under the SAME username as the SSO identity — never a drifted key.
-      const identity = (await findUserByUsername(username)) ?? (await findUserByEmail(user.email));
+      const identity = await resolveAuthentikIdentity(username, user.email);
       if (identity) {
         const canonical = typeof identity.username === "string" && identity.username ? identity.username : username;
         summary.enrolled.push(canonical);

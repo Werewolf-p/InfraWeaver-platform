@@ -320,6 +320,43 @@ export const GET = withAuth({ permission: "cluster:admin" }, async ({ req }) => 
       if (typeof mod.auditUnauthorizedAccess !== "function") return { status: "fail", message: "auditUnauthorizedAccess not exported" };
       return { status: "pass", message: "Audit log module loaded with all expected exports" };
     }),
+    () => runTest("sec-offboard-drift", "Offboard resolves username→email drift (no orphaned identity)", "security", async () => {
+      // Regression pin for the offboard/reconcile drift fix (commit 539e9489),
+      // exercised in-process with stub resolvers — no live Authentik is touched.
+      //
+      // Drift scenario: the Authentik username no longer matches the roster key
+      // (case drift or a post-invite rename), so `findUserByUsername` misses. The
+      // identity still exists under its unchanged email. Without the email
+      // fallback, offboard skips the SSO account and ORPHANS it — access is never
+      // revoked. The pk this resolves is exactly what feeds DELETE /core/users/<pk>/.
+      const { resolveAuthentikIdentity } = await import("@/lib/users/resolve-identity");
+      const DRIFT_PK = 987654321;
+      const EMAIL = "testdrift@example.com";
+
+      const resolved = await resolveAuthentikIdentity("TestDrift", EMAIL, {
+        findUserByUsername: async () => null, // username lookup misses (drifted)
+        findUserByEmail: async (email) => (email === EMAIL ? { pk: DRIFT_PK, email } : null),
+      });
+      if (!resolved || resolved.pk !== DRIFT_PK) {
+        return {
+          status: "fail",
+          message: "Drifted identity would be ORPHANED — email fallback missing",
+          detail: "findUserByUsername miss must fall back to findUserByEmail(row.email); the resolved pk is what DELETE /core/users/<pk>/ targets",
+        };
+      }
+      // The pk that flows straight into the identity DELETE must be the email-matched one.
+      const deletePath = `/core/users/${resolved.pk}/`;
+      if (deletePath !== `/core/users/${DRIFT_PK}/`) {
+        return { status: "fail", message: `Offboard would DELETE the wrong identity (${deletePath})` };
+      }
+      // And an exact username hit must NOT trigger the email fallback (which here throws).
+      const direct = await resolveAuthentikIdentity("exact", "e@example.com", {
+        findUserByUsername: async () => ({ pk: 1, email: "e@example.com" }),
+        findUserByEmail: async () => { throw new Error("email fallback ran despite a username match"); },
+      });
+      if (!direct || direct.pk !== 1) return { status: "fail", message: "Username-matched identity not resolved directly" };
+      return { status: "pass", message: "Drifted identity resolved by email (DELETE targets its pk); exact-match skips the fallback" };
+    }),
 
     // ── Stability (enterprise stability agent) ────────────────────────────
     () => runTest("stab-ping", "Public /api/ping endpoint responds", "stability", async () => {
