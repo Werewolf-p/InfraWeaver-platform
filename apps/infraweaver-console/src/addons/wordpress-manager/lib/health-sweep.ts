@@ -38,25 +38,38 @@ export async function runHealthSweep(): Promise<HealthSweepSummary> {
     (site) => site.managed && site.siteName && site.state === "active" && site.fingerprintConfirmed,
   );
 
-  const results: HealthSweepSiteResult[] = [];
-  for (const target of targets) {
-    const siteName = target.siteName as string;
-    try {
-      const health = await connectorHealthCheck(siteName);
-      results.push({
-        site: siteName,
-        ok: health.ok,
-        roundtripMs: health.roundtripMs,
-        ...(health.rejectedReason ? { reason: health.rejectedReason } : {}),
-      });
-    } catch (err) {
-      // A per-site failure (pod down, quarantined link, tamper) is logged and
-      // recorded, but the sweep carries on to the remaining sites.
-      const reason = err instanceof Error ? err.message : String(err);
-      console.warn(`[wordpress:iwsl] health sweep for ${siteName} failed:`, reason);
-      results.push({ site: siteName, ok: false, reason });
-    }
-  }
+  // Sweep every site CONCURRENTLY. connectorHealthCheck already bounds each
+  // round-trip at COMMAND_TIMEOUT_MS (60s); running them sequentially made the
+  // total wall-time N×60s, so a few unreachable connectors pushed the sweep past
+  // the CronJob's `--max-time 300`, failing the job hourly (BackoffLimitExceeded).
+  // allSettled keeps each site isolated (one failure never rejects the batch) and
+  // caps wall-time at ~one command timeout regardless of site count.
+  const settled = await Promise.allSettled(
+    targets.map(async (target): Promise<HealthSweepSiteResult> => {
+      const siteName = target.siteName as string;
+      try {
+        const health = await connectorHealthCheck(siteName);
+        return {
+          site: siteName,
+          ok: health.ok,
+          roundtripMs: health.roundtripMs,
+          ...(health.rejectedReason ? { reason: health.rejectedReason } : {}),
+        };
+      } catch (err) {
+        // A per-site failure (pod down, quarantined link, tamper) is logged and
+        // recorded, but the sweep carries on for the remaining sites.
+        const reason = err instanceof Error ? err.message : String(err);
+        console.warn(`[wordpress:iwsl] health sweep for ${siteName} failed:`, reason);
+        return { site: siteName, ok: false, reason };
+      }
+    }),
+  );
+
+  const results: HealthSweepSiteResult[] = settled.map((outcome, i) =>
+    outcome.status === "fulfilled"
+      ? outcome.value
+      : { site: targets[i].siteName as string, ok: false, reason: String(outcome.reason) },
+  );
 
   const passed = results.filter((r) => r.ok).length;
   return {
