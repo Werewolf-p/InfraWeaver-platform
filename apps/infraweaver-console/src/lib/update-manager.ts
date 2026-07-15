@@ -1,4 +1,4 @@
-import jsYaml from "js-yaml";
+import * as jsYaml from "js-yaml";
 import { gitReadFile } from "@/lib/git-provider";
 
 const ARGOCD_SERVER = process.env.ARGOCD_SERVER ?? "http://argocd-server.argocd.svc.cluster.local:80";

@@ -1,5 +1,5 @@
 import type * as k8s from "@kubernetes/client-node";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import { GAME_HUB_NAMESPACE } from "./game-hub";
 import type { GameHubClients } from "./game-hub-server";
 import { getGitProviderName, gitDeleteFile, gitReadFile, gitWriteFile } from "@/lib/git-provider";

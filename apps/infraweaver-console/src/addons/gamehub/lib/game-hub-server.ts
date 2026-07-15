@@ -550,7 +550,7 @@ export function sourceRconCommand(
       socket.write(encodeSourceRconPacket(AUTH_ID, SOURCE_RCON_AUTH, password));
     });
 
-    socket.on("data", (chunk) => {
+    socket.on("data", (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
       while (buffer.length >= 4) {
         const size = buffer.readInt32LE(0);
