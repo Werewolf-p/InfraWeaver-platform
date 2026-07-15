@@ -13,29 +13,17 @@
 #     (Service `infraweaver-console` on port 3000, namespace `infraweaver-console`).
 #     If your console runs elsewhere (some installs use the `infraweaver`
 #     namespace), adjust `metadata.namespace` and the curl URL host accordingly.
-#   * Auth uses a shared secret. Populate the `wordpress-health-cron` Secret
-#     below with the SAME value you set on the console Deployment as the
-#     `WORDPRESS_HEALTH_CRON_TOKEN` environment variable. Without a matching
-#     token the endpoint fails closed (401/403) and the sweep will not run.
-#   * `deploy.sh` only applies `namespace.yaml`; apply this file separately:
-#       kubectl apply -f k8s/health-sweep-cronjob.yaml
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: wordpress-health-cron
-  namespace: infraweaver-console
-  labels:
-    app.kubernetes.io/managed-by: infraweaver-console
-    infraweaver.io/component: iwsl
-type: Opaque
-stringData:
-  # PLACEHOLDER — replace with the same value as the console's
-  # WORDPRESS_HEALTH_CRON_TOKEN env var. Generate one with e.g.
-  #   openssl rand -hex 32
-  # In a real deployment prefer sourcing this from OpenBao/External Secrets
-  # rather than committing a literal; this stub keeps the manifest self-contained.
-  token: "replace-me-with-WORDPRESS_HEALTH_CRON_TOKEN"
+#   * Auth uses the shared `wordpress-health-cron` Secret (key `token`), which
+#     MUST hold the SAME value the console has as its `WORDPRESS_HEALTH_CRON_TOKEN`
+#     env var — otherwise the endpoint fails closed (401/403) and the sweep never
+#     runs. A committed literal here can never match that env, so this file no
+#     longer ships a placeholder Secret: `deploy.sh` sources the token from OpenBao
+#     (the same origin ExternalSecrets syncs into the console) and creates the
+#     Secret at deploy time. To apply this CronJob by hand, first create the
+#     Secret from that shared token, e.g.:
+#       kubectl -n infraweaver-console create secret generic wordpress-health-cron \
+#         --from-literal=token="$WORDPRESS_HEALTH_CRON_TOKEN"
+#     then: kubectl apply -f k8s/health-sweep-cronjob.yaml
 ---
 apiVersion: batch/v1
 kind: CronJob

@@ -9,8 +9,22 @@ NAMESPACE="${WORDPRESS_NAMESPACE:-wordpress}"
 ZOT="${ZOT_REGISTRY:?set ZOT_REGISTRY, e.g. zot.example.com/infraweaver-console}"
 TAG="${IMAGE_TAG:-$(date +%Y%m%d-%H%M%S)}"
 CONSOLE_DEPLOYMENT="${CONSOLE_DEPLOYMENT:-infraweaver-console}"
-CONSOLE_NAMESPACE="${CONSOLE_NAMESPACE:-infraweaver}"
+# Matches the reference deployment's Application destination (catalog namespace
+# `infraweaver-console`), which is also what the health-sweep manifests below
+# pin. Override only if the console runs elsewhere.
+CONSOLE_NAMESPACE="${CONSOLE_NAMESPACE:-infraweaver-console}"
 CONSOLE_CONTAINER="${CONSOLE_CONTAINER:-console}"
+
+# ── WordPress health-sweep wiring (source of the shared cron token) ───────────
+# The hourly sweep CronJob and the console must present the SAME token, so it is
+# read from OpenBao — the same origin ExternalSecrets syncs into the console in
+# the GitOps path — rather than a committed literal. Set SKIP_HEALTH_SWEEP=1 to
+# only roll the image (e.g. when OpenBao is unreachable from where you deploy).
+SKIP_HEALTH_SWEEP="${SKIP_HEALTH_SWEEP:-0}"
+WP_HEALTH_CRON_BAO_MOUNT="${WP_HEALTH_CRON_BAO_MOUNT:-secret}"
+WP_HEALTH_CRON_BAO_PATH="${WP_HEALTH_CRON_BAO_PATH:-platform/infraweaver-console}"
+WP_HEALTH_CRON_BAO_PROP="${WP_HEALTH_CRON_BAO_PROP:-wordpress-health-cron-token}"
+WP_HEALTH_CRON_SECRET="${WP_HEALTH_CRON_SECRET:-wordpress-health-cron}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The console app root is three levels up (src/addons/wordpress-manager). Resolve
@@ -23,23 +37,61 @@ if [[ ! -f "${app_root}/package.json" || ! -f "${app_root}/Dockerfile" ]]; then
 fi
 cd "${app_root}"
 
-echo "==> 1/5 unit tests (pure core must be green before shipping)"
+# Read a KV v2 field from OpenBao. Prefers the `bao`/`vault` CLI when present,
+# else falls back to the HTTP API (curl + jq). Needs OPENBAO_ADDR + OPENBAO_TOKEN.
+read_openbao_field() {
+  local mount="$1" path="$2" field="$3" cli val
+  : "${OPENBAO_ADDR:?set OPENBAO_ADDR, e.g. http://openbao.openbao.svc.cluster.local:8200}"
+  : "${OPENBAO_TOKEN:?set OPENBAO_TOKEN with read access to ${mount}/${path}}"
+  if cli="$(command -v bao || command -v vault)"; then
+    BAO_ADDR="${OPENBAO_ADDR}" BAO_TOKEN="${OPENBAO_TOKEN}" \
+    VAULT_ADDR="${OPENBAO_ADDR}" VAULT_TOKEN="${OPENBAO_TOKEN}" \
+      "${cli}" kv get -mount="${mount}" -field="${field}" "${path}"
+    return
+  fi
+  command -v jq >/dev/null || { echo "error: need the bao/vault CLI or jq to read OpenBao" >&2; return 1; }
+  val="$(curl --fail --silent --show-error \
+      -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
+      "${OPENBAO_ADDR}/v1/${mount}/data/${path}" \
+    | jq -er ".data.data[\"${field}\"]")" \
+    || { echo "error: could not read ${field} from ${mount}/${path} in OpenBao" >&2; return 1; }
+  printf '%s' "${val}"
+}
+
+echo "==> 1/6 unit tests (pure core must be green before shipping)"
 npx jest tests/unit/wordpress-manager
 
-echo "==> 2/5 typecheck"
+echo "==> 2/6 typecheck"
 npx tsc --noEmit -p tsconfig.json
 
-echo "==> 3/5 ensure namespace + PodSecurity labels"
+echo "==> 3/6 ensure namespace + PodSecurity labels"
 kubectl apply -f "${here}/k8s/namespace.yaml"
 
-echo "==> 4/5 build and push the console image to Zot"
+echo "==> 4/6 build and push the console image to Zot"
 docker build -t "${ZOT}:${TAG}" .
 docker push "${ZOT}:${TAG}"
 
-echo "==> 5/5 roll the console to the new image"
+echo "==> 5/6 roll the console to the new image"
 kubectl -n "${CONSOLE_NAMESPACE}" set image "deployment/${CONSOLE_DEPLOYMENT}" \
   "${CONSOLE_CONTAINER}=${ZOT}:${TAG}"
 kubectl -n "${CONSOLE_NAMESPACE}" rollout status "deployment/${CONSOLE_DEPLOYMENT}"
+
+if [[ "${SKIP_HEALTH_SWEEP}" == "1" ]]; then
+  echo "==> 6/6 WordPress health-sweep — SKIPPED (SKIP_HEALTH_SWEEP=1)"
+else
+  echo "==> 6/6 wire the hourly WordPress health-sweep (cron token from OpenBao)"
+  # The CronJob and the console must present the same token; source it from the
+  # console's OpenBao secret so they can never drift (a committed literal never
+  # matches the console's WORDPRESS_HEALTH_CRON_TOKEN env → sweep 401/403s).
+  cron_token="$(read_openbao_field "${WP_HEALTH_CRON_BAO_MOUNT}" "${WP_HEALTH_CRON_BAO_PATH}" "${WP_HEALTH_CRON_BAO_PROP}")"
+  kubectl -n "${CONSOLE_NAMESPACE}" create secret generic "${WP_HEALTH_CRON_SECRET}" \
+    --from-literal=token="${cron_token}" --dry-run=client -o yaml \
+    | kubectl -n "${CONSOLE_NAMESPACE}" apply -f -
+  # Zero-trust egress/ingress for the default-denied sweep pods, then the CronJob.
+  kubectl apply -f "${here}/k8s/health-sweep-netpol.yaml"
+  kubectl apply -f "${here}/k8s/health-sweep-cronjob.yaml"
+  echo "health sweep wired: CronJob wordpress-connector-health-sweep (0 * * * *)"
+fi
 
 echo "Done. Enable the 'wordpress-manager' addon in console settings, then visit /wordpress."
 echo "Namespace: ${NAMESPACE}  Image: ${ZOT}:${TAG}"
