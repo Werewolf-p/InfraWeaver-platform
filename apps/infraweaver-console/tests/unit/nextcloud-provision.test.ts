@@ -1,9 +1,11 @@
 jest.mock("server-only", () => ({}), { virtual: true });
 
+/* eslint-disable @typescript-eslint/no-unused-vars -- params name the mock arity/types; values are unused */
 const mockExists = jest.fn(async (_u: string) => false);
 const mockCreate = jest.fn(async (_i: unknown) => ({ created: true }));
 const mockEnsureGroup = jest.fn(async (_g: string) => {});
 const mockAddToGroup = jest.fn(async (_u: string, _g: string) => {});
+/* eslint-enable @typescript-eslint/no-unused-vars */
 jest.mock("@/lib/nextcloud/client", () => ({
   nextcloudUserExists: (u: string) => mockExists(u),
   createNextcloudUser: (i: unknown) => mockCreate(i),

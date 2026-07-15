@@ -969,6 +969,7 @@ function FilesTab({
               </div>
             ) : isImageFile ? (
               <div className="flex h-full items-center justify-center bg-white dark:bg-[#0a0a0a] p-4">
+                {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary user-uploaded file bytes streamed from the API with unknown dimensions; next/image cannot optimize this */}
                 <img
                   src={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(selectedFile.path)}&download=1`}
                   alt={selectedFile.name}

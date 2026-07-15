@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { checkSameOrigin, getRequestSizeViolation, hasUpstreamFeedbackSignature, internalCronTokenMatches } from "@/lib/api-helpers";
-import { auditAuthFailure, auditUnauthorizedAccess } from "@/lib/audit-log";
+import { auditUnauthorizedAccess } from "@/lib/audit-log";
 import { checkRateLimit, rateLimitKey, UNAUTHENTICATED_RATE_LIMIT } from "@/lib/rate-limit";
 import { NextResponse, type NextRequest } from "next/server";
 

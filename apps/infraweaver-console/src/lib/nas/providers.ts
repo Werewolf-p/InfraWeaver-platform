@@ -139,7 +139,6 @@ export function listProviderConfigs(env: NodeJS.ProcessEnv = process.env): NasPr
     } catch (error) {
       // Never let a malformed provider spec take down the API; log via
       // console.error and fall back to built-ins.
-      // eslint-disable-next-line no-console
       console.error("NAS_PROVIDERS_JSON is invalid, ignoring:", error);
     }
   }

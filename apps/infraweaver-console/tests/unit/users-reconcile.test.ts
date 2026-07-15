@@ -9,8 +9,10 @@ jest.mock("@/lib/users-config", () => ({
   loadUsersConfig: async () => ({ users: mockUsers, groups: {}, sha: "sha", raw: "" }),
 }));
 
+/* eslint-disable @typescript-eslint/no-unused-vars -- params name the mock arity/types; values are unused */
 const mockFindUser = jest.fn(async (_u: string): Promise<{ pk: number; username?: string } | null> => null);
 const mockFindUserByEmail = jest.fn(async (_e: string): Promise<{ pk: number; username?: string } | null> => null);
+/* eslint-enable @typescript-eslint/no-unused-vars */
 jest.mock("@/lib/authentik", () => ({
   findUserByUsername: (u: string) => mockFindUser(u),
   findUserByEmail: (e: string) => mockFindUserByEmail(e),

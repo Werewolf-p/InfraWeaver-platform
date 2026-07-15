@@ -1855,6 +1855,7 @@ export function DashboardTab({
               <p className="text-[10px] uppercase text-[#4a6fa5]">Primary host</p>
               <p className="mt-1 break-all font-mono text-sm text-gray-700 dark:text-[#e0e0e0]">{connectionHost}</p>
             </div>
+            {/* eslint-disable-next-line @next/next/no-img-element -- external QR endpoint on a third-party host; next/image would require remotePatterns for a static 120x120 image */}
             <img
               src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(connectionString)}`}
               alt={`QR code for ${connectionString}`}

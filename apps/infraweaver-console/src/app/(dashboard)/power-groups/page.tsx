@@ -46,7 +46,8 @@ export default function PowerGroupsPage() {
   const togglePick = (app: string) =>
     setPicked((prev) => {
       const next = new Set(prev);
-      next.has(app) ? next.delete(app) : next.add(app);
+      if (next.has(app)) next.delete(app);
+      else next.add(app);
       return next;
     });
 

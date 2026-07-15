@@ -174,7 +174,9 @@ const deletesUser = () => calls.filter((c) => c.path === `/core/users/${TARGET_P
 
 describe("offboard tolerates a missing Authentik user (invited-but-never-enrolled / local-only)", () => {
   test("does not 404; skips SSO teardown but still deprovisions app accounts + config", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { offboardJellyfinUser } = require("@/lib/jellyfin/access");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { deprovisionNextcloudUser } = require("@/lib/nextcloud/deprovision");
     calls = [];
     authentikFetch.mockImplementation(async (path: string, options?: { method?: string }) => {
@@ -228,6 +230,7 @@ describe("delete vs offboard identity action", () => {
  */
 describe("offboard resolves the Authentik identity by email when the username misses", () => {
   const EMAIL_PK = 99;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { loadUsersConfig } = require("@/lib/users-config");
 
   afterEach(() => {

@@ -33,6 +33,7 @@ class FakeProvider implements AppAccountProvider {
   async listUsers(): Promise<AppUserAccount[]> {
     return [...this.users.values()];
   }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- password is interface-mandated but unused by this in-memory fake
   async createUser(username: string, _password: string): Promise<AppUserAccount> {
     const account: AppUserAccount = { id: `u${++this.seq}`, username, role: "user", disabled: false };
     this.users.set(account.id, account);
@@ -51,6 +52,7 @@ class FakeProvider implements AppAccountProvider {
     if (account) this.users.set(id, { ...account, disabled: false });
   }
   passwordResets: string[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- password is interface-mandated but unused by this in-memory fake
   async resetPassword(id: string, _password: string): Promise<void> {
     this.passwordResets.push(id);
   }

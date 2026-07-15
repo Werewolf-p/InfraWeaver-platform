@@ -17,7 +17,6 @@ import "server-only";
 import { auditLog } from "@/lib/audit-log";
 import { DEFAULT_RETRY_DELAYS_MS, retryWithBackoff } from "@/lib/retry";
 import { loadUsersConfig } from "@/lib/users-config";
-import type { Permission } from "@/lib/rbac";
 import { computeDesiredAppUsers } from "@/lib/app-accounts/policy";
 import { generateAppPassword } from "@/lib/app-accounts/password";
 import { syncAppUsers, deprovisionAppUser, type AppUserSyncSummary, type DeprovisionResult } from "@/lib/app-accounts/reconcile";

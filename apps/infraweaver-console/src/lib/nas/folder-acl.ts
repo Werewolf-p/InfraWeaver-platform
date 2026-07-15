@@ -96,7 +96,6 @@ export function listFolderAclRules(env: NodeJS.ProcessEnv = process.env): Folder
     // refuse all folder-scoped requests until it's fixed, rather than
     // silently opening everything. This matches the security-first stance
     // of the rest of the NAS pipeline.
-    // eslint-disable-next-line no-console
     console.error("NAS_FOLDER_ACL_JSON is invalid, denying all folder access:", error);
     cached = [{
       provider: "*",
