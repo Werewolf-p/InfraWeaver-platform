@@ -8,6 +8,12 @@ export const queryKeys = {
     all: () => ["security"] as const,
     auditLog: () => ["security", "audit-log"] as const,
   },
+  secrets: {
+    all: () => ["secrets"] as const,
+    // Shared collector key for the Secret & GitOps lifecycle report. Subject 2's
+    // observability board queries this exact key via SecretHealthSummary.
+    lifecycle: () => ["secrets", "lifecycle"] as const,
+  },
   audit: {
     all: () => ["audit"] as const,
     query: (params: Record<string, string | number | undefined>) => ["audit", "query", params] as const,

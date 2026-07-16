@@ -5,7 +5,7 @@ import {
   Sparkles, Home, Trash2, GitBranch, ArrowUpCircle,
   Globe, BellOff, Shield, HeartPulse,
   Calendar, Search, LayoutGrid, TestTube2, Puzzle, MemoryStick,
-  KeyRound, Lock, Boxes, MessageSquarePlus,
+  KeyRound, Lock, Boxes, MessageSquarePlus, ShieldAlert,
 } from "lucide-react";
 import { mergeRegisteredPages, navItemFromPage } from "@/lib/page-registry";
 import { ADDON_MANIFESTS } from "@/generated/addon-registry";
@@ -114,6 +114,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", description: "Container image registry browser", keywords: ["images", "containers", "harbor"] },
       { href: "/config", icon: Cog, label: "Config", shortcut: "G C", description: "Config editor, ConfigMaps, and drift vs Git", pinnable: true, keywords: ["configmap", "config maps", "drift", "git", "secrets editor"] },
       { href: "/secrets", icon: KeyRound, label: "Secrets & Certs", description: "Secret browser, expiry tracking, and TLS certificates", keywords: ["externalsecret", "credentials", "vault", "expiry", "rotation", "tls", "ssl", "cert-manager", "certificates"] },
+      { href: "/secret-health", icon: ShieldAlert, label: "Secret Health", description: "OpenBao token TTL countdown, ExternalSecret sync + Retain traps, catalog key coverage, and public-mirror status", keywords: ["secret health", "openbao", "vault", "token", "ttl", "expiry", "externalsecret", "eso", "retain", "deletionpolicy", "seed", "catalog", "coverage", "mirror", "sync-to-public", "gitops", "lifecycle", "remediation"] },
     ],
   },
   {

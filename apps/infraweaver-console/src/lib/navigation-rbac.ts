@@ -30,6 +30,7 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/certificates": { any: ["security:read", "infra:read"] },
   "/network-policies": { any: ["infra:read"] },
   "/secret-expiry": { any: ["security:read", "infra:read"] },
+  "/secret-health": { any: ["security:read", "infra:read"] },
   "/secrets": { any: ["cluster:admin"] },
   "/config": { any: ["config:read"] },
   "/config-maps": { any: ["cluster:admin"] },
