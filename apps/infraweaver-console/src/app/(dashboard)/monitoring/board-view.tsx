@@ -81,14 +81,26 @@ export function ObservabilityBoardView() {
 
   const nodesNotReady = (nodesQuery.data?.nodes ?? []).filter((node) => (node.status ?? "").toLowerCase() !== "ready").length;
   const maxMemPct = Math.max(0, ...(memPressureQuery.data?.nodes ?? []).map((node) => node.pressure_pct));
-  const oomEvents = oomQuery.data?.events ?? [];
+  const oomEvents = useMemo(() => oomQuery.data?.events ?? [], [oomQuery.data]);
 
   const resourceInput = useMemo(
     () => ({ oomEvents, nodesNotReady, maxMemPressurePct: maxMemPct }),
     [oomEvents, nodesNotReady, maxMemPct],
   );
 
-  const now = Date.now();
+  // "now" as of the freshest successful fetch — pure to read (no Date.now() in
+  // render), and it advances on each refetch so overdue/wedge math re-derives
+  // exactly when data does.
+  const now = Math.max(
+    argoQuery.dataUpdatedAt,
+    secretsQuery.dataUpdatedAt,
+    cronQuery.dataUpdatedAt,
+    postureQuery.dataUpdatedAt,
+    oomQuery.dataUpdatedAt,
+    memPressureQuery.dataUpdatedAt,
+    nodesQuery.dataUpdatedAt,
+    reliabilityQuery.dataUpdatedAt,
+  );
   const summary = useMemo(
     () =>
       aggregateSignals({
@@ -100,9 +112,7 @@ export function ObservabilityBoardView() {
         reliability: reliabilityQuery.data ? { score: reliabilityQuery.data.score, grade: reliabilityQuery.data.grade } : null,
         now,
       }),
-    // `now` intentionally excluded — it re-derives every render; data deps drive recompute.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [argoQuery.data, argoSummary, secretsQuery.data, cronQuery.data, cronjobs, postureQuery.data, oomQuery.data, memPressureQuery.data, nodesQuery.data, resourceInput, reliabilityQuery.data],
+    [argoQuery.data, argoSummary, secretsQuery.data, cronQuery.data, cronjobs, postureQuery.data, oomQuery.data, memPressureQuery.data, nodesQuery.data, resourceInput, reliabilityQuery.data, now],
   );
 
   const signalFor = (source: SignalSource) => summary.signals.find((signal) => signal.source === source);

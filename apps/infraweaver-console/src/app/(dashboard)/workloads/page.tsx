@@ -2,12 +2,12 @@
 
 import { Gamepad2, Globe, LayoutGrid, Network, Newspaper } from "lucide-react";
 import { TabHub, type HubTab } from "@/components/layout/tab-hub";
-import { WordpressDashboard } from "@/addons/wordpress-manager/components/wordpress-dashboard";
 import { useAddons } from "@/hooks/use-addons";
 import { AppsView } from "../apps/view";
 import { AppGraphView } from "../app-graph/view";
 import { GameHubView } from "../game-hub/view";
 import { RoutesView } from "../routes/view";
+import { WordpressView } from "../wordpress/view";
 
 /**
  * Workloads hub — one landing for everything you run: Apps, the dependency Graph,
@@ -26,7 +26,7 @@ export default function WorkloadsPage() {
       ? [{ value: "game", label: "Game Servers", icon: Gamepad2, Component: GameHubView }]
       : []),
     ...(isEnabled("wordpress-manager")
-      ? [{ value: "wordpress", label: "WordPress", icon: Newspaper, Component: WordpressDashboard }]
+      ? [{ value: "wordpress", label: "WordPress", icon: Newspaper, Component: WordpressView }]
       : []),
     { value: "routing", label: "Routing", icon: Globe, Component: RoutesView },
   ];
