@@ -21,6 +21,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
 import { NAV_GROUPS, GOTO_SHORTCUTS } from "@/lib/nav-config";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
+import { DegradedBackendsBanner } from "@/components/ui/degraded-backends-banner";
 import { KeyboardShortcutsProvider } from "@/components/ui/keyboard-shortcuts-modal";
 import { GlobalSearch } from "@/components/search/global-search";
 import { ResourceResults } from "@/components/search/resource-results";
@@ -734,6 +735,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           ref={mainRef}
           className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 pb-28 sm:px-4 sm:py-4 sm:pb-4 md:p-6 md:pb-6"
         >
+          <DegradedBackendsBanner />
           <PullToRefresh onRefresh={handlePullToRefresh} className="min-h-full">
             <AnimatePresence mode="wait">
               <motion.div

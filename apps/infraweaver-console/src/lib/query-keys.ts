@@ -48,6 +48,8 @@ export const queryKeys = {
     configDrift: () => ["cluster", "config-drift"] as const,
     quota: () => ["cluster", "quota"] as const,
     cost: () => ["cluster", "cost"] as const,
+    costAttribution: () => ["cluster", "cost-attribution"] as const,
+    rightsizing: () => ["cluster", "rightsizing"] as const,
   },
   profile: {
     all: () => ["profile"] as const,

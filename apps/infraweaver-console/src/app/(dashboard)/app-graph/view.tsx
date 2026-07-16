@@ -5,6 +5,7 @@ import { Network } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { DependencyGraphPanel } from "./_components/dependency-graph-panel";
 
 interface ArgoApp {
   metadata: { name: string };
@@ -41,8 +42,9 @@ export function AppGraphView() {
       <PageHeader icon={Network} title="Application Graph" />
       <div>
         <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><Network className="w-5 h-5 text-slate-500 dark:text-slate-400" />App Dependency Graph</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">ArgoCD application health overview</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Network-derived dependencies, blast radius, and ArgoCD health</p>
       </div>
+      <DependencyGraphPanel />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">

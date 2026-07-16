@@ -1,5 +1,6 @@
 import * as k8s from "@kubernetes/client-node";
 import { apiCache } from "@/lib/api-cache";
+import { circuitBreakers } from "@/lib/circuit-breaker";
 import { getClusterConfig, getDefaultClusterId } from "@/lib/cluster-context";
 import { listCustomItems, loadKubeConfig } from "@/lib/k8s";
 import { PERFORMANCE_CACHE_KEYS } from "@/lib/performance-cache";
@@ -19,14 +20,18 @@ const LAST_KNOWN_APPS_TTL_MS = 600_000;
  * `path` must start with "/" (e.g. "/api/v1/applications").
  */
 export function argocdFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${argocdApiBase()}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${DEFAULT_ARGOCD_TOKEN}`,
-      "Content-Type": "application/json",
-      ...init.headers,
-    },
-  });
+  // Wrapped in the ArgoCD circuit breaker so a hard-down backend stops being
+  // hammered by every retry/refetch and surfaces as a degraded-backend banner.
+  return circuitBreakers.argocd.call(() =>
+    fetch(`${argocdApiBase()}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${DEFAULT_ARGOCD_TOKEN}`,
+        "Content-Type": "application/json",
+        ...init.headers,
+      },
+    }),
+  );
 }
 
 export type ArgoAppsDataSource = "argocd-api" | "crd" | "last-known" | "unavailable";

@@ -7,7 +7,11 @@ import { useApiQuery } from "@/hooks";
 import { queryStaleTimes } from "@/lib/query-defaults";
 import { queryKeys } from "@/lib/query-keys";
 import { requirePageConfig } from "@/lib/page-registry";
+import { COST_RATE_NOTE } from "@/lib/finops/cost-model";
+import type { CostAttribution } from "@/lib/finops/cost-attribution";
 import type { ClusterCostResponse, NamespaceCost } from "@/types";
+
+const RECLAIMABLE_TOP_N = 8;
 
 const page = requirePageConfig("/cost");
 
@@ -31,12 +35,24 @@ export default function CostPage() {
     staleTime: queryStaleTimes.short,
   });
 
+  const { data: attribution } = useApiQuery<CostAttribution & { live: boolean }>({
+    queryKey: queryKeys.cluster.costAttribution(),
+    path: "/api/cluster/cost-attribution",
+    staleTime: queryStaleTimes.short,
+  });
+
   const namespaces = data?.namespaces ?? [];
   const totalMonthlyCost = data?.totalMonthlyCost ?? 0;
   const chartData = namespaces.map((namespaceCost) => ({
     name: namespaceCost.namespace,
     cost: namespaceCost.monthlyCostUsd,
   }));
+
+  const reclaimableTotal = attribution?.totals.reclaimableUsd ?? 0;
+  const reclaimableChart = (attribution?.namespaces ?? [])
+    .filter((ns) => ns.reclaimableUsd > 0)
+    .slice(0, RECLAIMABLE_TOP_N)
+    .map((ns) => ({ name: ns.namespace, used: ns.usedUsd, reclaimable: ns.reclaimableUsd }));
 
   return (
     <PageScaffold
@@ -53,13 +69,40 @@ export default function CostPage() {
       }}
     >
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-        <DashboardStatCard
-          label="Total monthly estimate"
-          value={`$${totalMonthlyCost.toFixed(2)}`}
-          icon={page.icon}
-          tone="info"
-          description="CPU: $0.048/vCPU/hr · Memory: $0.006/GB/hr"
-        />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <DashboardStatCard
+            label="Total monthly estimate"
+            value={`$${totalMonthlyCost.toFixed(2)}`}
+            icon={page.icon}
+            tone="info"
+            description={COST_RATE_NOTE}
+          />
+          <DashboardStatCard
+            label="Reclaimable / month"
+            value={`$${reclaimableTotal.toFixed(2)}`}
+            icon={page.icon}
+            tone={reclaimableTotal > 0 ? "warning" : "success"}
+            description="Requested capacity that actual usage never touches"
+          />
+        </div>
+
+        {reclaimableChart.length > 0 && (
+          <DashboardPanel title="Reclaimable by Namespace" description="Used vs idle (reclaimable) monthly spend — trim requests to recover the amber portion.">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={reclaimableChart}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} tickFormatter={(value: number) => `$${value}`} />
+                <Tooltip
+                  contentStyle={{ background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                  formatter={(value, name) => [`$${Number(value).toFixed(2)}`, name === "used" ? "Used" : "Reclaimable"]}
+                />
+                <Bar dataKey="used" stackId="cost" fill="#6366f1" />
+                <Bar dataKey="reclaimable" stackId="cost" fill="#eab308" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </DashboardPanel>
+        )}
 
         <DashboardPanel title="Cost by Namespace" description="Estimated monthly cloud cost based on requested resources.">
           <ResponsiveContainer width="100%" height={220}>

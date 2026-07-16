@@ -1,85 +1,130 @@
 "use client";
 import { motion } from "framer-motion";
-import { useState } from "react";
-import { Package, ShieldAlert, Shield } from "lucide-react";
+import { Package, ShieldAlert, ShieldCheck, Boxes } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { AsyncBoundary } from "@/components/ui";
 import { useApiQuery } from "@/hooks/use-api-query";
+import type { PinStatus, SupplyChainFinding, SupplyChainSummary } from "@/lib/images/supply-chain";
+import type { ImageMatrixRow, ScanCoverage, VulnRollup } from "@/lib/images/vuln-rollup";
 
-interface ImageEntry {
-  image: string;
-  registry: string;
-  namespace: string;
-  pods: number;
-  isTrusted: boolean;
+interface ImageIntel {
+  supplyChain: { findings: SupplyChainFinding[]; summary: SupplyChainSummary };
+  cve: { available: boolean; matrix: ImageMatrixRow[]; rollup: VulnRollup; coverage: ScanCoverage };
+}
+
+const PIN_META: Record<PinStatus, { label: string; className: string }> = {
+  "pinned-digest": { label: "digest-pinned", className: "bg-green-500/10 text-green-400 border-green-500/20" },
+  tagged: { label: "version tag", className: "bg-sky-500/10 text-sky-300 border-sky-500/20" },
+  "mutable-tag": { label: "mutable tag", className: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" },
+  "floating-latest": { label: ":latest", className: "bg-red-500/10 text-red-400 border-red-500/20" },
+  "no-tag": { label: "no tag", className: "bg-red-500/10 text-red-400 border-red-500/20" },
+};
+
+const GRADE_TONE: Record<string, string> = { A: "text-green-400", B: "text-green-400", C: "text-yellow-400", D: "text-orange-400", F: "text-red-400" };
+
+function StatCard({ label, value, color }: { label: string; value: string | number; color?: string }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-slate-100 p-4 text-center backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/60">
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+      <p className={cn("mt-1 text-3xl font-bold", color ?? "text-gray-900 dark:text-white")}>{value}</p>
+    </div>
+  );
 }
 
 export default function ImageVulnerabilitiesPage() {
-  const [filter, setFilter] = useState<"all" | "untrusted">("all");
-
-  const { data, isLoading } = useApiQuery<{ images: ImageEntry[] }>({
-    queryKey: ["security", "images"],
-    path: "/api/security/images",
+  const { data, isLoading, isError, refetch } = useApiQuery<ImageIntel>({
+    queryKey: ["security", "image-intel"],
+    path: "/api/security/image-intel",
+    staleTime: 120_000,
   });
 
-  const images = data?.images ?? [];
-  const filtered = filter === "untrusted" ? images.filter(i => !i.isTrusted) : images;
-  const untrustedCount = images.filter(i => !i.isTrusted).length;
-
-  const byRegistry = filtered.reduce<Record<string, ImageEntry[]>>((acc, img) => {
-    if (!acc[img.registry]) acc[img.registry] = [];
-    acc[img.registry].push(img);
-    return acc;
-  }, {});
-
-  if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
+  const sc = data?.supplyChain;
+  const cve = data?.cve;
+  const findings = sc?.findings ?? [];
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Shield} title="Image Vulnerabilities" />
-      <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><Package className="w-5 h-5 text-slate-500 dark:text-slate-400" />Image Vulnerability Summary</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Container images running in the cluster</p>
+      <PageHeader icon={ShieldCheck} title="Image Supply Chain" description="Pin-status integrity and CVE exposure for every running image" />
+
+      <AsyncBoundary
+        isLoading={isLoading}
+        isError={isError}
+        isEmpty={!isLoading && !isError && findings.length === 0}
+        onRetry={() => refetch()}
+        emptyTitle="No running images found"
+      >
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Supply-chain grade" value={sc?.summary.grade ?? "—"} color={GRADE_TONE[sc?.summary.grade ?? "A"]} />
+        <StatCard label="Digest-pinned" value={sc?.summary.pinnedDigest ?? 0} color="text-green-400" />
+        <StatCard label="Mutable / :latest" value={sc?.summary.mutableOrFloating ?? 0} color={(sc?.summary.mutableOrFloating ?? 0) > 0 ? "text-yellow-400" : "text-green-400"} />
+        <StatCard label="Untrusted registry" value={sc?.summary.untrustedRegistry ?? 0} color={(sc?.summary.untrustedRegistry ?? 0) > 0 ? "text-red-400" : "text-green-400"} />
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {[
-          { label: "Total Images", value: images.length, icon: Package, color: "text-gray-900 dark:text-white" },
-          { label: "Untrusted", value: untrustedCount, icon: ShieldAlert, color: untrustedCount > 0 ? "text-red-400" : "text-green-400" },
-          { label: "Trusted", value: images.length - untrustedCount, icon: Shield, color: "text-green-400" },
-        ].map(s => (
-          <div key={s.label} className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 text-center">
-            <p className="text-xs text-slate-500 dark:text-slate-400">{s.label}</p>
-            <p className={`text-3xl font-bold mt-1 ${s.color}`}>{s.value}</p>
-          </div>
-        ))}
-      </div>
-      <div className="flex gap-2">
-        <button onClick={() => setFilter("all")} className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${filter === "all" ? "bg-indigo-500/20 border-indigo-500/30 text-indigo-300" : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400"}`}>All</button>
-        <button onClick={() => setFilter("untrusted")} className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${filter === "untrusted" ? "bg-red-500/20 border-red-500/30 text-red-300" : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400"}`}>Untrusted Only</button>
-      </div>
-      {Object.entries(byRegistry).map(([registry, imgs]) => (
-        <div key={registry} className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-white/10 flex items-center gap-2">
-            <span className="text-sm font-semibold text-gray-900 dark:text-white">{registry}</span>
-            <span className="text-xs text-slate-500">{imgs.length} image{imgs.length > 1 ? "s" : ""}</span>
-          </div>
-          <table className="w-full">
-            <tbody>
-              {imgs.map(img => (
-                <tr key={img.image} className="border-b border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
-                  <td className="px-4 py-3 text-xs text-slate-700 dark:text-slate-300 font-mono max-w-xs truncate">{img.image}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500">{img.namespace}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{img.pods} pod{img.pods > 1 ? "s" : ""}</td>
-                  <td className="px-4 py-3 text-right">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${img.isTrusted ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
-                      {img.isTrusted ? "Trusted" : "Untrusted"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-slate-100 backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/60">
+        <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-white/10">
+          <Boxes className="h-4 w-4 text-slate-400" />
+          <span className="text-sm font-semibold text-gray-900 dark:text-white">Pin-status matrix</span>
+          <span className="text-xs text-slate-500">{findings.length} images</span>
         </div>
-      ))}
+        <table className="w-full">
+          <tbody>
+            {findings.map((f) => (
+              <tr key={f.image} className="border-b border-gray-200 transition-colors hover:bg-gray-100 dark:border-white/5 dark:hover:bg-white/5">
+                <td className="max-w-md truncate px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">{f.image}</td>
+                <td className="px-4 py-3 text-xs text-slate-500">{f.registry}{!f.trustedRegistry && <ShieldAlert className="ml-1 inline h-3 w-3 text-red-400" />}</td>
+                <td className="px-4 py-3 text-xs text-slate-500">{f.pods} pod{f.pods > 1 ? "s" : ""}</td>
+                <td className="px-4 py-3 text-right">
+                  <span className={cn("rounded-full border px-2 py-0.5 text-xs", PIN_META[f.pinStatus].className)}>{PIN_META[f.pinStatus].label}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {findings.length === 0 && <div className="py-10 text-center text-sm text-slate-500">No running images found</div>}
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-slate-100 p-4 backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/60">
+        <div className="mb-3 flex items-center gap-2">
+          <Package className="h-4 w-4 text-slate-400" />
+          <span className="text-sm font-semibold text-gray-900 dark:text-white">CVE exposure</span>
+        </div>
+        {!cve?.available ? (
+          <p className="py-6 text-center text-sm text-slate-500">
+            Trivy Operator is not installed — CVE data unavailable. Install trivy-operator to populate VulnerabilityReports.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+              <StatCard label="Critical" value={cve.rollup.totals.critical} color="text-red-400" />
+              <StatCard label="High" value={cve.rollup.totals.high} color="text-orange-400" />
+              <StatCard label="Medium" value={cve.rollup.totals.medium} color="text-yellow-400" />
+              <StatCard label="Low" value={cve.rollup.totals.low} color="text-slate-400" />
+              <StatCard label="Coverage" value={`${cve.rollup.coveragePct}%`} />
+              <StatCard label="Grade" value={cve.rollup.grade} color={GRADE_TONE[cve.rollup.grade]} />
+            </div>
+            {(cve.coverage.unscanned.length > 0 || cve.coverage.staleScans.length > 0) && (
+              <p className="text-xs text-slate-500">
+                Scan blind spots: <span className="text-red-400">{cve.coverage.unscanned.length} unscanned</span> · <span className="text-yellow-400">{cve.coverage.staleScans.length} stale</span> (&gt;24h)
+              </p>
+            )}
+            {cve.rollup.worstOffenders.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-semibold text-slate-500">Worst offenders (severity × replicas)</p>
+                <ul className="space-y-1 text-xs">
+                  {cve.rollup.worstOffenders.map((row) => (
+                    <li key={row.image} className="flex items-center justify-between gap-2">
+                      <span className="truncate font-mono text-slate-600 dark:text-slate-300">{row.image}</span>
+                      <span className="shrink-0 text-slate-500">C{row.counts.critical} · H{row.counts.high} · {row.pods}×</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      </AsyncBoundary>
     </motion.div>
   );
 }
