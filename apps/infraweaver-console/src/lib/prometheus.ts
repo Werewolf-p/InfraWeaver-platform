@@ -4,6 +4,8 @@
 // /api/metrics/history/[namespace]/[pod].
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { circuitBreakers } from "@/lib/circuit-breaker";
+
 const PROMETHEUS_URL = process.env.PROMETHEUS_URL ?? "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090";
 
 /** One matrix sample: [unix seconds, value-as-string]. */
@@ -48,11 +50,13 @@ export async function promQueryRange(query: string, opts: PromQueryRangeOptions)
     end: String(opts.end),
     step: String(opts.step),
   });
-  const response = await fetch(`${PROMETHEUS_URL}/api/v1/query_range?${params.toString()}`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-    ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
-  });
+  const response = await circuitBreakers.prometheus.call(() =>
+    fetch(`${PROMETHEUS_URL}/api/v1/query_range?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
+    }),
+  );
   const body = await response.json() as PrometheusMatrixResponse;
   if (!response.ok || body.status !== "success") {
     throw new Error(body.error ?? body.errorType ?? `Prometheus query failed (${response.status})`);
