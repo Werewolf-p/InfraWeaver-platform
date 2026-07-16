@@ -6,6 +6,7 @@ import {
   Globe, BellOff, Shield, HeartPulse,
   Calendar, Search, LayoutGrid, TestTube2, Puzzle, MemoryStick,
   KeyRound, Lock, Boxes, MessageSquarePlus, ShieldAlert,
+  HandHelping, Inbox,
 } from "lucide-react";
 import { mergeRegisteredPages, navItemFromPage } from "@/lib/page-registry";
 import { ADDON_MANIFESTS } from "@/generated/addon-registry";
@@ -65,6 +66,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       navItemFromPage("/cost"),
       { href: "/feedback", icon: MessageSquarePlus, label: "Feedback & Fix Flow", description: "Review reported issues, run the Claude fix pipeline, preview, and publish", keywords: ["feedback", "report", "bug", "feature request", "note", "claude", "fix", "review", "publish", "preview"] },
       navItemFromPage("/wiki"),
+      { href: "/self-service", icon: HandHelping, label: "Self-Service", description: "Request app access or storage quota, reset your password, and update your profile — applied instantly when within your access, or routed to an admin", keywords: ["self service", "self-service", "request", "access request", "storage quota", "password reset", "profile", "my requests", "guardrails"] },
       { href: "/changelog", icon: Sparkles, label: "What's New", description: "Recent platform updates" },
     ],
   },
@@ -151,6 +153,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
         keywords: ["identity", "users", "accounts", "sso", "groups", "members", "rbac", "roles", "permissions", "assign", "grant", "revoke", "access", "pim", "privileged", "elevation", "elevate", "just-in-time", "jit", "activation", "eligible", "assignments", "roster", "drift", "access studio"],
       },
       { href: "/audit", icon: History, label: "Audit Log", description: "Searchable, durable audit trail with severity, category, and date filters", keywords: ["audit", "trail", "log", "history", "who", "changed", "mutation", "compliance", "tamper", "severity", "export"] },
+      { href: "/approvals", icon: Inbox, label: "Approvals", description: "Review and decide self-service requests — approve to apply under your ceiling, or deny with a note", keywords: ["approvals", "approve", "deny", "self-service", "requests", "queue", "access request", "storage quota", "pending"] },
     ],
   },
   {

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRoutePermissions, requireSingleCluster } from "@/lib/route-utils";
-import { makeCoreApi } from "@/lib/kube-client";
+import { expandPvc, PVC_SIZE_RE } from "@/lib/storage/expand-pvc";
 import { safeError } from "@/lib/utils";
 
 const expandSchema = z.object({
   namespace: z.string().min(1).max(253),
   name: z.string().min(1).max(253),
-  newSize: z.string().min(2).max(32).regex(/^\d+(?:\.\d+)?(?:Ki|Mi|Gi|Ti|Pi)$/),
+  newSize: z.string().min(2).max(32).regex(PVC_SIZE_RE),
 });
 
 export async function PATCH(request: NextRequest) {
@@ -24,24 +24,8 @@ export async function PATCH(request: NextRequest) {
   if (cluster instanceof NextResponse) return cluster;
 
   try {
-    const coreApi = makeCoreApi(cluster.clusterId);
-    await coreApi.patchNamespacedPersistentVolumeClaim({
-      name,
-      namespace,
-      body: { spec: { resources: { requests: { storage: newSize } } } },
-      fieldManager: "infraweaver",
-    });
-
-    const pvc = await coreApi.readNamespacedPersistentVolumeClaim({ name, namespace });
-    return NextResponse.json({
-      ok: true,
-      pvc: {
-        namespace,
-        name,
-        requestedStorage: pvc.spec?.resources?.requests?.storage ?? newSize,
-        capacity: pvc.status?.capacity?.storage ?? pvc.spec?.resources?.requests?.storage ?? newSize,
-      },
-    });
+    const pvc = await expandPvc({ clusterId: cluster.clusterId, namespace, name, newSize });
+    return NextResponse.json({ ok: true, pvc });
   } catch (error) {
     return NextResponse.json(
       {

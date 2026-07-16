@@ -63,4 +63,13 @@ export const queryKeys = {
     all: () => ["wiki"] as const,
     search: () => ["wiki", "search"] as const,
   },
+  selfService: {
+    all: () => ["self-service"] as const,
+    /** The caller's own requests (My Requests). */
+    mine: () => ["self-service", "mine"] as const,
+    /** The admin approval queue (pending requests across all users). */
+    pending: () => ["self-service", "pending"] as const,
+    /** The caller's own expandable PVCs, feeding the storage-quota form. */
+    ownedPvcs: () => ["self-service", "owned-pvcs"] as const,
+  },
 } as const;

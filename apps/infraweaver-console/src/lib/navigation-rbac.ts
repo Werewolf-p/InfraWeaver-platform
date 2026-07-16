@@ -68,6 +68,9 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/self-test": { any: ["infra:read"] },
   "/users": { any: ["users:read", "rbac:admin"] },
   "/access": { any: ["users:read", "rbac:admin", "cluster:admin"] },
+  // Admin approval queue for self-service requests. Deliberately NO entry for
+  // "/self-service" — unlisted ⇒ visible to every authenticated user (the front door).
+  "/approvals": { any: ["users:write", "rbac:admin", "cluster:admin"] },
   "/admin/updates": { any: ["platform:update"] },
   "/registry": { any: ["config:read"] },
   "/settings/addons": { any: ["config:read"] },
