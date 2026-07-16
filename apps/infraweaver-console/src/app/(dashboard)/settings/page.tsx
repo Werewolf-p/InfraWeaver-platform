@@ -15,9 +15,10 @@ import {
   XCircle,
   Zap,
 } from "lucide-react";
+import type { ElementType } from "react";
 import { PlatformEditorPanel } from "@/components/settings/platform-editor-panel";
 import { UdmConnectorCard } from "@/components/settings/udm-connector-card";
-import { DensityToggle, PageScaffold, SettingsCard, ThemeToggle } from "@/components/ui";
+import { DensityToggle, PageScaffold, PillTabs, SectionTabs, SettingsCard, ThemeToggle, ToggleSwitch } from "@/components/ui";
 import { useSettingsContext, type RefreshInterval } from "@/contexts/settings-context";
 import { useSimpleMode } from "@/contexts/simple-mode-context";
 import { useApiQuery } from "@/hooks";
@@ -35,22 +36,31 @@ const REFRESH_OPTIONS: { label: string; value: RefreshInterval }[] = [
   { label: "5m", value: 300000 },
 ];
 
-function ToggleButton({ enabled, onClick }: { enabled: boolean; onClick: () => void }) {
+// Accessible toggle row: card chrome + icon on the left, and the shared
+// ToggleSwitch primitive (role="switch" + aria-checked + label wiring) on the
+// right, so each switch has a real accessible name instead of a bare button.
+function ToggleSettingRow({
+  icon: Icon,
+  title,
+  description,
+  checked,
+  onChange,
+}: {
+  icon: ElementType;
+  title: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "relative flex h-11 w-14 items-center rounded-full transition-colors touch-manipulation",
-        enabled ? "bg-indigo-500" : "bg-slate-700",
-      )}
-    >
-      <span
-        className={cn(
-          "absolute left-1.5 top-1.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-          enabled ? "translate-x-6" : "translate-x-0",
-        )}
-      />
-    </button>
+    <section className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-4 sm:p-5">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--az-primary-muted)]">
+          <Icon className="h-4 w-4 text-[var(--az-primary)]" />
+        </div>
+        <ToggleSwitch checked={checked} onChange={onChange} label={title} description={description} className="min-w-0 flex-1" />
+      </div>
+    </section>
   );
 }
 
@@ -93,65 +103,45 @@ export default function SettingsPage() {
       className="space-y-6"
     >
       <div className="space-y-6">
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          {([
-            { id: "general", label: "General", icon: SettingsIcon },
-            { id: "platform", label: "Platform", icon: Sliders },
-          ] as const).map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={cn(
-                "flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
-                activeTab === id
-                  ? "border border-indigo-500/30 bg-indigo-500/20 text-indigo-300"
-                  : "border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </button>
-          ))}
-        </div>
+        <SectionTabs
+          tabs={[
+            { value: "general", label: "General", icon: SettingsIcon },
+            { value: "platform", label: "Platform", icon: Sliders },
+          ]}
+          activeTab={activeTab}
+          onTabChange={(value) => setActiveTab(value as "general" | "platform")}
+        />
 
         {activeTab === "general" ? (
           <div className="max-w-3xl space-y-4 sm:space-y-5">
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
               <SettingsCard title="Refresh Interval" description="How often to poll cluster data" icon={RefreshCw}>
-                <div className="grid grid-cols-2 gap-2 sm:flex">
-                  {REFRESH_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => updateSetting("refreshInterval", option.value)}
-                      className={cn(
-                        "flex min-h-[44px] items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors touch-manipulation",
-                        settings.refreshInterval === option.value
-                          ? "border border-indigo-500/30 bg-indigo-500/20 text-indigo-300"
-                          : "border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white",
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
+                <PillTabs
+                  label="Refresh interval"
+                  tabs={REFRESH_OPTIONS.map((option) => ({ value: String(option.value), label: option.label }))}
+                  active={String(settings.refreshInterval)}
+                  onChange={(value) => updateSetting("refreshInterval", Number(value) as RefreshInterval)}
+                />
               </SettingsCard>
             </motion.div>
 
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 }}>
-              <SettingsCard
+              <ToggleSettingRow
+                icon={Layout}
                 title="Compact Mode"
                 description="Reduce padding in cards for denser view"
-                icon={Layout}
-                action={<ToggleButton enabled={settings.compactMode} onClick={() => updateSetting("compactMode", !settings.compactMode)} />}
+                checked={settings.compactMode}
+                onChange={(checked) => updateSetting("compactMode", checked)}
               />
             </motion.div>
 
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06 }}>
-              <SettingsCard
+              <ToggleSettingRow
+                icon={Filter}
                 title="Show System Apps"
                 description="Include core-*, bootstrap-*, and platform-* apps in application views"
-                icon={Filter}
-                action={<ToggleButton enabled={settings.showSystemApps} onClick={() => updateSetting("showSystemApps", !settings.showSystemApps)} />}
+                checked={settings.showSystemApps}
+                onChange={(checked) => updateSetting("showSystemApps", checked)}
               />
             </motion.div>
 
@@ -168,11 +158,12 @@ export default function SettingsPage() {
             </motion.div>
 
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-              <SettingsCard
+              <ToggleSettingRow
+                icon={Zap}
                 title="Simple Mode"
                 description="Hide advanced form fields across the console"
-                icon={Zap}
-                action={<ToggleButton enabled={simpleMode} onClick={() => setSimpleMode(!simpleMode)} />}
+                checked={simpleMode}
+                onChange={setSimpleMode}
               />
             </motion.div>
 

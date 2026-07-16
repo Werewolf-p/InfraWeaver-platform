@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Globe, Search } from "lucide-react";
 import { AccessTierBadge } from "@/components/access-tier-badge";
+import { HostCell } from "@/components/routing/host-cell";
 import { FilterSelect } from "@/components/ui/filter-select";
 import { KubeOfflineBanner } from "@/components/ui/kube-offline-banner";
 import { PageHeader } from "@/components/ui/page-header";
@@ -45,6 +46,12 @@ export function IngressView() {
     return matchesSearch && matchesNamespace && matchesAuth && matchesTls && matchesAccessTier;
   }), [accessTierFilter, authFilter, namespaceFilter, routes, search, tlsFilter]);
 
+  function resetFilters() {
+    setAuthFilter("all");
+    setTlsFilter("all");
+    setAccessTierFilter("all");
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -62,22 +69,50 @@ export function IngressView() {
       />
 
       <div className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
+        <button
+          type="button"
+          onClick={resetFilters}
+          aria-pressed={authFilter === "all" && tlsFilter === "all"}
+          className="rounded-2xl border border-gray-200 text-left transition hover:border-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:border-white/10 dark:hover:border-white/20 bg-slate-100 dark:bg-slate-900/70 p-4"
+        >
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">IngressRoutes</p>
           <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{data?.summary.total ?? 0}</p>
-        </div>
+          <p className="mt-1 text-[11px] text-slate-500">Show all</p>
+        </button>
         <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-indigo-100/80">Hosts</p>
           <p className="mt-2 text-3xl font-semibold text-indigo-200">{data?.summary.hosts ?? 0}</p>
         </div>
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+        <button
+          type="button"
+          onClick={() => setTlsFilter((current) => (current === "tls" ? "all" : "tls"))}
+          aria-pressed={tlsFilter === "tls"}
+          className={cn(
+            "rounded-2xl border text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 p-4",
+            tlsFilter === "tls"
+              ? "border-emerald-400/60 bg-emerald-500/20 ring-1 ring-emerald-400/40"
+              : "border-emerald-500/20 bg-emerald-500/10 hover:border-emerald-400/40",
+          )}
+        >
           <p className="text-xs uppercase tracking-[0.2em] text-emerald-100/80">TLS enabled</p>
           <p className="mt-2 text-3xl font-semibold text-emerald-300">{data?.summary.tlsEnabled ?? 0}</p>
-        </div>
-        <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+          <p className="mt-1 text-[11px] text-emerald-200/70">{tlsFilter === "tls" ? "Filtering · tap to clear" : "Tap to filter"}</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setAuthFilter((current) => (current === "auth" ? "all" : "auth"))}
+          aria-pressed={authFilter === "auth"}
+          className={cn(
+            "rounded-2xl border text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/60 p-4",
+            authFilter === "auth"
+              ? "border-cyan-400/60 bg-cyan-500/20 ring-1 ring-cyan-400/40"
+              : "border-cyan-500/20 bg-cyan-500/10 hover:border-cyan-400/40",
+          )}
+        >
           <p className="text-xs uppercase tracking-[0.2em] text-cyan-100/80">Auth protected</p>
           <p className="mt-2 text-3xl font-semibold text-cyan-200">{data?.summary.authProtected ?? 0}</p>
-        </div>
+          <p className="mt-1 text-[11px] text-cyan-200/70">{authFilter === "auth" ? "Filtering · tap to clear" : "Tap to filter"}</p>
+        </button>
       </div>
 
       <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
@@ -151,10 +186,14 @@ export function IngressView() {
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {route.hosts.length > 0 ? route.hosts.map((host) => (
-                  <span key={host} className={cn(
-                    "rounded-full border px-2.5 py-1 text-xs",
-                    host.includes(".int.") ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-200" : "border-cyan-500/30 bg-cyan-500/10 text-cyan-200"
-                  )}>{host}</span>
+                  <HostCell
+                    key={host}
+                    host={host}
+                    openable={route.hasTls || !host.includes(".int.")}
+                    chipClassName={host.includes(".int.")
+                      ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-200"
+                      : "border-cyan-500/30 bg-cyan-500/10 text-cyan-200"}
+                  />
                 )) : <span className="text-sm text-slate-500">No Host() matcher found.</span>}
               </div>
 

@@ -73,7 +73,7 @@ export default async function WikiHomePage() {
                   <Link
                     key={page.slug}
                     href={`/wiki/${section.id}/${page.slug}`}
-                    className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-white/10 bg-[#0d1117] px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 transition hover:border-blue-500/30 hover:bg-blue-500/10 hover:text-gray-900 dark:hover:text-white"
+                    className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2.5 text-sm text-slate-800 dark:text-slate-200 transition hover:border-blue-500/30 hover:bg-blue-500/10 hover:text-gray-900 dark:hover:text-white"
                   >
                     <span>{page.title}</span>
                     <ArrowRight className="h-4 w-4 text-slate-500" />

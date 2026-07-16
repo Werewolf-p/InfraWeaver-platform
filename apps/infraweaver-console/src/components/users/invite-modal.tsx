@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
-import { X, Mail, Copy, Check, ChevronDown, Users, AppWindow } from "lucide-react";
+import { X, Mail, Copy, Check, ChevronDown, Users, AppWindow, ShieldAlert } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useApiQuery } from "@/hooks/use-api-query";
@@ -111,6 +111,25 @@ export function InviteModal({ open, onClose }: Props) {
       current.includes(name) ? current.filter((g) => g !== name) : [...current, name],
     );
   }
+
+  // Consolidate every grant this invite will confer so the admin has a final,
+  // single-glance review before creating it — with a warning accent when any
+  // privileged app role or admin-looking group is included.
+  const selectedGrants = useMemo(() => {
+    const grants: Array<{ key: string; label: string; privileged: boolean }> = [];
+    for (const app of APP_CATALOG) {
+      const presetId = appRoles[app.id];
+      if (!presetId) continue;
+      const role = app.roles.find((option) => option.presetId === presetId);
+      if (role) grants.push({ key: `app:${app.id}`, label: `${app.label}: ${role.label}`, privileged: Boolean(role.privileged) });
+    }
+    for (const group of selectedGroups) {
+      grants.push({ key: `group:${group}`, label: `${group} group`, privileged: /admin/i.test(group) });
+    }
+    return grants;
+  }, [appRoles, selectedGroups]);
+
+  const hasPrivilegedGrant = selectedGrants.some((grant) => grant.privileged);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -357,6 +376,31 @@ export function InviteModal({ open, onClose }: Props) {
                   </Select.Portal>
                 </Select.Root>
               </div>
+              {selectedGrants.length > 0 ? (
+                <div className={`rounded-2xl border p-3 ${hasPrivilegedGrant ? "border-amber-400/40 bg-amber-500/5" : "border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#0d0d0d]"}`}>
+                  <div className="mb-2 flex items-center gap-2">
+                    {hasPrivilegedGrant ? <ShieldAlert className="h-4 w-4 text-amber-500" /> : <Check className="h-4 w-4 text-emerald-500" />}
+                    <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">
+                      This invite grants {selectedGrants.length} item{selectedGrants.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedGrants.map((grant) => (
+                      <span
+                        key={grant.key}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${grant.privileged ? "border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-700 dark:text-[#d4d4d4]"}`}
+                      >
+                        {grant.privileged ? <ShieldAlert className="h-3 w-3" /> : null}
+                        {grant.label}
+                      </span>
+                    ))}
+                  </div>
+                  {hasPrivilegedGrant ? (
+                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">Includes privileged access — double-check before creating.</p>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div className="flex gap-3 pt-1">
                 <button
                   type="button"

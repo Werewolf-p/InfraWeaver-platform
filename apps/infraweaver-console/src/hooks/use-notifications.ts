@@ -21,6 +21,8 @@ export interface Notification {
   cause?: string;
   /** Ranked severity from the pipeline; falls back to `level` when absent. */
   severity?: NotificationSeverity;
+  /** In-app route to the offending resource; makes the row a navigating action. */
+  href?: string;
 }
 
 interface NotificationStore {
@@ -53,6 +55,7 @@ function normalizeNotification(value: unknown): Notification | null {
     app: typeof input.app === "string" ? input.app : undefined,
     cause: typeof input.cause === "string" ? input.cause : undefined,
     severity,
+    href: typeof input.href === "string" && input.href.startsWith("/") ? input.href : undefined,
   };
 }
 
@@ -182,7 +185,7 @@ export function useNotifications() {
     }, [ackedIds]); // dismissedIds read via ref to avoid restarting interval on every push
 
   const addNotification = useCallback(
-    (title: string, level: NotificationLevel = "info", body?: string) => {
+    (title: string, level: NotificationLevel = "info", body?: string, href?: string) => {
       setStore((current) => ({
         ...current,
         local: [
@@ -193,6 +196,7 @@ export function useNotifications() {
             level,
             timestamp: Date.now(),
             read: false,
+            href: href && href.startsWith("/") ? href : undefined,
           },
           ...current.local,
         ].slice(0, MAX_NOTIFICATIONS),

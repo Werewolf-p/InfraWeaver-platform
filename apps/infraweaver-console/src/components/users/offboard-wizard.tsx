@@ -1,10 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, AlertTriangle, CheckCircle2, XCircle, Loader2, UserX } from "lucide-react";
+import { X, AlertTriangle, CheckCircle2, XCircle, Loader2, UserX, ShieldAlert, KeyRound, Users, Clapperboard, Cloud, FileCog } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { useRBAC } from "@/hooks/use-rbac";
+import { useUsersConfig } from "@/hooks/use-users-config";
+import { useJellyfinAccess } from "@/hooks/use-jellyfin-access";
 
 interface OffboardStep {
   name: string;
@@ -18,12 +20,13 @@ interface Props {
   onClose: () => void;
 }
 
-const PLANNED_STEPS = [
-  "Disable account",
-  "Revoke tokens",
-  "Remove from groups",
-  "Remove from users.yaml",
-];
+interface FootprintItem {
+  key: string;
+  icon: typeof KeyRound;
+  label: string;
+  detail?: string;
+  destructive?: boolean;
+}
 
 const variants = {
   enter: { opacity: 0, x: 30 },
@@ -37,6 +40,59 @@ export function OffboardWizard({ username, open, onClose }: Props) {
   const [step, setStep] = useState(0);
   const [typed, setTyped] = useState("");
   const [results, setResults] = useState<OffboardStep[]>([]);
+
+  // The real blast-radius: what this account actually holds. Reuses the same
+  // config + Jellyfin data the Access Studio loads, so the preview reflects the
+  // true impact instead of a reassuringly short hardcoded list.
+  const usersQuery = useUsersConfig();
+  const jellyfinQuery = useJellyfinAccess(open);
+
+  const targetUser = useMemo(
+    () => (usersQuery.data?.users ?? []).find((user) => user.username === username),
+    [usersQuery.data?.users, username],
+  );
+  const jellyfinGrants = useMemo(
+    () =>
+      (jellyfinQuery.data?.grants ?? []).filter(
+        (grant) => grant.principalType === "user" && grant.principalId === username,
+      ),
+    [jellyfinQuery.data?.grants, username],
+  );
+
+  const groups = useMemo(() => targetUser?.authentik_groups ?? [], [targetUser?.authentik_groups]);
+  const rbacCount = targetUser?.role_assignments?.length ?? 0;
+  const admins = useMemo(
+    () => (usersQuery.data?.users ?? []).filter((user) => user.access_level === "admin"),
+    [usersQuery.data?.users],
+  );
+  const isAdmin = targetUser?.access_level === "admin";
+  const isLastAdmin = Boolean(isAdmin) && admins.length <= 1;
+  const isPrivileged = Boolean(isAdmin) || groups.some((group) => /admin/i.test(group));
+  const footprintLoading =
+    (usersQuery.isLoading && !usersQuery.data) || (jellyfinQuery.isLoading && !jellyfinQuery.data);
+
+  const footprint = useMemo<FootprintItem[]>(() => {
+    const items: FootprintItem[] = [
+      { key: "account", icon: KeyRound, label: "Disable the Authentik login and revoke every token" },
+    ];
+    if (groups.length > 0) {
+      items.push({ key: "groups", icon: Users, label: `Remove ${groups.length} group membership${groups.length === 1 ? "" : "s"}`, detail: groups.join(", ") });
+    }
+    if (rbacCount > 0) {
+      items.push({ key: "rbac", icon: ShieldAlert, label: `Revoke ${rbacCount} RBAC assignment${rbacCount === 1 ? "" : "s"}`, destructive: true });
+    }
+    if (jellyfinGrants.length > 0) {
+      items.push({ key: "jellyfin", icon: Clapperboard, label: "Remove the Jellyfin account", detail: jellyfinGrants.some((grant) => grant.roleId === "jellyfin-admin") ? "Jellyfin administrator" : undefined, destructive: true });
+    }
+    items.push({ key: "nextcloud", icon: Cloud, label: "Tear down the Nextcloud local account and files access", destructive: true });
+    items.push({ key: "openbao", icon: KeyRound, label: "Purge the account's stored secrets (OpenBao)", destructive: true });
+    items.push(
+      targetUser
+        ? { key: "config", icon: FileCog, label: "Remove from the platform config (users.yaml)" }
+        : { key: "unmanaged", icon: FileCog, label: "Not present in users.yaml — an unmanaged account" },
+    );
+    return items;
+  }, [groups, rbacCount, jellyfinGrants, targetUser]);
 
   function handleClose() {
     setStep(0);
@@ -118,15 +174,40 @@ export function OffboardWizard({ username, open, onClose }: Props) {
 
               {step === 1 ? (
                 <motion.div key="preview" variants={variants} initial="enter" animate="center" exit="exit" className="space-y-4 p-6">
-                  <p className="text-sm text-gray-700 dark:text-[#d4d4d4]">The following actions will be executed for <strong className="text-gray-900 dark:text-[#f2f2f2]">@{username}</strong>:</p>
-                  <div className="space-y-2">
-                    {PLANNED_STEPS.map((plannedStep) => (
-                      <div key={plannedStep} className="flex items-center gap-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3">
-                        <div className="h-2 w-2 shrink-0 rounded-full bg-amber-400" />
-                        <span className="text-sm text-gray-700 dark:text-[#d4d4d4]">{plannedStep}</span>
+                  {isPrivileged || isLastAdmin ? (
+                    <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                      <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-red-300">
+                          {isLastAdmin ? "This is the last admin account" : "Privileged account"}
+                        </p>
+                        <p className="mt-1 text-xs leading-relaxed text-red-200/80">
+                          {isLastAdmin
+                            ? "Offboarding it leaves the platform with no administrator. Promote another admin first."
+                            : "This account carries administrator-tier access. Confirm the impact below before continuing."}
+                        </p>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ) : null}
+                  <p className="text-sm text-gray-700 dark:text-[#d4d4d4]">This is what offboarding <strong className="text-gray-900 dark:text-[#f2f2f2]">@{username}</strong> destroys:</p>
+                  {footprintLoading ? (
+                    <div className="flex items-center gap-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-4 text-sm text-gray-500 dark:text-[#888]">
+                      <Loader2 className="h-4 w-4 animate-spin text-[#3b82f6]" />
+                      Loading this account&apos;s footprint…
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {footprint.map((item) => (
+                        <div key={item.key} className="flex items-start gap-3 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3">
+                          <item.icon className={`mt-0.5 h-4 w-4 shrink-0 ${item.destructive ? "text-red-400" : "text-amber-400"}`} />
+                          <div className="min-w-0">
+                            <p className="text-sm text-gray-700 dark:text-[#d4d4d4]">{item.label}</p>
+                            {item.detail ? <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-[#888]">{item.detail}</p> : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex gap-3">
                     <button onClick={() => setStep(0)} className="flex h-11 flex-1 items-center justify-center rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-transparent px-4 text-sm text-gray-700 dark:text-[#d4d4d4] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] active:bg-gray-200 dark:active:bg-[#1f1f1f]">Back</button>
                     <button

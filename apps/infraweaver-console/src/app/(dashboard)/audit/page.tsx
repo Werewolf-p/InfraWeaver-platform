@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { History, Download, ShieldAlert } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
+import { History, Download, ShieldAlert, ChevronRight, XCircle } from "lucide-react";
 import { FilterSelect, PageScaffold, SearchInput } from "@/components/ui";
 import { useAuditQuery, buildAuditQueryString, type AuditQueryParams } from "@/hooks/use-audit-query";
 import type { AuditRecord } from "@/lib/audit/types";
@@ -51,6 +51,42 @@ function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
+function absoluteTime(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+}
+
+function DetailGrid({ entry }: { entry: AuditRecord }) {
+  const fields: Array<[string, string]> = [
+    ["User", entry.user],
+    ["Action", entry.action],
+    ["Category", entry.category],
+    ["Target", entry.target ?? "—"],
+    ["Resource", entry.resource ?? "—"],
+    ["Timestamp", absoluteTime(entry.timestamp)],
+    ["IP", entry.ip ?? "—"],
+    ["User agent", entry.userAgent ?? "—"],
+  ];
+  return (
+    <div className="space-y-3 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.02] p-4">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+        {fields.map(([label, value]) => (
+          <div key={label} className="flex flex-col gap-0.5">
+            <dt className="text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</dt>
+            <dd className="break-words font-mono text-xs text-slate-700 dark:text-slate-300">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {entry.detail ? (
+        <div className="flex flex-col gap-0.5">
+          <dt className="text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Detail</dt>
+          <dd className="whitespace-pre-wrap break-words text-xs text-slate-600 dark:text-slate-300">{entry.detail}</dd>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ResultBadge({ result }: { result: "success" | "failure" }) {
   return (
     <span
@@ -75,9 +111,17 @@ export default function AuditPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [limit, setLimit] = useState(PAGE_STEP);
+  const [expandedSeq, setExpandedSeq] = useState<number | null>(null);
 
   // Any filter change resets paging back to the first page.
   const resetPaging = () => setLimit(PAGE_STEP);
+
+  const failuresOnly = result === "failure";
+  const toggleFailuresOnly = () => {
+    setResult(failuresOnly ? "all" : "failure");
+    resetPaging();
+  };
+  const toggleExpanded = (seq: number) => setExpandedSeq((current) => (current === seq ? null : seq));
 
   const params: AuditQueryParams = useMemo(
     () => ({
@@ -138,8 +182,22 @@ export default function AuditPage() {
           </label>
         </div>
 
-        <div className="flex items-center justify-between text-sm text-slate-500">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
           <span>Showing {entries.length} of {total} matching entries</span>
+          <button
+            type="button"
+            onClick={toggleFailuresOnly}
+            aria-pressed={failuresOnly}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              failuresOnly
+                ? "border-red-500/30 bg-red-500/10 text-red-500 dark:text-red-400"
+                : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-white/10",
+            )}
+          >
+            <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+            Failures only
+          </button>
         </div>
 
         {entries.length === 0 ? (
@@ -153,6 +211,7 @@ export default function AuditPage() {
               <caption className="sr-only">Audit trail entries</caption>
               <thead>
                 <tr className="border-b border-gray-200 dark:border-white/5 text-slate-500">
+                  <th scope="col" className="px-1 pb-2 text-left font-medium"><span className="sr-only">Expand</span></th>
                   <th scope="col" className="px-1 pb-2 text-left font-medium">Time</th>
                   <th scope="col" className="px-1 pb-2 text-left font-medium">Severity</th>
                   <th scope="col" className="px-1 pb-2 text-left font-medium">Category</th>
@@ -163,17 +222,39 @@ export default function AuditPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-white/5">
-                {entries.map((entry) => (
-                  <tr key={entry.seq} className={cn("transition-colors", entry.result === "failure" && "bg-red-500/5")}>
-                    <td className="whitespace-nowrap px-1 py-2 text-slate-500 dark:text-slate-400">{timeAgo(new Date(entry.timestamp))}</td>
-                    <td className="px-1 py-2"><SeverityBadge severity={entry.severity} /></td>
-                    <td className="px-1 py-2 text-slate-500 dark:text-slate-400">{entry.category}</td>
-                    <td className="max-w-[140px] truncate px-1 py-2 text-slate-700 dark:text-slate-300">{entry.user}</td>
-                    <td className="px-1 py-2 font-mono text-slate-500 dark:text-slate-400">{entry.action}</td>
-                    <td className="hidden max-w-[160px] truncate px-1 py-2 text-slate-500 md:table-cell">{entry.target ?? "—"}</td>
-                    <td className="px-1 py-2"><ResultBadge result={entry.result} /></td>
-                  </tr>
-                ))}
+                {entries.map((entry) => {
+                  const isOpen = expandedSeq === entry.seq;
+                  return (
+                    <Fragment key={entry.seq}>
+                      <tr
+                        onClick={() => toggleExpanded(entry.seq)}
+                        aria-expanded={isOpen}
+                        className={cn(
+                          "cursor-pointer transition-colors",
+                          entry.result === "failure" ? "bg-red-500/5 hover:bg-red-500/10" : "hover:bg-gray-100 dark:hover:bg-white/5",
+                        )}
+                      >
+                        <td className="px-1 py-2 align-middle">
+                          <ChevronRight aria-hidden="true" className={cn("h-4 w-4 text-slate-400 transition-transform", isOpen && "rotate-90")} />
+                        </td>
+                        <td className="whitespace-nowrap px-1 py-2 text-slate-500 dark:text-slate-400" title={absoluteTime(entry.timestamp)}>{timeAgo(new Date(entry.timestamp))}</td>
+                        <td className="px-1 py-2"><SeverityBadge severity={entry.severity} /></td>
+                        <td className="px-1 py-2 text-slate-500 dark:text-slate-400">{entry.category}</td>
+                        <td className="max-w-[140px] truncate px-1 py-2 text-slate-700 dark:text-slate-300">{entry.user}</td>
+                        <td className="px-1 py-2 font-mono text-slate-500 dark:text-slate-400">{entry.action}</td>
+                        <td className="hidden max-w-[160px] truncate px-1 py-2 text-slate-500 md:table-cell">{entry.target ?? "—"}</td>
+                        <td className="px-1 py-2"><ResultBadge result={entry.result} /></td>
+                      </tr>
+                      {isOpen && (
+                        <tr className={cn(entry.result === "failure" && "bg-red-500/5")}>
+                          <td colSpan={8} className="px-1 pb-3 pt-1">
+                            <DetailGrid entry={entry} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -182,29 +263,39 @@ export default function AuditPage() {
         {/* Mobile cards */}
         {entries.length > 0 && (
           <div className="space-y-3 sm:hidden">
-            {entries.map((entry) => (
-              <div
-                key={entry.seq}
-                className={cn(
-                  "rounded-2xl border p-4",
-                  entry.result === "failure" ? "border-red-500/20 bg-red-500/5" : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5",
-                )}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-sm text-slate-700 dark:text-slate-300">{entry.action}</p>
-                    <p className="mt-1 text-sm text-slate-500">{entry.user}</p>
+            {entries.map((entry) => {
+              const isOpen = expandedSeq === entry.seq;
+              return (
+                <button
+                  type="button"
+                  key={entry.seq}
+                  onClick={() => toggleExpanded(entry.seq)}
+                  aria-expanded={isOpen}
+                  className={cn(
+                    "w-full rounded-2xl border p-4 text-left transition-colors",
+                    entry.result === "failure" ? "border-red-500/20 bg-red-500/5" : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-mono text-sm text-slate-700 dark:text-slate-300">{entry.action}</p>
+                      <p className="mt-1 text-sm text-slate-500">{entry.user}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <SeverityBadge severity={entry.severity} />
+                      <ChevronRight aria-hidden="true" className={cn("h-4 w-4 text-slate-400 transition-transform", isOpen && "rotate-90")} />
+                    </div>
                   </div>
-                  <SeverityBadge severity={entry.severity} />
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                  <span className="rounded-full border border-gray-200 dark:border-white/10 px-2 py-0.5">{entry.category}</span>
-                  {entry.target ? <span className="truncate">{entry.target}</span> : null}
-                  <span className="ml-auto">{timeAgo(new Date(entry.timestamp))}</span>
-                  <ResultBadge result={entry.result} />
-                </div>
-              </div>
-            ))}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span className="rounded-full border border-gray-200 dark:border-white/10 px-2 py-0.5">{entry.category}</span>
+                    {entry.target ? <span className="truncate">{entry.target}</span> : null}
+                    <span className="ml-auto" title={absoluteTime(entry.timestamp)}>{timeAgo(new Date(entry.timestamp))}</span>
+                    <ResultBadge result={entry.result} />
+                  </div>
+                  {isOpen && <div className="mt-3"><DetailGrid entry={entry} /></div>}
+                </button>
+              );
+            })}
           </div>
         )}
 

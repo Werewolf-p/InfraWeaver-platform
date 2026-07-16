@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Inbox } from "lucide-react";
 import { PageScaffold } from "@/components/ui";
+import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
 import { useApiQuery } from "@/hooks";
 import { queryKeys } from "@/lib/query-keys";
 import { queryStaleTimes } from "@/lib/query-defaults";
@@ -10,16 +11,22 @@ import { requestTypeLabel } from "@/lib/self-service/describe";
 import type { SelfServiceRequest, SelfServiceRequestType } from "@/lib/self-service/types";
 import { RequestCard } from "./request-card";
 
+const DEFAULT_REFRESH_MS = 30_000;
+
 /**
  * Admin approval queue — RBAC-gated in navigation-rbac (users:write / rbac:admin
  * / cluster:admin). Lists every pending self-service request grouped by type,
- * each card previewing the exact effect before the admin approves or denies.
+ * each card previewing the exact effect before the admin approves or denies. The
+ * queue auto-refreshes and surfaces the longest-waiting request first so triage
+ * follows urgency, not arrival order.
  */
 export default function ApprovalsPage() {
+  const [refreshMs, setRefreshMs] = useState(DEFAULT_REFRESH_MS);
   const query = useApiQuery<{ requests: SelfServiceRequest[] }>({
     queryKey: queryKeys.selfService.pending(),
     path: "/api/self-service/requests?all=1",
     staleTime: queryStaleTimes.short,
+    refetchInterval: refreshMs > 0 ? refreshMs : false,
   });
   const grouped = useMemo(() => {
     const map = new Map<SelfServiceRequestType, SelfServiceRequest[]>();
@@ -27,6 +34,11 @@ export default function ApprovalsPage() {
       const list = map.get(request.type) ?? [];
       list.push(request);
       map.set(request.type, list);
+    }
+    // Oldest-first within each type so the longest-waiting request surfaces at
+    // the top of its group.
+    for (const list of map.values()) {
+      list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     }
     return [...map.entries()];
   }, [query.data?.requests]);
@@ -38,6 +50,14 @@ export default function ApprovalsPage() {
       title="Approvals"
       description="Review and decide self-service requests. Approving applies the change under your own RBAC ceiling."
       badge={requestCount > 0 ? String(requestCount) : undefined}
+      actions={
+        <AutoRefreshControl
+          interval={refreshMs}
+          onChange={setRefreshMs}
+          onRefreshNow={() => void query.refetch()}
+          isFetching={query.isFetching}
+        />
+      }
       loading={query.isLoading && !query.data}
       isEmpty={!query.isLoading && requestCount === 0}
       emptyState={{ icon: Inbox, title: "No pending requests", description: "Self-service requests that need an admin decision will appear here." }}

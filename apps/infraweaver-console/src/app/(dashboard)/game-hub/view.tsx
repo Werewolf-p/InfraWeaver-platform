@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Lock, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, Star, LayoutGrid, Rows3, MoreVertical, Copy, Folder, FolderOpen, Upload } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { useRBAC } from "@/hooks/use-rbac";
+import { useConfirm } from "@/hooks/use-confirm";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -328,6 +329,7 @@ function ServerActionSheet({
   actionLoading,
   onAction,
   onClone,
+  onRequestDelete,
   onToggleFavorite,
   onToggleSelected,
   onToggleCompare,
@@ -342,6 +344,7 @@ function ServerActionSheet({
   actionLoading?: string;
   onAction: (action: string) => Promise<void>;
   onClone: () => Promise<void>;
+  onRequestDelete: () => void;
   onToggleFavorite: () => void;
   onToggleSelected: () => void;
   onToggleCompare: () => void;
@@ -449,11 +452,7 @@ function ServerActionSheet({
           {server.permissions?.canAdmin ? (
             <button
               type="button"
-              onClick={() => {
-                if (confirm(`Delete ${server.name}? This will remove the server and its data.`)) {
-                  void onAction("delete");
-                }
-              }}
+              onClick={onRequestDelete}
               disabled={!!actionLoading}
               className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-red-500/25 bg-red-500/10 px-4 text-left text-sm font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
             >
@@ -497,6 +496,9 @@ export function GameHubView() {
   const [now, setNow] = useState(0);
   const [activeActionServerName, setActiveActionServerName] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; name: string }>({ open: false, name: "" });
+  const [cloneSource, setCloneSource] = useState<string | null>(null);
+  const [cloneName, setCloneName] = useState("");
+  const { confirm, confirmDialog } = useConfirm();
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [hoveredTagServer, setHoveredTagServer] = useState<string | null>(null);
   const [editingTagServer, setEditingTagServer] = useState<string | null>(null);
@@ -649,10 +651,18 @@ export function GameHubView() {
     await serverAction.mutateAsync({ name, action }).catch(() => undefined);
   }
 
-  async function cloneServer(source: string) {
-    const newName = prompt("Clone server as", `${source}-copy`);
-    if (!newName) return;
-    await cloneMutation.mutateAsync({ source, newName }).catch(() => undefined);
+  function cloneServer(source: string) {
+    setCloneSource(source);
+    setCloneName(`${source}-copy`);
+  }
+
+  function submitClone() {
+    const source = cloneSource;
+    const newName = cloneName.trim();
+    if (!source || !newName) return;
+    cloneMutation.mutate({ source, newName });
+    setCloneSource(null);
+    setCloneName("");
   }
 
   function triggerImportConfig() {
@@ -697,9 +707,25 @@ export function GameHubView() {
     onSuccess: () => setSelected(new Set()),
   });
 
-  function doBulkAction(action: "start" | "stop" | "restart") {
+  async function doBulkAction(action: "start" | "stop" | "restart") {
     if (selected.size === 0) return;
-    bulkMutation.mutate({ action, names: [...selected] });
+    const names = [...selected];
+    const count = names.length;
+    const plural = count === 1 ? "server" : "servers";
+    if (action === "stop" || action === "restart") {
+      const label = action === "stop" ? "Stop" : "Restart";
+      const confirmed = await confirm({
+        title: `${label} ${count} ${plural}?`,
+        description:
+          action === "stop"
+            ? `Players will be disconnected and the ${count === 1 ? "server" : `${count} servers`} will shut down until you start ${count === 1 ? "it" : "them"} again.`
+            : `Players will be disconnected while ${count === 1 ? "the server restarts" : `all ${count} servers restart`}. Any unsaved in-memory state may be lost.`,
+        confirmText: `${label} ${count === 1 ? plural : "all"}`,
+        danger: true,
+      });
+      if (!confirmed) return;
+    }
+    bulkMutation.mutate({ action, names });
   }
 
   function copyConnection(event: MouseEvent, server: GameServer) {
@@ -1012,8 +1038,14 @@ export function GameHubView() {
         onAction={handleActionFromSheet}
         onClone={async () => {
           if (!activeActionServer) return;
-          await cloneServer(activeActionServer.name);
+          cloneServer(activeActionServer.name);
           setActiveActionServerName(null);
+        }}
+        onRequestDelete={() => {
+          if (!activeActionServer) return;
+          const name = activeActionServer.name;
+          setActiveActionServerName(null);
+          setDeleteConfirm({ open: true, name });
         }}
         onToggleFavorite={() => { if (activeActionServer) toggleFavorite(activeActionServer.name); }}
         onToggleSelected={() => { if (activeActionServer) toggleSelected(activeActionServer.name); }}
@@ -1182,9 +1214,9 @@ export function GameHubView() {
         <div className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom,0px)+5.5rem)] z-40 rounded-3xl border border-[#0078D4]/30 bg-[#0b1a2a]/95 p-4 shadow-2xl backdrop-blur sm:sticky sm:top-16 sm:bottom-auto sm:inset-x-auto sm:rounded-xl">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-[#d4e7ff]">{selected.size} selected</span>
-            {canBulkStart ? <button onClick={() => doBulkAction("start")} className="min-h-[44px] rounded-2xl bg-green-500/20 px-4 text-sm font-medium text-green-300">Start all</button> : null}
-            {canBulkStop ? <button onClick={() => doBulkAction("stop")} className="min-h-[44px] rounded-2xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">Stop all</button> : null}
-            {canBulkRestart ? <button onClick={() => doBulkAction("restart")} className="min-h-[44px] rounded-2xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">Restart all</button> : null}
+            {canBulkStart ? <button onClick={() => void doBulkAction("start")} className="min-h-[44px] rounded-2xl bg-green-500/20 px-4 text-sm font-medium text-green-300">Start all</button> : null}
+            {canBulkStop ? <button onClick={() => void doBulkAction("stop")} className="min-h-[44px] rounded-2xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">Stop all</button> : null}
+            {canBulkRestart ? <button onClick={() => void doBulkAction("restart")} className="min-h-[44px] rounded-2xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">Restart all</button> : null}
             <button onClick={() => setSelected(new Set())} className="ml-auto min-h-[44px] rounded-2xl px-3 text-sm font-medium text-[#7cc4ff]">Clear selection</button>
           </div>
         </div>
@@ -1365,6 +1397,54 @@ export function GameHubView() {
       }}
       onCancel={() => setDeleteConfirm(d => ({ ...d, open: false }))}
     />
+
+    <ResponsiveSheet
+      open={cloneSource !== null}
+      onClose={() => { setCloneSource(null); setCloneName(""); }}
+      size="sm"
+      title="Clone server"
+      description={cloneSource ? `Create a new server from a copy of ${cloneSource}'s configuration.` : ""}
+      footer={
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => { setCloneSource(null); setCloneName(""); }}
+            className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submitClone}
+            disabled={!cloneName.trim() || servers.some((s) => s.name === cloneName.trim())}
+            className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-[#0078D4] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#006cbe] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Copy className="h-4 w-4" /> Clone server
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-2">
+        <label htmlFor="clone-server-name" className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">New server name</label>
+        <input
+          id="clone-server-name"
+          autoFocus
+          value={cloneName}
+          onChange={(event) => setCloneName(event.target.value)}
+          onKeyDown={(event) => { if (event.key === "Enter") submitClone(); }}
+          placeholder="my-server-copy"
+          spellCheck={false}
+          className="w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+        />
+        {cloneName.trim() && servers.some((s) => s.name === cloneName.trim()) ? (
+          <p className="text-xs text-red-400">A server named &quot;{cloneName.trim()}&quot; already exists — choose a different name.</p>
+        ) : (
+          <p className="text-xs text-gray-500 dark:text-[#888]">The clone copies the source server&apos;s settings and starts a fresh deployment under this name.</p>
+        )}
+      </div>
+    </ResponsiveSheet>
+
+    {confirmDialog}
     </>
   );
 }

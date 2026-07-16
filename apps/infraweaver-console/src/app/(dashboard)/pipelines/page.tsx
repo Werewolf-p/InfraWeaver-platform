@@ -2,7 +2,7 @@
 import { motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { GitBranch, Play, RefreshCw, CheckCircle2, XCircle, Clock, Loader2, AlertCircle, ChevronRight } from "lucide-react";
+import { GitBranch, Play, RefreshCw, CheckCircle2, XCircle, Clock, Loader2, AlertCircle } from "lucide-react";
 import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
@@ -141,16 +141,6 @@ export default function PipelinesPage() {
                 )}
                 {wf.lastRunAt && (
                   <span>{timeAgo(wf.lastRunAt)}</span>
-                )}
-                {wf.lastRunId && (
-                  <a
-                    href={`https://github.com/your-org/your-repo/actions/runs/${wf.lastRunId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-indigo-400 hover:text-indigo-300 transition-colors"
-                  >
-                    View run <ChevronRight className="w-3 h-3" />
-                  </a>
                 )}
               </div>
               {isAdmin && (

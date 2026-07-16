@@ -87,6 +87,10 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
   );
 }
 
+// Lets any surface (e.g. the command palette) open the shortcuts reference
+// without owning the modal state or synthesizing a "?" keypress.
+export const OPEN_KEYBOARD_SHORTCUTS_EVENT = "infraweaver:open-keyboard-shortcuts";
+
 export function KeyboardShortcutsProvider() {
   const [open, setOpen] = useState(false);
 
@@ -98,8 +102,13 @@ export function KeyboardShortcutsProvider() {
         setOpen(o => !o);
       }
     };
+    const openHandler = () => setOpen(true);
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener(OPEN_KEYBOARD_SHORTCUTS_EVENT, openHandler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener(OPEN_KEYBOARD_SHORTCUTS_EVENT, openHandler);
+    };
   }, []);
 
   return <KeyboardShortcutsModal open={open} onClose={() => setOpen(false)} />;

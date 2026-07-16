@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Activity, GitBranch, Play, ShieldAlert, Sparkles, Workflow } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DataCard } from "@/components/ui/data-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -9,6 +11,26 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { timeAgo } from "@/lib/utils";
+
+function AutomationCardSkeleton() {
+  return (
+    <div className="space-y-4 rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-2">
+          <div className="h-4 w-40 rounded shimmer-bg" />
+          <div className="h-3 w-56 rounded shimmer-bg" />
+        </div>
+        <div className="h-5 w-16 rounded-full shimmer-bg" />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="h-8 rounded shimmer-bg" />
+        ))}
+      </div>
+      <div className="h-10 rounded-lg shimmer-bg" />
+    </div>
+  );
+}
 
 interface ClusterAutomation {
   id: string;
@@ -49,6 +71,7 @@ interface AutomationPayload {
 export default function AutomationsPage() {
   const { canAny } = usePermissions();
   const canView = canAny(["infra:read", "cluster:read"]);
+  const [confirmAutomation, setConfirmAutomation] = useState<ClusterAutomation | null>(null);
 
   const automationQuery = useApiQuery<AutomationPayload>({
     queryKey: ["automation-overview"],
@@ -102,6 +125,19 @@ export default function AutomationsPage() {
           <Sparkles className="h-4 w-4 text-indigo-300" />
           Cluster automations
         </div>
+        {automationQuery.isLoading ? (
+          <div className="grid gap-4 xl:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <AutomationCardSkeleton key={index} />
+            ))}
+          </div>
+        ) : clusterAutomations.length === 0 ? (
+          <EmptyState
+            icon={Workflow}
+            title="No cluster automations"
+            description="No self-healing CronJobs were discovered for this cluster yet. They appear here once the automation manifests are deployed."
+          />
+        ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {clusterAutomations.map((automation) => {
             const status = !automation.live ? "unknown" : automation.failing ? "degraded" : automation.suspended ? "warning" : "healthy";
@@ -166,9 +202,9 @@ export default function AutomationsPage() {
                   <p className="text-xs text-slate-500">Updated {data?.generatedAt ? timeAgo(data.generatedAt) : "just now"}</p>
                   <button
                     type="button"
-                    onClick={() => triggerMutation.mutate({ namespace: automation.namespace, name: automation.cronjob })}
-                    disabled={!data?.canTrigger || triggerMutation.isPending}
-                    className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-300 transition-colors hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => setConfirmAutomation(automation)}
+                    disabled={!data?.canTrigger || !automation.canTrigger || triggerMutation.isPending}
+                    className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-700 dark:text-indigo-300 transition-colors hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Play className="h-4 w-4" />
                     Run now
@@ -178,6 +214,7 @@ export default function AutomationsPage() {
             );
           })}
         </div>
+        )}
       </section>
 
       <section className="space-y-3">
@@ -210,12 +247,30 @@ export default function AutomationsPage() {
         </div>
       </section>
 
-      {automationQuery.isLoading ? (
+      {automationQuery.isFetching && !automationQuery.isLoading ? (
         <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
           <Activity className="h-4 w-4 animate-pulse" />
           Refreshing automation status…
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={confirmAutomation !== null}
+        title={confirmAutomation ? `Run ${confirmAutomation.title} now?` : "Run automation now?"}
+        description={
+          confirmAutomation
+            ? `This fires the ${confirmAutomation.namespace}/${confirmAutomation.cronjob} CronJob immediately, outside its normal schedule.`
+            : undefined
+        }
+        confirmText="Run now"
+        onCancel={() => setConfirmAutomation(null)}
+        onConfirm={() => {
+          if (confirmAutomation) {
+            triggerMutation.mutate({ namespace: confirmAutomation.namespace, name: confirmAutomation.cronjob });
+          }
+          setConfirmAutomation(null);
+        }}
+      />
     </motion.div>
   );
 }

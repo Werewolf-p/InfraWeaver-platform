@@ -24,6 +24,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SegmentedBar } from "@/components/ui/segmented-bar";
 import { ActionsMenu, type ActionItem } from "@/components/ui/actions-menu";
 import { CopyButton } from "@/components/ui/copy-button";
+import { SortableHeader } from "@/components/ui/sortable-header";
+import { DensityToggle } from "@/components/ui/density-toggle";
 import { useArgoApps } from "@/hooks/use-argocd";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -175,7 +177,18 @@ interface AppRow {
 type AppHealthFilter = "all" | "healthy" | "degraded" | "syncing" | "unknown";
 type AppSyncFilter = "all" | "synced" | "outOfSync" | "syncing";
 type AppSourceFilter = "all" | "Catalog" | "Community" | "WordPress";
-type AppSortOption = "name-asc" | "name-desc" | "last-synced" | "health";
+type AppSortKey = "name" | "namespace" | "health" | "sync" | "source" | "timing";
+type SortDirection = "asc" | "desc";
+
+/** Default direction for each sort column when first selected (worst-first for status, newest-first for timing). */
+const DEFAULT_SORT_DIRECTION: Record<AppSortKey, SortDirection> = {
+  name: "asc",
+  namespace: "asc",
+  health: "asc",
+  sync: "asc",
+  source: "asc",
+  timing: "desc",
+};
 
 const APP_HEALTH_FILTERS: Array<{ value: AppHealthFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -221,6 +234,14 @@ function healthBucket(status: AppHealthStatus): AppHealthFilter {
 function healthSortValue(status: AppHealthStatus): number {
   const bucket = healthBucket(status);
   return bucket === "degraded" ? 0 : bucket === "syncing" ? 1 : bucket === "unknown" ? 2 : 3;
+}
+
+/** Sort weight for sync drift — most-drifted first so operators triage out-of-sync apps at the top. */
+function syncSortValue(status: AppRow["syncStatus"]): number {
+  if (status === "outOfSync") return 0;
+  if (status === "syncing" || status === "progressing") return 1;
+  if (status === "synced") return 3;
+  return 2;
 }
 
 function primaryAppUrl(row: AppRow): string | null {
@@ -403,7 +424,9 @@ function AllInstalledTab() {
   const [syncFilter, setSyncFilter] = useState<AppSyncFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<AppSourceFilter>("all");
   const [namespaceFilter, setNamespaceFilter] = useState("all");
-  const [sortOption, setSortOption] = useState<AppSortOption>("health");
+  const [sortKey, setSortKey] = useState<AppSortKey>("health");
+  const [sortDir, setSortDir] = useState<SortDirection>("asc");
+  const lastSelectedIdRef = useRef<string | null>(null);
   const [bulkSyncing, setBulkSyncing] = useState(false);
   const [bulkHardRefreshing, setBulkHardRefreshing] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -586,15 +609,20 @@ function AllInstalledTab() {
         return matchesSearch && matchesHealth && matchesSync && matchesSource && matchesNamespace;
       })
       .sort((a, b) => {
-        if (sortOption === "name-desc") return b.name.localeCompare(a.name);
-        if (sortOption === "last-synced") return new Date(b.lastSync || 0).getTime() - new Date(a.lastSync || 0).getTime();
-        if (sortOption === "health") {
-          const diff = healthSortValue(a.health) - healthSortValue(b.health);
-          return diff !== 0 ? diff : a.name.localeCompare(b.name);
+        const direction = sortDir === "asc" ? 1 : -1;
+        let primary = 0;
+        switch (sortKey) {
+          case "name": primary = a.name.localeCompare(b.name); break;
+          case "namespace": primary = a.namespace.localeCompare(b.namespace); break;
+          case "health": primary = healthSortValue(a.health) - healthSortValue(b.health); break;
+          case "sync": primary = syncSortValue(a.syncStatus) - syncSortValue(b.syncStatus); break;
+          case "source": primary = a.source.localeCompare(b.source); break;
+          case "timing": primary = new Date(a.lastSync || 0).getTime() - new Date(b.lastSync || 0).getTime(); break;
         }
+        if (primary !== 0) return direction * primary;
         return a.name.localeCompare(b.name);
       });
-  }, [allRows, healthFilter, namespaceFilter, search, sortOption, sourceFilter, syncFilter]);
+  }, [allRows, healthFilter, namespaceFilter, search, sortDir, sortKey, sourceFilter, syncFilter]);
 
   const activeSelectedIds = useMemo(
     () => new Set([...selectedIds].filter(id => allRows.some(row => row.id === id))),
@@ -1066,12 +1094,40 @@ function AllInstalledTab() {
       ingressHost: row.ingressHost || "",
     })), format);
 
-  const toggleSelected = (id: string) => {
+  const handleRowSelect = (id: string, shiftKey: boolean) => {
+    const orderedIds = filtered.map(row => row.id);
     setSelectedIds(current => {
       const next = new Set(current);
+      const anchor = lastSelectedIdRef.current;
+      if (shiftKey && anchor && anchor !== id) {
+        const start = orderedIds.indexOf(anchor);
+        const end = orderedIds.indexOf(id);
+        if (start !== -1 && end !== -1) {
+          const shouldSelect = !current.has(id);
+          const [lo, hi] = start < end ? [start, end] : [end, start];
+          for (let i = lo; i <= hi; i += 1) {
+            if (shouldSelect) next.add(orderedIds[i]); else next.delete(orderedIds[i]);
+          }
+          lastSelectedIdRef.current = id;
+          return next;
+        }
+      }
       if (next.has(id)) next.delete(id); else next.add(id);
+      lastSelectedIdRef.current = id;
       return next;
     });
+  };
+
+  const toggleSelected = (id: string) => handleRowSelect(id, false);
+
+  const handleSort = (key: string) => {
+    const nextKey = key as AppSortKey;
+    if (nextKey === sortKey) {
+      setSortDir(dir => (dir === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(nextKey);
+      setSortDir(DEFAULT_SORT_DIRECTION[nextKey]);
+    }
   };
 
   const selectAllVisible = () => {
@@ -1160,15 +1216,22 @@ function AllInstalledTab() {
               {namespaceOptions.map((namespace) => <option key={namespace} value={namespace}>{namespace}</option>)}
             </select>
             <select
-              value={sortOption}
-              onChange={(event) => setSortOption(event.target.value as AppSortOption)}
-              className="h-11 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]/50"
+              aria-label="Sort apps"
+              value={`${sortKey}:${sortDir}`}
+              onChange={(event) => {
+                const [key, dir] = event.target.value.split(":") as [AppSortKey, SortDirection];
+                setSortKey(key);
+                setSortDir(dir);
+              }}
+              className="h-11 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]/50 xl:hidden"
             >
-              <option value="health">Health status</option>
-              <option value="last-synced">Last synced</option>
-              <option value="name-asc">Name A-Z</option>
-              <option value="name-desc">Name Z-A</option>
+              <option value="health:asc">Health (worst first)</option>
+              <option value="sync:asc">Out of sync first</option>
+              <option value="timing:desc">Recently synced</option>
+              <option value="name:asc">Name A–Z</option>
+              <option value="name:desc">Name Z–A</option>
             </select>
+            <DensityToggle className="hidden xl:flex" />
             <button
               onClick={toggle}
               className={cn(
@@ -1244,44 +1307,73 @@ function AllInstalledTab() {
             <button onClick={selectAllVisible} className="text-[#9dcbff] transition hover:text-gray-900 dark:hover:text-white">
               {filtered.length > 0 && filtered.every(row => selectedIds.has(row.id)) ? "Clear visible selection" : "Select visible"}
             </button>
-            <div className="h-4 w-px bg-gray-100 dark:bg-[#2a2a2a]" />
-            <span>{activeSelectedIds.size} selected</span>
-            <button onClick={() => setSelectedIds(new Set())} className="text-slate-500 dark:text-slate-400 transition hover:text-gray-900 dark:hover:text-white">Reset selection</button>
-            <button
-              onClick={() => void requestBulkSync()}
-              disabled={bulkSyncing || !canSyncApps || selectedCatalogRows.length === 0}
-              className="ml-auto inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
-            >
-              {bulkSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Bulk sync selected catalog apps
-            </button>
-            <button
-              onClick={() => void handleBulkHardRefresh()}
-              disabled={bulkHardRefreshing || !canSyncApps || selectedCatalogRows.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-200 transition hover:bg-amber-500/20 disabled:opacity-50"
-            >
-              {bulkHardRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              Hard refresh
-            </button>
-            <button
-              onClick={() => void requestBulkDelete()}
-              disabled={bulkDeleting || !canManageApps || selectedDeletableCatalogRows.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
-            >
-              {bulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
-              Delete selected
-            </button>
-            <button
-              onClick={() => void requestBulkCommunityUninstall()}
-              disabled={bulkUninstalling || !canManageApps || selectedCommunityRows.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 px-4 py-2 text-sm text-fuchsia-200 transition hover:bg-fuchsia-500/20 disabled:opacity-50"
-            >
-              {bulkUninstalling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Store className="h-4 w-4" />}
-              Uninstall community
-            </button>
+            <span className="text-xs text-gray-400 dark:text-[#7a7a7a]">Tip: Shift-click a checkbox to select a range.</span>
           </div>
         </div>
       </DashboardPanel>
+
+      {activeSelectedIds.size > 0 && (
+        <div className="sticky bottom-4 z-20" role="region" aria-label="Bulk actions for selected apps">
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[#0078D4]/40 bg-white/95 dark:bg-[#141414]/95 p-3 shadow-lg backdrop-blur">
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-full bg-[#0078D4] px-2 text-xs font-semibold text-white">{activeSelectedIds.size}</span>
+              <div className="leading-tight">
+                <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">app{activeSelectedIds.size === 1 ? "" : "s"} selected</p>
+                <p className="text-xs text-gray-500 dark:text-[#888]">{selectedCatalogRows.length} catalog · {selectedCommunityRows.length} community</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 dark:border-[#2a2a2a] px-3 py-2 text-sm text-gray-600 dark:text-[#c4c4c4] transition hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-white"
+            >
+              <X className="h-4 w-4" />
+              Clear
+            </button>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              {canSyncApps && selectedCatalogRows.length > 0 && (
+                <button
+                  onClick={() => void requestBulkSync()}
+                  disabled={bulkSyncing}
+                  className="inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm text-indigo-600 dark:text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+                >
+                  {bulkSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Sync {selectedCatalogRows.length} catalog
+                </button>
+              )}
+              {canSyncApps && selectedCatalogRows.length > 0 && (
+                <button
+                  onClick={() => void handleBulkHardRefresh()}
+                  disabled={bulkHardRefreshing}
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-600 dark:text-amber-200 transition hover:bg-amber-500/20 disabled:opacity-50"
+                >
+                  {bulkHardRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  Hard refresh
+                </button>
+              )}
+              {canManageApps && selectedDeletableCatalogRows.length > 0 && (
+                <button
+                  onClick={() => void requestBulkDelete()}
+                  disabled={bulkDeleting}
+                  className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-600 dark:text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+                >
+                  {bulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                  Delete {selectedDeletableCatalogRows.length}
+                </button>
+              )}
+              {canManageApps && selectedCommunityRows.length > 0 && (
+                <button
+                  onClick={() => void requestBulkCommunityUninstall()}
+                  disabled={bulkUninstalling}
+                  className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 px-4 py-2 text-sm text-fuchsia-600 dark:text-fuchsia-200 transition hover:bg-fuchsia-500/20 disabled:opacity-50"
+                >
+                  {bulkUninstalling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Store className="h-4 w-4" />}
+                  Uninstall {selectedCommunityRows.length}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {dataSource === "unavailable" && !argoError ? (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
@@ -1354,14 +1446,14 @@ function AllInstalledTab() {
             <thead>
               <tr className="border-b border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#9a9a9a] text-xs">
                 <th className="w-10 py-2 px-3">
-                  <input type="checkbox" checked={filtered.length > 0 && filtered.every(row => selectedIds.has(row.id))} onChange={selectAllVisible} />
+                  <input type="checkbox" aria-label="Select all visible apps" checked={filtered.length > 0 && filtered.every(row => selectedIds.has(row.id))} onChange={selectAllVisible} />
                 </th>
-                <th className="text-left py-2 px-3 font-medium">Name</th>
-                {!simpleMode && <th className="text-left py-2 px-3 font-medium">Namespace</th>}
-                <th className="text-left py-2 px-3 font-medium">Health</th>
-                <th className="text-left py-2 px-3 font-medium">Sync</th>
-                <th className="text-left py-2 px-3 font-medium">Source</th>
-                {!simpleMode && <th className="text-left py-2 px-3 font-medium">Timing</th>}
+                <th className="text-left py-2 px-3 font-medium"><SortableHeader label="Name" sortKey="name" activeKey={sortKey} direction={sortDir} onSort={handleSort} /></th>
+                {!simpleMode && <th className="text-left py-2 px-3 font-medium"><SortableHeader label="Namespace" sortKey="namespace" activeKey={sortKey} direction={sortDir} onSort={handleSort} /></th>}
+                <th className="text-left py-2 px-3 font-medium"><SortableHeader label="Health" sortKey="health" activeKey={sortKey} direction={sortDir} onSort={handleSort} /></th>
+                <th className="text-left py-2 px-3 font-medium"><SortableHeader label="Sync" sortKey="sync" activeKey={sortKey} direction={sortDir} onSort={handleSort} /></th>
+                <th className="text-left py-2 px-3 font-medium"><SortableHeader label="Source" sortKey="source" activeKey={sortKey} direction={sortDir} onSort={handleSort} /></th>
+                {!simpleMode && <th className="text-left py-2 px-3 font-medium"><SortableHeader label="Timing" sortKey="timing" activeKey={sortKey} direction={sortDir} onSort={handleSort} /></th>}
                 <th className="text-right py-2 px-3 font-medium">Actions</th>
               </tr>
             </thead>
@@ -1371,10 +1463,16 @@ function AllInstalledTab() {
                 return (
                 <React.Fragment key={row.id}>
                 <tr className={cn("border-b border-gray-200 dark:border-[#1e1e1e] transition-colors", selectedIds.has(row.id) ? "bg-[rgba(0,120,212,0.06)]" : "hover:bg-gray-100 dark:hover:bg-[#1a1a1a]")}>
-                  <td className="py-2.5 px-3 align-top">
-                    <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleSelected(row.id)} />
+                  <td className="px-[var(--tbl-px,0.75rem)] py-[var(--tbl-py,0.625rem)] align-top">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${row.name}`}
+                      checked={selectedIds.has(row.id)}
+                      onChange={() => { /* selection handled in onClick to capture shift-range */ }}
+                      onClick={(event) => handleRowSelect(row.id, event.shiftKey)}
+                    />
                   </td>
-                  <td className="py-2.5 px-3 font-medium text-gray-900 dark:text-[#f2f2f2] align-top">
+                  <td className="px-[var(--tbl-px,0.75rem)] py-[var(--tbl-py,0.625rem)] font-medium text-gray-900 dark:text-[#f2f2f2] align-top">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -1404,17 +1502,17 @@ function AllInstalledTab() {
                       {row.createdAt && <span className="text-xs text-gray-400 dark:text-[#9a9a9a]"><RelativeTime date={row.createdAt} live={false} className="text-xs text-gray-400 dark:text-[#9a9a9a]" /></span>}
                     </div>
                   </td>
-                  {!simpleMode && <td className="py-2.5 px-3 align-top"><div className="flex items-center gap-2"><span className="font-mono text-xs text-gray-500 dark:text-[#9e9e9e]">{row.namespace}</span><CopyButton text={row.namespace} className="h-7 px-2 text-[11px]" /></div></td>}
-                  <td className="py-2.5 px-3 align-top">{row.powerState === "off" ? <StatusBadge status="suspended" label="Stopped" description="Manually stopped from the console" /> : <StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} />}</td>
-                  <td className="py-2.5 px-3 align-top">{row.source === "WordPress" ? <span className="text-xs text-slate-500 dark:text-slate-400" title="WordPress sites are provisioned directly, not GitOps-synced">—</span> : row.powerState === "off" ? <span className="text-xs text-slate-500 dark:text-slate-400">Sync paused</span> : <StatusBadge status={row.syncStatus} />}</td>
-                  <td className="py-2.5 px-3 align-top"><span className={cn("px-2 py-0.5 rounded text-xs font-medium", SOURCE_PILL_CLASS[row.source])}>{row.source}</span></td>
+                  {!simpleMode && <td className="px-[var(--tbl-px,0.75rem)] py-[var(--tbl-py,0.625rem)] align-top"><div className="flex items-center gap-2"><span className="font-mono text-xs text-gray-500 dark:text-[#9e9e9e]">{row.namespace}</span><CopyButton text={row.namespace} className="h-7 px-2 text-[11px]" /></div></td>}
+                  <td className="px-[var(--tbl-px,0.75rem)] py-[var(--tbl-py,0.625rem)] align-top">{row.powerState === "off" ? <StatusBadge status="suspended" label="Stopped" description="Manually stopped from the console" /> : <StatusBadge status={optimisticSyncing.has(row.name) ? "syncing" : row.health} />}</td>
+                  <td className="px-[var(--tbl-px,0.75rem)] py-[var(--tbl-py,0.625rem)] align-top">{row.source === "WordPress" ? <span className="text-xs text-slate-500 dark:text-slate-400" title="WordPress sites are provisioned directly, not GitOps-synced">—</span> : row.powerState === "off" ? <span className="text-xs text-slate-500 dark:text-slate-400">Sync paused</span> : <StatusBadge status={row.syncStatus} />}</td>
+                  <td className="px-[var(--tbl-px,0.75rem)] py-[var(--tbl-py,0.625rem)] align-top"><span className={cn("px-2 py-0.5 rounded text-xs font-medium", SOURCE_PILL_CLASS[row.source])}>{row.source}</span></td>
                   {!simpleMode && (
-                    <td className="py-2.5 px-3 align-top text-xs text-gray-400 dark:text-[#9a9a9a]">
+                    <td className="px-[var(--tbl-px,0.75rem)] py-[var(--tbl-py,0.625rem)] align-top text-xs text-gray-400 dark:text-[#9a9a9a]">
                       <div>{row.lastSync ? <RelativeTime date={row.lastSync} live={false} className="text-xs text-gray-400 dark:text-[#9a9a9a]" /> : row.source === "WordPress" ? "—" : "Never synced"}</div>
                       <div className="mt-1">{row.lastSync ? new Date(row.lastSync).toLocaleString() : "—"}</div>
                     </td>
                   )}
-                  <td className="py-2.5 px-3 text-right align-top">
+                  <td className="px-[var(--tbl-px,0.75rem)] py-[var(--tbl-py,0.625rem)] text-right align-top">
                     <div className="flex items-center justify-end gap-2 flex-wrap">
                       {row.source === "Catalog" ? <PolicyBadge slug={row.name} /> : null}
                       <ActionsMenu actions={buildRowActions(row)} />

@@ -1,8 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { AlertTriangle, RefreshCw, ShieldAlert, UserX } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { CopyButton } from "@/components/ui/copy-button";
+import { OffboardWizard } from "@/components/users/offboard-wizard";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { useRBAC } from "@/hooks/use-rbac";
 import type { RosterDriftEntry, RosterDriftReport } from "@/lib/security/roster-drift";
 
 type RosterDriftResponse = RosterDriftReport & { ok?: boolean };
@@ -12,7 +16,15 @@ const REASON_LABEL: Record<RosterDriftEntry["reasons"][number], string> = {
   "suspicious-name": "Suspicious name",
 };
 
-function DriftRow({ entry }: { entry: RosterDriftEntry }) {
+function DriftRow({
+  entry,
+  canManage,
+  onOffboard,
+}: {
+  entry: RosterDriftEntry;
+  canManage: boolean;
+  onOffboard: (username: string) => void;
+}) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-white/5 bg-slate-100 dark:bg-slate-950/60 px-4 py-3">
       <div className="min-w-0">
@@ -36,6 +48,17 @@ function DriftRow({ entry }: { entry: RosterDriftEntry }) {
             {REASON_LABEL[reason] ?? reason}
           </span>
         ))}
+        <CopyButton text={entry.username} label="Username" className="h-7 px-2" />
+        {canManage ? (
+          <button
+            type="button"
+            onClick={() => onOffboard(entry.username)}
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-500/20 dark:text-red-300"
+          >
+            <UserX className="h-3.5 w-3.5" />
+            Offboard
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -47,6 +70,9 @@ function DriftRow({ entry }: { entry: RosterDriftEntry }) {
  * first-class Identity tab, escalating privileged unmanaged accounts.
  */
 export function RosterDriftView() {
+  const { canAny } = useRBAC();
+  const canManage = canAny(["users:write", "users:invite", "rbac:admin"]);
+  const [offboardUsername, setOffboardUsername] = useState<string | null>(null);
   const { data, isLoading, error, refetch, isFetching } = useApiQuery<RosterDriftResponse>({
     queryKey: ["security", "roster-drift"],
     path: "/api/security/roster-drift",
@@ -118,11 +144,22 @@ export function RosterDriftView() {
         ) : (
           <div className="space-y-2">
             {drift.map((entry) => (
-              <DriftRow key={entry.username} entry={entry} />
+              <DriftRow key={entry.username} entry={entry} canManage={canManage} onOffboard={setOffboardUsername} />
             ))}
           </div>
         )}
       </div>
+
+      {offboardUsername ? (
+        <OffboardWizard
+          open
+          username={offboardUsername}
+          onClose={() => {
+            setOffboardUsername(null);
+            void refetch();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

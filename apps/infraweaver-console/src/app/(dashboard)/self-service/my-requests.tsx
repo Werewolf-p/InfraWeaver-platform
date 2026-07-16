@@ -1,7 +1,9 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Inbox, X } from "lucide-react";
 import { SettingsCard } from "@/components/ui";
+import { EmptyState } from "@/components/ui/empty-state";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { useApiMutation, useApiQuery } from "@/hooks";
 import { queryKeys } from "@/lib/query-keys";
 import { queryStaleTimes } from "@/lib/query-defaults";
@@ -26,11 +28,32 @@ const STATUS_LABELS: Record<SelfServiceStatus, string> = {
   cancelled: "Cancelled",
 };
 
+// Poll while the tab is open so an admin's approve/deny lands here without a manual
+// reload — the requester's only feedback channel after they submit.
+const POLL_MS = 20_000;
+
+function LoadingRows() {
+  return (
+    <ul className="space-y-2" aria-hidden="true">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <li key={index} className="rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5 px-4 py-3">
+          <div className="space-y-2">
+            <div className="h-3 w-40 rounded shimmer-bg bg-gray-100 dark:bg-[#1e1e1e]" />
+            <div className="h-3 w-56 rounded shimmer-bg bg-gray-100 dark:bg-[#1e1e1e]" />
+            <div className="h-2.5 w-20 rounded shimmer-bg bg-gray-100 dark:bg-[#1e1e1e]" />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function MyRequests() {
   const query = useApiQuery<{ requests: SelfServiceRequest[] }>({
     queryKey: queryKeys.selfService.mine(),
     path: "/api/self-service/requests",
     staleTime: queryStaleTimes.short,
+    refetchInterval: POLL_MS,
   });
   const requests = query.data?.requests ?? [];
 
@@ -43,11 +66,16 @@ export function MyRequests() {
   });
 
   return (
-    <SettingsCard title="My requests" description="Your submitted self-service requests and their outcomes.">
+    <SettingsCard title="My requests" description="Your submitted self-service requests and their outcomes. Updates on its own as admins decide.">
       {query.isLoading ? (
-        <p className="py-4 text-sm text-slate-500">Loading…</p>
+        <LoadingRows />
       ) : requests.length === 0 ? (
-        <p className="py-4 text-sm text-slate-500">You have not submitted any requests yet.</p>
+        <EmptyState
+          icon={Inbox}
+          title="No requests yet"
+          description="Access, storage, and profile requests you submit will appear here with their live status."
+          className="border-0 bg-transparent py-10 dark:bg-transparent"
+        />
       ) : (
         <ul className="space-y-2">
           {requests.map((request) => (
@@ -60,7 +88,7 @@ export function MyRequests() {
                 <p className="truncate text-sm text-slate-800 dark:text-slate-200">{describeRequest(request)}</p>
                 {request.appliedSummary ? <p className="truncate text-xs text-slate-500">{request.appliedSummary}</p> : null}
                 {request.decisionNote ? <p className="truncate text-xs text-slate-500">Note: {request.decisionNote}</p> : null}
-                <p className="text-xs text-slate-400">{new Date(request.createdAt).toLocaleString()}</p>
+                <p className="text-xs text-slate-400">submitted <RelativeTime date={request.createdAt} /></p>
               </div>
               {isPendingStatus(request.status) ? (
                 <button

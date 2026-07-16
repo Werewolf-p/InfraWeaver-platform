@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DashboardStatCard, PageScaffold, ResourceTable, type Column } from "@/components/ui";
+import { CopyButton, DashboardStatCard, PageScaffold, ResourceTable, type Column } from "@/components/ui";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { formatQuantity } from "@/lib/k8s-quantity";
 import { COST_RATE_NOTE } from "@/lib/finops/cost-model";
@@ -41,6 +41,18 @@ function cpu(m: number): string {
 }
 function mem(mi: number): string {
   return mi > 0 ? formatQuantity(mi, "memory") : "—";
+}
+
+/** Ready-to-paste `resources` block seeding the recommended requests for one container. */
+function recommendedResourcesYaml(row: RightsizingRec): string {
+  return [
+    `# ${row.namespace}/${row.pod} · container: ${row.container}`,
+    `# rightsized requests from observed usage`,
+    `resources:`,
+    `  requests:`,
+    `    cpu: ${row.recommendedCpuM}m`,
+    `    memory: ${row.recommendedMemMi}Mi`,
+  ].join("\n");
 }
 
 const columns: Column<RightsizingRec>[] = [
@@ -88,6 +100,18 @@ const columns: Column<RightsizingRec>[] = [
     label: "Status",
     sortable: true,
     render: (row) => <span className={cn("rounded-full border px-2 py-0.5 text-xs", STATUS_STYLE[row.status])}>{STATUS_LABEL[row.status]}</span>,
+  },
+  {
+    key: "apply",
+    label: "Apply",
+    className: "text-right",
+    mobileHide: true,
+    render: (row) =>
+      row.status === "over" || row.status === "under" ? (
+        <CopyButton text={recommendedResourcesYaml(row)} label="YAML" className="ml-auto" />
+      ) : (
+        <span className="text-slate-500">—</span>
+      ),
   },
 ];
 

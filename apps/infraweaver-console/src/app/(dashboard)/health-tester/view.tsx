@@ -5,6 +5,7 @@ import { toast } from "@/lib/notify";
 import { Activity, Plus, Trash2, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { StatusBadge, type StatusType } from "@/components/ui/status-badge";
 
 interface Endpoint {
   id: string;
@@ -24,10 +25,21 @@ interface EndpointResult extends Endpoint {
   testing?: boolean;
 }
 
+function healthBadge(result?: TestResult): { status: StatusType; label: string } {
+  if (!result) return { status: "unknown", label: "Not tested" };
+  if (result.error) return { status: "failed", label: "Error" };
+  if (result.status && result.status < 400) return { status: "healthy", label: String(result.status) };
+  return { status: "failed", label: String(result.status ?? "Error") };
+}
+
 export function HealthTesterView() {
+  // Seed with the console's own health endpoints instead of external httpbin
+  // URLs, so the default checks stay inside the platform. Stored as relative
+  // paths (stable across SSR/hydration) and resolved to an absolute URL at test
+  // time, since the upstream tester fetches the target server-side.
   const [endpoints, setEndpoints] = useState<EndpointResult[]>([
-    { id: "1", url: "https://httpbin.org/status/200", name: "HTTPBin 200" },
-    { id: "2", url: "https://httpbin.org/status/500", name: "HTTPBin 500" },
+    { id: "console-health", url: "/api/health", name: "Console Health" },
+    { id: "cluster-health", url: "/api/health/cluster", name: "Cluster Health" },
   ]);
   const [newUrl, setNewUrl] = useState("");
   const [newName, setNewName] = useState("");
@@ -35,10 +47,11 @@ export function HealthTesterView() {
 
   const testEndpoint = async (ep: EndpointResult): Promise<TestResult> => {
     try {
+      const targetUrl = ep.url.startsWith("http") ? ep.url : `${window.location.origin}${ep.url}`;
       const res = await fetch("/api/webhooks/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: ep.url, method: "GET", headers: {} }),
+        body: JSON.stringify({ url: targetUrl, method: "GET", headers: {} }),
       });
       return await res.json() as TestResult;
     } catch (e) {
@@ -72,27 +85,25 @@ export function HealthTesterView() {
 
   const removeEndpoint = (id: string) => setEndpoints(prev => prev.filter(e => e.id !== id));
 
-  const statusColor = (r?: TestResult) => !r ? "text-slate-500 dark:text-slate-400" : r.error ? "text-red-400" : r.status && r.status < 400 ? "text-green-400" : "text-red-400";
-
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Activity} title="Health Tester" />
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><Activity className="w-5 h-5 text-slate-500 dark:text-slate-400" />Health Check Tester</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Test HTTP endpoints and check their health</p>
-        </div>
-        <button onClick={handleTestAll} disabled={testingAll || endpoints.length === 0} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
-          <Play className="w-4 h-4" />{testingAll ? "Testing..." : "Test All"}
-        </button>
-      </div>
+      <PageHeader
+        icon={Activity}
+        title="Health Check Tester"
+        subtitle="Test HTTP endpoints and check their health"
+        actions={
+          <button onClick={handleTestAll} disabled={testingAll || endpoints.length === 0} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/30 transition-colors disabled:opacity-50">
+            <Play className="w-4 h-4" />{testingAll ? "Testing..." : "Test All"}
+          </button>
+        }
+      />
 
       <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Add Endpoint</h3>
         <div className="flex gap-2">
           <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Name (optional)" className="px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50 w-36" />
           <input value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="https://..." className="flex-1 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-gray-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50" />
-          <button onClick={addEndpoint} className="flex items-center gap-1 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-300 hover:bg-indigo-500/30 transition-colors">
+          <button onClick={addEndpoint} className="flex items-center gap-1 px-4 py-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-sm text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/30 transition-colors">
             <Plus className="w-4 h-4" />Add
           </button>
         </div>
@@ -105,12 +116,13 @@ export function HealthTesterView() {
               <p className="text-sm font-medium text-gray-900 dark:text-white">{ep.name}</p>
               <p className="text-xs text-slate-500 truncate">{ep.url}</p>
               {ep.result && (
-                <div className="flex items-center gap-3 mt-1">
-                  <span className={`text-xs font-semibold ${statusColor(ep.result)}`}>
-                    {ep.result.error ? "Error" : ep.result.status}
-                  </span>
+                <div className="flex items-center gap-3 mt-1.5">
+                  {(() => {
+                    const badge = healthBadge(ep.result);
+                    return <StatusBadge status={badge.status} label={badge.label} size="sm" />;
+                  })()}
                   {ep.result.latencyMs !== undefined && <span className="text-xs text-slate-500">{ep.result.latencyMs}ms</span>}
-                  {ep.result.error && <span className="text-xs text-red-400 truncate">{ep.result.error}</span>}
+                  {ep.result.error && <span className="text-xs text-red-500 dark:text-red-400 truncate">{ep.result.error}</span>}
                 </div>
               )}
             </div>
@@ -118,7 +130,7 @@ export function HealthTesterView() {
               <button onClick={() => handleTestOne(ep.id)} disabled={ep.testing} className="px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-xs text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white transition-colors disabled:opacity-50">
                 {ep.testing ? "Testing..." : "Test"}
               </button>
-              <button onClick={() => removeEndpoint(ep.id)} className="text-red-400 hover:text-red-300 transition-colors">
+              <button onClick={() => removeEndpoint(ep.id)} aria-label={`Remove ${ep.name}`} className="text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors">
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>

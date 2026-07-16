@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, type ComponentType } from "react";
-import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState, type ComponentType } from "react";
+import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 
 export interface AddonPodTabProps {
   namespace: string;
@@ -23,16 +23,51 @@ export function AddonPodTabRenderer({
   labels,
 }: AddonPodTabProps & { load: () => Promise<unknown> }) {
   const [View, setView] = useState<ComponentType<AddonPodTabProps> | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
-    void (load() as Promise<{ default: ComponentType<AddonPodTabProps> }>).then((mod) => {
-      if (active) setView(() => mod.default);
-    });
+    (load() as Promise<{ default: ComponentType<AddonPodTabProps> }>)
+      .then((mod) => {
+        if (active) setView(() => mod.default);
+      })
+      .catch((err: unknown) => {
+        if (active) setError(err instanceof Error ? err : new Error(String(err)));
+      });
     return () => {
       active = false;
     };
-  }, [load]);
+  }, [load, attempt]);
+
+  const retry = useCallback(() => {
+    setError(null);
+    setView(null);
+    setAttempt((value) => value + 1);
+  }, []);
+
+  if (error && !View) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-col items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/5 p-6 text-sm"
+      >
+        <div className="flex items-center gap-2 font-medium text-red-500 dark:text-red-300">
+          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden /> This panel failed to load
+        </div>
+        <p className="text-slate-500 dark:text-slate-400">
+          {error.message || "The addon module could not be loaded. This is usually a temporary network hiccup."}
+        </p>
+        <button
+          type="button"
+          onClick={retry}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 transition-colors hover:border-[#0078D4]/40 hover:text-gray-900 dark:hover:text-white"
+        >
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Try again
+        </button>
+      </div>
+    );
+  }
 
   if (!View) {
     return (

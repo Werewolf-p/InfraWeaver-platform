@@ -42,6 +42,18 @@ function rowColor(cpuPct: number, memPct: number): string {
   return "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10";
 }
 
+function UtilBar({ pct, hasLimit }: { pct: number; hasLimit: boolean }) {
+  if (!hasLimit) return <span className="block text-right tabular-nums text-slate-500">—</span>;
+  const fill = pct >= 90 ? "bg-red-500/25" : pct >= 70 ? "bg-amber-500/25" : "bg-emerald-500/25";
+  const text = pct >= 90 ? "text-red-400" : pct >= 70 ? "text-amber-400" : "text-emerald-400";
+  return (
+    <span className="relative flex items-center justify-end overflow-hidden rounded" title={`${pct}% of limit`}>
+      <span className={cn("absolute inset-y-0 left-0 rounded", fill)} style={{ width: `${Math.min(pct, 100)}%` }} aria-hidden="true" />
+      <span className={cn("relative z-10 tabular-nums font-semibold", text)}>{pct}%</span>
+    </span>
+  );
+}
+
 function exportCSV(rows: FlatRow[]) {
   const header = "Namespace,Pod,Container,CPU (m),CPU Limit (m),CPU %,Memory (Mi),Mem Limit (Mi),Mem %\n";
   const lines = rows.map(r =>
@@ -84,6 +96,21 @@ export default function NodeTopPage() {
     const q = search.toLowerCase();
     return rows.filter(r => !q || r.namespace.includes(q) || r.pod.includes(q) || r.container.includes(q));
   }, [rows, search]);
+
+  const summary = useMemo(() => {
+    let cpuM = 0;
+    let memMi = 0;
+    let hot = 0;
+    let warm = 0;
+    for (const r of rows) {
+      cpuM += r.cpu_m;
+      memMi += r.memory_mi;
+      const max = Math.max(r.cpuPct, r.memPct);
+      if (max >= 90) hot += 1;
+      else if (max >= 70) warm += 1;
+    }
+    return { cores: cpuM / 1000, memGi: memMi / 1024, hot, warm, count: rows.length };
+  }, [rows]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -129,6 +156,27 @@ export default function NodeTopPage() {
         }
       />
 
+      {!isLoading && rows.length > 0 && (
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2.5">
+            <p className="text-lg font-bold tabular-nums text-gray-900 dark:text-white">{summary.cores.toFixed(1)}</p>
+            <p className="text-[11px] uppercase tracking-wider text-slate-500">Cores in use</p>
+          </div>
+          <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2.5">
+            <p className="text-lg font-bold tabular-nums text-gray-900 dark:text-white">{summary.memGi.toFixed(1)} Gi</p>
+            <p className="text-[11px] uppercase tracking-wider text-slate-500">Memory in use</p>
+          </div>
+          <div className={cn("rounded-xl border px-3 py-2.5", summary.hot > 0 ? "border-red-500/30 bg-red-500/10" : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5")}>
+            <p className={cn("text-lg font-bold tabular-nums", summary.hot > 0 ? "text-red-400" : "text-gray-900 dark:text-white")}>{summary.hot}</p>
+            <p className="text-[11px] uppercase tracking-wider text-slate-500">Hot ≥90%</p>
+          </div>
+          <div className={cn("rounded-xl border px-3 py-2.5", summary.warm > 0 ? "border-amber-500/30 bg-amber-500/10" : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5")}>
+            <p className={cn("text-lg font-bold tabular-nums", summary.warm > 0 ? "text-amber-400" : "text-gray-900 dark:text-white")}>{summary.warm}</p>
+            <p className="text-[11px] uppercase tracking-wider text-slate-500">Warm 70–90%</p>
+          </div>
+        </div>
+      )}
+
       <div className="relative mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
         <input
@@ -170,13 +218,9 @@ export default function NodeTopPage() {
                 <span className="text-gray-900 dark:text-white font-mono truncate">{row.pod}</span>
                 <span className="text-slate-700 dark:text-slate-300 truncate">{row.container}</span>
                 <span className="text-slate-700 dark:text-slate-300 text-right tabular-nums">{row.cpu_m}</span>
-                <span className={cn("text-right tabular-nums font-semibold", row.cpuPct >= 90 ? "text-red-400" : row.cpuPct >= 70 ? "text-amber-400" : "text-emerald-400")}>
-                  {row.cpu_limit_m > 0 ? `${row.cpuPct}%` : "—"}
-                </span>
+                <UtilBar pct={row.cpuPct} hasLimit={row.cpu_limit_m > 0} />
                 <span className="text-slate-700 dark:text-slate-300 text-right tabular-nums">{row.memory_mi}</span>
-                <span className={cn("text-right tabular-nums font-semibold", row.memPct >= 90 ? "text-red-400" : row.memPct >= 70 ? "text-amber-400" : "text-emerald-400")}>
-                  {row.memory_limit_mi > 0 ? `${row.memPct}%` : "—"}
-                </span>
+                <UtilBar pct={row.memPct} hasLimit={row.memory_limit_mi > 0} />
               </motion.div>
             ))}
             {sorted.length === 0 && (

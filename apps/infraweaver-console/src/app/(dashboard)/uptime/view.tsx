@@ -1,8 +1,11 @@
 "use client";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { RefreshCw, CheckCircle2, XCircle, AlertTriangle, Clock, Activity } from "lucide-react";
+import { CheckCircle2, XCircle, AlertTriangle, Clock, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
+import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { publicHost } from "@/lib/domain";
 import { useApiQuery } from "@/hooks/use-api-query";
 
@@ -61,10 +64,11 @@ function SkeletonRow() {
 }
 
 export function UptimeView() {
+  const [refreshMs, setRefreshMs] = useState(60000);
   const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useApiQuery<HealthResponse>({
     queryKey: ["uptime-history"],
     path: "/api/health",
-    refetchInterval: 60000,
+    refetchInterval: refreshMs > 0 ? refreshMs : false,
     staleTime: 30000,
   });
 
@@ -91,12 +95,15 @@ export function UptimeView() {
                 <Clock className="w-3 h-3" /> {lastUpdated}
               </span>
             )}
-            <button
-              onClick={() => refetch()}
-              className="p-2 rounded-lg border border-gray-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
-            >
-              <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
-            </button>
+            {refreshMs > 0 && (
+              <RefreshCountdown intervalSeconds={Math.round(refreshMs / 1000)} resetKey={dataUpdatedAt} isFetching={isFetching} />
+            )}
+            <AutoRefreshControl
+              interval={refreshMs}
+              onChange={setRefreshMs}
+              onRefreshNow={() => void refetch()}
+              isFetching={isFetching}
+            />
           </>
         }
       />

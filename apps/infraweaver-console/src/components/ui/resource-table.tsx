@@ -62,7 +62,7 @@ function RowItemInner<T extends object>({
       )}
     >
       {selectable && (
-        <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+        <td className="px-[var(--tbl-px)] py-[var(--tbl-py)]" onClick={e => e.stopPropagation()}>
           <input
             type="checkbox"
             checked={isSelected}
@@ -72,7 +72,7 @@ function RowItemInner<T extends object>({
         </td>
       )}
       {columns.map(col => (
-        <td key={col.key} className={cn("px-3 py-2.5 text-gray-900 dark:text-[#f2f2f2]", col.className)}>
+        <td key={col.key} className={cn("px-[var(--tbl-px)] py-[var(--tbl-py)] text-gray-900 dark:text-[#f2f2f2]", col.className)}>
           {col.render ? col.render(row) : String(cellRow[col.key] ?? "")}
         </td>
       ))}
@@ -167,12 +167,12 @@ export function ResourceTable<T extends object>({
           <thead>
             <tr className="bg-gray-50 dark:bg-[#141414] border-b border-gray-200 dark:border-[#2a2a2a]">
               {selectable && (
-                <th className="w-10 px-3 py-2.5">
+                <th className="w-10 px-[var(--tbl-px)] py-[var(--tbl-py)]">
                   <input type="checkbox" className="rounded border-gray-200 dark:border-[#333]" onChange={handleSelectAll} />
                 </th>
               )}
               {columns.map((col) => (
-                <th key={col.key} className={cn("px-3 py-2.5 text-left text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-[#9e9e9e]", col.className)}>
+                <th key={col.key} className={cn("px-[var(--tbl-px)] py-[var(--tbl-py)] text-left text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-[#9e9e9e]", col.className)}>
                   {col.sortable ? (
                     <SortableHeader
                       label={col.label}

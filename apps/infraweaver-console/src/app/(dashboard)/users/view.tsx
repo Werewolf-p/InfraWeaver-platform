@@ -88,6 +88,22 @@ const defaultUser: PlatformUser = {
   argocd_role: "role:readonly",
 };
 
+/** users.yaml carries an optional `is_active`; absent means active. */
+function isUserDisabled(user: PlatformUser): boolean {
+  return (user as PlatformUser & { is_active?: boolean }).is_active === false;
+}
+
+function DisabledBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-slate-500/30 bg-slate-500/10 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+      <Lock className="h-3 w-3" />
+      Disabled
+    </span>
+  );
+}
+
+type RoleFilter = "all" | "admin" | "platform-user" | "viewer";
+
 function AccessBadge({ level }: { level: string }) {
   const cfg = ROLE_CONFIG[level as keyof typeof ROLE_CONFIG];
   if (!cfg) return (
@@ -567,7 +583,10 @@ function UserMobileCard({ user, isAdmin, isSelf, onEdit, onDelete, actionsDropdo
           {(user.name || user.username)[0]?.toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{user.name || user.username}</p>
+          <p className="text-sm font-medium text-gray-900 dark:text-white truncate flex items-center gap-1.5">
+            {user.name || user.username}
+            {isUserDisabled(user) && <DisabledBadge />}
+          </p>
           <p className="text-xs text-slate-500 truncate">@{user.username}</p>
         </div>
         <AccessBadge level={user.access_level} />
@@ -638,6 +657,7 @@ export function UsersView() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sortBy, setSortBy] = useState<"name" | "username" | "role">("name");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [editUser, setEditUser] = useState<PlatformUser | null>(null);
   const [deleteUser, setDeleteUser] = useState<PlatformUser | null>(null);
@@ -674,17 +694,18 @@ export function UsersView() {
 
   const filtered = useMemo(() => {
     const results = users.filter(u =>
-      !debouncedSearch ||
-      u.username.toLowerCase().includes(debouncedSearch) ||
-      u.name?.toLowerCase().includes(debouncedSearch) ||
-      u.email?.toLowerCase().includes(debouncedSearch)
+      (roleFilter === "all" || u.access_level === roleFilter) &&
+      (!debouncedSearch ||
+        u.username.toLowerCase().includes(debouncedSearch) ||
+        u.name?.toLowerCase().includes(debouncedSearch) ||
+        u.email?.toLowerCase().includes(debouncedSearch))
     );
     return [...results].sort((a, b) => {
       if (sortBy === "role") return a.access_level.localeCompare(b.access_level);
       if (sortBy === "username") return a.username.localeCompare(b.username);
       return (a.name || a.username).localeCompare(b.name || b.username);
     });
-  }, [debouncedSearch, sortBy, users]);
+  }, [debouncedSearch, roleFilter, sortBy, users]);
 
   const selectedUser = filtered.find(user => user.username === selectedUsername) ?? filtered[0] ?? null;
 
@@ -871,6 +892,35 @@ export function UsersView() {
             <option value="role">Sort by role</option>
           </select>
         </div>
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by role">
+          {([
+            { key: "all", label: "All", count: roleCounts.total },
+            { key: "admin", label: "Admins", count: roleCounts.admin },
+            { key: "platform-user", label: "Users", count: roleCounts.platformUser },
+            { key: "viewer", label: "Viewers", count: roleCounts.viewer },
+          ] as const).map((chip) => {
+            const active = roleFilter === chip.key;
+            return (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() => setRoleFilter(chip.key)}
+                aria-pressed={active}
+                className={cn(
+                  "inline-flex min-h-[36px] items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors",
+                  active
+                    ? "border-indigo-500/40 bg-indigo-500/15 text-indigo-600 dark:text-indigo-300"
+                    : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
+                )}
+              >
+                {chip.label}
+                <span className={cn("rounded-full px-1.5 text-[10px]", active ? "bg-indigo-500/20 text-indigo-600 dark:text-indigo-200" : "bg-gray-200/70 dark:bg-white/10 text-slate-500 dark:text-slate-400")}>
+                  {chip.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {isLoading ? (
@@ -902,7 +952,8 @@ export function UsersView() {
                     onClick={() => setSelectedUsername(user.username)}
                     className={cn(
                       "grid grid-cols-[1fr_1fr_1fr_auto_auto_auto] gap-4 items-center px-4 py-3 border-b border-gray-200 dark:border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors min-h-[56px] cursor-pointer",
-                      selectedUsername === user.username && "bg-indigo-500/10"
+                      selectedUsername === user.username && "bg-indigo-500/10",
+                      isUserDisabled(user) && "opacity-60"
                     )}
                   >
                     <div className="flex items-center gap-3 min-w-0">
@@ -913,6 +964,7 @@ export function UsersView() {
                         <p className="text-sm font-medium text-gray-900 dark:text-white truncate flex items-center gap-1.5">
                           {user.name || user.username}
                           {isSelf && <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">you</span>}
+                          {isUserDisabled(user) && <DisabledBadge />}
                         </p>
                         <p className="text-xs text-slate-500 truncate">@{user.username}</p>
                       </div>

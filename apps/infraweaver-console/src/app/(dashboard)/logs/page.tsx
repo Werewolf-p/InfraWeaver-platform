@@ -10,6 +10,7 @@ import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { PageHeader } from "@/components/ui/page-header";
 import { SingleClusterGuard } from "@/components/ui/single-cluster-guard";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { usePods } from "@/hooks/use-pods";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -188,7 +189,15 @@ export default function LogsPage() {
 
       <div className="flex items-center justify-between rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 px-4 py-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Current target</p>
+          <p className="inline-flex items-center gap-1 text-xs uppercase tracking-[0.2em] text-slate-500">
+            Current target
+            <HelpTooltip>
+              <span className="block font-semibold text-white">Keyboard shortcuts</span>
+              <span className="mt-1 block">[ / ] — switch between pods</span>
+              <span className="block">Shift+P — pause / resume the log stream</span>
+              <span className="block">Shift+E / W / I — jump to latest error / warn / info</span>
+            </HelpTooltip>
+          </p>
           <p className="mt-1 text-sm text-gray-900 dark:text-white">
             {selectedPod ? `${selectedPod.namespace}/${selectedPod.name}` : "No pod selected"}
           </p>

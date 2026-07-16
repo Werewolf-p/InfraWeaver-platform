@@ -17,7 +17,9 @@ import {
 } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
 import { DashboardPanel } from "@/components/ui/dashboard-panel";
+import { DataError } from "@/components/ui/data-error";
 import { DataTable } from "@/components/ui/data-table";
+import { DegradedBackendsBanner } from "@/components/ui/degraded-backends-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -230,6 +232,21 @@ export default function HomePage() {
     },
   ] as const;
 
+  // Consolidate the scattered "something is wrong" signals into one triage row
+  // so the operator learns what needs action without scanning four metric cards
+  // and the event feed. Only surfaces chips that actually have a count.
+  const triageItems = [
+    attentionPods > 0
+      ? { key: "pods", label: `${attentionPods} pod${attentionPods === 1 ? "" : "s"} need attention`, href: "/logs" }
+      : null,
+    degradedApps > 0
+      ? { key: "degraded", label: `${degradedApps} app${degradedApps === 1 ? "" : "s"} degraded`, href: "/apps" }
+      : null,
+    outOfSyncApps > 0
+      ? { key: "sync", label: `${outOfSyncApps} app${outOfSyncApps === 1 ? "" : "s"} out of sync`, href: "/apps" }
+      : null,
+  ].filter((item): item is { key: string; label: string; href: string } => item !== null);
+
   const usageRows = useMemo<AppUsageRow[]>(() => {
     const namespaceToApp = new Map<string, ArgoApp>();
     for (const app of apps) {
@@ -414,6 +431,30 @@ export default function HomePage() {
       )}
       breadcrumb={[{ label: "Overview", href: "/home" }, { label: "Home" }]}
     >
+      <DegradedBackendsBanner />
+
+      {triageItems.length > 0 && (
+        <section
+          aria-label="Needs attention"
+          className="flex flex-wrap items-center gap-2 rounded-2xl border border-[rgb(var(--color-warning))]/30 bg-[rgb(var(--color-warning))]/10 px-4 py-3"
+        >
+          <span className="flex items-center gap-2 text-sm font-semibold text-[rgb(var(--color-warning))]">
+            <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+            Needs attention
+          </span>
+          {triageItems.map((item) => (
+            <Link
+              key={item.key}
+              href={item.href}
+              className="inline-flex items-center gap-1 rounded-full border border-[rgb(var(--color-warning))]/30 bg-[rgb(var(--color-surface-base))] px-3 py-1 text-xs font-medium text-[rgb(var(--color-text-primary))] transition-colors hover:border-[rgb(var(--color-warning))]/60"
+            >
+              {item.label}
+              <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            </Link>
+          ))}
+        </section>
+      )}
+
       <section className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
         {metricCards.map((card) => (
           <MetricCard key={card.title} {...card} />
@@ -542,6 +583,12 @@ export default function HomePage() {
                 <div key={index} className="h-20 rounded-2xl shimmer-bg" />
               ))}
             </div>
+          ) : eventsQuery.isError ? (
+            <DataError
+              message="Couldn't load recent activity"
+              onRetry={() => void eventsQuery.refetch()}
+              className="min-h-[320px]"
+            />
           ) : latestEvents.length === 0 ? (
             <EmptyState
               icon={CheckCircle2}

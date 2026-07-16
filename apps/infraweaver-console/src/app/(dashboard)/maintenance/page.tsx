@@ -4,6 +4,7 @@ import { Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
+import { useConfirm } from "@/hooks/use-confirm";
 import { useRBAC } from "@/hooks/use-rbac";
 
 interface MaintenanceEntry {
@@ -18,6 +19,7 @@ interface MaintenanceEntry {
 
 export default function MaintenancePage() {
   const { can } = useRBAC();
+  const { confirm, confirmDialog } = useConfirm();
   const canManageMaintenance = can("config:write");
 
   const { data, isLoading } = useApiQuery<{ maintenance: MaintenanceEntry[] }>({
@@ -34,6 +36,25 @@ export default function MaintenancePage() {
 
   const entries = data?.maintenance ?? [];
   const active = entries.filter(e => e.active).length;
+
+  const handleToggle = async (entry: MaintenanceEntry) => {
+    const next = !entry.active;
+    const confirmed = await confirm(
+      next
+        ? {
+            title: `Enable maintenance mode for ${entry.appName}?`,
+            description: `This takes ${entry.appName} offline for users in ${entry.namespace} and shows a maintenance page until it is disabled.`,
+            confirmText: "Enable maintenance",
+            danger: true,
+          }
+        : {
+            title: `Disable maintenance mode for ${entry.appName}?`,
+            description: `This brings ${entry.appName} back online for users in ${entry.namespace}.`,
+            confirmText: "Bring back online",
+          },
+    );
+    if (confirmed) toggleMutation.mutate({ id: entry.id, active: next });
+  };
 
   if (isLoading) return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
 
@@ -64,7 +85,7 @@ export default function MaintenancePage() {
               {e.enabledAt && <p className="text-xs text-slate-500">Enabled {new Date(e.enabledAt).toLocaleString()} by {e.enabledBy}</p>}
             </div>
             <button
-              onClick={() => toggleMutation.mutate({ id: e.id, active: !e.active })}
+              onClick={() => void handleToggle(e)}
               disabled={toggleMutation.isPending || !canManageMaintenance}
               className={cn("px-4 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-50", e.active ? "bg-green-500/20 border-green-500/30 text-green-300 hover:bg-green-500/30" : "bg-yellow-500/20 border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/30")}
             >
@@ -74,6 +95,7 @@ export default function MaintenancePage() {
         ))}
         {entries.length === 0 && <div className="py-12 text-center text-slate-500 text-sm">No apps configured</div>}
       </div>
+      {confirmDialog}
     </motion.div>
   );
 }

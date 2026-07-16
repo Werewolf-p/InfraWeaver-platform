@@ -29,7 +29,9 @@ import {
   Server,
 } from "lucide-react";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { DataError } from "@/components/ui/data-error";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { NasMountSheet } from "@/components/nas/mount-sheet";
 import { StorageAccessSheet } from "@/components/nas/storage-access-sheet";
 import { cn } from "@/lib/utils";
@@ -197,12 +199,32 @@ export function NasFolderExplorer({ providers }: { providers: NasProvider[] }) {
 
         {!share ? (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {sharesQuery.isLoading ? (
-              <p className="text-sm text-slate-500">Loading shares…</p>
+            {sharesQuery.isError ? (
+              <div className="md:col-span-2 xl:col-span-3">
+                <DataError
+                  message="Couldn't load shares"
+                  detail={sharesQuery.error instanceof Error ? sharesQuery.error.message : undefined}
+                  onRetry={() => void sharesQuery.refetch()}
+                />
+              </div>
+            ) : sharesQuery.isLoading ? (
+              Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-[#2a2a2a] dark:bg-[#111]">
+                  <Skeleton className="h-10 w-10 shrink-0 rounded-xl" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-4 w-1/2" />
+                    <Skeleton className="h-3 w-3/4" />
+                  </div>
+                </div>
+              ))
             ) : shares.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                This provider exposes no shares you have access to, or its credentials were rejected.
-              </p>
+              <div className="md:col-span-2 xl:col-span-3">
+                <EmptyState
+                  icon={Folder}
+                  title="No shares you can reach"
+                  description="This provider exposes no shares your account has access to. Ask an admin for access, or check that the provider's credentials are still valid."
+                />
+              </div>
             ) : shares.map((entry) => (
               <div
                 key={`${providerId}-${entry.name}`}
@@ -315,9 +337,21 @@ export function NasFolderExplorer({ providers }: { providers: NasProvider[] }) {
             ) : null}
 
             {foldersQuery.isLoading ? (
-              <p className="py-6 text-center text-sm text-slate-500">Loading folders…</p>
+              <div className="space-y-2">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-3 dark:border-[#2a2a2a] dark:bg-[#111]">
+                    <Skeleton className="h-4 w-4 shrink-0 rounded" />
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="ml-auto h-6 w-16 rounded-lg" />
+                  </div>
+                ))}
+              </div>
             ) : foldersQuery.isError ? (
-              <p className="py-6 text-center text-sm text-red-400">{(foldersQuery.error as Error).message}</p>
+              <DataError
+                message="Couldn't load this folder"
+                detail={foldersQuery.error instanceof Error ? foldersQuery.error.message : undefined}
+                onRetry={() => void foldersQuery.refetch()}
+              />
             ) : folders.length === 0 ? (
               <EmptyState
                 icon={Folder}

@@ -78,7 +78,7 @@ const TableRow = React.memo(function TableRow<TData>({
       {row.getVisibleCells().map((cell) => (
         <td
           key={cell.id}
-          className="border-b border-[rgb(var(--color-border))] px-4 py-3 align-middle text-[rgb(var(--color-text-primary))] last:w-full"
+          className="border-b border-[rgb(var(--color-border))] px-[var(--tbl-px)] py-[var(--tbl-py)] align-middle text-[rgb(var(--color-text-primary))] last:w-full"
         >
           {flexRender(cell.column.columnDef.cell, cell.getContext())}
         </td>
@@ -502,7 +502,7 @@ export function DataTable<TData>({
                     return (
                       <th
                         key={header.id}
-                        className="border-b border-[rgb(var(--color-border))] px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.18em] text-[rgb(var(--color-text-tertiary))]"
+                        className="border-b border-[rgb(var(--color-border))] px-[var(--tbl-px)] py-[var(--tbl-py)] text-left text-xs font-semibold uppercase tracking-[0.18em] text-[rgb(var(--color-text-tertiary))]"
                       >
                         {header.isPlaceholder ? null : canSort ? (
                           <button

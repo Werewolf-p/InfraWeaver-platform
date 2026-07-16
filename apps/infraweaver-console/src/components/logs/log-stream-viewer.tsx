@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -12,6 +12,7 @@ import {
   Pause,
   Play,
   RefreshCw,
+  Regex,
   Search,
   TerminalSquare,
   Trash2,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 
 export type LogLevel = "ALL" | "ERROR" | "WARN" | "INFO" | "DEBUG";
 
@@ -29,11 +31,12 @@ interface LogViewerPreferences {
   autoScroll: boolean;
   wrap: boolean;
   levelFilter: LogLevel;
+  regexMode: boolean;
 }
 
 function loadViewerPreferences(): LogViewerPreferences {
   if (typeof window === "undefined") {
-    return { filter: "", autoScroll: true, wrap: false, levelFilter: "ALL" };
+    return { filter: "", autoScroll: true, wrap: false, levelFilter: "ALL", regexMode: false };
   }
 
   try {
@@ -45,10 +48,40 @@ function loadViewerPreferences(): LogViewerPreferences {
       levelFilter: parsed?.levelFilter === "ERROR" || parsed?.levelFilter === "WARN" || parsed?.levelFilter === "INFO" || parsed?.levelFilter === "DEBUG" || parsed?.levelFilter === "ALL"
         ? parsed.levelFilter
         : "ALL",
+      regexMode: typeof parsed?.regexMode === "boolean" ? parsed.regexMode : false,
     };
   } catch {
-    return { filter: "", autoScroll: true, wrap: false, levelFilter: "ALL" };
+    return { filter: "", autoScroll: true, wrap: false, levelFilter: "ALL", regexMode: false };
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Split a line into plain text + highlighted <mark> segments for the current filter. */
+function highlightLine(line: string, pattern: RegExp | null): ReactNode {
+  if (!pattern) return line;
+  const segments: ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+  pattern.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(line)) !== null) {
+    if (match.index > lastIndex) segments.push(line.slice(lastIndex, match.index));
+    if (match[0].length > 0) {
+      segments.push(
+        <mark key={key++} className="rounded-sm bg-amber-400/30 px-0.5 text-amber-100">
+          {match[0]}
+        </mark>,
+      );
+    }
+    lastIndex = match.index + match[0].length;
+    if (match[0].length === 0) pattern.lastIndex += 1;
+  }
+  if (segments.length === 0) return line;
+  if (lastIndex < line.length) segments.push(line.slice(lastIndex));
+  return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
 }
 
 function getLineLevel(line: string): LogLevel {
@@ -118,7 +151,35 @@ export function LogStreamViewer({
   const pausedRef = useRef(false);
   const pausedBufferRef = useRef<string[]>([]);
 
-  const { filter, autoScroll, wrap, levelFilter } = preferences;
+  const { filter, autoScroll, wrap, levelFilter, regexMode } = preferences;
+
+  const { matchesFilter, filterError, highlightPattern } = useMemo(() => {
+    if (!filter) {
+      return { matchesFilter: () => true, filterError: "", highlightPattern: null as RegExp | null };
+    }
+    if (regexMode) {
+      try {
+        const test = new RegExp(filter, "i");
+        return {
+          matchesFilter: (line: string) => test.test(line),
+          filterError: "",
+          highlightPattern: new RegExp(filter, "gi"),
+        };
+      } catch (error) {
+        return {
+          matchesFilter: () => false,
+          filterError: error instanceof Error ? error.message : "Invalid regular expression",
+          highlightPattern: null as RegExp | null,
+        };
+      }
+    }
+    const lower = filter.toLowerCase();
+    return {
+      matchesFilter: (line: string) => line.toLowerCase().includes(lower),
+      filterError: "",
+      highlightPattern: new RegExp(escapeRegExp(filter), "gi"),
+    };
+  }, [filter, regexMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -259,11 +320,10 @@ export function LogStreamViewer({
   const filteredLogs = useMemo(
     () =>
       logs.filter((line) => {
-        const matchesText = !filter || line.toLowerCase().includes(filter.toLowerCase());
         const matchesLevel = levelFilter === "ALL" || getLineLevel(line) === levelFilter;
-        return matchesText && matchesLevel;
+        return matchesFilter(line) && matchesLevel;
       }),
-    [filter, levelFilter, logs]
+    [levelFilter, logs, matchesFilter]
   );
 
   const levelCounts = useMemo(
@@ -435,9 +495,30 @@ export function LogStreamViewer({
           <input
             value={filter}
             onChange={(event) => setPreferences((current) => ({ ...current, filter: event.target.value }))}
-            placeholder="Filter logs..."
-            className="w-full rounded-lg border border-white/10 bg-slate-950 py-2 pl-9 pr-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50"
+            placeholder={regexMode ? "Filter by regex e.g. status=5\\d\\d" : "Filter logs..."}
+            aria-invalid={filterError ? true : undefined}
+            className={cn(
+              "w-full rounded-lg border bg-slate-950 py-2 pl-9 pr-24 text-sm text-white placeholder:text-slate-500 outline-none focus:border-indigo-500/50",
+              filterError ? "border-red-500/50" : "border-white/10",
+            )}
           />
+          <button
+            onClick={() => setPreferences((current) => ({ ...current, regexMode: !current.regexMode }))}
+            aria-pressed={regexMode}
+            title={regexMode ? "Regex matching — click for plain-text" : "Plain-text matching — click for regex"}
+            className={cn(
+              "absolute right-2 top-1/2 inline-flex -translate-y-1/2 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition",
+              regexMode
+                ? "border-indigo-500/40 bg-indigo-500/15 text-indigo-200"
+                : "border-white/10 bg-slate-900 text-slate-400 hover:text-white",
+            )}
+          >
+            <Regex className="h-3.5 w-3.5" aria-hidden="true" />
+            Regex
+          </button>
+          {filterError ? (
+            <p className="absolute left-1 top-full mt-1 text-[11px] text-red-400">Invalid pattern: {filterError}</p>
+          ) : null}
         </div>
 
         <div role="group" aria-label="Log level filter" className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-950/70 p-1">
@@ -549,8 +630,14 @@ export function LogStreamViewer({
           })}
         </div>
 
-        <span className="text-xs text-slate-500">
+        <span className="inline-flex items-center gap-1 text-xs text-slate-500">
           {filteredLogs.length} lines{bufferedLines > 0 ? ` · ${bufferedLines} buffered` : ""}
+          <HelpTooltip>
+            <span className="block font-semibold text-white">Keyboard shortcuts</span>
+            <span className="mt-1 block">Shift+P — pause / resume stream</span>
+            <span className="block">Shift+E / W / I — jump to latest error / warn / info</span>
+            <span className="block">[ / ] — switch between pods</span>
+          </HelpTooltip>
         </span>
 
         {logs.length > 0 && (
@@ -632,7 +719,7 @@ export function LogStreamViewer({
                   )}
                 >
                   <span className="w-10 shrink-0 text-right text-slate-600">{String(index + 1).padStart(4, "0")}</span>
-                  <span className="min-w-0 flex-1">{line}</span>
+                  <span className="min-w-0 flex-1">{highlightLine(line, highlightPattern)}</span>
                   <CopyLineButton line={line} />
                 </div>
               );

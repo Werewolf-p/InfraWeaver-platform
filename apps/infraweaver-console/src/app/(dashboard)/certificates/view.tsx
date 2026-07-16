@@ -43,6 +43,68 @@ function statusClass(cert: Certificate) {
   return "border-emerald-500/30 bg-emerald-500/10 text-emerald-200";
 }
 
+// Window used to scale the expiry bar: a healthy 90+ day cert fills the track.
+const EXPIRY_HORIZON_DAYS = 90;
+
+type ExpiryTone = "red" | "amber" | "green";
+
+const TONE_BAR: Record<ExpiryTone, string> = {
+  red: "bg-red-500",
+  amber: "bg-amber-400",
+  green: "bg-emerald-500",
+};
+
+const TONE_TEXT: Record<ExpiryTone, string> = {
+  red: "text-red-600 dark:text-red-300",
+  amber: "text-amber-600 dark:text-amber-300",
+  green: "text-emerald-600 dark:text-emerald-300",
+};
+
+function expiryTone(cert: Certificate): ExpiryTone {
+  if (!cert.ready) return "red";
+  if (cert.daysLeft !== null && cert.daysLeft <= 14) return "red";
+  if (cert.daysLeft !== null && cert.daysLeft <= 30) return "amber";
+  return "green";
+}
+
+function expiryPercent(cert: Certificate): number {
+  if (cert.daysLeft === null) return cert.ready ? 100 : 6;
+  return Math.max(4, Math.min(100, Math.round((cert.daysLeft / EXPIRY_HORIZON_DAYS) * 100)));
+}
+
+function relativeExpiry(cert: Certificate): string {
+  const days = cert.daysLeft;
+  if (days === null) return "Expiry unknown";
+  if (days < 0) return `Expired ${Math.abs(days)}d ago`;
+  if (days === 0) return "Expires today";
+  if (days === 1) return "in 1 day";
+  return `in ${days} days`;
+}
+
+// Not-ready certs float to the top, then the soonest-to-expire; unknowns sink last.
+function compareByRisk(a: Certificate, b: Certificate): number {
+  if (a.ready !== b.ready) return a.ready ? 1 : -1;
+  const da = a.daysLeft ?? Number.MAX_SAFE_INTEGER;
+  const db = b.daysLeft ?? Number.MAX_SAFE_INTEGER;
+  return da - db;
+}
+
+function ExpiryMeter({ cert }: { cert: Certificate }) {
+  const tone = expiryTone(cert);
+  const label = relativeExpiry(cert);
+  return (
+    <div className="mt-4" role="img" aria-label={`Certificate ${cert.ready ? "" : "not ready — "}expires ${label}`}>
+      <div className="flex items-center justify-between text-xs">
+        <span className={cn("font-medium", TONE_TEXT[tone])}>{cert.ready ? label : "Not ready"}</span>
+        <span className="text-slate-500 dark:text-slate-400">{cert.daysLeft !== null ? `${cert.daysLeft}d of ${EXPIRY_HORIZON_DAYS}d` : "—"}</span>
+      </div>
+      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+        <div className={cn("h-full rounded-full transition-[width] motion-reduce:transition-none", TONE_BAR[tone])} style={{ width: `${expiryPercent(cert)}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export function CertificatesView() {
   const [search, setSearch] = useState("");
   const [namespaceFilter, setNamespaceFilter] = useState("all");
@@ -73,7 +135,11 @@ export function CertificatesView() {
       || (statusFilter === "renewal" && cert.renewalTime !== null && new Date(cert.renewalTime).getTime() <= renewalCutoff)
       || (statusFilter === "not-ready" && !cert.ready);
     return matchesSearch && matchesNamespace && matchesStatus;
-  }), [certs, namespaceFilter, renewalCutoff, search, statusFilter]);
+  }).sort(compareByRisk), [certs, namespaceFilter, renewalCutoff, search, statusFilter]);
+
+  function toggleStatus(next: Exclude<typeof statusFilter, "all">) {
+    setStatusFilter((current) => (current === next ? "all" : next));
+  }
 
   return (
     <div className="space-y-6">
@@ -100,22 +166,50 @@ export function CertificatesView() {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
+        <button
+          type="button"
+          onClick={() => setStatusFilter("all")}
+          aria-pressed={statusFilter === "all"}
+          className="rounded-2xl border border-gray-200 text-left transition hover:border-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:border-white/10 dark:hover:border-white/20 bg-slate-100 dark:bg-slate-900/70 p-4"
+        >
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Certificates</p>
           <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{data?.summary.total ?? 0}</p>
-        </div>
+          <p className="mt-1 text-[11px] text-slate-500">Show all</p>
+        </button>
         <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-emerald-100/80">Ready</p>
           <p className="mt-2 text-3xl font-semibold text-emerald-300">{data?.summary.ready ?? 0}</p>
         </div>
-        <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4">
+        <button
+          type="button"
+          onClick={() => toggleStatus("expiring")}
+          aria-pressed={statusFilter === "expiring"}
+          className={cn(
+            "rounded-2xl border text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500/60 p-4",
+            statusFilter === "expiring"
+              ? "border-yellow-400/60 bg-yellow-500/20 ring-1 ring-yellow-400/40"
+              : "border-yellow-500/20 bg-yellow-500/10 hover:border-yellow-400/40",
+          )}
+        >
           <p className="text-xs uppercase tracking-[0.2em] text-yellow-100/80">Expiring ≤30d</p>
           <p className="mt-2 text-3xl font-semibold text-yellow-200">{data?.summary.expiringSoon ?? 0}</p>
-        </div>
-        <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
+          <p className="mt-1 text-[11px] text-yellow-200/70">{statusFilter === "expiring" ? "Filtering · tap to clear" : "Tap to filter"}</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleStatus("renewal")}
+          aria-pressed={statusFilter === "renewal"}
+          className={cn(
+            "rounded-2xl border text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 p-4",
+            statusFilter === "renewal"
+              ? "border-indigo-400/60 bg-indigo-500/20 ring-1 ring-indigo-400/40"
+              : "border-indigo-500/20 bg-indigo-500/10 hover:border-indigo-400/40",
+          )}
+        >
           <p className="text-xs uppercase tracking-[0.2em] text-indigo-100/80">Renewal due</p>
           <p className="mt-2 text-3xl font-semibold text-indigo-200">{data?.summary.renewalDue ?? 0}</p>
-        </div>
+          <p className="mt-1 text-[11px] text-indigo-200/70">{statusFilter === "renewal" ? "Filtering · tap to clear" : "Tap to filter"}</p>
+        </button>
       </div>
 
       <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/70 p-4">
@@ -173,6 +267,8 @@ export function CertificatesView() {
                   <p>Expires {formatDateTime(cert.notAfter)}</p>
                 </div>
               </div>
+
+              <ExpiryMeter cert={cert} />
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {(cert.dnsNames.length > 0 ? cert.dnsNames : [cert.commonName]).filter(Boolean).map((host) => (

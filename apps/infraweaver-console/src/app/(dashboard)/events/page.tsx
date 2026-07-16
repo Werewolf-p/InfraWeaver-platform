@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCheck, ShieldCheck } from "lucide-react";
-import { DashboardStatCard, EmptyState, FilterSelect, KubeOfflineBanner, PageScaffold, RefreshButton, SearchInput } from "@/components/ui";
+import { CopyButton, DashboardStatCard, EmptyState, FilterSelect, KubeOfflineBanner, PageScaffold, RefreshButton, SearchInput } from "@/components/ui";
 import { RefreshCountdown } from "@/components/ui/refresh-countdown";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { cn, timeAgo } from "@/lib/utils";
@@ -33,6 +33,18 @@ function formatTimestamp(value: string | null) {
   return new Date(value).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+const LEVEL_RANK: Record<ClusterEvent["level"], number> = { error: 0, warning: 1, info: 2 };
+
+function eventTime(event: ClusterEvent): number {
+  const value = event.lastSeen ?? event.firstSeen;
+  const parsed = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function objectRefCommand(event: ClusterEvent): string {
+  return `kubectl -n ${event.namespace} describe ${event.involvedObject.kind.toLowerCase()}/${event.involvedObject.name}`;
+}
+
 export default function EventsPage() {
   const [search, setSearch] = useState("");
   const [namespaceFilter, setNamespaceFilter] = useState("all");
@@ -55,18 +67,25 @@ export default function EventsPage() {
     [events]
   );
 
-  const filteredEvents = useMemo(() => events.filter((event) => {
-    const query = search.trim().toLowerCase();
-    const matchesSearch = !query
-      || event.reason.toLowerCase().includes(query)
-      || event.message.toLowerCase().includes(query)
-      || event.namespace.toLowerCase().includes(query)
-      || event.involvedObject.name.toLowerCase().includes(query);
-    const matchesNamespace = namespaceFilter === "all" || event.namespace === namespaceFilter;
-    const matchesType = typeFilter === "all" || event.type === typeFilter;
-    const isAcked = ackedIds.has(event.id);
-    return matchesSearch && matchesNamespace && matchesType && (!hideAcked || !isAcked);
-  }), [ackedIds, events, hideAcked, namespaceFilter, search, typeFilter]);
+  const filteredEvents = useMemo(() => {
+    const matched = events.filter((event) => {
+      const query = search.trim().toLowerCase();
+      const matchesSearch = !query
+        || event.reason.toLowerCase().includes(query)
+        || event.message.toLowerCase().includes(query)
+        || event.namespace.toLowerCase().includes(query)
+        || event.involvedObject.name.toLowerCase().includes(query);
+      const matchesNamespace = namespaceFilter === "all" || event.namespace === namespaceFilter;
+      const matchesType = typeFilter === "all" || event.type === typeFilter;
+      const isAcked = ackedIds.has(event.id);
+      return matchesSearch && matchesNamespace && matchesType && (!hideAcked || !isAcked);
+    });
+    // Read like a triage queue: errors first, then warnings, then normal — recency breaks ties.
+    return matched.sort((a, b) => {
+      if (LEVEL_RANK[a.level] !== LEVEL_RANK[b.level]) return LEVEL_RANK[a.level] - LEVEL_RANK[b.level];
+      return eventTime(b) - eventTime(a);
+    });
+  }, [ackedIds, events, hideAcked, namespaceFilter, search, typeFilter]);
 
   const warningEvents = filteredEvents.filter((event) => event.type === "Warning");
   const unackedWarnings = warningEvents.filter((event) => !ackedIds.has(event.id));
@@ -180,17 +199,32 @@ export default function EventsPage() {
                       <span className="rounded-full border border-gray-200 dark:border-white/10 px-2.5 py-1 text-xs text-slate-500 dark:text-slate-400">
                         {event.involvedObject.kind}/{event.involvedObject.name}
                       </span>
+                      {event.count > 1 ? (
+                        <span
+                          className={cn(
+                            "rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums",
+                            event.count >= 50
+                              ? "bg-red-500/20 text-red-200"
+                              : event.count >= 10
+                                ? "bg-amber-500/20 text-amber-100"
+                                : "bg-slate-500/15 text-slate-600 dark:text-slate-300",
+                          )}
+                          title={`Fired ${event.count} times`}
+                        >
+                          ×{event.count}
+                        </span>
+                      ) : null}
                       {isAcked ? <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">Acknowledged</span> : null}
                     </div>
                     <p className="text-sm text-gray-900 dark:text-white">{event.message}</p>
                     <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                       <span>Seen {timeAgo(event.lastSeen ?? event.firstSeen ?? new Date().toISOString())}</span>
                       <span>Last update {formatTimestamp(event.lastSeen)}</span>
-                      <span>Count ×{event.count}</span>
                       {event.sourceComponent ? <span>Source {event.sourceComponent}</span> : null}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    <CopyButton text={objectRefCommand(event)} label="describe" className="h-9" />
                     {event.type === "Warning" ? (
                       <button
                         onClick={() => acknowledgeEvents([event.id])}

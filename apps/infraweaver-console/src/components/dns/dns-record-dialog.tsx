@@ -86,6 +86,39 @@ function clearDraft(draftKey?: string) {
   localStorage.removeItem(draftKey);
 }
 
+const HOSTNAME_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+
+function isIpv4(value: string): boolean {
+  const parts = value.split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+}
+
+function isHostname(value: string): boolean {
+  // Reject anything carrying a scheme, port, path, or whitespace — CNAME targets
+  // are bare hostnames, and these are the mistakes /api/dns rejects after a round-trip.
+  if (/[\s/:@]/.test(value)) return false;
+  const host = value.replace(/\.$/, "");
+  if (host.length === 0 || host.length > 253) return false;
+  return host.split(".").every((label) => HOSTNAME_LABEL.test(label));
+}
+
+// Type-keyed format validation so obvious mistakes surface inline instead of failing
+// server-side. Returns an error string, or null when the value is well-formed.
+function validateRecordValue(type: ManagedRecordType, rawValue: string): string | null {
+  const value = rawValue.trim();
+  if (type === "A") {
+    return isIpv4(value) ? null : "Enter a valid IPv4 address (e.g. 10.25.0.10)";
+  }
+  if (type === "CNAME") {
+    return isHostname(value) ? null : "Enter a hostname without scheme, port, or path (e.g. target.example.com)";
+  }
+  if (type === "TXT" && value.length > 512) {
+    return "TXT value must be 512 characters or fewer";
+  }
+  return null;
+}
+
 export function DnsRecordDialog({
   open,
   onOpenChange,
@@ -176,7 +209,12 @@ export function DnsRecordDialog({
   function validate() {
     const nextErrors: Partial<Record<keyof FormState, string>> = {};
     if (!isEditing && !form.name.trim()) nextErrors.name = "Name is required";
-    if (!form.value.trim()) nextErrors.value = "Value is required";
+    if (!form.value.trim()) {
+      nextErrors.value = "Value is required";
+    } else {
+      const valueError = validateRecordValue(form.type, form.value);
+      if (valueError) nextErrors.value = valueError;
+    }
     if (form.ttl < 1 || form.ttl > 86400) nextErrors.ttl = "TTL must be between 1 and 86400";
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -365,6 +403,11 @@ export function DnsRecordDialog({
                   <input
                     value={form.value}
                     onChange={(event) => updateField("value", event.target.value)}
+                    onBlur={() => {
+                      if (!form.value.trim()) return;
+                      const valueError = validateRecordValue(form.type, form.value);
+                      setErrors((current) => ({ ...current, value: valueError ?? undefined }));
+                    }}
                     placeholder={form.type === "A" ? "10.25.0.10" : form.type === "TXT" ? "verification-token" : "target.example.com"}
                     className={cn(
                       "w-full rounded-xl border bg-white dark:bg-[#0d0d0d] px-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:ring-1 focus:ring-[#3b82f6]",

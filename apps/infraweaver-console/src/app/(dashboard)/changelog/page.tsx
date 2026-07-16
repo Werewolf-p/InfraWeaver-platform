@@ -72,10 +72,10 @@ const RELEASES: Release[] = [
 ];
 
 const typeStyles: Record<string, string> = {
-  feature: "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30",
-  fix: "bg-red-500/20 text-red-300 border border-red-500/30",
-  improvement: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
-  breaking: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
+  feature: "bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30",
+  fix: "bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/30",
+  improvement: "bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30",
+  breaking: "bg-orange-500/20 text-orange-700 dark:text-orange-300 border border-orange-500/30",
 };
 
 const typeLabel: Record<string, string> = {
@@ -97,13 +97,13 @@ export default function ChangelogPage() {
       <div className="space-y-12">
         {RELEASES.map((release) => (
           <div key={release.version} className="relative pl-6 border-l border-gray-200 dark:border-white/10">
-            <div className="absolute -left-1.5 top-0 w-3 h-3 rounded-full bg-indigo-500 ring-2 ring-neutral-950" />
+            <div className="absolute -left-1.5 top-0 w-3 h-3 rounded-full bg-indigo-500 ring-2 ring-white dark:ring-neutral-950" />
             <div className="mb-4">
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-lg font-semibold text-gray-900 dark:text-white">v{release.version}</span>
                 <span className="text-xs text-gray-400 dark:text-white/30">{release.date}</span>
                 {release.highlights && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
                     {release.highlights}
                   </span>
                 )}

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Calendar, Play } from "lucide-react";
 import { DashboardStatCard, EmptyState, FilterSelect, KubeOfflineBanner, PageScaffold, RefreshButton, SearchInput } from "@/components/ui";
 import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
+import { useConfirm } from "@/hooks/use-confirm";
 import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 
@@ -45,6 +46,7 @@ function formatTime(value: string | null) {
 
 export default function CronJobsPage() {
   const { can } = useRBAC();
+  const { confirm, confirmDialog } = useConfirm();
   const [search, setSearch] = useState("");
   const [namespaceFilter, setNamespaceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "failing" | "suspended" | "active">("all");
@@ -63,6 +65,16 @@ export default function CronJobsPage() {
     successMessage: (payload) => payload.simulated ? `Simulated run: ${payload.jobName}` : `Started ${payload.jobName}`,
   });
   const triggeringId = triggerMutation.isPending ? triggerMutation.variables?.id ?? null : null;
+
+  const handleTrigger = async (cronjob: CronJob) => {
+    const confirmed = await confirm({
+      title: `Run "${cronjob.name}" now?`,
+      description: `This launches a new job in ${cronjob.namespace} immediately, outside its normal schedule (${cronjob.schedule || "unknown"}).`,
+      confirmText: "Run now",
+      danger: true,
+    });
+    if (confirmed) triggerMutation.mutate(cronjob);
+  };
 
   const cronjobs = useMemo(() => data?.cronjobs ?? [], [data?.cronjobs]);
   const namespaces = useMemo(() => Array.from(new Set(cronjobs.map((cronjob) => cronjob.namespace))).sort(), [cronjobs]);
@@ -156,7 +168,7 @@ export default function CronJobsPage() {
                 </div>
                 {canTrigger ? (
                   <button
-                    onClick={() => triggerMutation.mutate(cronjob)}
+                    onClick={() => void handleTrigger(cronjob)}
                     disabled={triggeringId === cronjob.id}
                     className="inline-flex items-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-sm text-indigo-200 transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
@@ -215,6 +227,7 @@ export default function CronJobsPage() {
           ))}
         </div>
       )}
+      {confirmDialog}
     </PageScaffold>
   );
 }

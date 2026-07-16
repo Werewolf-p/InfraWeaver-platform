@@ -22,6 +22,29 @@ import { PublicMirrorCard } from "@/components/secrets/public-mirror-card";
 
 const REMINT_CONFIRM_WORD = "remint";
 
+function scrollToSection(id: string) {
+  if (typeof document === "undefined") return;
+  const target = document.getElementById(id);
+  if (!target) return;
+  const prefersReduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
+}
+
+function JumpCount({ count, label, targetId }: { count: number; label: string; targetId: string }) {
+  if (count === 0) {
+    return <span>{count} {label}</span>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => scrollToSection(targetId)}
+      className="rounded font-semibold underline decoration-dotted underline-offset-2 transition-opacity hover:opacity-100 focus:outline-none focus-visible:ring-1 focus-visible:ring-current"
+    >
+      {count} {label}
+    </button>
+  );
+}
+
 function SectionTitle({ icon: Icon, title, subtitle }: { icon: typeof KeyRound; title: string; subtitle?: string }) {
   return (
     <div className="flex items-center gap-2">
@@ -74,7 +97,11 @@ export function SecretHealthView() {
               <div>
                 <p className="text-sm font-semibold">Secret &amp; GitOps lifecycle: {SEVERITY_META[data.severity].label}</p>
                 <p className="text-xs opacity-80">
-                  {data.externalSecrets.notReady} not-ready · {data.externalSecrets.retainTraps} retain trap(s) · {data.catalogCoverage.totalMissing} missing key(s)
+                  <JumpCount count={data.externalSecrets.notReady} label="not-ready" targetId="section-external-secrets" />
+                  {" · "}
+                  <JumpCount count={data.externalSecrets.retainTraps} label="retain trap(s)" targetId="section-external-secrets" />
+                  {" · "}
+                  <JumpCount count={data.catalogCoverage.totalMissing} label="missing key(s)" targetId="section-catalog-coverage" />
                 </p>
               </div>
             </div>
@@ -109,7 +136,7 @@ export function SecretHealthView() {
 
             {/* ArgoCD correlation */}
             {data.argoCorrelations.length > 0 ? (
-              <div className="space-y-3">
+              <div id="section-argo-correlation" className="scroll-mt-4 space-y-3">
                 <SectionTitle icon={AlertTriangle} title="ArgoCD is red because of secrets" subtitle="Degraded / OutOfSync apps with not-Ready ExternalSecrets in their namespace" />
                 <div className="space-y-2">
                   {data.argoCorrelations.map((corr) => (
@@ -123,13 +150,13 @@ export function SecretHealthView() {
             ) : null}
 
             {/* ExternalSecret lifecycle */}
-            <div className="space-y-3">
+            <div id="section-external-secrets" className="scroll-mt-4 space-y-3">
               <SectionTitle icon={KeyRound} title="ExternalSecrets" subtitle="Readiness, deletionPolicy, Retain traps, and missing keys" />
               <EsLifecycleTable items={data.externalSecrets.items} canRemediate={canRemediate} />
             </div>
 
             {/* Catalog coverage */}
-            <div className="space-y-3">
+            <div id="section-catalog-coverage" className="scroll-mt-4 space-y-3">
               <SectionTitle icon={KeyRound} title="Catalog key coverage" subtitle="Declared vs seeded vs referenced per enabled catalog app" />
               <CatalogCoverageTable items={data.catalogCoverage.items} canRemediate={canRemediate} writeEnabled={writeEnabled} />
             </div>

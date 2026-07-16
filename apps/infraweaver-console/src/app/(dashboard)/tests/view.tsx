@@ -162,24 +162,23 @@ export function TestsView() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <PageHeader icon={CheckCircle2} title="Platform Tests" />
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Platform Tests</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Interactive test suite for APIs, pages, and mobile layout</p>
-        </div>
-        <button
-          onClick={runAll}
-          disabled={running}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          {running
-            ? <><Loader2 className="w-4 h-4 animate-spin" /> Running...</>
-            : <><Play className="w-4 h-4" /> Run All Tests</>
-          }
-        </button>
-      </div>
+      <PageHeader
+        icon={CheckCircle2}
+        title="Platform Tests"
+        subtitle="Interactive test suite for APIs, pages, and mobile layout"
+        actions={
+          <button
+            onClick={runAll}
+            disabled={running}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {running
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Running...</>
+              : <><Play className="w-4 h-4" /> Run All Tests</>
+            }
+          </button>
+        }
+      />
 
       {/* Summary */}
       {total > 0 && (

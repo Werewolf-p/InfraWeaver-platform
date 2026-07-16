@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft, ChevronRight, Gamepad2, Loader2, Search, CheckCircle2,
   ChevronDown, Download, Upload, Dices, Terminal, Rocket, Save,
-  XCircle, AlertCircle, Users, Bookmark, CheckCheck, Server, Cpu, MemoryStick, HardDrive,
+  XCircle, AlertCircle, Users, Bookmark, CheckCheck, Server, Cpu, MemoryStick, HardDrive, Clock,
 } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
@@ -149,6 +149,14 @@ type ClusterNode = {
 function formatBytesGi(bytes: number | null | undefined) {
   if (!bytes) return "—";
   return `${(bytes / 1024 ** 3).toFixed(1)} Gi`;
+}
+
+/** Compact elapsed-time label ("45s", "2m 05s") for the live deploy timer. */
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, "0")}s` : `${seconds}s`;
 }
 
 // ─── Storage class metadata ─────────────────────────────────────────────────
@@ -364,6 +372,10 @@ export default function NewGameServerPage() {
   const [installPhase, setInstallPhase] = useState<InstallPhase>("idle");
   const [installLog, setInstallLog] = useState<InstallLogEntry[]>([]);
   const installLogRef = useRef<HTMLDivElement>(null);
+  // Deploy timeline live timer — when the deploy was submitted, and a ticking
+  // clock so the active phase can show elapsed time and slow-pull reassurance.
+  const [deployStartedAt, setDeployStartedAt] = useState<number | null>(null);
+  const [deployNow, setDeployNow] = useState<number>(() => Date.now());
   // Import file input ref
   const importRef = useRef<HTMLInputElement>(null);
   // Server name availability (null = unchecked, true = taken)
@@ -479,6 +491,15 @@ export default function NewGameServerPage() {
     void pollEvents();
     return () => { alive = false; clearInterval(id1); };
   }, [installPhase, deployedServerName]);
+
+  // Tick the deploy timer once a second while a deploy is in flight. Updating
+  // text (not motion) is unaffected by prefers-reduced-motion; the phase spinner
+  // itself is CSS-driven and already stilled by the global reduced-motion rule.
+  useEffect(() => {
+    if (installPhase !== "deploying" || deployStartedAt == null) return;
+    const id = setInterval(() => setDeployNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [installPhase, deployStartedAt]);
 
   const remoteEggPath = selectedRemoteEntry?.path ?? null;
   const { data: remoteEggData, isLoading: remoteEggLoading, error: remoteEggError } = useQuery({
@@ -866,6 +887,8 @@ export default function NewGameServerPage() {
       setDeployedServerName(result.name);
       // Transition to install console instead of redirecting immediately
       setInstallPhase("deploying");
+      setDeployStartedAt(Date.now());
+      setDeployNow(Date.now());
       setInstallLog([{ ts: new Date().toISOString(), kind: "info", reason: "Submitted", message: "Kubernetes resources submitted — waiting for the pod to start…", count: 1 }]);
       // Clear the auto-saved draft now that we've deployed
       try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch {}
@@ -959,6 +982,27 @@ export default function NewGameServerPage() {
     { label: "Rollout Strategy", value: "Recreate" },
     { label: "Game Port", value: activeEgg ? `${activeEgg.gamePort}/${activeEgg.protocol ?? "TCP"}` : "—" },
   ];
+
+  // Deploy timeline phases, and which one is live right now. The active phase is
+  // the first not-yet-done step while the deploy is still in flight.
+  const deployPhases = [
+    { key: "submitted", label: "Resources submitted", done: true },
+    { key: "scheduled", label: "Pod scheduled", done: installLog.some((l) => l.reason === "Scheduled") || installPhase === "running" },
+    { key: "pulling", label: "Image pulled", done: installLog.some((l) => l.reason === "Pulled") || installPhase === "running" },
+    { key: "running", label: "Server running", done: installPhase === "running" },
+  ];
+  const activeDeployIndex = installPhase === "deploying" ? deployPhases.findIndex((phase) => !phase.done) : -1;
+  const activeDeployPhase = activeDeployIndex >= 0 ? deployPhases[activeDeployIndex] : null;
+
+  // Why the Deploy button is disabled, spelled out so the button is never a dead
+  // end. Mirrors the disabled conditions (a taken name or an incompatible Java
+  // runtime); the transient `deploying` state is handled by the spinner instead.
+  const deployBlockReason =
+    serverNameTaken === true
+      ? `The name "${normalizeServerName(serverName) || serverName}" is already taken — go back to step 2 and pick another.`
+      : javaIncompatible
+        ? `The selected runtime ships Java ${effectiveImageJava ?? "?"}, but Minecraft ${mcVersion ?? "this version"} needs Java ${requiredJava ?? "?"}+. Choose a newer runtime image in step 2.`
+        : null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -2077,6 +2121,16 @@ export default function NewGameServerPage() {
                 </div>
               </div>
 
+              {deployBlockReason && !deploying && (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
+                  <div>
+                    <p className="font-medium text-amber-100">Can&apos;t deploy yet</p>
+                    <p id="deploy-block-reason" className="mt-0.5 text-xs text-amber-200/90">{deployBlockReason}</p>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-between gap-3">
                 <button
                   onClick={() => setStep(3)}
@@ -2087,6 +2141,7 @@ export default function NewGameServerPage() {
                 <button
                   onClick={() => void deployServer()}
                   disabled={deploying || serverNameTaken === true || javaIncompatible}
+                  aria-describedby={deployBlockReason ? "deploy-block-reason" : undefined}
                   className={cn(
                     "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-gray-900 dark:text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                     capacityData && !capacityData.canSafelyDeploy ? "bg-amber-600 hover:bg-amber-500" : "bg-green-600 hover:bg-green-500"
@@ -2134,24 +2189,45 @@ export default function NewGameServerPage() {
                 )}
               </div>
 
-              {/* Deployment phase timeline */}
-              <div className="grid gap-2 sm:grid-cols-4">
-                {[
-                  { key: "submitted",  label: "Resources submitted",   done: true },
-                  { key: "scheduled",  label: "Pod scheduled",         done: installLog.some((l) => l.reason === "Scheduled") || installPhase === "running" },
-                  { key: "pulling",    label: "Image pulled",          done: installLog.some((l) => l.reason === "Pulled") || installPhase === "running" },
-                  { key: "running",    label: "Server running",        done: installPhase === "running" },
-                ].map((phase, idx) => (
-                  <div key={phase.key} className={cn(
-                    "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm",
-                    phase.done ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#8a8a8a]"
-                  )}>
-                    <div className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold", phase.done ? "bg-green-500 text-white" : "border border-current")}>
-                      {phase.done ? "✓" : idx + 1}
-                    </div>
-                    <span className="text-xs">{phase.label}</span>
+              {/* Deployment phase timeline — highlights the live phase with a spinner,
+                  plus an elapsed timer and slow-pull reassurance while deploying. */}
+              <div className="space-y-3">
+                <div className="grid gap-2 sm:grid-cols-4">
+                  {deployPhases.map((phase, idx) => {
+                    const isActive = idx === activeDeployIndex;
+                    return (
+                      <div key={phase.key} className={cn(
+                        "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition-colors",
+                        phase.done
+                          ? "border-green-500/30 bg-green-500/10 text-green-300"
+                          : isActive
+                            ? "border-[#0078D4]/40 bg-[#0078D4]/10 text-[#7cc4ff]"
+                            : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#8a8a8a]"
+                      )}>
+                        <div className={cn(
+                          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
+                          phase.done ? "bg-green-500 text-white" : isActive ? "bg-[#0078D4] text-white" : "border border-current"
+                        )}>
+                          {phase.done ? "✓" : isActive ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : idx + 1}
+                        </div>
+                        <span className="text-xs">{phase.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {installPhase === "deploying" && deployStartedAt != null && (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-[#0078D4]/20 bg-[#0078D4]/5 px-3 py-2 text-xs text-gray-500 dark:text-[#888]">
+                    <span className="inline-flex items-center gap-1.5 font-medium text-[#7cc4ff]">
+                      <Clock className="h-3.5 w-3.5" aria-hidden /> Elapsed {formatElapsed(deployNow - deployStartedAt)}
+                    </span>
+                    <span aria-hidden className="text-gray-300 dark:text-[#333]">·</span>
+                    <span>
+                      {activeDeployPhase?.key === "pulling"
+                        ? "Pulling the container image — game images can be several GB and take a few minutes on the first pull. This is normal."
+                        : "Kubernetes is bringing your server online. Large images can take a few minutes to pull — this screen updates live."}
+                    </span>
                   </div>
-                ))}
+                )}
               </div>
 
               {/* Live event log */}

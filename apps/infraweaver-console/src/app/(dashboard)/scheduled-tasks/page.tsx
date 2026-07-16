@@ -9,7 +9,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ResourceTable, type Column } from "@/components/ui/resource-table";
 import { SearchInput } from "@/components/ui/search-input";
+import { Select } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -18,6 +20,12 @@ import { useScheduledTasks, type ScheduledTaskFormValues } from "@/hooks/use-sch
 import { cn, timeAgo } from "@/lib/utils";
 import type { ScheduledTask } from "@/types/cluster";
 
+interface PodSummary {
+  name: string;
+  namespace: string;
+  status: string;
+}
+
 const DEFAULT_FORM: ScheduledTaskFormValues = {
   name: "",
   namespace: "default",
@@ -25,6 +33,46 @@ const DEFAULT_FORM: ScheduledTaskFormValues = {
   schedule: "0 * * * *",
   command: "ls",
 };
+
+const ORDINAL_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function pad2(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
+/** Human-readable summary for common 5-field cron expressions; falls back to a generic hint. */
+function describeCron(expression: string): string {
+  const parts = expression.trim().split(/\s+/);
+  if (parts.length !== 5) return "Enter a 5-field cron expression (minute hour day month weekday).";
+  const [min, hour, dom, month, dow] = parts;
+
+  const everyStep = (field: string): number | null => {
+    const match = /^\*\/(\d+)$/.exec(field);
+    return match ? Number(match[1]) : null;
+  };
+
+  const minStep = everyStep(min);
+  if (minStep && hour === "*" && dom === "*" && month === "*" && dow === "*") {
+    return `Runs every ${minStep} minute${minStep === 1 ? "" : "s"}.`;
+  }
+  const hourStep = everyStep(hour);
+  if (hourStep && dom === "*" && month === "*" && dow === "*" && /^\d+$/.test(min)) {
+    return `Runs every ${hourStep} hour${hourStep === 1 ? "" : "s"} at :${pad2(Number(min))}.`;
+  }
+  if (min === "*" && hour === "*" && dom === "*" && month === "*" && dow === "*") {
+    return "Runs every minute.";
+  }
+  if (/^\d+$/.test(min) && hour === "*" && dom === "*" && month === "*" && dow === "*") {
+    return `Runs hourly at :${pad2(Number(min))}.`;
+  }
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && month === "*") {
+    const time = `${pad2(Number(hour))}:${pad2(Number(min))}`;
+    if (dom === "*" && dow === "*") return `Runs daily at ${time}.`;
+    if (dom === "*" && /^\d+$/.test(dow) && Number(dow) <= 6) return `Runs weekly on ${ORDINAL_DAYS[Number(dow)]} at ${time}.`;
+    if (/^\d+$/.test(dom) && dow === "*") return `Runs monthly on day ${dom} at ${time}.`;
+  }
+  return "Custom schedule — verify the cron fields carefully.";
+}
 
 export default function ScheduledTasksPage() {
   const { can, canAny } = usePermissions();
@@ -36,8 +84,21 @@ export default function ScheduledTasksPage() {
   const [search, setSearch] = useLocalStorage("scheduled-tasks-search", "");
   const debouncedSearch = useDebounce(search, 200);
   const { tasks, isLoading, refetch, createTask, deleteTask, toggleTask } = useScheduledTasks();
+  const { data: podsData } = useApiQuery<PodSummary[]>({
+    queryKey: ["pods"],
+    path: "/api/pods",
+    enabled: canManageTasks,
+  });
 
   useRefetchInterval(() => refetch(), 30_000, canViewTasks);
+
+  const pods = useMemo(() => podsData ?? [], [podsData]);
+  const namespaceOptions = useMemo(() => Array.from(new Set(pods.map((pod) => pod.namespace))).sort(), [pods]);
+  const podOptions = useMemo(
+    () => pods.filter((pod) => pod.namespace === form.namespace).map((pod) => pod.name).sort(),
+    [pods, form.namespace],
+  );
+  const cronPreview = useMemo(() => describeCron(form.schedule), [form.schedule]);
 
   const filteredTasks = useMemo(() => {
     const query = debouncedSearch.trim().toLowerCase();
@@ -175,16 +236,76 @@ export default function ScheduledTasksPage() {
       {showForm ? (
         <div className="space-y-3 rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4 backdrop-blur-sm">
           <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Create scheduled task</h2>
-          <div className="grid gap-3 md:grid-cols-2">
-            {(["name", "namespace", "pod", "schedule", "command"] as const).map((field) => (
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Name</span>
               <input
-                key={field}
-                value={form[field]}
-                onChange={(event) => setForm((current) => ({ ...current, [field]: event.target.value }))}
-                placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
+                value={form.name}
+                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                placeholder="nightly-restart"
                 className="min-h-[44px] rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white outline-none placeholder:text-slate-500 focus:border-indigo-500/50"
               />
-            ))}
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Namespace</span>
+              {namespaceOptions.length > 0 ? (
+                <Select
+                  value={form.namespace}
+                  onChange={(event) => setForm((current) => ({ ...current, namespace: event.target.value, pod: "" }))}
+                  selectSize="sm"
+                >
+                  {!namespaceOptions.includes(form.namespace) ? <option value={form.namespace}>{form.namespace}</option> : null}
+                  {namespaceOptions.map((ns) => <option key={ns} value={ns}>{ns}</option>)}
+                </Select>
+              ) : (
+                <input
+                  value={form.namespace}
+                  onChange={(event) => setForm((current) => ({ ...current, namespace: event.target.value }))}
+                  placeholder="default"
+                  className="min-h-[44px] rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white outline-none placeholder:text-slate-500 focus:border-indigo-500/50"
+                />
+              )}
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Target pod</span>
+              {podOptions.length > 0 ? (
+                <Select
+                  value={form.pod}
+                  onChange={(event) => setForm((current) => ({ ...current, pod: event.target.value }))}
+                  selectSize="sm"
+                >
+                  <option value="">Select a pod…</option>
+                  {podOptions.map((pod) => <option key={pod} value={pod}>{pod}</option>)}
+                </Select>
+              ) : (
+                <input
+                  value={form.pod}
+                  onChange={(event) => setForm((current) => ({ ...current, pod: event.target.value }))}
+                  placeholder={pods.length > 0 ? "No live pods in this namespace" : "pod name"}
+                  className="min-h-[44px] rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 text-sm text-gray-900 dark:text-white outline-none placeholder:text-slate-500 focus:border-indigo-500/50"
+                />
+              )}
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Command</span>
+              <input
+                value={form.command}
+                onChange={(event) => setForm((current) => ({ ...current, command: event.target.value }))}
+                placeholder="ls"
+                className="min-h-[44px] rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 font-mono text-sm text-gray-900 dark:text-white outline-none placeholder:text-slate-500 focus:border-indigo-500/50"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 md:col-span-2">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Schedule (cron)</span>
+              <input
+                value={form.schedule}
+                onChange={(event) => setForm((current) => ({ ...current, schedule: event.target.value }))}
+                placeholder="0 * * * *"
+                aria-describedby="cron-preview"
+                className="min-h-[44px] rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-2 font-mono text-sm text-gray-900 dark:text-white outline-none placeholder:text-slate-500 focus:border-indigo-500/50"
+              />
+              <span id="cron-preview" className="text-xs text-slate-500 dark:text-slate-400">{cronPreview}</span>
+            </label>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             <button

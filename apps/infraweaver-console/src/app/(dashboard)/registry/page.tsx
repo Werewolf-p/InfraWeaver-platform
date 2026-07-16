@@ -1,42 +1,70 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Package, Search, ChevronDown, ChevronRight, Trash2, Info, Terminal, X } from "lucide-react";
 import { toast } from "@/lib/notify";
-import { useRegistryRepos, useRegistryTags, useDeleteTag } from "@/hooks/use-registry";
+import { useRegistryRepos, useRegistryTags, useDeleteTag, type RegistryTag } from "@/hooks/use-registry";
 import { useRBAC } from "@/hooks/use-rbac";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CopyButton } from "@/components/ui/copy-button";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { formatBytes } from "@/lib/utils";
 import { publicHost } from "@/lib/domain";
 
 const DEFAULT_REGISTRY_HOST = publicHost("onedev");
 const DEFAULT_PROJECT_PATH = "infraweaver-platform";
 
+const TAG_ROW_GRID = "sm:grid sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] sm:items-center sm:gap-4";
+
+/** Trim a digest to `sha256:abcdef123456` so a row stays scannable but still identifiable. */
+function shortDigest(digest: string): string {
+  const [algo, hex] = digest.includes(":") ? digest.split(":") : ["", digest];
+  const head = (hex ?? "").slice(0, 12);
+  return algo ? `${algo}:${head}` : head;
+}
+
 function TagRow({ registryPath, tag, onDelete, isAdmin }: {
   registryPath: string;
-  tag: { tag: string; digest: string; size: number; pushedAt: string | null };
+  tag: RegistryTag;
   onDelete: () => void;
   isAdmin: boolean;
 }) {
   const pullCmd = `docker pull ${registryPath}:${tag.tag}`;
   return (
-    <div className="flex items-center gap-4 px-4 py-2.5 bg-white/3 border-b border-gray-200 dark:border-white/5 last:border-0 text-sm overflow-x-auto">
-      <span className="text-slate-700 dark:text-slate-300 font-mono text-xs w-32 truncate">{tag.tag}</span>
-      <span className="text-slate-500 font-mono text-xs w-36 truncate">{tag.digest || "—"}</span>
-      <span className="text-slate-500 dark:text-slate-400 text-xs w-20">{tag.size ? formatBytes(tag.size) : "—"}</span>
-      <span className="text-slate-500 text-xs flex-1">{tag.pushedAt ? new Date(tag.pushedAt).toLocaleDateString() : "—"}</span>
-      <div className="flex items-center gap-2">
-        <CopyButton text={pullCmd} label="Pull" />
-        {isAdmin && (
-          <button
-            onClick={onDelete}
-            className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+    <div className={`flex flex-col gap-2 px-4 py-3 border-b border-gray-200 dark:border-white/5 last:border-0 text-sm ${TAG_ROW_GRID}`}>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="font-mono text-xs font-medium text-slate-700 dark:text-slate-200 truncate" title={tag.tag}>{tag.tag}</span>
+        {tag.size ? (
+          <span className="shrink-0 rounded-md bg-gray-100 dark:bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-500 dark:text-slate-400">{formatBytes(tag.size)}</span>
+        ) : null}
+      </div>
+      <div className="flex min-w-0 items-center gap-1.5">
+        {tag.digest ? (
+          <>
+            <span className="min-w-0 truncate font-mono text-[11px] text-slate-500" title={tag.digest}>{shortDigest(tag.digest)}</span>
+            <CopyButton text={tag.digest} label="Digest" className="shrink-0" />
+          </>
+        ) : (
+          <span className="text-xs text-slate-500">—</span>
         )}
+      </div>
+      <div className="flex items-center justify-between gap-3 sm:justify-end">
+        <span className="text-xs text-slate-500">
+          {tag.pushedAt ? <RelativeTime date={tag.pushedAt} /> : "—"}
+        </span>
+        <div className="flex items-center gap-2">
+          <CopyButton text={pullCmd} label="Pull" />
+          {isAdmin && (
+            <button
+              onClick={onDelete}
+              aria-label={`Delete tag ${tag.tag}`}
+              className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -49,6 +77,16 @@ function RepoRow({ name, registryHost, projectPath }: { name: string; registryHo
   const { isAdmin } = useRBAC();
   const [deleteTarget, setDeleteTarget] = useState<{ repo: string; tag: string } | null>(null);
   const registryPath = `${registryHost}/${projectPath}/${name}`;
+
+  // Newest push first; tags without a timestamp sink to the bottom.
+  const sortedTags = useMemo(() => {
+    const list = tagsData?.tags ?? [];
+    return [...list].sort((a, b) => {
+      const at = a.pushedAt ? new Date(a.pushedAt).getTime() : 0;
+      const bt = b.pushedAt ? new Date(b.pushedAt).getTime() : 0;
+      return bt - at;
+    });
+  }, [tagsData?.tags]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -91,7 +129,14 @@ function RepoRow({ name, registryHost, projectPath }: { name: string; registryHo
                 </div>
               ) : (
                 <div>
-                  {(tagsData?.tags ?? []).map(tag => (
+                  {sortedTags.length > 0 && (
+                    <div className={`hidden px-4 py-2 border-b border-gray-200 dark:border-white/5 text-[10px] font-medium uppercase tracking-wide text-slate-500 ${TAG_ROW_GRID}`}>
+                      <span>Tag</span>
+                      <span>Digest</span>
+                      <span className="text-right">Pushed</span>
+                    </div>
+                  )}
+                  {sortedTags.map(tag => (
                     <TagRow
                       key={tag.tag}
                       registryPath={registryPath}
@@ -100,7 +145,7 @@ function RepoRow({ name, registryHost, projectPath }: { name: string; registryHo
                       onDelete={() => setDeleteTarget({ repo: name, tag: tag.tag })}
                     />
                   ))}
-                  {!tagsData?.tags?.length && (
+                  {sortedTags.length === 0 && (
                     <div className="px-8 py-4 text-xs text-slate-500">No tags found</div>
                   )}
                 </div>

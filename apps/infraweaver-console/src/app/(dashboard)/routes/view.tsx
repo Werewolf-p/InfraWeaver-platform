@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import type { UseQueryResult } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Cloud,
   ExternalLink,
   Globe,
@@ -16,7 +17,9 @@ import {
   Wrench,
 } from "lucide-react";
 import { AccessTierBadge } from "@/components/access-tier-badge";
+import { HostCell } from "@/components/routing/host-cell";
 import { RouteEditorSheet } from "@/components/routing/route-editor-sheet";
+import { Tooltip } from "@/components/ui/tooltip";
 import { DnsManager } from "@/components/dns/dns-manager";
 import { DnsRecordDialog, type DnsRecordDefaults } from "@/components/dns/dns-record-dialog";
 import { ActionsMenu } from "@/components/ui/actions-menu";
@@ -91,6 +94,18 @@ function shortMiddleware(value: string) {
   return value.split("/").pop()?.trim() ?? value;
 }
 
+// A public-tier route with no DNS record or no TLS is a latent outage / exposure.
+// Returns a plain-language reason when the route needs operator attention.
+function routeAttention(route: UnifiedRoute, dnsRecord: ManagedDnsRecord | null): string | null {
+  if (route.accessTier !== "public") return null;
+  const noDns = !dnsRecord;
+  const noTls = !route.hasTls;
+  if (!noDns && !noTls) return null;
+  if (noDns && noTls) return "Public route has no DNS record and serves plain HTTP — likely unreachable and insecure.";
+  if (noDns) return "Public route has no DNS record — clients may be unable to reach it.";
+  return "Public route serves plain HTTP with no TLS.";
+}
+
 function buildUnifiedRoutes(managed: ExternalRouteItem[], live: IngressRoute[]): UnifiedRoute[] {
   const managedHosts = new Set<string>();
   const managedNames = new Set<string>();
@@ -150,6 +165,7 @@ export function RoutesView() {
   const [tab, setTab] = useState<TabKey>("all");
   const [search, setSearch] = useState("");
   const [accessTierFilter, setAccessTierFilter] = useState<"all" | AccessTier>("all");
+  const [attentionOnly, setAttentionOnly] = useState(false);
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState<ExternalRouteItem | null>(null);
@@ -224,6 +240,20 @@ export function RoutesView() {
         .includes(query);
     });
   }, [unified, tab, search, accessTierFilter]);
+
+  // Attach the resolved DNS record + attention reason to each row so the table,
+  // the summary count, and the "Needs attention" quick filter stay consistent.
+  const decoratedRoutes = useMemo(() => tableRoutes.map((route) => {
+    const primaryHost = route.hosts[0] ?? null;
+    const dnsRecord = primaryHost ? dnsByHost.get(primaryHost.toLowerCase().replace(/\.+$/, "")) ?? null : null;
+    return { route, primaryHost, dnsRecord, attention: routeAttention(route, dnsRecord) };
+  }), [tableRoutes, dnsByHost]);
+
+  const attentionCount = useMemo(() => decoratedRoutes.filter((row) => row.attention).length, [decoratedRoutes]);
+  const visibleRoutes = useMemo(
+    () => (attentionOnly ? decoratedRoutes.filter((row) => row.attention) : decoratedRoutes),
+    [attentionOnly, decoratedRoutes],
+  );
 
   function openCreate() {
     setEditingRoute(null);
@@ -359,16 +389,34 @@ export function RoutesView() {
       ) : (
         <DashboardPanel title="Routes" description="Search and filter across manual and auto-generated routes." icon={Server}>
           <div className="space-y-4">
-            <PillTabs
-              tabs={[
-                { value: "all", label: "All modes" },
-                { value: "internal", label: "Internal" },
-                { value: "public", label: "Public" },
-              ]}
-              active={accessTierFilter}
-              onChange={(value) => setAccessTierFilter(value as "all" | AccessTier)}
-              label="Access mode"
-            />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <PillTabs
+                tabs={[
+                  { value: "all", label: "All modes" },
+                  { value: "internal", label: "Internal" },
+                  { value: "public", label: "Public" },
+                ]}
+                active={accessTierFilter}
+                onChange={(value) => setAccessTierFilter(value as "all" | AccessTier)}
+                label="Access mode"
+              />
+              {attentionCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setAttentionOnly((current) => !current)}
+                  aria-pressed={attentionOnly}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60",
+                    attentionOnly
+                      ? "border-amber-400/60 bg-amber-500/20 text-amber-700 dark:text-amber-200"
+                      : "border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-200",
+                  )}
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                  {attentionCount} route{attentionCount === 1 ? "" : "s"} need{attentionCount === 1 ? "s" : ""} attention
+                </button>
+              ) : null}
+            </div>
 
             <ToolbarSearchInput value={search} onChange={setSearch} placeholder="Search hostnames, backends, middleware…" />
 
@@ -386,12 +434,12 @@ export function RoutesView() {
               <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/40 p-6 text-sm text-slate-500">
                 Loading routes…
               </div>
-            ) : tableRoutes.length === 0 ? (
+            ) : visibleRoutes.length === 0 ? (
               <EmptyState
-                icon={Globe}
-                title="No routes matched"
-                description="Adjust the tab, mode filter, or search query."
-                action={{ label: "Reset filters", onClick: () => { setSearch(""); setAccessTierFilter("all"); } }}
+                icon={attentionOnly ? AlertTriangle : Globe}
+                title={attentionOnly ? "No routes need attention" : "No routes matched"}
+                description={attentionOnly ? "Every public route in view has DNS and TLS wired up." : "Adjust the tab, mode filter, or search query."}
+                action={{ label: "Reset filters", onClick: () => { setSearch(""); setAccessTierFilter("all"); setAttentionOnly(false); } }}
                 className="py-12"
               />
             ) : (
@@ -409,31 +457,42 @@ export function RoutesView() {
                     </tr>
                   </thead>
                   <tbody>
-                    {tableRoutes.map((route) => {
-                      const primaryHost = route.hosts[0];
-                      const dnsRecord = primaryHost ? dnsForHost(primaryHost) : null;
+                    {visibleRoutes.map(({ route, primaryHost, dnsRecord, attention }) => {
                       return (
                         <tr
                           key={route.key}
                           onClick={() => route.managed && openEdit(route.managed)}
                           className={cn(
                             "border-b border-gray-200 transition dark:border-[#1e1e1e]",
+                            attention ? "bg-amber-500/[0.06] dark:bg-amber-500/[0.08]" : null,
                             route.managed
                               ? "cursor-pointer hover:bg-slate-50/80 dark:hover:bg-[#141414]"
                               : "opacity-95",
                           )}
                         >
-                          <td className="px-4 py-3 align-top">
-                            <div className="font-medium text-gray-900 dark:text-white">{route.name}</div>
+                          <td className={cn("px-4 py-3 align-top", attention && "border-l-2 border-l-amber-400")}>
+                            <div className="flex items-center gap-1.5">
+                              {attention ? (
+                                <Tooltip content={attention} position="right">
+                                  <span className="inline-flex text-amber-500 dark:text-amber-400" tabIndex={0} role="img" aria-label={attention}>
+                                    <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                                  </span>
+                                </Tooltip>
+                              ) : null}
+                              <span className="font-medium text-gray-900 dark:text-white">{route.name}</span>
+                            </div>
                             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{route.detail}</p>
                           </td>
                           <td className="px-4 py-3 align-top">
                             <div className="flex flex-wrap gap-2">
                               {route.hosts.length > 0 ? (
                                 route.hosts.map((host) => (
-                                  <span key={host} className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
-                                    {host}
-                                  </span>
+                                  <HostCell
+                                    key={host}
+                                    host={host}
+                                    openable={route.hasTls || route.accessTier === "public"}
+                                    chipClassName="border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
+                                  />
                                 ))
                               ) : (
                                 <span className="text-xs text-slate-500">—</span>
@@ -477,7 +536,13 @@ export function RoutesView() {
                                 {dnsRecord.type} {dnsRecord.proxied ? "proxied" : "DNS-only"}
                               </span>
                             ) : (
-                              <span className="inline-flex rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">
+                              <span className={cn(
+                                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]",
+                                attention
+                                  ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                  : "border-slate-300 bg-slate-100 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400",
+                              )}>
+                                {attention ? <AlertTriangle className="h-3 w-3" aria-hidden="true" /> : null}
                                 no record
                               </span>
                             )}
