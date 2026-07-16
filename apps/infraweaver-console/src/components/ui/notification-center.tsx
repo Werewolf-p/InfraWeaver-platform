@@ -190,8 +190,16 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
-                            <p className={cn("text-sm font-medium leading-snug", notification.read ? "text-slate-500 dark:text-slate-400" : "text-gray-900 dark:text-white")}>
-                              {notification.title}
+                            <p className={cn("flex min-w-0 items-center gap-1.5 text-sm font-medium leading-snug", notification.read ? "text-slate-500 dark:text-slate-400" : "text-gray-900 dark:text-white")}>
+                              <span className="truncate">{notification.title}</span>
+                              {notification.count && notification.count > 1 ? (
+                                <span
+                                  aria-label={`${notification.count} occurrences`}
+                                  className="flex-shrink-0 rounded-full border border-slate-400/40 bg-slate-500/10 px-1.5 text-[10px] font-semibold tabular-nums text-slate-500 dark:text-slate-300"
+                                >
+                                  ×{notification.count > 99 ? "99+" : notification.count}
+                                </span>
+                              ) : null}
                             </p>
                             <button
                               onClick={(e) => { e.stopPropagation(); dismiss(notification.id); }}
@@ -204,7 +212,12 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                           {notification.body && <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{notification.body}</p>}
                           <div className="mt-1 flex items-center gap-2">
                             <span className="text-[10px] text-slate-600">{timeAgo(new Date(notification.timestamp))}</span>
-                            {!notification.read && <span aria-hidden="true" className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />}
+                            {(notification.app || notification.cause) && (
+                              <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                                {[notification.app, notification.cause].filter(Boolean).join(" · ")}
+                              </span>
+                            )}
+                            {!notification.read && <span aria-hidden="true" className="ml-auto h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />}
                           </div>
                         </div>
                       </motion.div>

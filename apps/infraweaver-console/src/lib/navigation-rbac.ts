@@ -36,6 +36,7 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/pipelines": { any: ["infra:read"] },
   "/health": { any: ["infra:read"] },
   "/security": { any: ["security:read", "infra:read"] },
+  "/audit": { any: ["security:read"] },
   "/uptime": { any: ["infra:read"] },
   "/image-vulnerabilities": { any: ["security:read", "infra:read"] },
   "/game-hub": { any: ["game-hub:read"], scopePrefix: "/game-hub/" },

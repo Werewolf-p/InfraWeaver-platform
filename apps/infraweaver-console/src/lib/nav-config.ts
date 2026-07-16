@@ -152,6 +152,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       },
       { href: "/users", icon: Users, label: "User Management", shortcut: "G M", description: "Manage users, groups, and SSO", pinnable: true, keywords: ["accounts", "sso", "groups", "members"] },
       { href: "/rbac", icon: Shield, label: "RBAC", description: "Visualize access and assign rights across the platform", keywords: ["roles", "permissions", "graph", "assign", "grant", "revoke", "access", "rbac"] },
+      { href: "/audit", icon: History, label: "Audit Log", description: "Searchable, durable audit trail with severity, category, and date filters", keywords: ["audit", "trail", "log", "history", "who", "changed", "mutation", "compliance", "tamper", "severity", "export"] },
     ],
   },
   {

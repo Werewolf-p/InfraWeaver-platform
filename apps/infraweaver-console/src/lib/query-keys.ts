@@ -8,6 +8,10 @@ export const queryKeys = {
     all: () => ["security"] as const,
     auditLog: () => ["security", "audit-log"] as const,
   },
+  audit: {
+    all: () => ["audit"] as const,
+    query: (params: Record<string, string | number | undefined>) => ["audit", "query", params] as const,
+  },
   rbac: {
     all: () => ["rbac"] as const,
     myPermissions: () => ["rbac", "my-permissions"] as const,

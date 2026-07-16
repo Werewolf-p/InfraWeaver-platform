@@ -28,6 +28,12 @@ export interface AuditEntry {
   result: "success" | "failure";
   ip?: string;
   userAgent?: string;
+  // Optional enrichment from the durable audit store (Subject 3). All optional
+  // so existing readers/writers stay source- and wire-compatible.
+  category?: string;
+  severity?: string;
+  target?: string;
+  seq?: number;
 }
 
 /** Minimal pod shape the security analyses read (structural subset of V1Pod). */

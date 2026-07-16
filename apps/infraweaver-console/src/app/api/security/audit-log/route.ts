@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { auditLog, redactAuditDetail } from "@/lib/audit-log";
-import { makeCoreApi } from "@/lib/kube-client";
+import { queryAudit } from "@/lib/audit/store";
+import type { AuditRecord } from "@/lib/audit/types";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 import { withRoute } from "@/lib/route-utils";
 import type { AuditEntry } from "@/lib/security/types";
 import { safeError } from "@/lib/utils";
 import { z } from "zod";
 
-const NAMESPACE = "infraweaver-console";
-const CONFIGMAP_NAME = "infra-console-audit-log";
-const MAX_ENTRIES = 200;
+// Legacy shape/window preserved for the existing security page. Reads now come
+// from the SAME durable store the 108 auditLog() sites write to, so this view
+// (previously near-empty) is populated.
+const LEGACY_WINDOW = 200;
 
 const CreateAuditEntryBody = z.object({
   action: z.string().trim().min(3).max(128),
@@ -26,85 +28,32 @@ function requestIp(req?: Pick<Request, "headers">) {
   return forwarded?.split(",")[0]?.trim() || undefined;
 }
 
-function requestUserAgent(req?: Pick<Request, "headers">) {
-  return req?.headers.get("user-agent")?.trim() || undefined;
-}
-
-function normalizeAuditEntry(entry: Partial<AuditEntry>): AuditEntry | null {
-  if (!entry.timestamp || !entry.action || !entry.user) return null;
+function toLegacyEntry(record: AuditRecord): AuditEntry {
   return {
-    timestamp: entry.timestamp,
-    user: entry.user,
-    action: entry.action,
-    resource: entry.resource ?? "",
-    details: redactAuditDetail(entry.details ?? ""),
-    result: entry.result === "failure" ? "failure" : "success",
-    ip: entry.ip,
-    userAgent: entry.userAgent,
+    timestamp: record.timestamp,
+    user: record.user,
+    action: record.action,
+    resource: record.resource ?? "",
+    details: record.detail,
+    result: record.result,
+    ip: record.ip,
+    userAgent: record.userAgent,
+    category: record.category,
+    severity: record.severity,
+    target: record.target,
+    seq: record.seq,
   };
-}
-
-async function readStoredEntries() {
-  const coreApi = makeCoreApi();
-  const cm = await coreApi.readNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: NAMESPACE });
-  const log = (cm as { data?: Record<string, string> }).data?.log ?? "";
-  return log
-    .split("\n")
-    .filter(Boolean)
-    .slice(-MAX_ENTRIES)
-    .map((line) => {
-      try {
-        return normalizeAuditEntry(JSON.parse(line) as Partial<AuditEntry>);
-      } catch {
-        return null;
-      }
-    })
-    .filter((entry): entry is AuditEntry => entry !== null)
-    .reverse();
-}
-
-async function appendAuditEntry(entry: AuditEntry) {
-  const coreApi = makeCoreApi();
-
-  let existingLog = "";
-  try {
-    const cm = await coreApi.readNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: NAMESPACE });
-    existingLog = (cm as { data?: Record<string, string> }).data?.log ?? "";
-  } catch {
-    existingLog = "";
-  }
-
-  const lines = existingLog.split("\n").filter(Boolean);
-  lines.push(JSON.stringify(entry));
-  const newLog = `${lines.slice(-MAX_ENTRIES).join("\n")}\n`;
-
-  try {
-    await coreApi.patchNamespacedConfigMap({
-      name: CONFIGMAP_NAME,
-      namespace: NAMESPACE,
-      body: { data: { log: newLog } },
-    });
-  } catch {
-    await coreApi.createNamespacedConfigMap({
-      namespace: NAMESPACE,
-      body: {
-        metadata: { name: CONFIGMAP_NAME, namespace: NAMESPACE },
-        data: { log: newLog },
-      },
-    });
-  }
 }
 
 export const GET = withRoute("security:read", async () => {
   try {
-    const entries = await readStoredEntries();
-    return NextResponse.json({ entries }, {
-      headers: { "Cache-Control": "no-store" },
-    });
+    const page = await queryAudit({ limit: LEGACY_WINDOW });
+    return NextResponse.json(
+      { entries: page.entries.map(toLegacyEntry) },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch {
-    return NextResponse.json({ entries: [] as AuditEntry[] }, {
-      headers: { "Cache-Control": "no-store" },
-    });
+    return NextResponse.json({ entries: [] as AuditEntry[] }, { headers: { "Cache-Control": "no-store" } });
   }
 });
 
@@ -118,24 +67,16 @@ export const POST = withRoute("security:write", async (req, session) => {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const entry: AuditEntry = {
-    timestamp: new Date().toISOString(),
-    user: session.user?.email ?? "unknown",
-    action: parsed.data.action,
-    resource: parsed.data.resource,
-    details: redactAuditDetail(parsed.data.details),
-    result: parsed.data.result,
-    ip: requestIp(req),
-    userAgent: requestUserAgent(req),
-  };
+  const user = session.user?.email ?? "unknown";
+  const details = redactAuditDetail(parsed.data.details) || `${parsed.data.action} ${parsed.data.resource}`.trim();
 
   try {
-    await appendAuditEntry(entry);
-    await auditLog(entry.action, entry.user, entry.details || `${entry.action} ${entry.resource}`.trim(), {
-      result: entry.result,
-      resource: entry.resource || undefined,
-      ip: entry.ip,
-      userAgent: entry.userAgent,
+    // Single durable write path: auditLog() now appends to the store.
+    await auditLog(parsed.data.action, user, details, {
+      result: parsed.data.result,
+      resource: parsed.data.resource || undefined,
+      ip: requestIp(req),
+      userAgent: req.headers.get("user-agent")?.trim() || undefined,
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
