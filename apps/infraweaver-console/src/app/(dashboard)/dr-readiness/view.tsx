@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { drSeverity, type CoverageStatus, type CoverageSummary, type OrphanBackup, type PvcCoverageRow } from "@/lib/dr/coverage";
+import { RestoreDrills } from "./_components/restore-drills";
 
 interface CoverageResponse {
   available: boolean;
@@ -114,6 +115,8 @@ export function DrReadinessView() {
         </table>
         {rows.length === 0 && <div className="py-12 text-center text-sm text-slate-500">No persistent volume claims found</div>}
       </div>
+
+      <RestoreDrills />
 
       {orphans.length > 0 && (
         <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
