@@ -162,7 +162,7 @@ export function Breadcrumb({ className }: { className?: string }) {
             <div className="absolute right-0 top-full z-20 mt-2 min-w-[14rem] overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] shadow-2xl">
               <div className="border-b border-gray-200 dark:border-[#2a2a2a] px-3 py-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-[#888]">Quick jump</p>
-                <p className="mt-1 text-[11px] text-gray-400 dark:text-[#666]">Sibling pages and recent destinations.</p>
+                <p className="mt-1 text-[11px] text-gray-400 dark:text-[#9a9a9a]">Sibling pages and recent destinations.</p>
               </div>
               <div className="py-1">
                 {jumpItems.map((item) => (
@@ -173,9 +173,9 @@ export function Breadcrumb({ className }: { className?: string }) {
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm text-gray-900 dark:text-[#f2f2f2]">{item.label}</p>
-                      <p className="truncate text-[11px] text-gray-400 dark:text-[#666]">{item.subtitle}</p>
+                      <p className="truncate text-[11px] text-gray-400 dark:text-[#9a9a9a]">{item.subtitle}</p>
                     </div>
-                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-gray-400 dark:text-[#555]" />
+                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-gray-400 dark:text-[#8a8a8a]" />
                   </Link>
                 ))}
               </div>

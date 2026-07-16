@@ -4,6 +4,7 @@ import { loadAckedEventIds, saveAckedEventIds, subscribeAckedEventIds } from "@/
 import { NOTIFICATION_PUSH_EVENT, type NotificationPushDetail } from "@/lib/notify";
 
 export type NotificationLevel = "info" | "warning" | "error" | "success";
+export type NotificationSeverity = "info" | "notice" | "warning" | "critical";
 
 export interface Notification {
   id: string;
@@ -12,6 +13,14 @@ export interface Notification {
   level: NotificationLevel;
   timestamp: number;
   read: boolean;
+  /** Number of collapsed occurrences (grouped storms / repeat toasts). */
+  count?: number;
+  /** Owning app label (server-grouped notifications). */
+  app?: string;
+  /** Cause bucket (server-grouped notifications). */
+  cause?: string;
+  /** Ranked severity from the pipeline; falls back to `level` when absent. */
+  severity?: NotificationSeverity;
 }
 
 interface NotificationStore {
@@ -21,11 +30,18 @@ interface NotificationStore {
 
 const STORAGE_KEY = "infraweaver:notifications";
 const MAX_NOTIFICATIONS = 20;
+// Repeat toasts with the same title inside this window collapse into one row
+// with a ×N badge instead of stacking N near-identical entries.
+const TOAST_DEDUP_WINDOW_MS = 8_000;
 
 function normalizeNotification(value: unknown): Notification | null {
   if (!value || typeof value !== "object") return null;
   const input = value as Partial<Notification>;
   if (!input.id || !input.title || typeof input.id !== "string" || typeof input.title !== "string") return null;
+  const severity =
+    input.severity === "critical" || input.severity === "warning" || input.severity === "notice" || input.severity === "info"
+      ? input.severity
+      : undefined;
   return {
     id: input.id,
     title: input.title,
@@ -33,6 +49,10 @@ function normalizeNotification(value: unknown): Notification | null {
     level: input.level === "warning" || input.level === "error" || input.level === "success" ? input.level : "info",
     timestamp: typeof input.timestamp === "number" ? input.timestamp : Date.now(),
     read: Boolean(input.read),
+    count: typeof input.count === "number" && input.count > 1 ? input.count : undefined,
+    app: typeof input.app === "string" ? input.app : undefined,
+    cause: typeof input.cause === "string" ? input.cause : undefined,
+    severity,
   };
 }
 
@@ -88,19 +108,39 @@ export function useNotifications() {
       if (!(e instanceof CustomEvent)) return;
       const { title, level } = (e as CustomEvent<NotificationPushDetail>).detail;
       if (!title) return;
-      setStore((current) => ({
-        ...current,
-        local: [
-          {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            title,
+      const now = Date.now();
+      setStore((current) => {
+        // Collapse a repeat of the same title within the dedup window into the
+        // existing entry (×N badge) instead of stacking a new near-identical row.
+        const recentIndex = current.local.findIndex(
+          (entry) => entry.title === title && now - entry.timestamp < TOAST_DEDUP_WINDOW_MS,
+        );
+        if (recentIndex !== -1) {
+          const existing = current.local[recentIndex];
+          const merged: Notification = {
+            ...existing,
             level,
-            timestamp: Date.now(),
+            count: (existing.count ?? 1) + 1,
+            timestamp: now,
             read: false,
-          },
-          ...current.local,
-        ].slice(0, MAX_NOTIFICATIONS),
-      }));
+          };
+          const rest = current.local.filter((_, index) => index !== recentIndex);
+          return { ...current, local: [merged, ...rest].slice(0, MAX_NOTIFICATIONS) };
+        }
+        return {
+          ...current,
+          local: [
+            {
+              id: `${now}-${Math.random().toString(36).slice(2)}`,
+              title,
+              level,
+              timestamp: now,
+              read: false,
+            },
+            ...current.local,
+          ].slice(0, MAX_NOTIFICATIONS),
+        };
+      });
     }
     window.addEventListener(NOTIFICATION_PUSH_EVENT, handlePush);
     return () => window.removeEventListener(NOTIFICATION_PUSH_EVENT, handlePush);

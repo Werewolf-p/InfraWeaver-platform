@@ -1025,7 +1025,7 @@ export function DashboardTab({
       {!isServerRunning && (
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#0d0d0d] px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-[#666]">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">
               Last session
             </p>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 dark:border-[#333] bg-white dark:bg-[#161616] px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:text-[#aaa]">
@@ -1036,15 +1036,15 @@ export function DashboardTab({
           {lastSessionAt ? (
             <div className="mt-2 grid grid-cols-3 gap-3">
               <div>
-                <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Last active</p>
+                <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Last active</p>
                 <p className="mt-0.5 text-sm text-gray-900 dark:text-[#f2f2f2]">{formatRelativeTime(lastSessionAt)}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Peak players</p>
+                <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Peak players</p>
                 <p className="mt-0.5 text-sm text-gray-900 dark:text-[#f2f2f2]">{lastSessionPeak}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Samples kept</p>
+                <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Samples kept</p>
                 <p className="mt-0.5 text-sm text-gray-900 dark:text-[#f2f2f2]">{rawPlayerHistory.length}</p>
               </div>
             </div>
@@ -1090,13 +1090,13 @@ export function DashboardTab({
 
       <div className="grid grid-cols-2 gap-3 sm:hidden">
         <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3">
-          <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Status</p>
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">Status</p>
           <p className="mt-1 text-sm font-semibold capitalize text-gray-900 dark:text-[#f2f2f2]">
             {server.status ?? "unknown"}
           </p>
         </div>
         <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3">
-          <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Players</p>
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">Players</p>
           <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{currentPlayerCount}</p>
         </div>
       </div>
@@ -1121,7 +1121,7 @@ export function DashboardTab({
             )}
           >
             <div className="flex items-center justify-between gap-3">
-              <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">
+              <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">
                 {alert.label} alert threshold
               </p>
               <span
@@ -1140,13 +1140,13 @@ export function DashboardTab({
                 <p className="text-xl font-semibold text-gray-900 dark:text-[#f2f2f2]">
                   {alert.current}
                 </p>
-                <p className="text-[11px] text-gray-400 dark:text-[#666]">Current</p>
+                <p className="text-[11px] text-gray-400 dark:text-[#9a9a9a]">Current</p>
               </div>
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">
                   {alert.threshold}
                 </p>
-                <p className="text-[11px] text-gray-400 dark:text-[#666]">Threshold</p>
+                <p className="text-[11px] text-gray-400 dark:text-[#9a9a9a]">Threshold</p>
               </div>
             </div>
           </div>
@@ -1155,28 +1155,28 @@ export function DashboardTab({
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Status</p>
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Status</p>
           <p className="text-sm text-gray-900 dark:text-[#f2f2f2] mt-1 capitalize">
             {server.status ?? "unknown"}
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Uptime</p>
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Uptime</p>
           <p className="text-sm text-gray-900 dark:text-[#f2f2f2] mt-1">
             <Uptime startTime={server.podStartTime} />
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Restart reason</p>
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Restart reason</p>
           <p className="mt-1 text-sm text-gray-900 dark:text-[#f2f2f2] line-clamp-2">
             {server.restartReason?.trim() || "Not recorded"}
           </p>
-          <p className="mt-2 text-[11px] text-gray-400 dark:text-[#666]">
+          <p className="mt-2 text-[11px] text-gray-400 dark:text-[#9a9a9a]">
             {server.restartReasonTime ? formatRelativeTime(server.restartReasonTime) : "Add a reason before planned restarts."}
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Connectivity</p>
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Connectivity</p>
           <p className={cn("text-sm mt-1", primaryConnectivityTone.text)}>
             {primaryConnectivityLabel}
           </p>
@@ -1189,7 +1189,7 @@ export function DashboardTab({
               : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111]",
           )}
         >
-          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Restarts</p>
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Restarts</p>
           <div className="mt-1 flex items-center justify-between gap-2">
             <p
               className={cn(
@@ -1209,14 +1209,14 @@ export function DashboardTab({
               </span>
             )}
           </div>
-          <p className="text-[11px] text-gray-400 dark:text-[#666] mt-2">
+          <p className="text-[11px] text-gray-400 dark:text-[#9a9a9a] mt-2">
             {restartCount > 5
               ? "Frequent restarts detected."
               : "Container restart count."}
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4">
-          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Ready Replicas</p>
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Ready Replicas</p>
           <p className="text-sm text-gray-900 dark:text-[#f2f2f2] mt-1">
             {server.readyReplicas}/{server.replicas}
           </p>
@@ -1228,7 +1228,7 @@ export function DashboardTab({
             healthTone.bg,
           )}
         >
-          <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Server Health</p>
+          <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Server Health</p>
           <div className="mt-2 flex items-center gap-3">
             <div className="relative h-14 w-14 rounded-full border border-gray-200 dark:border-white/10 bg-white dark:bg-[#0d0d0d] flex items-center justify-center">
               <div
@@ -1250,7 +1250,7 @@ export function DashboardTab({
               <p className={cn("text-sm font-semibold", healthTone.text)}>
                 {healthTone.badge}
               </p>
-              <p className="text-[11px] text-gray-400 dark:text-[#666] mt-1">
+              <p className="text-[11px] text-gray-400 dark:text-[#9a9a9a] mt-1">
                 Running, readiness, restarts, and OOM state.
               </p>
             </div>
@@ -1263,7 +1263,7 @@ export function DashboardTab({
             <Activity className="w-4 h-4 text-[#f87171]" /> Crash History
           </div>
         {crashEvents.length === 0 ? (
-          <p className="text-xs text-gray-400 dark:text-[#666]">No crash events</p>
+          <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">No crash events</p>
         ) : (
           <div className="space-y-3">
             {crashEvents.map((event, index) => {
@@ -1286,7 +1286,7 @@ export function DashboardTab({
                     <p className="mt-1 text-xs text-gray-500 dark:text-[#888]">
                       {truncateText(event.message || "No event message")}
                     </p>
-                    <p className="mt-1 text-[10px] text-gray-400 dark:text-[#555]">
+                    <p className="mt-1 text-[10px] text-gray-400 dark:text-[#8a8a8a]">
                       {formatDateTime(event.timestamp)}
                     </p>
                   </div>
@@ -1309,7 +1309,7 @@ export function DashboardTab({
             <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">CPU</p>
+                  <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">CPU</p>
                   <div className="mt-1 flex items-center gap-2">
                     <p className="text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">
                       {cpuMetricLabel}
@@ -1318,7 +1318,7 @@ export function DashboardTab({
                       {cpuTrend.icon}
                     </span>
                   </div>
-                  <p className="mt-2 text-[11px] text-gray-400 dark:text-[#666]">
+                  <p className="mt-2 text-[11px] text-gray-400 dark:text-[#9a9a9a]">
                     {latest
                       ? cpuUsesPercent
                         ? `${latest.cpu.toFixed(2)} / ${latest.cpuLimit.toFixed(2)} cores`
@@ -1360,7 +1360,7 @@ export function DashboardTab({
             <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[10px] uppercase text-gray-400 dark:text-[#666]">Memory</p>
+                  <p className="text-[10px] uppercase text-gray-400 dark:text-[#9a9a9a]">Memory</p>
                   <div className="mt-1 flex items-center gap-2">
                     <p className="text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">
                       {memoryMetricLabel}
@@ -1369,7 +1369,7 @@ export function DashboardTab({
                       {memoryTrend.icon}
                     </span>
                   </div>
-                  <p className="mt-2 text-[11px] text-gray-400 dark:text-[#666]">
+                  <p className="mt-2 text-[11px] text-gray-400 dark:text-[#9a9a9a]">
                     {latest
                       ? memoryUsesPercent
                         ? `${formatBytes(latest.memory)} / ${formatBytes(latest.memoryLimit)}`
@@ -1513,7 +1513,7 @@ export function DashboardTab({
               </div>
             </div>
           ) : (
-            <div className="flex h-[252px] items-center justify-center rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3 text-sm text-gray-400 dark:text-[#666]">
+            <div className="flex h-[252px] items-center justify-center rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3 text-sm text-gray-400 dark:text-[#9a9a9a]">
               {metricsMessage}
             </div>
           )}
@@ -1576,7 +1576,7 @@ export function DashboardTab({
               />
             </div>
             <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-2">
-              <div className="mb-1 flex items-center justify-between text-[10px] text-gray-400 dark:text-[#666]">
+              <div className="mb-1 flex items-center justify-between text-[10px] text-gray-400 dark:text-[#9a9a9a]">
                 <span>Usage trend</span>
                 <span>{diskUsagePercent.toFixed(1)}%</span>
               </div>
@@ -1595,7 +1595,7 @@ export function DashboardTab({
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="flex h-full items-center justify-center text-[10px] text-gray-400 dark:text-[#555]">
+                  <div className="flex h-full items-center justify-center text-[10px] text-gray-400 dark:text-[#8a8a8a]">
                     Waiting for more storage samples…
                   </div>
                 )}
@@ -1606,7 +1606,7 @@ export function DashboardTab({
                 {disk.topDirs.slice(0, 6).map((entry) => (
                   <div
                     key={`${entry.path}-${entry.size}`}
-                    className="flex justify-between text-[10px] text-gray-400 dark:text-[#666]"
+                    className="flex justify-between text-[10px] text-gray-400 dark:text-[#9a9a9a]"
                   >
                     <span className="max-w-[120px] truncate font-mono">{entry.path}</span>
                     <span className="text-gray-500 dark:text-[#888]">{entry.size}</span>
@@ -1621,7 +1621,7 @@ export function DashboardTab({
               <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
                 <Network className="w-4 h-4 text-[#22d3ee]" /> Network Throughput
               </div>
-              <div className="text-right text-[10px] text-gray-400 dark:text-[#666]">
+              <div className="text-right text-[10px] text-gray-400 dark:text-[#9a9a9a]">
                 <div>
                   RX <span className="text-[#67e8f9]">{latestNetworkThroughput ? `${formatBytes(latestNetworkThroughput.rx)}/s` : "—"}</span>
                 </div>
@@ -1680,7 +1680,7 @@ export function DashboardTab({
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex h-full items-center justify-center text-sm text-gray-400 dark:text-[#666]">
+                <div className="flex h-full items-center justify-center text-sm text-gray-400 dark:text-[#9a9a9a]">
                   {networkThroughputMessage}
                 </div>
               )}
@@ -1912,7 +1912,7 @@ export function DashboardTab({
                   </code>
                   <button
                     onClick={() => copyValue(snippet)}
-                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded text-gray-400 dark:text-[#444] transition-colors hover:text-gray-700 dark:hover:text-[#888]"
+                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded text-gray-400 dark:text-[#8a8a8a] transition-colors hover:text-gray-700 dark:hover:text-[#888]"
                   >
                     <Copy className="w-3 h-3" />
                   </button>
@@ -1939,7 +1939,7 @@ export function DashboardTab({
                         <p className="font-mono text-gray-700 dark:text-[#d4d4d4]">{mount.name}</p>
                         <p className="mt-1 break-all font-mono text-[11px] text-gray-500 dark:text-[#9e9e9e]">{mount.mountPath}</p>
                       </div>
-                      <span className={mount.readOnly ? "text-yellow-400" : "text-gray-400 dark:text-[#555]"}>
+                      <span className={mount.readOnly ? "text-yellow-400" : "text-gray-400 dark:text-[#8a8a8a]"}>
                         {mount.readOnly ? "Read only" : "Writable"}
                       </span>
                     </div>
@@ -1951,7 +1951,7 @@ export function DashboardTab({
             <div className="hidden overflow-x-auto touch-pan-x sm:block">
               <table className="w-full min-w-[560px] text-xs text-gray-500 dark:text-[#888]">
                 <thead>
-                  <tr className="text-gray-400 dark:text-[#555] text-[10px] uppercase">
+                  <tr className="text-gray-400 dark:text-[#8a8a8a] text-[10px] uppercase">
                     <th className="text-left py-1 pr-3">Name</th>
                     <th className="text-left py-1 pr-3">Mount Path</th>
                     <th className="text-left py-1 pr-3">Read Only</th>
@@ -1978,7 +1978,7 @@ export function DashboardTab({
                           {mount.readOnly ? (
                             <span className="text-yellow-400">Yes</span>
                           ) : (
-                            <span className="text-gray-400 dark:text-[#555]">No</span>
+                            <span className="text-gray-400 dark:text-[#8a8a8a]">No</span>
                           )}
                         </td>
                         <td className="py-1">{volume?.pvcSize ?? "—"}</td>
@@ -2010,7 +2010,7 @@ export function DashboardTab({
               </button>
             </div>
             <div className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2">
-              <Search className="h-3.5 w-3.5 text-gray-400 dark:text-[#666]" />
+              <Search className="h-3.5 w-3.5 text-gray-400 dark:text-[#9a9a9a]" />
               <input
                 value={processSearch}
                 onChange={(event) => setProcessSearch(event.target.value)}
@@ -2025,7 +2025,7 @@ export function DashboardTab({
                     <div key={`${row.pid}-${row.command}`} className="rounded-xl border border-gray-200 dark:border-[#1a1a1a] bg-white dark:bg-[#0d0d0d] p-3 text-xs text-gray-500 dark:text-[#9e9e9e]">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-[10px] uppercase text-gray-400 dark:text-[#555]">PID</p>
+                          <p className="text-[10px] uppercase text-gray-400 dark:text-[#8a8a8a]">PID</p>
                           <p className="mt-1 font-mono text-gray-900 dark:text-[#f2f2f2]">{row.pid}</p>
                         </div>
                         <button
@@ -2039,11 +2039,11 @@ export function DashboardTab({
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                         <div>
-                          <p className="text-gray-400 dark:text-[#555]">CPU</p>
+                          <p className="text-gray-400 dark:text-[#8a8a8a]">CPU</p>
                           <p className="mt-1">{row.cpu.toFixed(1)}%</p>
                         </div>
                         <div>
-                          <p className="text-gray-400 dark:text-[#555]">Memory</p>
+                          <p className="text-gray-400 dark:text-[#8a8a8a]">Memory</p>
                           <p className="mt-1">{row.mem.toFixed(1)}%</p>
                         </div>
                       </div>
@@ -2053,7 +2053,7 @@ export function DashboardTab({
                 </div>
                 <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x sm:block">
                   <table className="w-full min-w-[420px] text-[11px] font-mono">
-                    <thead className="sticky top-0 bg-white dark:bg-[#111] text-gray-400 dark:text-[#555] text-[10px] uppercase">
+                    <thead className="sticky top-0 bg-white dark:bg-[#111] text-gray-400 dark:text-[#8a8a8a] text-[10px] uppercase">
                       <tr>
                         {[
                           ["pid", "PID"],
@@ -2103,7 +2103,7 @@ export function DashboardTab({
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-gray-400 dark:text-[#555]">
+              <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">
                 Load the current process list from inside the container.
               </p>
             )}
@@ -2139,19 +2139,19 @@ export function DashboardTab({
                       </div>
                       <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                         <div>
-                          <dt className="text-gray-400 dark:text-[#555]">RX</dt>
+                          <dt className="text-gray-400 dark:text-[#8a8a8a]">RX</dt>
                           <dd className="mt-1">{formatBytes(row.rxBytes)}</dd>
                         </div>
                         <div>
-                          <dt className="text-gray-400 dark:text-[#555]">RX pkt</dt>
+                          <dt className="text-gray-400 dark:text-[#8a8a8a]">RX pkt</dt>
                           <dd className="mt-1">{row.rxPackets}</dd>
                         </div>
                         <div>
-                          <dt className="text-gray-400 dark:text-[#555]">TX</dt>
+                          <dt className="text-gray-400 dark:text-[#8a8a8a]">TX</dt>
                           <dd className="mt-1">{formatBytes(row.txBytes)}</dd>
                         </div>
                         <div>
-                          <dt className="text-gray-400 dark:text-[#555]">TX pkt</dt>
+                          <dt className="text-gray-400 dark:text-[#8a8a8a]">TX pkt</dt>
                           <dd className="mt-1">{row.txPackets}</dd>
                         </div>
                       </dl>
@@ -2160,7 +2160,7 @@ export function DashboardTab({
                 </div>
                 <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x sm:block">
                   <table className="w-full min-w-[520px] text-[11px] font-mono">
-                    <thead className="text-gray-400 dark:text-[#555] text-[10px] uppercase sticky top-0 bg-white dark:bg-[#111]">
+                    <thead className="text-gray-400 dark:text-[#8a8a8a] text-[10px] uppercase sticky top-0 bg-white dark:bg-[#111]">
                       <tr>
                         <th className="text-left pb-1 pr-3">Iface</th>
                         <th className="text-left pb-1 pr-3">RX</th>
@@ -2193,7 +2193,7 @@ export function DashboardTab({
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-gray-400 dark:text-[#555]">
+              <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">
                 Inspect bytes in and out from /proc/net/dev for this server pod.
               </p>
             )}
@@ -2224,7 +2224,7 @@ export function DashboardTab({
             </div>
           </div>
           {(backups?.backups ?? []).length === 0 ? (
-            <p className="text-xs text-gray-400 dark:text-[#666]">No backups found</p>
+            <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">No backups found</p>
           ) : (
             <div className="space-y-2">
               <div className="space-y-2 sm:hidden">
@@ -2235,7 +2235,7 @@ export function DashboardTab({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="break-all font-mono text-gray-700 dark:text-[#d4d4d4]">{backup.filename}</p>
-                        <p className="mt-1 text-[11px] text-gray-400 dark:text-[#666]">{formatDateTime(backup.createdAt)}</p>
+                        <p className="mt-1 text-[11px] text-gray-400 dark:text-[#9a9a9a]">{formatDateTime(backup.createdAt)}</p>
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         {backup.status === "warning" ? (
@@ -2252,11 +2252,11 @@ export function DashboardTab({
                     </div>
                     <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                       <div>
-                        <dt className="text-gray-400 dark:text-[#555]">Size</dt>
+                        <dt className="text-gray-400 dark:text-[#8a8a8a]">Size</dt>
                         <dd className="mt-1 text-gray-700 dark:text-[#d4d4d4]">{backup.size}</dd>
                       </div>
                       <div>
-                        <dt className="text-gray-400 dark:text-[#555]">SHA256</dt>
+                        <dt className="text-gray-400 dark:text-[#8a8a8a]">SHA256</dt>
                         <dd className="mt-1 font-mono text-gray-700 dark:text-[#d4d4d4]">{backup.checksum?.slice(0, 10) ?? "—"}</dd>
                       </div>
                     </dl>
@@ -2286,7 +2286,7 @@ export function DashboardTab({
               </div>
               <div className="hidden max-h-64 overflow-x-auto overflow-y-auto touch-pan-x rounded-lg border border-gray-200 dark:border-[#1a1a1a] sm:block">
                 <table className="w-full min-w-[720px] text-[11px]">
-                  <thead className="sticky top-0 bg-white dark:bg-[#0d0d0d] text-gray-400 dark:text-[#666]">
+                  <thead className="sticky top-0 bg-white dark:bg-[#0d0d0d] text-gray-400 dark:text-[#9a9a9a]">
                     <tr>
                       <th className="px-3 py-2 text-left">Backup</th>
                       <th className="px-3 py-2 text-left">Size</th>
@@ -2374,9 +2374,9 @@ export function DashboardTab({
           </p>
           <div className="grid md:grid-cols-2 gap-3 text-xs">
             <div>
-              <p className="text-gray-400 dark:text-[#666] mb-2">Plugins</p>
+              <p className="text-gray-400 dark:text-[#9a9a9a] mb-2">Plugins</p>
               {(plugins?.plugins ?? []).length === 0 ? (
-                <p className="text-gray-400 dark:text-[#555]">None</p>
+                <p className="text-gray-400 dark:text-[#8a8a8a]">None</p>
               ) : (
                 plugins?.plugins.map((plugin) => (
                   <div key={plugin} className="text-gray-700 dark:text-[#d4d4d4] truncate">
@@ -2386,9 +2386,9 @@ export function DashboardTab({
               )}
             </div>
             <div>
-              <p className="text-gray-400 dark:text-[#666] mb-2">Mods</p>
+              <p className="text-gray-400 dark:text-[#9a9a9a] mb-2">Mods</p>
               {(plugins?.mods ?? []).length === 0 ? (
-                <p className="text-gray-400 dark:text-[#555]">None</p>
+                <p className="text-gray-400 dark:text-[#8a8a8a]">None</p>
               ) : (
                 plugins?.mods.map((mod) => (
                   <div key={mod} className="text-gray-700 dark:text-[#d4d4d4] truncate">
@@ -2407,7 +2407,7 @@ export function DashboardTab({
             <Activity className="w-4 h-4 text-[#22c55e]" /> Recent Events
           </div>
           {eventFeed.length === 0 ? (
-            <p className="text-xs text-gray-400 dark:text-[#666]">No recent events</p>
+            <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">No recent events</p>
           ) : (
             eventFeed.slice(0, 5).map((event, index) => (
               <div
@@ -2427,9 +2427,9 @@ export function DashboardTab({
                     </span>
                   )}
                 </div>
-                <p className="mt-1 text-xs text-gray-400 dark:text-[#666]">{event.message}</p>
+                <p className="mt-1 text-xs text-gray-400 dark:text-[#9a9a9a]">{event.message}</p>
                 {event.timestamp && (
-                  <p className="mt-0.5 text-[10px] text-gray-400 dark:text-[#444]">
+                  <p className="mt-0.5 text-[10px] text-gray-400 dark:text-[#8a8a8a]">
                     {formatDateTime(event.timestamp)}
                   </p>
                 )}
@@ -2454,17 +2454,17 @@ export function DashboardTab({
           <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">Activity heatmap</p>
-              <p className="text-[11px] text-gray-400 dark:text-[#666]">Hourly over the last 7 days</p>
+              <p className="text-[11px] text-gray-400 dark:text-[#9a9a9a]">Hourly over the last 7 days</p>
             </div>
             {rawPlayerHistory.length === 0 ? (
-              <div className="flex h-24 items-center justify-center text-sm text-gray-400 dark:text-[#666]">
+              <div className="flex h-24 items-center justify-center text-sm text-gray-400 dark:text-[#9a9a9a]">
                 No activity samples yet
               </div>
             ) : (
               <div className="space-y-2">
                 {activityHeatmap.rows.map((row) => (
                   <div key={row.label} className="grid grid-cols-[40px_1fr] items-center gap-2">
-                    <span className="text-[10px] uppercase text-gray-400 dark:text-[#555]">{row.label}</span>
+                    <span className="text-[10px] uppercase text-gray-400 dark:text-[#8a8a8a]">{row.label}</span>
                     <div className="grid grid-cols-12 gap-1 md:grid-cols-24">
                       {row.hours.map((value, hour) => {
                         const intensity = value === 0 ? 0 : value / activityHeatmap.max;
@@ -2493,7 +2493,7 @@ export function DashboardTab({
           </div>
           <div className="grid gap-3 text-xs md:grid-cols-2">
             <div>
-              <p className="mb-2 text-gray-400 dark:text-[#666]">Recent joins</p>
+              <p className="mb-2 text-gray-400 dark:text-[#9a9a9a]">Recent joins</p>
               {(stats?.recentJoins ?? []).slice(0, 8).map((entry, index) => (
                 <div
                   key={`${entry.player}-${index}`}
@@ -2504,7 +2504,7 @@ export function DashboardTab({
               ))}
             </div>
             <div>
-              <p className="mb-2 text-gray-400 dark:text-[#666]">Recent leaves</p>
+              <p className="mb-2 text-gray-400 dark:text-[#9a9a9a]">Recent leaves</p>
               {(stats?.recentLeaves ?? []).slice(0, 8).map((entry, index) => (
                 <div
                   key={`${entry.player}-${index}`}
@@ -2520,11 +2520,11 @@ export function DashboardTab({
               <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">
                 Player count history
               </p>
-              <p className="text-[11px] text-gray-400 dark:text-[#666]">Last {playerHistory.length} samples</p>
+              <p className="text-[11px] text-gray-400 dark:text-[#9a9a9a]">Last {playerHistory.length} samples</p>
             </div>
             <div className="h-[180px]">
               {playerHistory.length === 0 ? (
-                <div className="flex h-full items-center justify-center text-sm text-gray-400 dark:text-[#666]">
+                <div className="flex h-full items-center justify-center text-sm text-gray-400 dark:text-[#9a9a9a]">
                   No player history yet
                 </div>
               ) : (

@@ -152,7 +152,7 @@ function AlertFeed({ events }: { events: K8sEvent[] }) {
                   {event.reason}
                 </span>
                 <span className="text-xs text-gray-500 dark:text-[#888]">{event.namespace}</span>
-                <span className="text-xs text-gray-400 dark:text-[#666]">{event.involvedObject.kind}/{event.involvedObject.name}</span>
+                <span className="text-xs text-gray-400 dark:text-[#9a9a9a]">{event.involvedObject.kind}/{event.involvedObject.name}</span>
               </div>
               <p className="mt-2 text-sm text-gray-900 dark:text-[#f2f2f2]">{event.message}</p>
             </div>
@@ -554,7 +554,7 @@ export function MonitoringView() {
           />
         ) : (
           <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-[#2a2a2a]">
-            <div className="hidden grid-cols-[minmax(0,1.4fr)_140px_120px_120px_130px] gap-4 border-b border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3 text-xs font-medium uppercase tracking-[0.16em] text-gray-400 dark:text-[#666] lg:grid">
+            <div className="hidden grid-cols-[minmax(0,1.4fr)_140px_120px_120px_130px] gap-4 border-b border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3 text-xs font-medium uppercase tracking-[0.16em] text-gray-400 dark:text-[#9a9a9a] lg:grid">
               <span>Service</span>
               <span>Status</span>
               <span>Latency</span>
@@ -580,7 +580,7 @@ export function MonitoringView() {
                         <span className="truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{endpoint.name}</span>
                         <CopyButton text={endpoint.name} className="h-7 px-2 text-[11px]" />
                       </div>
-                      <p className="mt-1 text-xs text-gray-400 dark:text-[#666]">Last sample {endpoint.results?.[0]?.timestamp ? timeAgo(endpoint.results[0].timestamp) : "unavailable"}</p>
+                      <p className="mt-1 text-xs text-gray-400 dark:text-[#9a9a9a]">Last sample {endpoint.results?.[0]?.timestamp ? timeAgo(endpoint.results[0].timestamp) : "unavailable"}</p>
                     </div>
                     <div>
                       <span
@@ -640,7 +640,7 @@ export function MonitoringView() {
                   <div key={service.name} className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-3 text-sm">
                     <span className="text-gray-900 dark:text-[#f2f2f2]">{service.name}</span>
                     <div className="flex items-center gap-2">
-                      {service.latencyMs > 0 ? <span className="text-xs text-gray-400 dark:text-[#666]">{service.latencyMs} ms</span> : null}
+                      {service.latencyMs > 0 ? <span className="text-xs text-gray-400 dark:text-[#9a9a9a]">{service.latencyMs} ms</span> : null}
                       <span
                         className={cn(
                           "rounded-full px-2.5 py-1 text-xs font-medium capitalize",

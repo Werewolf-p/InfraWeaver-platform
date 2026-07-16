@@ -125,7 +125,7 @@ export function GrantModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75">
+    <div className="fixed inset-0 z-modal flex items-center justify-center p-4 bg-black/75">
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -138,10 +138,10 @@ export function GrantModal({
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#0078D4]/20"><Plus className="h-4 w-4 text-[#0078D4]" /></span>
             <div>
               <h2 className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Grant access</h2>
-              <p className="text-[10px] text-gray-400 dark:text-[#555]">Give a user or group a role on any resource</p>
+              <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">Give a user or group a role on any resource</p>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" className="p-1 text-gray-400 hover:text-gray-700 dark:text-[#555] dark:hover:text-[#888]"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Close" className="p-1 text-gray-400 hover:text-gray-700 dark:text-[#8a8a8a] dark:hover:text-[#888]"><X className="h-4 w-4" /></button>
         </div>
 
         <div className="space-y-5 overflow-y-auto p-5">
@@ -208,7 +208,7 @@ export function GrantModal({
                 );
               })}
             </div>
-            <p className="text-[10px] text-gray-400 dark:text-[#555]">{resource.description}</p>
+            <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">{resource.description}</p>
 
             {resource.instance === "game-server" && (
               <InstancePicker
@@ -246,7 +246,7 @@ export function GrantModal({
                   placeholder="/nas/<provider>/<share>"
                   className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs text-gray-900 focus:border-[#0078D4] focus:outline-none dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#f2f2f2]"
                 />
-                <p className="text-[10px] text-gray-400 dark:text-[#555]">Storage scopes are lowercase — a grant on a share cascades to its folders.</p>
+                <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">Storage scopes are lowercase — a grant on a share cascades to its folders.</p>
               </div>
             )}
 
@@ -272,7 +272,7 @@ export function GrantModal({
 
             <div className="flex flex-wrap items-end gap-4 pt-1">
               <div>
-                <label className="mb-1 block text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#555]">Expiry (optional)</label>
+                <label className="mb-1 block text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#8a8a8a]">Expiry (optional)</label>
                 <input
                   type="datetime-local"
                   value={expiresAt}
@@ -281,7 +281,7 @@ export function GrantModal({
                 />
               </div>
               <div>
-                <label className="mb-1 block text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#555]">Effect</label>
+                <label className="mb-1 block text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#8a8a8a]">Effect</label>
                 <div className="inline-flex rounded-lg border border-gray-200 p-0.5 dark:border-[#2a2a2a]">
                   {(["Allow", "Deny"] as const).map((value) => (
                     <button
@@ -339,7 +339,7 @@ function RoleOption({ role, selected, onClick }: { role: RoleDefinition; selecte
         <span className={cn("h-2 w-2 flex-shrink-0 rounded-full", colors.dot)} />
         <span className="text-xs font-semibold text-gray-900 dark:text-[#f2f2f2]">{role.name}</span>
       </span>
-      <span className="mt-0.5 block text-[10px] leading-snug text-gray-400 dark:text-[#666]">{role.description}</span>
+      <span className="mt-0.5 block text-[10px] leading-snug text-gray-400 dark:text-[#9a9a9a]">{role.description}</span>
     </button>
   );
 }

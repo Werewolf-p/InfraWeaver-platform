@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useId } from "react";
+import { useId, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDialogA11y } from "@/hooks/use-dialog-a11y";
+import { useMotionSafe } from "@/lib/spring";
 
 interface ResponsiveSheetProps {
   open: boolean;
@@ -37,22 +39,10 @@ export function ResponsiveSheet({
   hideHandle = false,
 }: ResponsiveSheetProps) {
   const titleId = useId();
-  useEffect(() => {
-    if (!open || typeof document === "undefined") return;
-
-    const previousOverflow = document.body.style.overflow;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [onClose, open]);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const motionSafe = useMotionSafe();
+  // Shared body-scroll-lock + Escape + focus-trap + focus-restore.
+  useDialogA11y({ open, onClose, ref: sheetRef });
 
   return (
     <AnimatePresence>
@@ -63,15 +53,17 @@ export function ResponsiveSheet({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/70"
+            transition={motionSafe.transition({ duration: 0.2 })}
+            className="fixed inset-0 z-overlay bg-black/70"
             onClick={onClose}
             aria-label="Close"
           />
           <motion.div
+            ref={sheetRef}
             initial={{ y: "100%", opacity: 0.96 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: "100%", opacity: 0.96 }}
-            transition={{ type: "spring", stiffness: 360, damping: 34 }}
+            transition={motionSafe.transition({ type: "spring", stiffness: 360, damping: 34 })}
             drag="y"
             dragConstraints={{ top: 0 }}
             dragElastic={0.04}
@@ -83,7 +75,7 @@ export function ResponsiveSheet({
             aria-modal="true"
             aria-labelledby={titleId}
             className={cn(
-              "fixed inset-x-0 bottom-0 z-[51] flex max-h-[92dvh] flex-col overflow-hidden rounded-t-[28px] bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[28px] sm:border sm:border-gray-200 dark:border-[#222]",
+              "fixed inset-x-0 bottom-0 z-modal flex max-h-[92dvh] flex-col overflow-hidden rounded-t-[28px] bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[28px] sm:border sm:border-gray-200 dark:border-[#222]",
               sizeClassMap[size],
               className,
             )}

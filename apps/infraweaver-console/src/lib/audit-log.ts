@@ -1,3 +1,6 @@
+import { deriveCategory, deriveSeverity, deriveTarget } from "@/lib/audit/derive";
+import { appendAudit } from "@/lib/audit/store";
+
 export interface AuditLogEntry {
   timestamp: string;
   action: string;
@@ -49,7 +52,30 @@ function requestUserAgent(req?: Pick<Request, "headers">) {
 }
 
 async function writeAuditEntry(entry: AuditLogEntry): Promise<void> {
+  // Keep the pod-stdout line (greppable, unchanged shape) …
   console.log(JSON.stringify({ type: "audit", ...entry }));
+
+  // … and durably append to the ConfigMap ring buffer. A sink failure must
+  // never break the mutating request that emitted the audit event, so swallow
+  // and log (mirrors access-log.ts). All 108 auditLog() sites become durable
+  // here with zero per-site changes.
+  try {
+    await appendAudit({
+      timestamp: entry.timestamp,
+      action: entry.action,
+      category: deriveCategory(entry.action),
+      severity: deriveSeverity(entry.action, entry.result),
+      user: entry.user,
+      result: entry.result,
+      resource: entry.resource,
+      target: deriveTarget(entry.resource, entry.detail),
+      detail: entry.detail,
+      ip: entry.ip,
+      userAgent: entry.userAgent,
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ type: "audit-sink-error", error: String(error) }));
+  }
 }
 
 export async function auditLog(

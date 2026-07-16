@@ -21,11 +21,11 @@ describe("IA restructure — navigation groups", () => {
     // A sampling spanning each new group home — these moved but must still exist.
     for (const href of [
       "/cluster", "/changelog", // overview
-      "/all-services", "/app-graph", "/namespace-cleanup", "/pod-shell", // workloads
+      "/workloads", "/all-services", "/namespace-cleanup", "/pod-shell", // workloads (hub)
       "/network", "/gameservers", "/network/firewall", // networking (hub)
       "/registry", "/config", "/secrets", "/storage", // storage & config hubs
       "/monitoring", "/alert-silence", "/tests", "/events", // observability (diagnostics hub)
-      "/rbac", "/access", // security & access
+      "/identity", "/audit", // security & access (Identity hub + audit log)
       "/gitops-diff", "/settings/addons", // platform
     ]) {
       expect(hrefs.has(href)).toBe(true);
@@ -41,7 +41,9 @@ describe("IA restructure — navigation groups", () => {
       "/self-test", "/health-tester", "/webhook-tester", // → /tests tabs
       "/network-policies", "/ingress", // → /network tabs
       "/status", "/health", "/uptime", // → /monitoring tabs
-      "/dns", // → /routes tabs
+      "/dns", // → /routes tabs (routing)
+      "/users", "/access", "/rbac", // → /identity tabs
+      "/apps", "/app-graph", // → /workloads tabs
     ]) {
       expect(hrefs.has(merged)).toBe(false);
     }

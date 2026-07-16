@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Activity, ArrowLeft, Box, Flame, GitBranch, RefreshCw, Shield, TerminalSquare, Trash2 } from "lucide-react";
+import { Activity, ArrowLeft, Box, Boxes, Flame, GitBranch, HardDrive, RefreshCw, Shield, TerminalSquare, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { ResponsiveContainer, Treemap, Tooltip as RechartsTooltip } from "recharts";
 import { LogStreamViewer } from "@/components/logs/log-stream-viewer";
@@ -16,6 +16,7 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
 import { resolveRoleDefinition, scopeLabel } from "@/lib/rbac";
 import { AppFirewallPanel } from "@/app/(dashboard)/network/firewall/_components/app-firewall-panel";
+import { AppStoragePanel } from "./_components/app-storage-panel";
 
 interface Resource {
   kind?: string;
@@ -191,10 +192,13 @@ export default function AppDetailPage() {
   }
 
   const app = data.application;
+  const appNamespace = app.spec?.destination?.namespace ?? pods[0]?.namespace ?? "default";
   const tabs = [
     { label: "Overview", value: "overview", icon: Box },
-    { label: "Logs", value: "logs", icon: TerminalSquare, badge: pods.length },
+    { label: "Pods", value: "pods", icon: Boxes, badge: pods.length },
+    { label: "Storage", value: "storage", icon: HardDrive },
     { label: "Firewall", value: "firewall", icon: Flame, badge: pods.length },
+    { label: "Logs", value: "logs", icon: TerminalSquare, badge: pods.length },
     { label: "Activity", value: "activity", icon: Activity, badge: data.history.length },
     { label: "Config", value: "config", icon: GitBranch },
     { label: "Permissions", value: "permissions", icon: Shield, badge: appPermissions.length },
@@ -332,6 +336,37 @@ export default function AppDetailPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === "pods" && (
+          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4">
+            {pods.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-950/60 px-4 py-8 text-center text-sm text-slate-500">
+                No pods were associated with this application.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {pods.map((pod) => (
+                  <div
+                    key={`${pod.namespace}/${pod.name}`}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-white/5 bg-slate-100 dark:bg-slate-950/60 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{pod.name}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {pod.namespace} · {pod.containers.length} container{pod.containers.length === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    <StatusBadge status={toStatusBadge(pod.status)} size="sm" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "storage" && (
+          <AppStoragePanel namespace={appNamespace} />
         )}
 
         {activeTab === "logs" && (

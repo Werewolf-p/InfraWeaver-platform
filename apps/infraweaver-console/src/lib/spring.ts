@@ -1,5 +1,7 @@
+"use client";
 // Spring animation presets — use these everywhere, never raw numbers
-import type { SpringOptions, Variants } from "framer-motion";
+import { useReducedMotion } from "framer-motion";
+import type { SpringOptions, Transition, Variants } from "framer-motion";
 
 export const springs = {
   // Snappy: UI responses, button presses, dropdown opens
@@ -41,3 +43,51 @@ export const scaleIn: Variants = {
   hidden: { opacity: 0, scale: 0.95 },
   show: { opacity: 1, scale: 1, transition: { type: "spring" as const, stiffness: 400, damping: 28, mass: 0.8 } },
 };
+
+// ── Reduced-motion support ───────────────────────────────────────────
+// framer-motion animations are JS-driven and ignore the CSS
+// `prefers-reduced-motion` rule in globals.css. These helpers collapse
+// motion to an instant transition (WCAG 2.3.3) while keeping the same
+// start/end states, so components stay declarative.
+
+/** A transition that snaps to the final state with no perceptible motion. */
+export const instant: Transition = { duration: 0 };
+
+/** Rewrite every variant's transition to `instant` (preserving its end state). */
+function toInstantVariants(variants: Variants): Variants {
+  return Object.fromEntries(
+    Object.entries(variants).map(([state, value]) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        return [state, { ...(value as Record<string, unknown>), transition: instant }];
+      }
+      return [state, value];
+    }),
+  ) as Variants;
+}
+
+export interface MotionSafe {
+  /** True when the user has requested reduced motion. */
+  reduced: boolean;
+  /** Returns the given transition, or `instant` under reduced motion. */
+  transition: (preferred: Transition) => Transition;
+  /** Returns the given variants, or snap-to-final variants under reduced motion. */
+  variants: (preferred: Variants) => Variants;
+}
+
+/**
+ * Reduced-motion-aware accessor for the spring presets. Wrap any framer
+ * transition / variants through the returned helpers so they degrade to an
+ * instant change when the user prefers reduced motion.
+ *
+ * @example
+ *   const motion = useMotionSafe();
+ *   <motion.div variants={motion.variants(fadeUp)} transition={motion.transition(springs.gentle)} />
+ */
+export function useMotionSafe(): MotionSafe {
+  const reduced = useReducedMotion() ?? false;
+  return {
+    reduced,
+    transition: (preferred) => (reduced ? instant : preferred),
+    variants: (preferred) => (reduced ? toInstantVariants(preferred) : preferred),
+  };
+}

@@ -80,7 +80,7 @@ export function PublishButton({ acceptedCount, acceptedTitles, pipelineBusy, onB
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
         {nothingStaged ? "Publish to live" : `Publish ${countLabel} to live`}
       </button>
-      {nothingStaged && <span className="text-[10px] text-gray-400 dark:text-[#666]">Nothing staged yet</span>}
+      {nothingStaged && <span className="text-[10px] text-gray-400 dark:text-[#9a9a9a]">Nothing staged yet</span>}
 
       <ConfirmDialog
         open={confirmOpen}

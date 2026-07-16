@@ -11,6 +11,10 @@ interface NavRequirement {
 }
 
 const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
+  // Consolidated hubs (Subject 1). Legacy keys below are kept so the redirect
+  // stubs (/users, /access, /rbac, /apps, /app-graph, …) still gate correctly.
+  "/workloads": { any: ["apps:read", "infra:read"] },
+  "/identity": { any: ["users:read", "rbac:admin", "cluster:admin"] },
   "/apps": { any: ["apps:read"] },
   "/events": { any: ["apps:read"] },
   "/pods": { any: ["cluster:read", "infra:read"] },
@@ -26,6 +30,7 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/certificates": { any: ["security:read", "infra:read"] },
   "/network-policies": { any: ["infra:read"] },
   "/secret-expiry": { any: ["security:read", "infra:read"] },
+  "/secret-health": { any: ["security:read", "infra:read"] },
   "/secrets": { any: ["cluster:admin"] },
   "/config": { any: ["config:read"] },
   "/config-maps": { any: ["cluster:admin"] },
@@ -36,6 +41,7 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/pipelines": { any: ["infra:read"] },
   "/health": { any: ["infra:read"] },
   "/security": { any: ["security:read", "infra:read"] },
+  "/audit": { any: ["security:read"] },
   "/uptime": { any: ["infra:read"] },
   "/image-vulnerabilities": { any: ["security:read", "infra:read"] },
   "/game-hub": { any: ["game-hub:read"], scopePrefix: "/game-hub/" },
@@ -62,6 +68,9 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/self-test": { any: ["infra:read"] },
   "/users": { any: ["users:read", "rbac:admin"] },
   "/access": { any: ["users:read", "rbac:admin", "cluster:admin"] },
+  // Admin approval queue for self-service requests. Deliberately NO entry for
+  // "/self-service" — unlisted ⇒ visible to every authenticated user (the front door).
+  "/approvals": { any: ["users:write", "rbac:admin", "cluster:admin"] },
   "/admin/updates": { any: ["platform:update"] },
   "/registry": { any: ["config:read"] },
   "/settings/addons": { any: ["config:read"] },

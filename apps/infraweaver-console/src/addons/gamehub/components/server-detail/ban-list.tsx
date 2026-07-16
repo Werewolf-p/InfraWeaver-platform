@@ -130,7 +130,7 @@ export function BanList({ serverName, mountPath }: BanListProps) {
                       <span className="truncate">{entry.name}</span>
                     </div>
                     <div className="text-xs text-gray-500 dark:text-[#888]">Reason: {entry.reason || "No reason provided"}</div>
-                    <div className="text-xs text-gray-400 dark:text-[#555]">
+                    <div className="text-xs text-gray-400 dark:text-[#8a8a8a]">
                       Created {formatBanDate(entry.created)} • Expires {formatBanDate(entry.expires)} • Source {entry.source || "Unknown"}
                     </div>
                   </div>
@@ -161,7 +161,7 @@ export function BanList({ serverName, mountPath }: BanListProps) {
                       <span className="truncate">{entry.ip}</span>
                     </div>
                     <div className="text-xs text-gray-500 dark:text-[#888]">Reason: {entry.reason || "No reason provided"}</div>
-                    <div className="text-xs text-gray-400 dark:text-[#555]">
+                    <div className="text-xs text-gray-400 dark:text-[#8a8a8a]">
                       Created {formatBanDate(entry.created)} • Expires {formatBanDate(entry.expires)} • Source {entry.source || "Unknown"}
                     </div>
                   </div>

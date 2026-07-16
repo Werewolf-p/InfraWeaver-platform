@@ -20,6 +20,9 @@ import "server-only";
 const KV_MOUNT = process.env.OPENBAO_KV_MOUNT || "secret";
 const VAULT_TIMEOUT_MS = Number(process.env.OPENBAO_TIMEOUT_MS) || 10_000;
 
+/** Request timeout for direct (non-KV) OpenBao calls — exported for the token collector. */
+export const OPENBAO_REQUEST_TIMEOUT_MS = VAULT_TIMEOUT_MS;
+
 // Each path segment is a vault key component; constrain to a safe grammar
 // (mirrors app-accounts/store SAFE_SEGMENT/SAFE_USERNAME) rather than trusting
 // callers not to inject `../` or a mount hop.
@@ -33,7 +36,12 @@ function assertSafeLogicalPath(logicalPath: string): string {
   return logicalPath;
 }
 
-function vaultAuth(): { addr: string; token: string } {
+/**
+ * Resolve the OpenBao address + token from env. Exported so sibling collectors
+ * (secrets/openbao-token) can reuse the exact same resolution for non-KV
+ * endpoints (`/v1/auth/token/*`) without re-reading env or drifting.
+ */
+export function vaultAuth(): { addr: string; token: string } {
   const addr = (process.env.OPENBAO_ADDR || process.env.VAULT_ADDR || "").replace(/\/+$/, "");
   const token = process.env.OPENBAO_TOKEN || process.env.VAULT_TOKEN || "";
   if (!addr) throw new Error("OPENBAO_ADDR/VAULT_ADDR is not configured");

@@ -104,7 +104,7 @@ export function AppPodsDrilldown({
         <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-white/10">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-gray-200 dark:border-white/10 text-gray-400 dark:text-[#666]">
+              <tr className="border-b border-gray-200 dark:border-white/10 text-gray-400 dark:text-[#9a9a9a]">
                 <th className="px-3 py-2 text-left font-medium">Pod</th>
                 <th className="px-3 py-2 text-center font-medium">Status</th>
                 <th className="px-3 py-2 text-left font-medium">Restarts</th>

@@ -293,7 +293,7 @@ function ThresholdPreview({
         </div>
         <div>
           <p className="text-xs font-medium text-gray-900 dark:text-[#f2f2f2]">{label}</p>
-          <p className="text-[10px] text-gray-400 dark:text-[#666]">Preview trigger ring</p>
+          <p className="text-[10px] text-gray-400 dark:text-[#9a9a9a]">Preview trigger ring</p>
         </div>
       </div>
     </div>
@@ -343,7 +343,7 @@ function SettingsSliderRow({
           onChange={(event) => handleInput(event.target.value)}
           className={cn(numberWidth, "bg-transparent text-right text-sm text-gray-900 dark:text-[#f2f2f2] outline-none")}
         />
-        {unit ? <span className="text-xs text-gray-400 dark:text-[#666]">{unit}</span> : null}
+        {unit ? <span className="text-xs text-gray-400 dark:text-[#9a9a9a]">{unit}</span> : null}
       </div>
     </div>
   );
@@ -708,7 +708,7 @@ function FilesTab({
             disabled={pathHistory.length <= 1}
             className="p-1 rounded hover:bg-gray-100 dark:hover:bg-[#1e1e1e] disabled:opacity-30 transition-colors flex-shrink-0"
           >
-            <ArrowUp className="w-3.5 h-3.5 text-gray-400 dark:text-[#666]" />
+            <ArrowUp className="w-3.5 h-3.5 text-gray-400 dark:text-[#9a9a9a]" />
           </button>
           <div className="flex-1 min-w-0 overflow-x-auto scrollbar-none">
             <div className="flex items-center gap-1.5 w-max min-w-full text-[10px] font-mono text-gray-500 dark:text-[#777]">
@@ -743,12 +743,12 @@ function FilesTab({
             onClick={() => refetch()}
             className="p-1 rounded hover:bg-gray-100 dark:hover:bg-[#1e1e1e] transition-colors flex-shrink-0"
           >
-            <RefreshCw className="w-3 h-3 text-gray-400 dark:text-[#555]" />
+            <RefreshCw className="w-3 h-3 text-gray-400 dark:text-[#8a8a8a]" />
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 dark:text-[#555]" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 dark:text-[#8a8a8a]" />
             <input
               value={fileSearch}
               onChange={(event) => setFileSearch(event.target.value)}
@@ -785,10 +785,10 @@ function FilesTab({
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-20">
-            <Loader2 className="w-4 h-4 animate-spin text-gray-400 dark:text-[#555]" />
+            <Loader2 className="w-4 h-4 animate-spin text-gray-400 dark:text-[#8a8a8a]" />
           </div>
         ) : isError ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-8 px-4 text-center text-gray-400 dark:text-[#555]">
+          <div className="flex flex-col items-center justify-center gap-3 py-8 px-4 text-center text-gray-400 dark:text-[#8a8a8a]">
             <FolderOpen className="w-7 h-7" />
             <p className="text-xs">Unable to load files right now.</p>
             <button
@@ -799,7 +799,7 @@ function FilesTab({
             </button>
           </div>
         ) : sortedFiles.length === 0 ? (
-          <p className="text-xs text-gray-400 dark:text-[#555] text-center py-6">
+          <p className="text-xs text-gray-400 dark:text-[#8a8a8a] text-center py-6">
             {fileSearch
               ? "No files match the current search"
               : "Empty directory"}
@@ -839,7 +839,7 @@ function FilesTab({
                 {entry.type === "directory" ? (
                   <Folder className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
                 ) : (
-                  <File className="w-3.5 h-3.5 text-gray-400 dark:text-[#444] flex-shrink-0" />
+                  <File className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a] flex-shrink-0" />
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 min-w-0">
@@ -859,7 +859,7 @@ function FilesTab({
                       {entry.permissions || "---------"}
                     </span>
                   </div>
-                  <span className="text-[10px] text-gray-400 dark:text-[#555]">
+                  <span className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">
                     {entry.type === "directory"
                       ? "Directory"
                       : `${formatBytes(entry.size)} • ${timeAgo(entry.modifiedAt)}`}
@@ -872,7 +872,7 @@ function FilesTab({
                         event.stopPropagation();
                         extractMutation.mutate(entry);
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 dark:text-[#444] hover:text-green-300 transition-all"
+                      className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 dark:text-[#8a8a8a] hover:text-green-300 transition-all"
                       title="Extract here"
                     >
                       <Package className="w-3 h-3" />
@@ -884,7 +884,7 @@ function FilesTab({
                       event.stopPropagation();
                       deleteFile(entry);
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 dark:text-[#444] hover:text-red-400 transition-all"
+                    className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 dark:text-[#8a8a8a] hover:text-red-400 transition-all"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -909,10 +909,10 @@ function FilesTab({
               ← Files
             </button>
             <div className="min-w-0 flex-1">
-              <span className="text-xs text-gray-400 dark:text-[#555] font-mono truncate block">
+              <span className="text-xs text-gray-400 dark:text-[#8a8a8a] font-mono truncate block">
                 {selectedFile.path}
               </span>
-              <span className="text-[10px] text-gray-400 dark:text-[#444]">
+              <span className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">
                 {selectedFile.permissions || "---------"} •{" "}
                 {formatBytes(selectedFile.size)} • Modified{" "}
                 {formatDateTime(selectedFile.modifiedAt)} •{" "}
@@ -922,7 +922,7 @@ function FilesTab({
             </div>
             <button
               onClick={() => void copy(fileContent ?? "", { successMessage: "Copied" })}
-              className="p-1.5 text-gray-400 dark:text-[#444] hover:text-gray-700 dark:hover:text-[#888] flex-shrink-0"
+              className="p-1.5 text-gray-400 dark:text-[#8a8a8a] hover:text-gray-700 dark:hover:text-[#888] flex-shrink-0"
             >
               <Copy className="w-3.5 h-3.5" />
             </button>
@@ -950,14 +950,14 @@ function FilesTab({
           >
             {loadingContent ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="w-5 h-5 animate-spin text-gray-400 dark:text-[#555]" />
+                <Loader2 className="w-5 h-5 animate-spin text-gray-400 dark:text-[#8a8a8a]" />
               </div>
             ) : fileTooLarge ? (
               <div className="flex flex-col items-center justify-center h-full gap-4 bg-white dark:bg-[#0a0a0a] p-4">
-                <FileText className="w-10 h-10 text-gray-400 dark:text-[#444]" />
+                <FileText className="w-10 h-10 text-gray-400 dark:text-[#8a8a8a]" />
                 <div className="text-center">
                   <p className="text-sm font-medium text-gray-700 dark:text-[#d4d4d4] mb-1">File too large to edit in browser</p>
-                  <p className="text-xs text-gray-400 dark:text-[#555]">{fileTooLarge.size > 0 ? `${(fileTooLarge.size / 1024 / 1024).toFixed(1)} MB` : "Size unknown"} — max 50 MB for inline editing</p>
+                  <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">{fileTooLarge.size > 0 ? `${(fileTooLarge.size / 1024 / 1024).toFixed(1)} MB` : "Size unknown"} — max 50 MB for inline editing</p>
                 </div>
                 <a
                   href={`/api/game-hub/servers/${name}/files/content?path=${encodeURIComponent(selectedFile.path)}&download=1`}
@@ -994,7 +994,7 @@ function FilesTab({
           style={{ height: "55vh", minHeight: "200px" }}
         >
           <FolderOpen className="w-10 h-10 text-[#2a2a2a]" />
-          <p className="text-sm text-gray-400 dark:text-[#555]">Select a file to edit</p>
+          <p className="text-sm text-gray-400 dark:text-[#8a8a8a]">Select a file to edit</p>
           <button
             onClick={() => setMobilePane("files")}
             className="md:hidden text-xs text-[#0078D4]"
@@ -1014,7 +1014,7 @@ function FilesTab({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            className="fixed inset-0 z-modal flex items-center justify-center bg-black/70 p-4"
             onClick={() => setDiffOpen(false)}
           >
             <motion.div
@@ -1028,7 +1028,7 @@ function FilesTab({
               <div className="border-b border-gray-200 dark:border-[#1e1e1e] px-5 py-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-gray-400 dark:text-[#666]">
+                    <p className="text-[11px] uppercase tracking-[0.24em] text-gray-400 dark:text-[#9a9a9a]">
                       Unified diff preview
                     </p>
                     <h3 className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">
@@ -1040,19 +1040,19 @@ function FilesTab({
                   </div>
                   <button
                     onClick={() => setDiffOpen(false)}
-                    className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] p-2 text-gray-400 dark:text-[#666] transition-colors hover:bg-gray-100 dark:hover:bg-[#161616] hover:text-[#d4d4d4]"
+                    className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] p-2 text-gray-400 dark:text-[#9a9a9a] transition-colors hover:bg-gray-100 dark:hover:bg-[#161616] hover:text-[#d4d4d4]"
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
               </div>
-              <div className="border-b border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#101010] px-5 py-2 font-mono text-[11px] text-gray-400 dark:text-[#666]">
+              <div className="border-b border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#101010] px-5 py-2 font-mono text-[11px] text-gray-400 dark:text-[#9a9a9a]">
                 <div>--- original</div>
                 <div>+++ current</div>
               </div>
               <div className="max-h-[65vh] overflow-auto bg-white dark:bg-[#0a0a0a] p-3 font-mono text-xs leading-6">
                 {diffLines.length === 0 ? (
-                  <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#111] px-4 py-6 text-center text-gray-400 dark:text-[#666]">
+                  <div className="rounded-lg border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#111] px-4 py-6 text-center text-gray-400 dark:text-[#9a9a9a]">
                     No changes detected.
                   </div>
                 ) : (
@@ -1068,7 +1068,7 @@ function FilesTab({
                             : "text-[#8a8a8a]",
                       )}
                     >
-                      <span className="mr-2 inline-block w-3 text-center text-gray-400 dark:text-[#666]">
+                      <span className="mr-2 inline-block w-3 text-center text-gray-400 dark:text-[#9a9a9a]">
                         {line.type === "removed"
                           ? "-"
                           : line.type === "added"
@@ -1116,7 +1116,7 @@ function FilesTab({
               onClick={() => setMobilePane(pane)}
               className={cn(
                 "flex-1 py-2.5 rounded text-xs font-medium transition-colors flex items-center justify-center gap-1.5",
-                mobilePane === pane ? "bg-[#0078D4] text-white" : "text-gray-400 dark:text-[#666]",
+                mobilePane === pane ? "bg-[#0078D4] text-white" : "text-gray-400 dark:text-[#9a9a9a]",
               )}
             >
               {pane === "files" ? (
@@ -1301,18 +1301,18 @@ function ServerRbacPanel({
     <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
       <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
         <div className="flex items-start gap-2">
-          <Shield className="w-3.5 h-3.5 text-gray-400 dark:text-[#555] mt-0.5" />
+          <Shield className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a] mt-0.5" />
           <div>
             <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
               Access Control
             </p>
-            <p className="text-[11px] text-gray-400 dark:text-[#555] mt-1">
+            <p className="text-[11px] text-gray-400 dark:text-[#8a8a8a] mt-1">
               Inherited access is read-only here. Server-specific assignments
               are stored in users.yaml.
             </p>
           </div>
         </div>
-        <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#555] font-mono">
+        <span className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#8a8a8a] font-mono">
           {scope}
         </span>
       </div>
@@ -1325,7 +1325,7 @@ function ServerRbacPanel({
         )}
 
         {accessQuery.isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-[#555]">
+          <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-[#8a8a8a]">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             Loading access assignments…
           </div>
@@ -1343,12 +1343,12 @@ function ServerRbacPanel({
               >
                 <div>
                   <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">Inherited access</p>
-                  <p className="text-xs text-gray-400 dark:text-[#555] mt-1">
+                  <p className="text-xs text-gray-400 dark:text-[#8a8a8a] mt-1">
                     Platform-wide and Game Hub-wide roles that also apply to
                     this server.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 text-gray-400 dark:text-[#666]">
+                <div className="flex items-center gap-2 text-gray-400 dark:text-[#9a9a9a]">
                   <span className="text-[10px] px-2 py-0.5 rounded-full border border-gray-200 dark:border-[#2a2a2a]">
                     {inheritedAssignments.length}
                   </span>
@@ -1369,7 +1369,7 @@ function ServerRbacPanel({
                     className="border-t border-gray-200 dark:border-[#1e1e1e] p-3 space-y-2"
                   >
                     {inheritedAssignments.length === 0 ? (
-                      <p className="text-xs text-gray-400 dark:text-[#555]">
+                      <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">
                         No inherited assignments found for this server.
                       </p>
                     ) : (
@@ -1392,7 +1392,7 @@ function ServerRbacPanel({
                                 {sourceLabel(assignment.source)}
                               </span>
                             </div>
-                            <p className="text-[10px] text-gray-400 dark:text-[#555] font-mono mt-1">
+                            <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a] font-mono mt-1">
                               {assignment.scope}
                             </p>
                           </div>
@@ -1418,7 +1418,7 @@ function ServerRbacPanel({
                   <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">
                     Server-specific access
                   </p>
-                  <p className="text-xs text-gray-400 dark:text-[#555] mt-1">
+                  <p className="text-xs text-gray-400 dark:text-[#8a8a8a] mt-1">
                     Users assigned directly to this server only.
                   </p>
                 </div>
@@ -1455,7 +1455,7 @@ function ServerRbacPanel({
                       </p>
                       <div className="grid lg:grid-cols-[1fr_220px_auto] gap-2">
                         <div>
-                          <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
+                          <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-1">
                             Username
                           </label>
                           <select
@@ -1477,7 +1477,7 @@ function ServerRbacPanel({
                           </select>
                         </div>
                         <div>
-                          <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
+                          <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-1">
                             Role
                           </label>
                           <select
@@ -1532,7 +1532,7 @@ function ServerRbacPanel({
                 </AnimatePresence>
 
                 {serverAssignments.length === 0 ? (
-                  <p className="text-xs text-gray-400 dark:text-[#555]">
+                  <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">
                     No server-specific assignments yet.
                   </p>
                 ) : (
@@ -1548,7 +1548,7 @@ function ServerRbacPanel({
                             <p className="text-sm text-gray-900 dark:text-[#f2f2f2] truncate">
                               {assignment.user}
                             </p>
-                            <p className="text-[10px] text-gray-400 dark:text-[#555] font-mono mt-1">
+                            <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a] font-mono mt-1">
                               {scope}
                             </p>
                           </div>
@@ -1567,7 +1567,7 @@ function ServerRbacPanel({
                                 onClick={() => removeAssignment(assignment)}
                                 disabled={removing === assignmentKey}
                                 title={`Remove ${assignment.user}'s access`}
-                                className="p-1.5 rounded-lg text-gray-400 dark:text-[#555] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                                className="p-1.5 rounded-lg text-gray-400 dark:text-[#8a8a8a] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                               >
                                 {removing === assignmentKey ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1615,7 +1615,7 @@ function SettingsAccordion({
           <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{title}</p>
           {description ? <p className="text-xs text-gray-500 dark:text-[#888]">{description}</p> : null}
         </div>
-        <ChevronDown className="h-4 w-4 text-gray-400 dark:text-[#555] transition-transform group-open:rotate-180" />
+        <ChevronDown className="h-4 w-4 text-gray-400 dark:text-[#8a8a8a] transition-transform group-open:rotate-180" />
       </summary>
       <div className="border-t border-gray-200 dark:border-[#1e1e1e] p-4">{children}</div>
     </details>
@@ -2147,7 +2147,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                     <span className="rounded border border-yellow-500/20 bg-yellow-500/10 px-2 py-0.5 font-mono text-[10px] text-yellow-100 mt-0.5">{entry.name}</span>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">{entry.description || "Recommended setting"}</p>
-                      {rulesHint && <p className="text-[10px] text-gray-400 dark:text-[#555] mt-0.5">{rulesHint}</p>}
+                      {rulesHint && <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a] mt-0.5">{rulesHint}</p>}
                     </div>
                   </div>
                   <div className="flex gap-2 items-center">
@@ -2179,7 +2179,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <Layers className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <Layers className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Replica Scaling
           </p>
@@ -2204,7 +2204,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   "flex-1 py-2 rounded-lg text-xs font-medium transition-colors border",
                   replicaMode === mode
                     ? "bg-[#0078D4]/20 border-[#0078D4]/50 text-[#0078D4]"
-                    : "bg-transparent border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#666] hover:text-gray-700 dark:hover:text-[#888]",
+                    : "bg-transparent border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#9a9a9a] hover:text-gray-700 dark:hover:text-[#888]",
                 )}
               >
                 {mode === "static" ? "Static (fixed)" : "Dynamic (HPA)"}
@@ -2214,7 +2214,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           {replicaMode === "static" ? (
             <div className="space-y-2">
               <div className="flex items-center gap-3">
-                <label className="text-xs text-gray-400 dark:text-[#666] flex-shrink-0">
+                <label className="text-xs text-gray-400 dark:text-[#9a9a9a] flex-shrink-0">
                   Replicas
                 </label>
                 <div className="flex items-center gap-1">
@@ -2241,7 +2241,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   </button>
                 </div>
               </div>
-              <p className="text-[11px] text-gray-400 dark:text-[#555]">
+              <p className="text-[11px] text-gray-400 dark:text-[#8a8a8a]">
                 Use Start/Stop to control server state. Static replicas cannot
                 go below 1 while running.
               </p>
@@ -2250,7 +2250,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
+                  <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-1">
                     Min replicas
                   </label>
                   <input
@@ -2267,7 +2267,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
+                  <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-1">
                     Max replicas
                   </label>
                   <input
@@ -2284,7 +2284,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
+                  <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-1">
                     CPU target %
                   </label>
                   <input
@@ -2305,7 +2305,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 </div>
               </div>
               {server.hpa.currentReplicas !== null && (
-                <p className="text-[10px] text-gray-400 dark:text-[#555]">
+                <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">
                   Currently running {server.hpa.currentReplicas} replica(s) via
                   HPA
                 </p>
@@ -2331,7 +2331,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <RotateCcw className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <RotateCcw className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Auto-restart Policy
           </p>
@@ -2357,7 +2357,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Scheduled On/Off
           </p>
@@ -2450,7 +2450,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <AlertTriangle className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <AlertTriangle className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Alert Thresholds
           </p>
@@ -2459,7 +2459,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           <div className="grid gap-3 xl:grid-cols-3">
             <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">CPU threshold</label>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">CPU threshold</label>
                 <span className="text-xs text-gray-900 dark:text-[#f2f2f2]">{alertCpu}%</span>
               </div>
               <SettingsSliderRow value={alertCpu} onValue={setAlertCpu} min={0} max={100} rangeStep={1} unit="%" numberWidth="w-12" />
@@ -2467,7 +2467,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             </div>
             <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Memory threshold</label>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">Memory threshold</label>
                 <span className="text-xs text-gray-900 dark:text-[#f2f2f2]">{alertMemory}%</span>
               </div>
               <SettingsSliderRow value={alertMemory} onValue={setAlertMemory} min={0} max={100} rangeStep={1} unit="%" numberWidth="w-12" />
@@ -2475,7 +2475,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             </div>
             <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Restart threshold</label>
+                <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">Restart threshold</label>
                 <span className="text-xs text-gray-900 dark:text-[#f2f2f2]">{alertRestarts}</span>
               </div>
               <SettingsSliderRow value={alertRestarts} onValue={setAlertRestarts} min={0} max={20} rangeStep={1} numberWidth="w-12" />
@@ -2514,26 +2514,26 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
       {server.permissions?.canAdmin && (
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-            <Cpu className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+            <Cpu className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
             <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
               Resource Limits
             </p>
           </div>
           <div className="p-4 space-y-4">
-            <p className="text-xs text-gray-400 dark:text-[#666]">
+            <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">
               Current applied limits: <span className="text-gray-900 dark:text-[#f2f2f2]">{server.cpu}</span> CPU and <span className="text-gray-900 dark:text-[#f2f2f2]">{server.memory}</span> memory.
             </p>
             <div className="space-y-3">
               <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">CPU</label>
+                  <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">CPU</label>
                   <span className="text-sm text-gray-900 dark:text-[#f2f2f2]">{cpuLimit}m</span>
                 </div>
                 <SettingsSliderRow value={cpuLimit} onValue={setCpuLimit} min={100} max={4000} rangeStep={100} numberStep={100} unit="m" numberWidth="w-16" />
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Memory</label>
+                  <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">Memory</label>
                   <span className="text-sm text-gray-900 dark:text-[#f2f2f2]">{memLimit} MB</span>
                 </div>
                 <SettingsSliderRow value={memLimit} onValue={setMemLimit} min={256} max={8192} rangeStep={256} numberStep={256} unit="MB" numberWidth="w-16" />
@@ -2560,14 +2560,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-            <Shield className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+            <Shield className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
             <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
               Config Diff vs Egg Defaults
             </p>
           </div>
           <div className="p-4">
             {envDiff.length === 0 ? (
-              <p className="text-xs text-gray-400 dark:text-[#555]">
+              <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">
                 No differences from the egg defaults.
               </p>
             ) : (
@@ -2656,14 +2656,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <FileText className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <FileText className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Description & Identity
           </p>
         </div>
         <div className="p-4 space-y-4">
           <div>
-            <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
+            <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-1">
               Description
             </label>
             <textarea
@@ -2674,7 +2674,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             />
           </div>
           <div>
-            <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-2">Icon</label>
+            <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-2">Icon</label>
             <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
               {ICON_OPTIONS.map((emoji) => (
                 <button
@@ -2693,7 +2693,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             </div>
           </div>
           <div>
-            <label className="mb-2 block text-[10px] text-gray-400 dark:text-[#666]">Accent color</label>
+            <label className="mb-2 block text-[10px] text-gray-400 dark:text-[#9a9a9a]">Accent color</label>
             <div className="flex flex-wrap gap-2">
               {ACCENT_COLOR_OPTIONS.map((option) => (
                 <button
@@ -2714,7 +2714,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
             </div>
           </div>
           <div>
-            <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">Groups</label>
+            <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-1">Groups</label>
             <input
               value={groupsStr}
               onChange={(event) => setGroupsStr(event.target.value)}
@@ -2733,14 +2733,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <Package className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <Package className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Image & Deployment
           </p>
         </div>
         <div className="p-4 space-y-4">
           <div>
-            <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">Image</label>
+            <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-1">Image</label>
             <div className="flex flex-wrap gap-2">
               <input
                 value={image}
@@ -2757,7 +2757,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           </div>
           <div className="grid md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
+              <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-1">
                 Image pull policy
               </label>
               <div className="flex flex-wrap gap-2">
@@ -2779,7 +2779,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               </div>
             </div>
             <div>
-              <label className="block text-[10px] text-gray-400 dark:text-[#666] mb-1">
+              <label className="block text-[10px] text-gray-400 dark:text-[#9a9a9a] mb-1">
                 Deployment strategy
               </label>
               <div className="flex flex-wrap gap-2">
@@ -2821,7 +2821,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <Wifi className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <Wifi className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Service Ports
           </p>
@@ -2906,7 +2906,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Scheduled Action
           </p>
@@ -2919,7 +2919,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               {formatDateTime(server.scheduledTime)}
             </p>
           )}
-          <p className="text-[11px] text-gray-400 dark:text-[#666]">
+          <p className="text-[11px] text-gray-400 dark:text-[#9a9a9a]">
             Scheduled actions require the platform to be running so the
             controller can apply them.
           </p>
@@ -2951,7 +2951,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <HardDrive className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <HardDrive className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Backup Scheduler
           </p>
@@ -2985,22 +2985,22 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
           </div>
           {backupSchedulePreset === "custom" && (
             <div className="space-y-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3">
-              <label className="block text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Cron expression</label>
+              <label className="block text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">Cron expression</label>
               <input
                 value={backupCronExpr}
                 onChange={(event) => setBackupCronExpr(event.target.value)}
                 placeholder="0 4 * * *"
                 className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm font-mono text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
               />
-              <p className="text-[10px] text-gray-400 dark:text-[#555]">Use a standard 5-field cron: minute hour day month weekday.</p>
+              <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">Use a standard 5-field cron: minute hour day month weekday.</p>
             </div>
           )}
           <div className="grid gap-3 md:grid-cols-[1fr_180px]">
             <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3">
-              <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Next 3 run times</p>
+              <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">Next 3 run times</p>
               <div className="mt-2 space-y-1 text-sm text-gray-900 dark:text-[#f2f2f2]">
                 {backupSchedulePreset === "disabled" ? (
-                  <p className="text-xs text-gray-400 dark:text-[#666]">Backups are disabled.</p>
+                  <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">Backups are disabled.</p>
                 ) : nextBackupRuns.length > 0 ? (
                   nextBackupRuns.map((runAt) => (
                     <div key={runAt.toISOString()} className="rounded-lg border border-[#1f1f1f] bg-white dark:bg-[#111] px-3 py-2 text-xs">
@@ -3013,7 +3013,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               </div>
             </div>
             <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3 space-y-2">
-              <label className="block text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#666]">Retention (days)</label>
+              <label className="block text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">Retention (days)</label>
               <input
                 type="number"
                 min={1}
@@ -3022,7 +3022,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                 onChange={(event) => setBackupRetention(clampNumber(Number.parseInt(event.target.value, 10) || 1, 1, 365))}
                 className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:outline-none focus:border-[#0078D4]"
               />
-              <p className="text-[10px] text-gray-400 dark:text-[#555]">Keep backups for this many days.</p>
+              <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">Keep backups for this many days.</p>
             </div>
           </div>
           <button
@@ -3038,14 +3038,14 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <HardDrive className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <HardDrive className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             PVC Snapshots
           </p>
         </div>
         <div className="p-4 space-y-3">
           {!isLonghornPvc ? (
-            <p className="text-xs text-gray-400 dark:text-[#666]">
+            <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">
               Snapshots are available for Longhorn-backed PVCs.
             </p>
           ) : (
@@ -3063,7 +3063,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
               </div>
               <div className="space-y-2">
                 {(snapshotsData?.snapshots ?? []).length === 0 ? (
-                  <p className="text-xs text-gray-400 dark:text-[#555]">
+                  <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">
                     {snapshotsLoading
                       ? "Loading snapshots..."
                       : "No snapshots found."}
@@ -3089,7 +3089,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                           {snapshot.status?.readyToUse ? "Ready" : "Pending"}
                         </span>
                       </div>
-                      <p className="text-gray-400 dark:text-[#666] mt-1">
+                      <p className="text-gray-400 dark:text-[#9a9a9a] mt-1">
                         {snapshot.metadata?.creationTimestamp
                           ? formatDateTime(snapshot.metadata.creationTimestamp)
                           : "Waiting for controller"}
@@ -3105,7 +3105,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <Terminal className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <Terminal className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Saved Quick Commands
           </p>
@@ -3113,7 +3113,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         <div className="p-4 space-y-4">
           <div className="space-y-2">
             {savedCommands.length === 0 ? (
-              <p className="text-xs text-gray-400 dark:text-[#555]">No saved commands yet.</p>
+              <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">No saved commands yet.</p>
             ) : (
               savedCommands.map((entry) => (
                 <div
@@ -3161,13 +3161,13 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
-          <Download className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <Download className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <p className="text-xs font-medium text-gray-500 dark:text-[#888] uppercase tracking-wide">
             Export / Clone
           </p>
         </div>
         <div className="p-4 space-y-3">
-          <p className="text-xs text-gray-400 dark:text-[#666]">
+          <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">
             Export a reusable JSON template or open the create flow with this server pre-filled.
           </p>
           <div className="flex flex-wrap gap-2">
@@ -3196,7 +3196,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
         <div className="p-4 flex items-center justify-between gap-4">
           <div>
             <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">Delete this server</p>
-            <p className="text-xs text-gray-400 dark:text-[#666] mt-0.5">
+            <p className="text-xs text-gray-400 dark:text-[#9a9a9a] mt-0.5">
               Permanently removes the deployment, storage, and all data. This cannot be
               undone.
             </p>
@@ -3233,7 +3233,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
 
       <AnimatePresence>
         {yamlOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -3245,7 +3245,7 @@ function SettingsTab({ name, server }: { name: string; server: ServerDetail }) {
                   <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">
                     Deployment YAML
                   </p>
-                  <p className="text-xs text-gray-400 dark:text-[#666]">
+                  <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">
                     Read-only deployment manifest
                   </p>
                 </div>
@@ -3386,7 +3386,7 @@ export default function ServerDetailPage() {
     starting: "text-yellow-400",
     stopping: "text-amber-500",
     maintenance: "text-yellow-400",
-    stopped: "text-gray-400 dark:text-[#666]",
+    stopped: "text-gray-400 dark:text-[#9a9a9a]",
   }[status];
   const connectionInfo =
     server?.nodeIp && server?.nodePort
@@ -3594,7 +3594,7 @@ export default function ServerDetailPage() {
         className="sticky top-[env(safe-area-inset-top,0px)] z-10 -mx-4 border-b border-gray-200 dark:border-[#1e1e1e] bg-[#0e0e0e]/95 px-4 pb-0 pt-0 backdrop-blur-sm sm:-mx-4 sm:px-4 md:-mx-6 md:px-6"
         style={server ? { backgroundImage: `linear-gradient(135deg, ${accentColor}22 0%, rgba(14,14,14,0.96) 58%)`, borderBottomColor: `${accentColor}44` } : undefined}
       >
-        <div className="hidden sm:flex items-center gap-1 px-1 pt-2 text-[10px] text-gray-400 dark:text-[#666] overflow-x-auto scrollbar-none whitespace-nowrap">
+        <div className="hidden sm:flex items-center gap-1 px-1 pt-2 text-[10px] text-gray-400 dark:text-[#9a9a9a] overflow-x-auto scrollbar-none whitespace-nowrap">
           <Link href="/game-hub" className="hover:text-gray-900 dark:hover:text-white">
             Game Hub
           </Link>
@@ -3604,7 +3604,7 @@ export default function ServerDetailPage() {
         <div className="flex flex-wrap items-start gap-2 py-2 sm:py-3">
           <Link
             href="/game-hub"
-            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-gray-400 dark:text-[#555] transition-colors hover:bg-gray-100 dark:hover:bg-[#1e1e1e] hover:text-gray-700 dark:hover:text-[#9e9e9e]"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-gray-400 dark:text-[#8a8a8a] transition-colors hover:bg-gray-100 dark:hover:bg-[#1e1e1e] hover:text-gray-700 dark:hover:text-[#9e9e9e]"
           >
             <ChevronLeft className="w-5 h-5" />
           </Link>
@@ -3635,7 +3635,7 @@ export default function ServerDetailPage() {
                   {status}
                 </span>
                 {typeof connectivity?.external.latencyMs === "number" && (
-                  <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 dark:text-[#666]" title={`Connection quality ${connectivity.external.latencyMs}ms`}>
+                  <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 dark:text-[#9a9a9a]" title={`Connection quality ${connectivity.external.latencyMs}ms`}>
                     <span
                       className={cn(
                         "h-2 w-2 rounded-full",
@@ -3651,7 +3651,7 @@ export default function ServerDetailPage() {
                 )}
               </div>
             </div>
-            <p className="mt-0.5 text-[10px] text-gray-400 dark:text-[#555] line-clamp-2 sm:line-clamp-1">
+            <p className="mt-0.5 text-[10px] text-gray-400 dark:text-[#8a8a8a] line-clamp-2 sm:line-clamp-1">
               {server?.description ||
                 `${server?.gameType?.replace(/-/g, " ") ?? "Game"} Server`}
             </p>
@@ -3920,7 +3920,7 @@ export default function ServerDetailPage() {
                 "-mb-px flex min-h-[44px] flex-shrink-0 items-center gap-1.5 rounded-t-xl border-b-2 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors touch-manipulation sm:px-4 sm:py-2.5",
                 resolvedActiveTab === id
                   ? "border-[#0078D4] bg-[#0078D4]/10 text-[#4db3ff] shadow-[inset_0_1px_0_rgba(77,179,255,0.2)]"
-                  : "border-transparent text-gray-400 dark:text-[#555] hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-[#888]",
+                  : "border-transparent text-gray-400 dark:text-[#8a8a8a] hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-[#888]",
               )}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -3935,7 +3935,7 @@ export default function ServerDetailPage() {
         {isLoading && (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <Loader2 className="w-6 h-6 text-[#0078D4] animate-spin" />
-            <p className="text-xs text-gray-400 dark:text-[#555]">Loading server details…</p>
+            <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">Loading server details…</p>
           </div>
         )}
 
@@ -4015,7 +4015,7 @@ export default function ServerDetailPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setMobileActionSheetOpen(false)}
-              className="fixed inset-0 z-40 bg-black/60 sm:hidden"
+              className="fixed inset-0 z-overlay bg-black/60 sm:hidden"
               aria-label="Close server actions"
             />
             <motion.div
@@ -4023,13 +4023,13 @@ export default function ServerDetailPage() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 35, stiffness: 320 }}
-              className="fixed inset-x-0 bottom-0 z-50 rounded-t-[28px] border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] shadow-2xl sm:hidden"
+              className="fixed inset-x-0 bottom-0 z-modal rounded-t-[28px] border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] shadow-2xl sm:hidden"
             >
               <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-100 dark:bg-[#2a2a2a]" />
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">Server actions</p>
-                  <p className="text-xs text-gray-400 dark:text-[#666]">Quick controls for {name}</p>
+                  <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">Quick controls for {name}</p>
                 </div>
                 <button
                   onClick={() => setMobileActionSheetOpen(false)}

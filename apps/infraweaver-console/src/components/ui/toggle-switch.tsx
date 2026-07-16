@@ -27,10 +27,10 @@ export function ToggleSwitch({ checked, onChange, label, description, disabled, 
       {(label || description) && (
         <div className="min-w-0 flex-1">
           {label ? (
-            <p id={labelId} className={cn("block truncate text-sm font-medium", disabled ? "text-gray-400 dark:text-[#666]" : "text-gray-900 dark:text-[#f2f2f2]")}>{label}</p>
+            <p id={labelId} className={cn("block truncate text-sm font-medium", disabled ? "text-gray-400 dark:text-[#9a9a9a]" : "text-gray-900 dark:text-[#f2f2f2]")}>{label}</p>
           ) : null}
           {description ? (
-            <p className={cn("mt-0.5 truncate text-xs", disabled ? "text-gray-400 dark:text-[#666]" : "text-gray-500 dark:text-[#888]")}>{description}</p>
+            <p className={cn("mt-0.5 truncate text-xs", disabled ? "text-gray-400 dark:text-[#9a9a9a]" : "text-gray-500 dark:text-[#888]")}>{description}</p>
           ) : null}
         </div>
       )}

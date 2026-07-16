@@ -1,9 +1,11 @@
 "use client";
-import { useEffect, useId } from "react";
+import { useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDialogA11y } from "@/hooks/use-dialog-a11y";
+import { useMotionSafe } from "@/lib/spring";
 
 interface BottomSheetProps {
   open: boolean;
@@ -15,22 +17,10 @@ interface BottomSheetProps {
 
 export function BottomSheet({ open, onClose, title, children, className }: BottomSheetProps) {
   const titleId = useId();
-  // Lock body scroll when open
-  useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => { document.body.style.overflow = ""; };
-  }, [open]);
-
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    if (open) document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const motionSafe = useMotionSafe();
+  // Shared body-scroll-lock + Escape + focus-trap + focus-restore.
+  useDialogA11y({ open, onClose, ref: sheetRef });
 
   if (typeof document === "undefined") return null;
 
@@ -43,16 +33,17 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-sm"
+            transition={motionSafe.transition({ duration: 0.2 })}
+            className="fixed inset-0 z-overlay bg-black/60 backdrop-blur-sm"
             onClick={onClose}
           />
           {/* Sheet */}
           <motion.div
+            ref={sheetRef}
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
-            transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            transition={motionSafe.transition({ type: "spring", damping: 30, stiffness: 300 })}
             drag="y"
             dragConstraints={{ top: 0 }}
             dragElastic={0.1}
@@ -64,7 +55,7 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
             aria-labelledby={title ? titleId : undefined}
             aria-label={title ? undefined : "Dialog"}
             className={cn(
-              "fixed bottom-0 left-0 right-0 z-[301] bg-gray-50 dark:bg-[#141414] border-t border-gray-200 dark:border-[#2a2a2a] rounded-t-2xl max-h-[92dvh] flex flex-col shadow-2xl",
+              "fixed bottom-0 left-0 right-0 z-modal bg-gray-50 dark:bg-[#141414] border-t border-gray-200 dark:border-[#2a2a2a] rounded-t-2xl max-h-[92dvh] flex flex-col shadow-2xl",
               className
             )}
             style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
@@ -81,7 +72,7 @@ export function BottomSheet({ open, onClose, title, children, className }: Botto
                 <button
                   onClick={onClose}
                   aria-label="Close"
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors"
+                  className="touch-target flex items-center justify-center rounded-lg text-gray-400 dark:text-[#9a9a9a] hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors"
                 >
                   <X className="w-4 h-4" aria-hidden="true" />
                 </button>

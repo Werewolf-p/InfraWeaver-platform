@@ -240,7 +240,7 @@ function PlatformServiceCard({ name, description, href, icon: Icon, status, exte
         )} />
       </div>
       <p className="mb-0.5 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{name}</p>
-      <p className="mb-3 flex-1 text-[11px] text-gray-400 dark:text-[#666]">{description}</p>
+      <p className="mb-3 flex-1 text-[11px] text-gray-400 dark:text-[#9a9a9a]">{description}</p>
       {/* @ts-expect-error polymorphic */}
       <Wrapper {...wrapperProps} className="flex w-fit items-center gap-1 text-xs text-[#0078D4] transition-colors hover:text-[#1a86d9]">
         Open {external ? <ExternalLink className="h-3 w-3" /> : <ArrowRight className="h-3 w-3" />}
@@ -389,7 +389,7 @@ export default function DashboardPage() {
       <div className="space-y-6 p-4 sm:p-6">
         <div className="space-y-1">
           <h1 className="text-xl font-semibold text-gray-900 dark:text-[#f2f2f2]">All Clusters</h1>
-          <p className="text-sm text-gray-400 dark:text-[#666]">Select a cluster to manage it</p>
+          <p className="text-sm text-gray-400 dark:text-[#9a9a9a]">Select a cluster to manage it</p>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {clusters.map(cluster => (
@@ -517,7 +517,7 @@ export default function DashboardPage() {
             {isLoading ? (
               [...Array(5)].map((_, i) => <div key={i} className="h-12 rounded-xl shimmer-bg" />)
             ) : recentActivity.length === 0 ? (
-              <p className="py-8 text-center text-sm text-gray-400 dark:text-[#555]">No recent activity</p>
+              <p className="py-8 text-center text-sm text-gray-400 dark:text-[#8a8a8a]">No recent activity</p>
             ) : recentActivity.map((app) => (
               <Link key={app.metadata.name} href={`/apps/${app.metadata.name}`}>
                 <div className="flex min-h-[52px] items-center justify-between rounded-xl px-3 py-2 transition-all hover:bg-gray-100 dark:hover:bg-[#222] touch-manipulation active:scale-[0.99]">
@@ -525,7 +525,7 @@ export default function DashboardPage() {
                   <div className="flex flex-shrink-0 items-center gap-2">
                     <StatusBadge status={app.status.health.status} size="sm" />
                     {app.status.operationState?.finishedAt ? (
-                      <span className="hidden text-xs text-gray-400 dark:text-[#666] sm:block">
+                      <span className="hidden text-xs text-gray-400 dark:text-[#9a9a9a] sm:block">
                         {timeAgo(app.status.operationState.finishedAt)}
                       </span>
                     ) : null}
@@ -550,7 +550,7 @@ export default function DashboardPage() {
             </div>
           ) : null}
           <div className="space-y-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-[var(--surface-1,#1a1a1a)] p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-[#555]">Cluster Stats</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-[#8a8a8a]">Cluster Stats</h3>
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-500 dark:text-[#9e9e9e]">Apps Synced</span>

@@ -21,7 +21,7 @@ export function HelpTooltip({ children, className }: HelpTooltipProps) {
           // Visible footprint stays 16px; padding expands the pointer/touch hit
           // area to the 44×44px minimum without shifting surrounding layout.
           "inline-flex h-4 w-4 cursor-help items-center justify-center p-[14px]",
-          "text-gray-400 dark:text-[#555] hover:text-gray-700 dark:hover:text-[#888]",
+          "text-gray-400 dark:text-[#8a8a8a] hover:text-gray-700 dark:hover:text-[#888]",
           "focus:outline-none focus-visible:ring-1 focus-visible:ring-[#3b82f6]",
           className
         )}

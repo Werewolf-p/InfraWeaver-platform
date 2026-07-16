@@ -143,7 +143,7 @@ export function ConfigEditor({
                     ) : null}
                   </span>
                   {description ? (
-                    <span className="block text-[11px] text-gray-400 dark:text-[#555]">{description}</span>
+                    <span className="block text-[11px] text-gray-400 dark:text-[#8a8a8a]">{description}</span>
                   ) : null}
                   <input
                     value={entry.value}

@@ -114,7 +114,7 @@ function RunLog({
 
   return (
     <>
-      <div className="mb-1 flex items-center justify-between text-[10px] text-gray-400 dark:text-[#666]">
+      <div className="mb-1 flex items-center justify-between text-[10px] text-gray-400 dark:text-[#9a9a9a]">
         <span>
           {run.kind} · {run.status}
           {streaming && livePhase ? ` · ${livePhase}` : ""}
@@ -192,7 +192,7 @@ export function RunConsole({ feedbackId }: RunConsoleProps) {
           </span>
         )}
         {!activeRun && runs.length > 0 && (
-          <span className="ml-1 text-[10px] text-gray-400 dark:text-[#666]">
+          <span className="ml-1 text-[10px] text-gray-400 dark:text-[#9a9a9a]">
             {runs.length} run{runs.length === 1 ? "" : "s"}
           </span>
         )}
@@ -201,7 +201,7 @@ export function RunConsole({ feedbackId }: RunConsoleProps) {
       {open && (
         <div className="border-t border-gray-200 px-3 py-2 dark:border-[#262626]">
           {runs.length === 0 ? (
-            <p className="py-3 text-center text-[11px] text-gray-400 dark:text-[#555]">No runs recorded yet.</p>
+            <p className="py-3 text-center text-[11px] text-gray-400 dark:text-[#8a8a8a]">No runs recorded yet.</p>
           ) : (
             <>
               <div className="mb-2 flex flex-wrap gap-1.5">
@@ -219,7 +219,7 @@ export function RunConsole({ feedbackId }: RunConsoleProps) {
                   >
                     <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[run.status])} />
                     {run.kind}
-                    <span className="text-gray-400 dark:text-[#666]">{formatDuration(run.startedAt, run.finishedAt)}</span>
+                    <span className="text-gray-400 dark:text-[#9a9a9a]">{formatDuration(run.startedAt, run.finishedAt)}</span>
                   </button>
                 ))}
               </div>

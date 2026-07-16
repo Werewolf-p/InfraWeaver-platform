@@ -59,7 +59,7 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 }
 
 function EmptyRow({ label }: { label: string }) {
-  return <div className="px-4 py-6 text-sm text-gray-400 dark:text-[#666]">{label}</div>;
+  return <div className="px-4 py-6 text-sm text-gray-400 dark:text-[#9a9a9a]">{label}</div>;
 }
 
 export function ActivityTab({ name }: { name: string }) {
@@ -91,11 +91,11 @@ export function ActivityTab({ name }: { name: string }) {
                   {event.count > 1 && (
                     <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-[#1e1e1e] text-gray-500 dark:text-[#888]">×{event.count}</span>
                   )}
-                  <span className="text-xs text-gray-400 dark:text-[#666] ml-auto">{formatRelativeTime(event.timestamp)}</span>
+                  <span className="text-xs text-gray-400 dark:text-[#9a9a9a] ml-auto">{formatRelativeTime(event.timestamp)}</span>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-[#888] mt-1">{event.friendly}</p>
                 {event.involvedName && (
-                  <p className="text-[11px] text-gray-400 dark:text-[#555] mt-1">{event.involvedKind || "Object"}: {event.involvedName}</p>
+                  <p className="text-[11px] text-gray-400 dark:text-[#8a8a8a] mt-1">{event.involvedKind || "Object"}: {event.involvedName}</p>
                 )}
               </div>
             </div>
@@ -113,10 +113,10 @@ export function ActivityTab({ name }: { name: string }) {
             <div key={`${entry.timestamp}-${index}`} className="px-4 py-3">
               <div className="flex items-center gap-2">
                 <p className="text-sm text-gray-900 dark:text-[#f2f2f2]">{entry.action}</p>
-                <span className="text-xs text-gray-400 dark:text-[#666] ml-auto">{formatRelativeTime(entry.timestamp)}</span>
+                <span className="text-xs text-gray-400 dark:text-[#9a9a9a] ml-auto">{formatRelativeTime(entry.timestamp)}</span>
               </div>
-              <p className="text-xs text-gray-400 dark:text-[#666] mt-1">{entry.user} · {new Date(entry.timestamp).toLocaleString()}</p>
-              {entry.details && <p className="text-xs text-gray-400 dark:text-[#555] mt-1">{entry.details}</p>}
+              <p className="text-xs text-gray-400 dark:text-[#9a9a9a] mt-1">{entry.user} · {new Date(entry.timestamp).toLocaleString()}</p>
+              {entry.details && <p className="text-xs text-gray-400 dark:text-[#8a8a8a] mt-1">{entry.details}</p>}
             </div>
           ))
         )}

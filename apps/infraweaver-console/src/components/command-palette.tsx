@@ -154,7 +154,7 @@ export function CommandPalette() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-[9999] flex items-start justify-center pt-[20vh] px-4"
+          className="fixed inset-0 z-modal flex items-start justify-center pt-[20vh] px-4"
           onClick={() => setOpen(false)}
         >
           {/* Glass backdrop */}

@@ -79,7 +79,7 @@ export function InfoPopover({ title, children, label = "More information", class
           setOpen((value) => !value);
         }}
         className={cn(
-          "inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full text-gray-400 transition-colors hover:text-gray-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#3b82f6] dark:text-[#666] dark:hover:text-[#aaa]",
+          "inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full text-gray-400 transition-colors hover:text-gray-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#3b82f6] dark:text-[#9a9a9a] dark:hover:text-[#aaa]",
           open && "text-[#0078D4] dark:text-[#7cc4ff]",
           className,
         )}
@@ -93,7 +93,7 @@ export function InfoPopover({ title, children, label = "More information", class
               id={panelId}
               role="dialog"
               style={{ position: "fixed", top: coords.top, left: coords.left, transform: `translateX(${translate})` }}
-              className="z-[1000] w-72 max-w-[calc(100vw-1.5rem)] rounded-xl border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-600 shadow-xl dark:border-[#2a2a2a] dark:bg-[#161616] dark:text-[#bbb]"
+              className="z-tooltip w-72 max-w-[calc(100vw-1.5rem)] rounded-xl border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-600 shadow-xl dark:border-[#2a2a2a] dark:bg-[#161616] dark:text-[#bbb]"
             >
               {title ? <p className="mb-1.5 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{title}</p> : null}
               <div className="space-y-1.5">{children}</div>

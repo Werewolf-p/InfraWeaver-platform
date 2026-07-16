@@ -172,7 +172,7 @@ export function WhitelistManager({ serverName, mountPath }: WhitelistManagerProp
                 </div>
                 <div className="min-w-0">
                   <div className="truncate text-sm text-gray-900 dark:text-[#f2f2f2]">{entry.name}</div>
-                  <div className="truncate font-mono text-[11px] text-gray-400 dark:text-[#555]">{entry.uuid}</div>
+                  <div className="truncate font-mono text-[11px] text-gray-400 dark:text-[#8a8a8a]">{entry.uuid}</div>
                 </div>
               </div>
               <button

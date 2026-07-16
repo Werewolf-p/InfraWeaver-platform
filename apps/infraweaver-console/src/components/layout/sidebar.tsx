@@ -15,13 +15,13 @@ import { filterNavGroupsByAddons } from "@/lib/addons";
 import { filterNavGroupsByPermissions } from "@/lib/navigation-rbac";
 import { ResourceResults } from "@/components/search/resource-results";
 import { NAV_GROUPS, type NavItem } from "@/lib/nav-config";
-import { springs, staggerContainer, staggerItem } from "@/lib/spring";
+import { springs, staggerContainer, staggerItem, useMotionSafe } from "@/lib/spring";
 
 const ROLE_COLORS: Record<string, string> = {
   admin: "bg-[rgba(0,120,212,0.2)] text-[#0078D4] border-[rgba(0,120,212,0.3)]",
   operator: "bg-amber-500/20 text-amber-300 border-amber-500/30",
   viewer: "bg-gray-100 dark:bg-[#2a2a2a] text-gray-500 dark:text-[#9e9e9e] border-gray-200 dark:border-[#333]",
-  unknown: "bg-gray-100 dark:bg-[#2a2a2a] text-gray-400 dark:text-[#666] border-gray-200 dark:border-[#333]",
+  unknown: "bg-gray-100 dark:bg-[#2a2a2a] text-gray-400 dark:text-[#9a9a9a] border-gray-200 dark:border-[#333]",
 };
 
 function ClusterHealthDot() {
@@ -47,6 +47,7 @@ function ClusterHealthDot() {
 function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: boolean; collapsed: boolean }) {
   const { isFavorite, toggleFavorite } = useFavorites();
   const fav = isFavorite(item.href);
+  const motionSafe = useMotionSafe();
 
   return (
     <motion.div
@@ -69,14 +70,14 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
           <motion.div
             layoutId={collapsed ? "nav-active-pill-collapsed" : "nav-active-pill"}
             className="absolute inset-0 rounded-lg bg-[rgba(0,120,212,0.12)] border border-[rgba(0,120,212,0.2)]"
-            transition={springs.bouncy}
+            transition={motionSafe.transition(springs.bouncy)}
           />
         )}
         <span className="relative z-10 flex items-center gap-2.5 w-full">
-          <item.icon aria-hidden="true" className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#666] group-hover:text-[#9e9e9e]")} />
+          <item.icon aria-hidden="true" className={cn("w-4 h-4 flex-shrink-0", isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#9a9a9a] group-hover:text-[#9e9e9e]")} />
           {!collapsed && <span className={cn("flex-1 truncate", isActive ? "text-gray-900 dark:text-[#f2f2f2] font-medium" : "")}>{item.label}</span>}
           {!collapsed && item.shortcut && (
-            <kbd className="hidden xl:flex text-[10px] text-gray-400 dark:text-[#555] font-mono">{item.shortcut}</kbd>
+            <kbd className="hidden xl:flex text-[10px] text-gray-400 dark:text-[#8a8a8a] font-mono">{item.shortcut}</kbd>
           )}
         </span>
       </Link>
@@ -85,8 +86,8 @@ function NavItemRow({ item, isActive, collapsed }: { item: NavItem; isActive: bo
           type="button"
           onClick={(e) => { e.stopPropagation(); toggleFavorite({ id: item.href, href: item.href, label: item.label, iconName: item.label }); }}
           className={cn(
-            "absolute right-2 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity",
-            fav ? "opacity-100 text-yellow-400" : "text-gray-400 dark:text-[#555] hover:text-yellow-400"
+            "absolute right-2 p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity",
+            fav ? "opacity-100 text-yellow-400" : "text-gray-400 dark:text-[#8a8a8a] hover:text-yellow-400"
           )}
           title={fav ? "Unpin" : "Pin to favorites"}
           aria-label={fav ? "Unpin from favorites" : "Pin to favorites"}
@@ -127,6 +128,7 @@ export function Sidebar() {
   const { recentPages, addRecentPage } = useRecentPages();
   const { addons } = useAddons();
   const appVersion = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
+  const motionSafe = useMotionSafe();
 
   const accessibleNavGroups = useMemo(
     () => filterNavGroupsByPermissions(NAV_GROUPS, permissions, assignments),
@@ -182,9 +184,9 @@ export function Sidebar() {
   return (
     <motion.aside
       animate={{ width: collapsed ? 48 : 220 }}
-      transition={springs.fluid}
+      transition={motionSafe.transition(springs.fluid)}
       aria-label="Sidebar navigation"
-      className="relative flex flex-col h-screen bg-gray-50 dark:bg-[#141414] border-r border-gray-200 dark:border-[#2a2a2a] flex-shrink-0 overflow-hidden z-20 hidden md:flex"
+      className="relative flex flex-col h-screen bg-gray-50 dark:bg-[#141414] border-r border-gray-200 dark:border-[#2a2a2a] flex-shrink-0 overflow-hidden z-sidebar hidden md:flex"
     >
       {/* Logo / Header */}
       <div className={cn("flex items-center px-3 py-3 border-b border-gray-200 dark:border-[#2a2a2a] flex-shrink-0", collapsed ? "justify-center" : "gap-2 justify-between")}>
@@ -205,7 +207,7 @@ export function Sidebar() {
         )}
         <button
           onClick={() => setCollapsed(c => !c)}
-          className={cn("p-1 rounded text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors flex-shrink-0", collapsed && "mx-auto mt-2")}
+          className={cn("p-1.5 rounded text-gray-400 dark:text-[#9a9a9a] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors flex-shrink-0", collapsed && "mx-auto mt-2")}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
@@ -216,17 +218,17 @@ export function Sidebar() {
       {!collapsed && (
         <div className="px-2 pt-3 pb-1 flex-shrink-0">
           <div className="relative">
-            <Search aria-hidden="true" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+            <Search aria-hidden="true" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               aria-label="Filter navigation"
               placeholder="Filter..."
-              className="w-full bg-white dark:bg-[#0f0f0f] border border-gray-200 dark:border-[#333] rounded pl-8 pr-3 py-1.5 text-xs text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
+              className="w-full bg-white dark:bg-[#0f0f0f] border border-gray-200 dark:border-[#333] rounded pl-8 pr-3 py-1.5 text-xs text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:outline-none focus:border-[#0078D4]/50"
             />
             {search && (
               <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2" aria-label="Clear search">
-                <X className="w-3 h-3 text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-[#f2f2f2]" />
+                <X className="w-3 h-3 text-gray-400 dark:text-[#8a8a8a] hover:text-gray-900 dark:hover:text-[#f2f2f2]" />
               </button>
             )}
           </div>
@@ -240,7 +242,7 @@ export function Sidebar() {
         {filteredItems !== null && !collapsed && (
           <div className="mb-3">
             {filteredItems.length > 0 && (
-              <p className="px-2 py-1 text-[10px] text-gray-400 dark:text-[#555] uppercase tracking-wider">Pages</p>
+              <p className="px-2 py-1 text-[10px] text-gray-400 dark:text-[#8a8a8a] uppercase tracking-wider">Pages</p>
             )}
             <div className="space-y-0.5">
               {filteredItems.map(item => {
@@ -250,7 +252,7 @@ export function Sidebar() {
             </div>
             <ResourceResults query={search} className="mt-2" />
             {filteredItems.length === 0 && (
-              <p className="px-3 py-2 text-xs text-gray-400 dark:text-[#555]">No pages match &ldquo;{search}&rdquo; — searching resources…</p>
+              <p className="px-3 py-2 text-xs text-gray-400 dark:text-[#8a8a8a]">No pages match &ldquo;{search}&rdquo; — searching resources…</p>
             )}
           </div>
         )}
@@ -260,7 +262,7 @@ export function Sidebar() {
           <div className="mb-3">
             <div className="px-3 py-1 flex items-center gap-1.5">
               <Star className="w-3 h-3 text-yellow-500/60" />
-              <span className="text-[10px] font-semibold text-gray-400 dark:text-[#555] uppercase tracking-wider">Pinned</span>
+              <span className="text-[10px] font-semibold text-gray-400 dark:text-[#8a8a8a] uppercase tracking-wider">Pinned</span>
             </div>
             <div className="space-y-0.5">
               {favItems.map(item => {
@@ -275,8 +277,8 @@ export function Sidebar() {
         {!collapsed && filteredItems === null && recentItems.length > 0 && (
           <div className="mb-3">
             <div className="px-3 py-1 flex items-center gap-1.5">
-              <Clock className="w-3 h-3 text-gray-400 dark:text-[#555]" />
-              <span className="text-[10px] font-semibold text-gray-400 dark:text-[#555] uppercase tracking-wider">Recent</span>
+              <Clock className="w-3 h-3 text-gray-400 dark:text-[#8a8a8a]" />
+              <span className="text-[10px] font-semibold text-gray-400 dark:text-[#8a8a8a] uppercase tracking-wider">Recent</span>
             </div>
             <div className="space-y-0.5">
               {recentItems.map(item => {
@@ -309,13 +311,13 @@ export function Sidebar() {
                     >
                       <Link href={item.href} title={item.label} aria-label={item.label}
                         className={cn("w-8 h-8 mx-auto flex items-center justify-center rounded-lg transition-colors relative",
-                          isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
+                          isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#9a9a9a] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
                         )}>
                         {isActive && (
                           <motion.div
                             layoutId="nav-active-pill-collapsed"
                             className="absolute inset-0 rounded-lg bg-[rgba(0,120,212,0.12)] border border-[rgba(0,120,212,0.2)]"
-                            transition={springs.bouncy}
+                            transition={motionSafe.transition(springs.bouncy)}
                           />
                         )}
                         <item.icon aria-hidden="true" className="w-4 h-4 relative z-10" />
@@ -334,7 +336,7 @@ export function Sidebar() {
                 onClick={() => toggleSection(group.id)}
                 aria-expanded={isOpen}
                 aria-controls={`nav-section-${group.id}`}
-                className="w-full flex items-center gap-1.5 px-3 py-1 mt-1.5 mb-0.5 text-[10px] text-gray-400 dark:text-[#666] uppercase tracking-widest hover:text-gray-700 dark:hover:text-[#9e9e9e] transition-colors select-none"
+                className="w-full flex items-center gap-1.5 px-3 py-1 mt-1.5 mb-0.5 text-[10px] text-gray-400 dark:text-[#9a9a9a] uppercase tracking-widest hover:text-gray-700 dark:hover:text-[#9e9e9e] transition-colors select-none"
               >
                 <span className="flex-1 text-left">{group.label}</span>
                 <ChevronDown className={cn("w-3 h-3 transition-transform", isOpen && "rotate-180")} />
@@ -345,7 +347,7 @@ export function Sidebar() {
                     key={group.id}
                     id={`nav-section-${group.id}`}
                     className="space-y-0.5"
-                    variants={staggerContainer}
+                    variants={motionSafe.variants(staggerContainer)}
                     initial="hidden"
                     animate="show"
                     exit="hidden"
@@ -371,7 +373,7 @@ export function Sidebar() {
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 260, damping: 24, mass: 1, delay: 0.3 }}
+        transition={motionSafe.transition({ type: "spring", stiffness: 260, damping: 24, mass: 1, delay: 0.3 })}
         className={cn("px-2 py-3 border-t border-gray-200 dark:border-[#2a2a2a] flex-shrink-0", collapsed ? "flex justify-center" : "flex items-center gap-2")}
       >
         <div className="relative flex-shrink-0">
@@ -387,13 +389,13 @@ export function Sidebar() {
                 {role}
               </span>
             </div>
-            <p className="text-[10px] text-gray-400 dark:text-[#555] font-mono">v{appVersion}</p>
+            <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a] font-mono">v{appVersion}</p>
           </div>
         )}
         {!collapsed && (
           <button
             onClick={() => signOut()}
-            className="p-1 rounded text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors flex-shrink-0"
+            className="p-1.5 rounded text-gray-400 dark:text-[#8a8a8a] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors flex-shrink-0"
             title="Sign out"
             aria-label="Sign out"
           >

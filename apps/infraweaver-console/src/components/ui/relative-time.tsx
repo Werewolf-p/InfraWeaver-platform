@@ -45,7 +45,7 @@ export function RelativeTime({ date, className, live = true }: RelativeTimeProps
     return () => clearInterval(interval);
   }, [parsed, live]);
 
-  if (!parsed) return <span className={cn("text-gray-400 dark:text-[#555]", className)}>—</span>;
+  if (!parsed) return <span className={cn("text-gray-400 dark:text-[#8a8a8a]", className)}>—</span>;
 
   const absolute = parsed.toLocaleString(undefined, {
     year: "numeric",

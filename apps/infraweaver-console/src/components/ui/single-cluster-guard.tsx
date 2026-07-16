@@ -28,8 +28,8 @@ export function SingleClusterGuard({
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <Globe className="mb-4 h-10 w-10 text-gray-700 dark:text-[#333]" />
-        <p className="text-sm font-medium text-gray-400 dark:text-[#666]">{title}</p>
-        <p className="mt-1 text-xs text-gray-400 dark:text-[#444]">{hint}</p>
+        <p className="text-sm font-medium text-gray-400 dark:text-[#9a9a9a]">{title}</p>
+        <p className="mt-1 text-xs text-gray-400 dark:text-[#8a8a8a]">{hint}</p>
       </div>
     );
   }

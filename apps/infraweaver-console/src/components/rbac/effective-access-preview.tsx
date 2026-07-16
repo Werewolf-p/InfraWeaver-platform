@@ -103,7 +103,7 @@ export function EffectiveAccessPreview({ previews }: { previews: PrincipalPrevie
                     </AnimatePresence>
                   </motion.div>
                 ) : (
-                  <p className="text-[10px] text-gray-400 dark:text-[#666] italic">No effective access remains — this principal will hold no roles.</p>
+                  <p className="text-[10px] text-gray-400 dark:text-[#9a9a9a] italic">No effective access remains — this principal will hold no roles.</p>
                 )}
 
                 {/* Delta grant lines */}

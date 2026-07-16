@@ -145,7 +145,7 @@ export function NotesTagsEditor({
         <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-3 space-y-3">
           <div className="flex flex-wrap gap-2">
             {tagsValue.length === 0 ? (
-              <span className="text-sm text-gray-400 dark:text-[#555]">No tags yet.</span>
+              <span className="text-sm text-gray-400 dark:text-[#8a8a8a]">No tags yet.</span>
             ) : (
               tagsValue.map((tag) => (
                 <span

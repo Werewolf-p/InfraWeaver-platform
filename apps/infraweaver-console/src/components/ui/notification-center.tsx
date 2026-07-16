@@ -4,6 +4,7 @@ import { motion, AnimatePresence, useAnimation } from "framer-motion";
 import { Bell, X, CheckCheck, Info, AlertTriangle, XCircle, CheckCircle, Trash2 } from "lucide-react";
 import { useNotifications, type NotificationLevel } from "@/hooks/use-notifications";
 import { cn, timeAgo } from "@/lib/utils";
+import { useMotionSafe } from "@/lib/spring";
 
 const levelConfig: Record<NotificationLevel, { icon: React.ElementType; color: string; bg: string }> = {
   info: { icon: Info, color: "text-blue-400", bg: "bg-blue-500/10" },
@@ -24,6 +25,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
   const [liveMessage, setLiveMessage] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
   const bellControls = useAnimation();
+  const motionSafe = useMotionSafe();
   const prevUnreadRef = useRef<number | null>(null);
   const { notifications, unreadCount, markAllRead, markRead, dismiss, clearAll } = useNotifications();
   const counts = useMemo(() => ({
@@ -34,14 +36,16 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
   // Ring the bell when unread count increases (new notification arrived)
   useEffect(() => {
     if (prevUnreadRef.current !== null && unreadCount > prevUnreadRef.current && !open) {
-      void bellControls.start({
-        rotate: RING_KEYFRAMES,
-        transition: { duration: 0.7, ease: "easeInOut" },
-      });
+      if (!motionSafe.reduced) {
+        void bellControls.start({
+          rotate: RING_KEYFRAMES,
+          transition: { duration: 0.7, ease: "easeInOut" },
+        });
+      }
       setLiveMessage(`New notification. ${unreadCount} unread.`);
     }
     prevUnreadRef.current = unreadCount;
-  }, [unreadCount, open, bellControls]);
+  }, [unreadCount, open, bellControls, motionSafe.reduced]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -68,7 +72,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
 
       <button
         onClick={() => setOpen((prev) => !prev)}
-        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
+        className="relative touch-target flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
         aria-label={bellLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -102,10 +106,10 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
             initial={{ opacity: 0, y: -8, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.97 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
+            transition={motionSafe.transition({ duration: 0.15, ease: "easeOut" })}
             role="dialog"
             aria-label="Notifications"
-            className="absolute right-0 top-full z-[100] mt-2 w-80 overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/95 shadow-2xl backdrop-blur-xl"
+            className="absolute right-0 top-full z-toast mt-2 w-80 overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/95 shadow-2xl backdrop-blur-xl"
           >
             <div className="flex items-center justify-between border-b border-gray-200 dark:border-white/10 px-4 py-3">
               <div className="flex items-center gap-2">
@@ -190,8 +194,16 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
-                            <p className={cn("text-sm font-medium leading-snug", notification.read ? "text-slate-500 dark:text-slate-400" : "text-gray-900 dark:text-white")}>
-                              {notification.title}
+                            <p className={cn("flex min-w-0 items-center gap-1.5 text-sm font-medium leading-snug", notification.read ? "text-slate-500 dark:text-slate-400" : "text-gray-900 dark:text-white")}>
+                              <span className="truncate">{notification.title}</span>
+                              {notification.count && notification.count > 1 ? (
+                                <span
+                                  aria-label={`${notification.count} occurrences`}
+                                  className="flex-shrink-0 rounded-full border border-slate-400/40 bg-slate-500/10 px-1.5 text-[10px] font-semibold tabular-nums text-slate-500 dark:text-slate-300"
+                                >
+                                  ×{notification.count > 99 ? "99+" : notification.count}
+                                </span>
+                              ) : null}
                             </p>
                             <button
                               onClick={(e) => { e.stopPropagation(); dismiss(notification.id); }}
@@ -204,7 +216,12 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                           {notification.body && <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{notification.body}</p>}
                           <div className="mt-1 flex items-center gap-2">
                             <span className="text-[10px] text-slate-600">{timeAgo(new Date(notification.timestamp))}</span>
-                            {!notification.read && <span aria-hidden="true" className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />}
+                            {(notification.app || notification.cause) && (
+                              <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                                {[notification.app, notification.cause].filter(Boolean).join(" · ")}
+                              </span>
+                            )}
+                            {!notification.read && <span aria-hidden="true" className="ml-auto h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />}
                           </div>
                         </div>
                       </motion.div>

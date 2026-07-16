@@ -506,9 +506,9 @@ export function FeedbackReview() {
 
         {entries.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-12 text-center">
-            <MessageSquarePlus className="h-6 w-6 text-gray-300 dark:text-[#444]" />
+            <MessageSquarePlus className="h-6 w-6 text-gray-300 dark:text-[#8a8a8a]" />
             <p className="text-sm text-gray-500 dark:text-[#888]">No feedback yet.</p>
-            <p className="max-w-sm text-xs text-gray-400 dark:text-[#555]">
+            <p className="max-w-sm text-xs text-gray-400 dark:text-[#8a8a8a]">
               Reports submitted from the in-console “Report” button show up here for review.
             </p>
           </div>
@@ -521,7 +521,7 @@ export function FeedbackReview() {
             />
 
             {visibleEntries.length === 0 && (
-              <p className="py-12 text-center text-sm text-gray-400 dark:text-[#555]">
+              <p className="py-12 text-center text-sm text-gray-400 dark:text-[#8a8a8a]">
                 No entries in “{STATUS_COPY[activeTab].label}”.
               </p>
             )}
@@ -552,7 +552,7 @@ export function FeedbackReview() {
 
               <p className="mb-2 whitespace-pre-wrap text-sm text-gray-700 dark:text-[#ccc]">{entry.description}</p>
 
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400 dark:text-[#666]">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400 dark:text-[#9a9a9a]">
                 <span className="font-mono">{entry.pagePath}</span>
                 <span>· {entry.createdBy}</span>
                 <span>· {new Date(entry.createdAt).toLocaleString()}</span>
@@ -618,7 +618,7 @@ export function FeedbackReview() {
                           className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
                         >
                           <ExternalLink className="h-3.5 w-3.5" /> Test it here →{" "}
-                          <span className="font-mono text-[10px] text-gray-400 dark:text-[#666]">
+                          <span className="font-mono text-[10px] text-gray-400 dark:text-[#9a9a9a]">
                             {entry.testPath || entry.pagePath}
                           </span>
                         </a>
@@ -633,7 +633,7 @@ export function FeedbackReview() {
                         onChange={(e) => setNotes((prev) => ({ ...prev, [entry.id]: e.target.value }))}
                         placeholder="If not fixed: describe what's still broken (sent to Claude on retry)…"
                         rows={2}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 placeholder:text-gray-400 focus:border-gray-300 focus:outline-none dark:border-[#262626] dark:bg-[#111] dark:text-[#ccc] dark:placeholder:text-[#555]"
+                        className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 placeholder:text-gray-400 focus:border-gray-300 focus:outline-none dark:border-[#262626] dark:bg-[#111] dark:text-[#ccc] dark:placeholder:text-[#8a8a8a]"
                       />
                       <div className="flex flex-wrap items-center gap-2">
                         <button
@@ -703,7 +703,7 @@ export function FeedbackReview() {
                 </div>
               ) : (
                 entry.status === "new" && (
-                  <p className="mt-3 text-[11px] italic text-gray-400 dark:text-[#555]">
+                  <p className="mt-3 text-[11px] italic text-gray-400 dark:text-[#8a8a8a]">
                     Awaiting admin review (cluster:admin required to approve).
                   </p>
                 )

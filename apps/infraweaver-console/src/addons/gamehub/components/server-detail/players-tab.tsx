@@ -66,13 +66,13 @@ export function PlayersTab({ name, server }: { name: string; server: ServerDetai
 
           <div className="space-y-2">
             {onlinePlayers.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-[#666]">{live ? "No players online" : "Live tracking off — tap “Live off” to poll the server"}</p>
+              <p className="text-sm text-gray-400 dark:text-[#9a9a9a]">{live ? "No players online" : "Live tracking off — tap “Live off” to poll the server"}</p>
             ) : onlinePlayers.map((player) => (
               <div key={player.name} className="rounded-lg border border-gray-200 dark:border-[#222] px-3 py-3 flex flex-col gap-3 text-sm sm:flex-row sm:items-center">
                 <span className="text-base flex-shrink-0">{countryFlag(player.countryCode)}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-gray-900 dark:text-[#f2f2f2] truncate font-medium">{player.name}</p>
-                  <p className="text-xs text-gray-400 dark:text-[#666]">
+                  <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">
                     {player.ip ?? "—"} · <span className="text-gray-500 dark:text-[#999]">{player.group}</span>
                   </p>
                 </div>
@@ -103,15 +103,15 @@ export function PlayersTab({ name, server }: { name: string; server: ServerDetai
           <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888] mb-3">
             <Clock className="w-4 h-4 text-[#c084fc]" /> Recent Activity
           </div>
-          <p className="text-xs text-gray-400 dark:text-[#666] mb-2">
+          <p className="text-xs text-gray-400 dark:text-[#9a9a9a] mb-2">
             Unique today: <span className="text-gray-900 dark:text-[#f2f2f2]">{stats?.uniqueToday ?? 0}</span>
           </p>
           <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
             <div>
-              <p className="text-gray-400 dark:text-[#555] mb-2 uppercase tracking-wide text-[10px]">Recent Joins</p>
+              <p className="text-gray-400 dark:text-[#8a8a8a] mb-2 uppercase tracking-wide text-[10px]">Recent Joins</p>
               <div className="space-y-1">
                 {recentJoins.length === 0
-                  ? <p className="text-gray-400 dark:text-[#555]">None</p>
+                  ? <p className="text-gray-400 dark:text-[#8a8a8a]">None</p>
                   : recentJoins.slice(0, 10).map((entry, index) => (
                     <div key={`${entry.player}-${index}`} className="flex items-center gap-1.5">
                       <UserMinus className="w-3 h-3 text-green-500 rotate-180" />
@@ -121,13 +121,13 @@ export function PlayersTab({ name, server }: { name: string; server: ServerDetai
               </div>
             </div>
             <div>
-              <p className="text-gray-400 dark:text-[#555] mb-2 uppercase tracking-wide text-[10px]">Recent Leaves</p>
+              <p className="text-gray-400 dark:text-[#8a8a8a] mb-2 uppercase tracking-wide text-[10px]">Recent Leaves</p>
               <div className="space-y-1">
                 {recentLeaves.length === 0
-                  ? <p className="text-gray-400 dark:text-[#555]">None</p>
+                  ? <p className="text-gray-400 dark:text-[#8a8a8a]">None</p>
                   : recentLeaves.slice(0, 10).map((entry, index) => (
                     <div key={`${entry.player}-${index}`} className="flex items-center gap-1.5">
-                      <UserMinus className="w-3 h-3 text-gray-400 dark:text-[#555]" />
+                      <UserMinus className="w-3 h-3 text-gray-400 dark:text-[#8a8a8a]" />
                       <span className="text-gray-700 dark:text-[#d4d4d4] truncate">{entry.player}</span>
                     </div>
                   ))}

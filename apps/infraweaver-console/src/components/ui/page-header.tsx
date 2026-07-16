@@ -27,7 +27,7 @@ export function PageHeader({ icon: Icon, title, subtitle, description, actions, 
       {breadcrumb && breadcrumb.length > 0 ? (
         <nav
           aria-label="Breadcrumb"
-          className="mb-2.5 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[11px] text-slate-400 scrollbar-none sm:text-xs dark:text-[#666]"
+          className="mb-2.5 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[11px] text-slate-400 scrollbar-none sm:text-xs dark:text-[#9a9a9a]"
         >
           {breadcrumb.map((crumb, i) => (
             <React.Fragment key={i}>

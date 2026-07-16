@@ -112,7 +112,7 @@ function UpdateCard({ app, canUpdate, isUpdating, selectedVersion, onSelectVersi
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={app.syncStatus} label={app.syncStatus} size="sm" />
             {versionsQuery.data?.source ? (
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-[#666]">
+              <span className="text-xs uppercase tracking-[0.2em] text-slate-400 dark:text-[#9a9a9a]">
                 via {versionsQuery.data.source}
               </span>
             ) : null}
@@ -346,13 +346,13 @@ export default function UpdateManagerPage() {
           ) : null}
 
           <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-[#666]" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-[#9a9a9a]" />
             <input
               type="search"
               placeholder="Filter applications…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="min-h-[44px] w-full rounded-xl border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-500/50 dark:border-[#2a2a2a] dark:bg-[#111] dark:text-[#f2f2f2] dark:placeholder:text-[#555] dark:focus:border-indigo-500/50"
+              className="min-h-[44px] w-full rounded-xl border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-indigo-500/50 dark:border-[#2a2a2a] dark:bg-[#111] dark:text-[#f2f2f2] dark:placeholder:text-[#8a8a8a] dark:focus:border-indigo-500/50"
             />
           </div>
 
@@ -362,9 +362,9 @@ export default function UpdateManagerPage() {
 
           {groupedApps.map((group) => (
             <section key={group.key}>
-              <h3 className="mb-4 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-[#666]">
+              <h3 className="mb-4 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-[#9a9a9a]">
                 {group.label}
-                <span className="ml-2 font-normal normal-case tracking-normal text-slate-400 dark:text-[#555]">
+                <span className="ml-2 font-normal normal-case tracking-normal text-slate-400 dark:text-[#8a8a8a]">
                   ({group.apps.length})
                 </span>
               </h3>

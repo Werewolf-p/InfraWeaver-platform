@@ -30,3 +30,4 @@ export * from "./use-theme";
 export * from "./use-users-config";
 export * from "./use-confirm";
 export * from "./use-slash-focus";
+export * from "./use-dialog-a11y";

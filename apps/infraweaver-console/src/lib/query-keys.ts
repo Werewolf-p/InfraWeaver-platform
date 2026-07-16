@@ -8,6 +8,16 @@ export const queryKeys = {
     all: () => ["security"] as const,
     auditLog: () => ["security", "audit-log"] as const,
   },
+  secrets: {
+    all: () => ["secrets"] as const,
+    // Shared collector key for the Secret & GitOps lifecycle report. Subject 2's
+    // observability board queries this exact key via SecretHealthSummary.
+    lifecycle: () => ["secrets", "lifecycle"] as const,
+  },
+  audit: {
+    all: () => ["audit"] as const,
+    query: (params: Record<string, string | number | undefined>) => ["audit", "query", params] as const,
+  },
   rbac: {
     all: () => ["rbac"] as const,
     myPermissions: () => ["rbac", "my-permissions"] as const,
@@ -52,5 +62,14 @@ export const queryKeys = {
   wiki: {
     all: () => ["wiki"] as const,
     search: () => ["wiki", "search"] as const,
+  },
+  selfService: {
+    all: () => ["self-service"] as const,
+    /** The caller's own requests (My Requests). */
+    mine: () => ["self-service", "mine"] as const,
+    /** The admin approval queue (pending requests across all users). */
+    pending: () => ["self-service", "pending"] as const,
+    /** The caller's own expandable PVCs, feeding the storage-quota form. */
+    ownedPvcs: () => ["self-service", "owned-pvcs"] as const,
   },
 } as const;

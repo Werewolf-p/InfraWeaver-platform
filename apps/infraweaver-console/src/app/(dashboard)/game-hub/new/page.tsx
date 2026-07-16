@@ -1013,12 +1013,12 @@ export default function NewGameServerPage() {
                   ? "border-[#0078D4] bg-[#0078D4] text-white"
                   : step > entry.id
                     ? "border-green-500 bg-green-500 text-white"
-                    : "border-gray-200 dark:border-[#333] text-gray-400 dark:text-[#666]"
+                    : "border-gray-200 dark:border-[#333] text-gray-400 dark:text-[#9a9a9a]"
               )}>
                 {step > entry.id ? <CheckCircle2 className="h-4 w-4" /> : entry.id}
               </div>
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Step {entry.id}</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">Step {entry.id}</p>
                 <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{entry.label}</p>
               </div>
             </div>
@@ -1052,7 +1052,7 @@ export default function NewGameServerPage() {
                           <Rocket className="h-4 w-4 shrink-0 text-[#0078D4]" />
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{preset.presetName}</p>
-                            <p className="truncate text-xs text-gray-400 dark:text-[#666]">{preset.eggName} · {formatMemory(preset.memoryMi)} · {preset.cpuCores}c</p>
+                            <p className="truncate text-xs text-gray-400 dark:text-[#9a9a9a]">{preset.eggName} · {formatMemory(preset.memoryMi)} · {preset.cpuCores}c</p>
                           </div>
                         </button>
                         <button onClick={() => deletePreset(preset.presetName)} className="shrink-0 opacity-0 group-hover:opacity-100 rounded p-1 transition-opacity hover:text-red-400">
@@ -1066,10 +1066,10 @@ export default function NewGameServerPage() {
               {/* ─── Clone from existing server ─── */}
               {(serverListData?.servers?.length ?? 0) > 0 && (
                 <div className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2.5">
-                  <Users className="h-4 w-4 shrink-0 text-[#666]" />
+                  <Users className="h-4 w-4 shrink-0 text-gray-500 dark:text-[#9a9a9a]" />
                   <span className="text-sm text-gray-500 dark:text-[#777] whitespace-nowrap">Clone from:</span>
                   <select
-                    className="relative z-[100] min-h-[48px] flex-1 cursor-pointer rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                    className="relative z-popover min-h-[48px] flex-1 cursor-pointer rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
                     onChange={(e) => {
                       const name = e.target.value;
                       if (!name) return;
@@ -1114,12 +1114,12 @@ export default function NewGameServerPage() {
                     ))}
                   </div>
                   <div className="flex min-w-[260px] items-center gap-2 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-2">
-                    <Search className="h-4 w-4 text-gray-400 dark:text-[#555]" />
+                    <Search className="h-4 w-4 text-gray-400 dark:text-[#8a8a8a]" />
                     <input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder={sourceTab === "built-in" ? "Search quick-start eggs..." : "Search Pelican catalog..."}
-                      className="w-full bg-transparent text-sm text-gray-900 dark:text-[#f2f2f2] outline-none placeholder:text-gray-400 dark:placeholder:text-[#555]"
+                      className="w-full bg-transparent text-sm text-gray-900 dark:text-[#f2f2f2] outline-none placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a]"
                     />
                   </div>
                 </div>
@@ -1157,7 +1157,7 @@ export default function NewGameServerPage() {
                     </button>
                   ))}
                   {filteredBuiltInEggs.length === 0 && (
-                    <div className="col-span-full rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-10 text-center text-sm text-gray-400 dark:text-[#666]">
+                    <div className="col-span-full rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-10 text-center text-sm text-gray-400 dark:text-[#9a9a9a]">
                       No built-in eggs matched your search.
                     </div>
                   )}
@@ -1173,7 +1173,7 @@ export default function NewGameServerPage() {
                       {catalogError instanceof Error ? catalogError.message : "Failed to load the Pelican egg catalog."}
                     </div>
                   ) : remoteGames.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-10 text-center text-sm text-gray-400 dark:text-[#666]">
+                    <div className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-10 text-center text-sm text-gray-400 dark:text-[#9a9a9a]">
                       No games matched the current search.
                     </div>
                   ) : (
@@ -1244,7 +1244,7 @@ export default function NewGameServerPage() {
               {sourceTab === "pelican" && selectedGameVariants.length > 1 && (
                 <div className="flex flex-col gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 sm:flex-row sm:items-center">
                   <div className="flex items-center gap-1.5">
-                    <label htmlFor="egg-variant" className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Variant</label>
+                    <label htmlFor="egg-variant" className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">Variant</label>
                     <HelpTooltip>
                       This game offers several server flavours (e.g. Paper, Fabric, Forge for Minecraft). Pick the one you want — the rest of the setup adjusts to your choice.
                     </HelpTooltip>
@@ -1282,7 +1282,7 @@ export default function NewGameServerPage() {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2 md:col-span-2">
                       <div className="flex items-center gap-1.5">
-                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Server Name</label>
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">Server Name</label>
                         <HelpTooltip>
                           Becomes the Kubernetes resource name — lowercase letters, numbers, and hyphens only. Must be unique across all game servers. Spaces and special characters are converted automatically.
                         </HelpTooltip>
@@ -1309,12 +1309,12 @@ export default function NewGameServerPage() {
                       {serverNameTaken ? (
                         <p className="flex items-center gap-1.5 text-xs text-red-400"><AlertCircle className="h-3 w-3" /> Name already in use — choose a different one.</p>
                       ) : (
-                        <p className="text-xs text-gray-400 dark:text-[#666]">The deployed Kubernetes resource will use <span className="font-mono text-[#7cc4ff]">{normalizeServerName(serverName) || "your-server-name"}</span>. Hit <Dices className="inline h-3 w-3 mx-0.5" /> for a random name.</p>
+                        <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">The deployed Kubernetes resource will use <span className="font-mono text-[#7cc4ff]">{normalizeServerName(serverName) || "your-server-name"}</span>. Hit <Dices className="inline h-3 w-3 mx-0.5" /> for a random name.</p>
                       )}
                     </div>
                     <div className="space-y-2 md:col-span-2">
                       <div className="flex items-center gap-1.5">
-                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">DNS Hostname</label>
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">DNS Hostname</label>
                         <HelpTooltip>
                           Controls how players connect to the server. Choose Internal for private use (LAN only), Public for internet access, or Custom to use your own domain.
                         </HelpTooltip>
@@ -1425,7 +1425,7 @@ export default function NewGameServerPage() {
                               className={cn(
                                 "rounded-xl border px-3 py-2 text-left text-xs transition-colors",
                                 incompatible
-                                  ? "border-gray-200 dark:border-[#2a2a2a] bg-gray-100 dark:bg-[#0a0a0a] text-gray-400 dark:text-[#555] opacity-50 cursor-not-allowed"
+                                  ? "border-gray-200 dark:border-[#2a2a2a] bg-gray-100 dark:bg-[#0a0a0a] text-gray-400 dark:text-[#8a8a8a] opacity-50 cursor-not-allowed"
                                   : selected
                                   ? "border-[#0078D4]/50 bg-[#0078D4]/15 text-[#7cc4ff]"
                                   : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#888] hover:border-[#3a3a3a] hover:text-gray-700 dark:hover:text-[#ccc]"
@@ -1479,17 +1479,17 @@ export default function NewGameServerPage() {
                     )}
 
                     {activeEgg.environment.filter((v) => v.userViewable !== false).length === 0 ? (
-                      <div className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-6 text-sm text-gray-400 dark:text-[#666]">
+                      <div className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-6 text-sm text-gray-400 dark:text-[#9a9a9a]">
                         This egg does not define any editable environment variables.
                       </div>
                     ) : (
                       <>
                       <div className="flex items-center gap-1.5">
-                        <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Server Variables</h3>
+                        <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">Server Variables</h3>
                         <InfoPopover title="Variables, defaults & Override">
                           <p>These come from the egg. Most are safe to edit, but some show a <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500 dark:bg-[#1a1a1a] dark:text-[#777]">default</span> badge and are locked.</p>
                           <p>Locked variables are read-only because the egg author set them to a tested value (or the game requires it) — changing them can stop the server from starting.</p>
-                          <p>Need to change one anyway? Click <span className="text-[#7cc4ff]">Override</span> to unlock the field, or <span className="text-gray-400 dark:text-[#666]">Reset</span> to restore the default.</p>
+                          <p>Need to change one anyway? Click <span className="text-[#7cc4ff]">Override</span> to unlock the field, or <span className="text-gray-400 dark:text-[#9a9a9a]">Reset</span> to restore the default.</p>
                         </InfoPopover>
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
@@ -1521,14 +1521,14 @@ export default function NewGameServerPage() {
                                       {variable.required ? <span className="ml-1 text-red-400">*</span> : null}
                                     </label>
                                     {isReadOnly && !isOverriding && (
-                                      <span className="rounded-full bg-gray-100 dark:bg-[#1a1a1a] px-2 py-0.5 text-[10px] text-gray-400 dark:text-[#666]">default</span>
+                                      <span className="rounded-full bg-gray-100 dark:bg-[#1a1a1a] px-2 py-0.5 text-[10px] text-gray-400 dark:text-[#9a9a9a]">default</span>
                                     )}
                                     {isOverriding && (
                                       <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-500">overriding</span>
                                     )}
                                   </div>
                                   <p className="mt-1 text-xs text-gray-500 dark:text-[#777]">{helperText}</p>
-                                  {rulesHint && <p className="mt-0.5 text-[10px] text-gray-400 dark:text-[#555]">{rulesHint}</p>}
+                                  {rulesHint && <p className="mt-0.5 text-[10px] text-gray-400 dark:text-[#8a8a8a]">{rulesHint}</p>}
                                 </div>
                                 <div className="flex flex-col items-end gap-1 flex-shrink-0">
                                   <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-gray-500 dark:text-[#999]">{fieldType}</span>
@@ -1547,7 +1547,7 @@ export default function NewGameServerPage() {
                                         setEnvValues((prev) => ({ ...prev, [variable.name]: variable.defaultValue }));
                                         setEnvErrors((prev) => { const copy = { ...prev }; delete copy[variable.name]; return copy; });
                                       }}
-                                      className="text-[10px] text-gray-400 dark:text-[#666] hover:text-red-400 transition-colors"
+                                      className="text-[10px] text-gray-400 dark:text-[#9a9a9a] hover:text-red-400 transition-colors"
                                     >Reset</button>
                                   )}
                                 </div>
@@ -1581,7 +1581,7 @@ export default function NewGameServerPage() {
                                   className={cn(
                                     "w-full rounded-xl border px-3 py-2 text-sm outline-none transition-colors",
                                     !effectivelyEditable
-                                      ? "bg-white dark:bg-[#0d0d0d] text-gray-400 dark:text-[#555] cursor-default select-none"
+                                      ? "bg-white dark:bg-[#0d0d0d] text-gray-400 dark:text-[#8a8a8a] cursor-default select-none"
                                       : needsInput
                                         ? "bg-white dark:bg-[#0d0d0d] text-gray-900 dark:text-[#f2f2f2] focus:border-amber-500/50"
                                         : "bg-white dark:bg-[#0d0d0d] text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4]/50",
@@ -1641,7 +1641,7 @@ export default function NewGameServerPage() {
 
               {/* ─── Resource presets (quick buttons) ──────────────────────── */}
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Quick presets</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">Quick presets</p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {RESOURCE_PRESETS.map((preset) => (
                     <button
@@ -1657,7 +1657,7 @@ export default function NewGameServerPage() {
                     >
                       <div className="text-lg">{preset.emoji}</div>
                       <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{preset.label}</p>
-                      <p className="text-xs text-gray-400 dark:text-[#666]">{preset.description}</p>
+                      <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">{preset.description}</p>
                       <p className="mt-1 text-xs font-mono text-[#7cc4ff]">{formatMemory(preset.memory)} · {preset.cpu}c · {preset.storage}Gi</p>
                     </button>
                   ))}
@@ -1694,7 +1694,7 @@ export default function NewGameServerPage() {
                   <select
                     value={targetNode}
                     onChange={(event) => setTargetNode(event.target.value)}
-                    className="relative z-[100] min-h-[48px] w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
+                    className="relative z-popover min-h-[48px] w-full rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition-colors focus:border-[#0078D4]/50"
                   >
                     <option value="">Any node / cluster decides</option>
                     {clusterNodes.map((node) => (
@@ -1712,15 +1712,15 @@ export default function NewGameServerPage() {
                 {selectedClusterNode ? (
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Status</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">Status</p>
                       <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedClusterNode.status}</p>
                     </div>
                     <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Roles</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">Roles</p>
                       <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedClusterNode.roles.join(", ") || "worker"}</p>
                     </div>
                     <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Total capacity</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">Total capacity</p>
                       <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedClusterNode.cpu ?? "—"} CPU • {selectedClusterNode.memory ?? "—"}</p>
                     </div>
                   </div>
@@ -1772,7 +1772,7 @@ export default function NewGameServerPage() {
                   <p className="mt-1 text-sm text-gray-500 dark:text-[#777]">5 Gi to 500 Gi</p>
                   <div className="mt-5 space-y-5">
                     <div>
-                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Size (Gi)</label>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">Size (Gi)</label>
                       <input
                         type="number"
                         min={5}
@@ -1784,7 +1784,7 @@ export default function NewGameServerPage() {
                     </div>
                     <div>
                       <div className="mb-3 flex items-center gap-1.5">
-                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#666]">Storage Class</label>
+                        <label className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 dark:text-[#9a9a9a]">Storage Class</label>
                         <InfoPopover title="Which storage class?">
                           <p>The storage class decides <em>where</em> your data lives and what happens to it when the server is deleted. Expand any card below for full details.</p>
                           <ul className="space-y-1">
@@ -1828,7 +1828,7 @@ export default function NewGameServerPage() {
                                         {entry.name}
                                       </span>
                                       {entry.isDefault && (
-                                        <span className="rounded-full bg-gray-100 dark:bg-[#222] px-1.5 py-0.5 text-[9px] text-gray-500 dark:text-[#666]">default</span>
+                                        <span className="rounded-full bg-gray-100 dark:bg-[#222] px-1.5 py-0.5 text-[9px] text-gray-500 dark:text-[#9a9a9a]">default</span>
                                       )}
                                       {meta.recommended && (
                                         <span className="rounded-full bg-green-500/15 px-1.5 py-0.5 text-[9px] text-green-400">recommended</span>
@@ -1849,7 +1849,7 @@ export default function NewGameServerPage() {
                               <button
                                 type="button"
                                 onClick={() => setExpandedStorageInfo(isExpanded ? null : entry.name)}
-                                className="flex w-full items-center gap-1 border-t border-gray-100 dark:border-[#1a1a1a] px-3 py-1.5 text-[10px] text-gray-400 dark:text-[#555] hover:text-gray-600 dark:hover:text-[#888] transition-colors"
+                                className="flex w-full items-center gap-1 border-t border-gray-100 dark:border-[#1a1a1a] px-3 py-1.5 text-[10px] text-gray-400 dark:text-[#8a8a8a] hover:text-gray-600 dark:hover:text-[#888] transition-colors"
                               >
                                 <ChevronDown className={cn("h-3 w-3 transition-transform", isExpanded && "rotate-180")} />
                                 {isExpanded ? "Hide details" : "What does this mean?"}
@@ -1928,7 +1928,7 @@ export default function NewGameServerPage() {
                             <HelpTooltip>This is the real requested memory already allocated on the selected node.</HelpTooltip>
                           </div>
                           <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedCapacityNode.requestMemoryPct.toFixed(1)}%</p>
-                          <p className="text-gray-400 dark:text-[#666]">{targetNode}</p>
+                          <p className="text-gray-400 dark:text-[#9a9a9a]">{targetNode}</p>
                         </div>
                         <div className="rounded-xl bg-black/20 p-3">
                           <div className="flex items-center gap-1">
@@ -1936,7 +1936,7 @@ export default function NewGameServerPage() {
                             <HelpTooltip>Shows current overcommit on the selected node before adding this server.</HelpTooltip>
                           </div>
                           <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedCapacityNode.limitMemoryPct.toFixed(1)}%</p>
-                          <p className="text-gray-400 dark:text-[#666]">Limit pressure</p>
+                          <p className="text-gray-400 dark:text-[#9a9a9a]">Limit pressure</p>
                         </div>
                         <div className="rounded-xl bg-black/20 p-3">
                           <div className="flex items-center gap-1">
@@ -1944,7 +1944,7 @@ export default function NewGameServerPage() {
                             <HelpTooltip>Live usage from the Kubernetes metrics API for the selected node.</HelpTooltip>
                           </div>
                           <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{selectedCapacityNode.usageMemoryPct != null ? `${selectedCapacityNode.usageMemoryPct.toFixed(1)}%` : "—"}</p>
-                          <p className="text-gray-400 dark:text-[#666]">{selectedClusterNode?.status ?? "Unknown"}</p>
+                          <p className="text-gray-400 dark:text-[#9a9a9a]">{selectedClusterNode?.status ?? "Unknown"}</p>
                         </div>
                         <div className="rounded-xl bg-black/20 p-3">
                           <div className="flex items-center gap-1">
@@ -1952,7 +1952,7 @@ export default function NewGameServerPage() {
                             <HelpTooltip>Total memory requested by all Game Hub servers combined vs the namespace quota.</HelpTooltip>
                           </div>
                           <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{formatBytesGi(capacityData.gameHubUsage.requestedMemoryBytes)}</p>
-                          <p className="text-gray-400 dark:text-[#666]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
+                          <p className="text-gray-400 dark:text-[#9a9a9a]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
                         </div>
                       </div>
                       <p className="mt-3 text-xs text-gray-500 dark:text-[#777]">
@@ -1969,7 +1969,7 @@ export default function NewGameServerPage() {
                             <HelpTooltip>How many nodes are currently available for the scheduler.</HelpTooltip>
                           </div>
                           <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{clusterNodes.length > 0 ? clusterNodes.filter((node) => node.status === "Ready").length : capacityData.nodes.filter((node) => node.ready).length}</p>
-                          <p className="text-gray-400 dark:text-[#666]">of {clusterNodes.length || capacityData.nodes.length}</p>
+                          <p className="text-gray-400 dark:text-[#9a9a9a]">of {clusterNodes.length || capacityData.nodes.length}</p>
                         </div>
                         <div className="rounded-xl bg-black/20 p-3">
                           <div className="flex items-center gap-1">
@@ -1977,7 +1977,7 @@ export default function NewGameServerPage() {
                             <HelpTooltip>The most-loaded ready node right now, based on actual memory requests.</HelpTooltip>
                           </div>
                           <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.maxRequestMemoryPct.toFixed(1)}%</p>
-                          <p className="text-gray-400 dark:text-[#666]">{highestPressureNode?.name ?? "No ready nodes"}</p>
+                          <p className="text-gray-400 dark:text-[#9a9a9a]">{highestPressureNode?.name ?? "No ready nodes"}</p>
                         </div>
                         <div className="rounded-xl bg-black/20 p-3">
                           <div className="flex items-center gap-1">
@@ -1985,7 +1985,7 @@ export default function NewGameServerPage() {
                             <HelpTooltip>Highest live memory usage currently observed on any ready node.</HelpTooltip>
                           </div>
                           <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{capacityData.summary.maxUsageMemoryPct != null ? `${capacityData.summary.maxUsageMemoryPct.toFixed(1)}%` : "—"}</p>
-                          <p className="text-gray-400 dark:text-[#666]">Across ready nodes</p>
+                          <p className="text-gray-400 dark:text-[#9a9a9a]">Across ready nodes</p>
                         </div>
                         <div className="rounded-xl bg-black/20 p-3">
                           <div className="flex items-center gap-1">
@@ -1993,7 +1993,7 @@ export default function NewGameServerPage() {
                             <HelpTooltip>Total memory requested by all Game Hub servers combined vs the namespace quota.</HelpTooltip>
                           </div>
                           <p className="mt-1 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{formatBytesGi(capacityData.gameHubUsage.requestedMemoryBytes)}</p>
-                          <p className="text-gray-400 dark:text-[#666]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
+                          <p className="text-gray-400 dark:text-[#9a9a9a]">of {formatBytesGi(capacityData.gameHubUsage.quota.requestsMemoryBytes)}</p>
                         </div>
                       </div>
                       <p className="mt-3 text-xs text-gray-500 dark:text-[#777]">No node selected — Kubernetes will place the server on the best available node.</p>
@@ -2061,7 +2061,7 @@ export default function NewGameServerPage() {
                   </div>
                   <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
                     {activeEgg.environment.filter((v) => v.userViewable !== false).length === 0 ? (
-                      <div className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-4 text-sm text-gray-400 dark:text-[#666]">No custom environment variables.</div>
+                      <div className="rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] p-4 text-sm text-gray-400 dark:text-[#9a9a9a]">No custom environment variables.</div>
                     ) : (
                       activeEgg.environment.filter((v) => v.userViewable !== false).map((variable) => (
                         <div key={variable.name} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] p-3">
@@ -2144,7 +2144,7 @@ export default function NewGameServerPage() {
                 ].map((phase, idx) => (
                   <div key={phase.key} className={cn(
                     "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm",
-                    phase.done ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#555]"
+                    phase.done ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#8a8a8a]"
                   )}>
                     <div className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold", phase.done ? "bg-green-500 text-white" : "border border-current")}>
                       {phase.done ? "✓" : idx + 1}
@@ -2157,21 +2157,21 @@ export default function NewGameServerPage() {
               {/* Live event log */}
               <div className="rounded-2xl border border-gray-200 dark:border-[#1e1e1e] bg-[#080808] overflow-hidden">
                 <div className="flex items-center gap-2 border-b border-[#1a1a1a] px-4 py-2.5">
-                  <Terminal className="h-4 w-4 text-[#555]" />
-                  <span className="text-xs font-medium text-[#555] uppercase tracking-widest">Kubernetes Events</span>
+                  <Terminal className="h-4 w-4 text-gray-500 dark:text-[#8a8a8a]" />
+                  <span className="text-xs font-medium text-gray-500 dark:text-[#8a8a8a] uppercase tracking-widest">Kubernetes Events</span>
                   {installPhase === "deploying" && <Loader2 className="h-3 w-3 animate-spin text-[#0078D4] ml-auto" />}
                 </div>
                 <div ref={installLogRef} className="h-64 overflow-y-auto p-4 font-mono text-xs space-y-1">
                   {installLog.length === 0 ? (
-                    <p className="text-[#444]">Waiting for events…</p>
+                    <p className="text-gray-500 dark:text-[#8a8a8a]">Waiting for events…</p>
                   ) : installLog.map((entry, i) => (
                     <p key={`${entry.reason}-${entry.message}-${i}`} className={cn(
                       "leading-5",
                       entry.kind === "warning" ? "text-amber-400" : entry.kind === "info" ? "text-[#7cc4ff]" : "text-[#aaa]"
                     )}>
-                      <span className="text-[#444] mr-2">{new Date(entry.ts).toLocaleTimeString()}</span>
+                      <span className="text-gray-500 dark:text-[#8a8a8a] mr-2">{new Date(entry.ts).toLocaleTimeString()}</span>
                       {entry.message}
-                      {entry.count > 1 && <span className="text-[#555] ml-2">×{entry.count}</span>}
+                      {entry.count > 1 && <span className="text-gray-500 dark:text-[#8a8a8a] ml-2">×{entry.count}</span>}
                     </p>
                   ))}
                 </div>

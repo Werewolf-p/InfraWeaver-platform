@@ -98,7 +98,7 @@ export function DenyRow({ pod, direction, peer, bidirectional, onAllow, onCommit
       ) : (
         <span
           title={notAllowableReason(direction, peer)}
-          className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 px-2.5 text-xs text-slate-400 dark:border-[#2a2a2a] dark:text-[#666]"
+          className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 px-2.5 text-xs text-slate-400 dark:border-[#2a2a2a] dark:text-[#9a9a9a]"
         >
           <Lock className="h-3.5 w-3.5" aria-hidden />
           Sealed

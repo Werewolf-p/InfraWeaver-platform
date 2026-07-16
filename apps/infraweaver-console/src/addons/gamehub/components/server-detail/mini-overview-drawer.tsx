@@ -54,7 +54,7 @@ export function MiniOverviewDrawer({ currentServerName }: { currentServerName: s
     <>
       <button
         onClick={() => setOpen((value) => !value)}
-        className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] shadow-[0_10px_30px_rgba(0,0,0,0.45)] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
+        className="fixed bottom-4 right-4 z-nav inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] shadow-[0_10px_30px_rgba(0,0,0,0.45)] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
       >
         <LayoutDashboard className="h-4 w-4 text-[#4db3ff]" />
         Overview
@@ -68,14 +68,14 @@ export function MiniOverviewDrawer({ currentServerName }: { currentServerName: s
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setOpen(false)}
-              className="fixed inset-0 z-40 bg-black/45"
+              className="fixed inset-0 z-overlay bg-black/45"
               aria-label="Close overview"
             />
             <motion.div
               initial={{ y: 24, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 24, opacity: 0 }}
-              className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-4xl rounded-t-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 shadow-2xl"
+              className="fixed inset-x-0 bottom-0 z-modal mx-auto max-w-4xl rounded-t-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-4 shadow-2xl"
             >
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
@@ -125,7 +125,7 @@ export function MiniOverviewDrawer({ currentServerName }: { currentServerName: s
                               />
                               <span className="truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{server.name}</span>
                             </div>
-                            <p className="mt-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-[#666]">{server.status}</p>
+                            <p className="mt-1 text-[11px] uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">{server.status}</p>
                           </div>
                           <div className="w-full max-w-[220px] space-y-2">
                             <div>

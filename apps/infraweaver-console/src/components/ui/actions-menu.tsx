@@ -66,7 +66,7 @@ export function ActionsMenu({ actions, label = "Actions", className }: ActionsMe
       </button>
 
       {open ? (
-        <div role="menu" className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] py-1 shadow-2xl">
+        <div role="menu" className="absolute right-0 top-full z-popover mt-1 min-w-[160px] rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] py-1 shadow-2xl">
           {actions.map((action, index) => {
             if (action.href) {
               return (
