@@ -73,7 +73,7 @@ export default function GameHubSetupPage() {
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] p-6 space-y-4">
         <h2 className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Prerequisites</h2>
         {isLoading ? (
-          <div className="flex items-center gap-2 text-gray-400 dark:text-[#666] text-sm">
+          <div className="flex items-center gap-2 text-gray-400 dark:text-[#9a9a9a] text-sm">
             <Loader2 className="w-4 h-4 animate-spin" />
             Checking cluster...
           </div>
@@ -86,11 +86,11 @@ export default function GameHubSetupPage() {
                   {ok ? (
                     <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
                   ) : (
-                    <XCircle className="w-4 h-4 text-gray-400 dark:text-[#555] flex-shrink-0" />
+                    <XCircle className="w-4 h-4 text-gray-400 dark:text-[#8a8a8a] flex-shrink-0" />
                   )}
                   <div>
-                    <p className={cn("text-sm font-medium", ok ? "text-gray-900 dark:text-[#f2f2f2]" : "text-gray-400 dark:text-[#666]")}>{check.label}</p>
-                    <p className="text-xs text-gray-400 dark:text-[#555]">{check.description}</p>
+                    <p className={cn("text-sm font-medium", ok ? "text-gray-900 dark:text-[#f2f2f2]" : "text-gray-400 dark:text-[#9a9a9a]")}>{check.label}</p>
+                    <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">{check.description}</p>
                   </div>
                 </div>
               );
@@ -102,9 +102,9 @@ export default function GameHubSetupPage() {
           <div className="border-t border-gray-200 dark:border-[#2a2a2a] pt-4 space-y-2">
             <p className="text-xs font-medium text-gray-500 dark:text-[#999]">Available Storage Classes</p>
             {status.storageClasses.map(sc => (
-              <div key={sc.name} className="flex items-center justify-between text-xs text-gray-400 dark:text-[#666]">
+              <div key={sc.name} className="flex items-center justify-between text-xs text-gray-400 dark:text-[#9a9a9a]">
                 <span className="font-mono">{sc.name}{sc.isDefault ? " (default)" : ""}</span>
-                <span className="text-gray-400 dark:text-[#444]">{sc.provisioner}</span>
+                <span className="text-gray-400 dark:text-[#8a8a8a]">{sc.provisioner}</span>
               </div>
             ))}
             {!status.longhornAvailable && (

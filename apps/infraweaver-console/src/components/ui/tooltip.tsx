@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useId, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { useMotionSafe } from "@/lib/spring";
 
 interface TooltipProps {
   content: ReactNode;
@@ -22,6 +23,7 @@ export function Tooltip({
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Stable id so aria-describedby always matches the tooltip element.
   const tooltipId = useId();
+  const motionSafe = useMotionSafe();
 
   const show = useCallback(() => {
     showTimer.current = setTimeout(() => setVisible(true), delay);
@@ -84,9 +86,9 @@ export function Tooltip({
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ duration: 0.12, ease: "easeOut" }}
+            transition={motionSafe.transition({ duration: 0.12, ease: "easeOut" })}
             className={cn(
-              "absolute z-50 pointer-events-none",
+              "absolute z-tooltip pointer-events-none",
               positionClasses[position]
             )}
           >

@@ -66,7 +66,7 @@ export function OnboardingWizard({ className }: OnboardingWizardProps) {
   return (
     <AnimatePresence>
       {visible && (
-        <div className={cn("fixed inset-0 z-50 flex items-center justify-center", className)}>
+        <div className={cn("fixed inset-0 z-modal flex items-center justify-center", className)}>
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"

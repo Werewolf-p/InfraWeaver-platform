@@ -66,12 +66,12 @@ export function ClusterSelector({ popupDirection = "down" }: { popupDirection?: 
             exit={{ opacity: 0, scale: 0.95, y: popupOffset }}
             transition={springs.snappy}
             className={cn(
-              "absolute right-0 z-50 w-56 overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] shadow-2xl",
+              "absolute right-0 z-popover w-56 overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] shadow-2xl",
               popupDirection === "up" ? "bottom-full mb-1" : "top-full mt-1",
             )}
           >
             <div className="px-3 pb-1 pt-2.5">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-[#555]">Active Cluster</p>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-[#8a8a8a]">Active Cluster</p>
             </div>
 
             {/* Individual clusters */}
@@ -135,7 +135,7 @@ function ClusterOption({
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium">{label}</p>
-        <p className="truncate text-[10px] text-gray-400 dark:text-[#555]">{description}</p>
+        <p className="truncate text-[10px] text-gray-400 dark:text-[#8a8a8a]">{description}</p>
       </div>
       <StatusDot status={status} />
     </button>

@@ -259,7 +259,7 @@ export function UpdatePolicyModal({ appName, appSlug, imageRef, open, onClose }:
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-[400] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            className="fixed inset-0 z-modal flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
             onClick={onClose}
           >
             <motion.div
@@ -335,7 +335,7 @@ export function UpdatePolicyModal({ appName, appSlug, imageRef, open, onClose }:
                                   <p className={cn("text-xs font-medium", selected ? "text-gray-900 dark:text-[#f2f2f2]" : "text-gray-500 dark:text-[#9e9e9e]")}>
                                     {opt.label}
                                   </p>
-                                  <p className="text-[10px] text-gray-400 dark:text-[#666] mt-0.5 leading-relaxed">{opt.desc}</p>
+                                  <p className="text-[10px] text-gray-400 dark:text-[#9a9a9a] mt-0.5 leading-relaxed">{opt.desc}</p>
                                 </div>
                               </button>
                             );
@@ -374,7 +374,7 @@ export function UpdatePolicyModal({ appName, appSlug, imageRef, open, onClose }:
                                     <p className={cn("text-sm font-medium", selected ? "text-gray-900 dark:text-[#f2f2f2]" : "text-gray-500 dark:text-[#9e9e9e]")}>
                                       {opt.label}
                                     </p>
-                                    <p className="text-[11px] text-gray-400 dark:text-[#666]">{opt.desc}</p>
+                                    <p className="text-[11px] text-gray-400 dark:text-[#9a9a9a]">{opt.desc}</p>
                                   </div>
                                 </div>
                                 <span className={cn(
@@ -414,7 +414,7 @@ export function UpdatePolicyModal({ appName, appSlug, imageRef, open, onClose }:
                                   </p>
                                   {selected && <Check className="w-3 h-3 text-[#0078D4]" />}
                                 </div>
-                                <p className="text-[10px] text-gray-400 dark:text-[#666] leading-relaxed">{opt.desc}</p>
+                                <p className="text-[10px] text-gray-400 dark:text-[#9a9a9a] leading-relaxed">{opt.desc}</p>
                               </button>
                             );
                           })}
@@ -429,9 +429,9 @@ export function UpdatePolicyModal({ appName, appSlug, imageRef, open, onClose }:
                         >
                           <span className="text-sm font-medium text-gray-500 dark:text-[#9e9e9e]">Advanced options</span>
                           {advancedOpen ? (
-                            <ChevronUp className="w-4 h-4 text-gray-400 dark:text-[#666]" />
+                            <ChevronUp className="w-4 h-4 text-gray-400 dark:text-[#9a9a9a]" />
                           ) : (
-                            <ChevronDown className="w-4 h-4 text-gray-400 dark:text-[#666]" />
+                            <ChevronDown className="w-4 h-4 text-gray-400 dark:text-[#9a9a9a]" />
                           )}
                         </button>
 
@@ -448,14 +448,14 @@ export function UpdatePolicyModal({ appName, appSlug, imageRef, open, onClose }:
                                 {/* Image ref */}
                                 <div>
                                   <label className="block text-xs font-medium text-gray-500 dark:text-[#9e9e9e] mb-1.5">
-                                    Image reference <span className="text-gray-400 dark:text-[#666]">(auto-detected if blank)</span>
+                                    Image reference <span className="text-gray-400 dark:text-[#9a9a9a]">(auto-detected if blank)</span>
                                   </label>
                                   <input
                                     type="text"
                                     value={policy.imageRef ?? ""}
                                     onChange={e => updatePolicy("imageRef", e.target.value || undefined)}
                                     placeholder="ghcr.io/org/app"
-                                    className="w-full bg-white dark:bg-[#0f0f0f] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50 font-mono"
+                                    className="w-full bg-white dark:bg-[#0f0f0f] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:outline-none focus:border-[#0078D4]/50 font-mono"
                                   />
                                 </div>
 

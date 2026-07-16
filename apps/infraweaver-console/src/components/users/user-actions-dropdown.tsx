@@ -25,7 +25,7 @@ interface Props {
   onRefetch: () => void;
 }
 
-const inputCls = "w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm";
+const inputCls = "w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm";
 const ghostButtonCls = "inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-transparent px-4 text-sm text-gray-700 dark:text-[#d4d4d4] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] active:bg-gray-200 dark:active:bg-[#1f1f1f]";
 const primaryButtonCls = "inline-flex min-h-[44px] items-center justify-center rounded-2xl bg-[#3b82f6] px-4 text-sm font-medium text-white transition-colors hover:bg-[#2563eb] active:bg-[#1d4ed8]";
 
@@ -43,8 +43,8 @@ function SmallDialog({
   return (
     <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-50 w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-5 sm:pt-5 sm:pb-5">
+        <Dialog.Overlay className="fixed inset-0 z-overlay bg-black/70" />
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-modal w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-5 sm:pt-5 sm:pb-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <Dialog.Title className="text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{title}</Dialog.Title>
             <button onClick={onClose} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2]">
@@ -173,7 +173,7 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content
-            className="z-50 min-w-[200px] rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-1 text-gray-900 dark:text-[#f2f2f2] shadow-2xl"
+            className="z-popover min-w-[200px] rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-1 text-gray-900 dark:text-[#f2f2f2] shadow-2xl"
             sideOffset={5}
             align="end"
           >
@@ -278,7 +278,7 @@ export function UserActionsDropdown({ user, isSelf, isAdmin, onEdit, onDelete, o
               {action.label}
             </button>
           ))}
-          {dangerActions.length > 0 ? <div className="pt-2 text-sm text-gray-400 dark:text-[#666]">Destructive actions</div> : null}
+          {dangerActions.length > 0 ? <div className="pt-2 text-sm text-gray-400 dark:text-[#9a9a9a]">Destructive actions</div> : null}
           {dangerActions.map((action) => (
             <button
               key={action.label}

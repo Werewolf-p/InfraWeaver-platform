@@ -34,7 +34,7 @@ export function CopyValue({ value, label, mono = true, className, truncate = tru
       {copied ? (
         <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" aria-hidden="true" />
       ) : (
-        <Copy className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-[#666] opacity-0 transition-all group-hover:opacity-100 group-hover:text-[#f2f2f2] group-focus-visible:opacity-100" aria-hidden="true" />
+        <Copy className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-[#9a9a9a] opacity-0 transition-all group-hover:opacity-100 group-hover:text-[#f2f2f2] group-focus-visible:opacity-100" aria-hidden="true" />
       )}
     </button>
   );

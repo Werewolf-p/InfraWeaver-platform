@@ -37,7 +37,8 @@
   /* ── Dark-mode text ──────────────────────────────────────── */
   --az-text:           #f2f2f2;
   --az-text-secondary: #a3a3a3;
-  --az-text-muted:     #666666;
+  /* AA-safe muted: #8a8a8a >= 4.5:1 on the near-black surfaces (was #666, ~3.3:1). */
+  --az-text-muted:     #8a8a8a;
 
   /* ── Surface aliases (used by page shells / layout) ─────── */
   --surface-1: var(--az-surface);
@@ -142,7 +143,8 @@ body {
 
   --color-text-primary:   250 250 250;
   --color-text-secondary: 163 163 163;
-  --color-text-tertiary:  115 115 115;
+  /* Tertiary bumped 115->148 so token-driven muted text clears WCAG 2.2 AA (4.5:1). */
+  --color-text-tertiary:  148 148 148;
   --color-text-disabled:  64 64 64;
 
   --color-border:        38 38 38;

@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useMotionSafe } from "@/lib/spring";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -29,6 +30,7 @@ export function ConfirmDialog({
   const [typedValue, setTypedValue] = useState("");
   const [shake, setShake] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const motionSafe = useMotionSafe();
 
   const isTypingMatch = !requireTyping || typedValue === requireTyping;
 
@@ -59,8 +61,8 @@ export function ConfirmDialog({
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[61] w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-[calc(env(safe-area-inset-top,0px)+1rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
+        <Dialog.Overlay className="fixed inset-0 z-overlay bg-black/70 backdrop-blur-sm" />
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-modal w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-[calc(env(safe-area-inset-top,0px)+1rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
           <div className="flex items-start gap-4">
             {danger ? (
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-red-500/20 bg-red-500/10">
@@ -79,6 +81,7 @@ export function ConfirmDialog({
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
+                transition={motionSafe.transition({ duration: 0.2 })}
                 className="overflow-hidden"
               >
                 <div className="mt-4 space-y-1.5">
@@ -86,8 +89,8 @@ export function ConfirmDialog({
                     Type <span className="font-mono font-semibold text-gray-900 dark:text-[#f2f2f2]">{requireTyping}</span> to confirm:
                   </p>
                   <motion.div
-                    animate={shake ? { x: [-6, 6, -5, 5, -3, 3, 0] } : { x: 0 }}
-                    transition={{ duration: 0.4 }}
+                    animate={shake && !motionSafe.reduced ? { x: [-6, 6, -5, 5, -3, 3, 0] } : { x: 0 }}
+                    transition={motionSafe.transition({ duration: 0.4 })}
                   >
                     <input
                       ref={inputRef}
@@ -97,7 +100,7 @@ export function ConfirmDialog({
                       aria-label={`Type ${requireTyping} to confirm`}
                       aria-invalid={typedValue.length > 0 && !isTypingMatch}
                       className={cn(
-                        "w-full rounded-lg border bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm font-mono text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] transition-colors focus:outline-none focus:ring-1 focus:ring-[#3b82f6]",
+                        "w-full rounded-lg border bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm font-mono text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] transition-colors focus:outline-none focus:ring-1 focus:ring-[#3b82f6]",
                         typedValue === ""
                           ? "border-gray-200 dark:border-[#2a2a2a] focus:border-[#3b82f6]"
                           : isTypingMatch

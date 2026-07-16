@@ -154,7 +154,7 @@ function VolumeCard({ volume }: { volume: LonghornBackupVolume }) {
 
       {/* Restore confirmation modal */}
       {confirmRestore && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0d1117] p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-2 text-white font-semibold">
               <RotateCcw className="h-5 w-5 text-indigo-400" />

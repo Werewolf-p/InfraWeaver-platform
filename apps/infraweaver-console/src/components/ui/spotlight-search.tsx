@@ -83,7 +83,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[400] bg-black/70 backdrop-blur-sm"
+            className="fixed inset-0 z-overlay bg-black/70 backdrop-blur-sm"
             onClick={onClose}
           />
           <motion.div
@@ -91,22 +91,22 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -20, opacity: 0 }}
             transition={{ type: "spring", damping: 30, stiffness: 400 }}
-            className="fixed top-4 left-4 right-4 z-[401] md:left-1/2 md:-translate-x-1/2 md:max-w-2xl md:w-full"
+            className="fixed top-4 left-4 right-4 z-modal md:left-1/2 md:-translate-x-1/2 md:max-w-2xl md:w-full"
           >
             <div className="bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#333] rounded-2xl shadow-2xl overflow-hidden">
               {/* Search input */}
               <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-[#2a2a2a]">
-                <Search aria-hidden="true" className="w-5 h-5 text-gray-400 dark:text-[#555] flex-shrink-0" />
+                <Search aria-hidden="true" className="w-5 h-5 text-gray-400 dark:text-[#8a8a8a] flex-shrink-0" />
                 <input
                   ref={inputRef}
                   value={query}
                   onChange={e => setQuery(e.target.value)}
                   placeholder="Search apps, pods, pages…"
                   aria-label="Search apps, pods, and pages"
-                  className="flex-1 bg-transparent text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] text-sm outline-none"
+                  className="flex-1 bg-transparent text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] text-sm outline-none"
                 />
                 {query && (
-                  <button onClick={() => setQuery("")} aria-label="Clear search" className="text-gray-400 dark:text-[#555] hover:text-gray-700 dark:hover:text-[#9e9e9e]">
+                  <button onClick={() => setQuery("")} aria-label="Clear search" className="text-gray-400 dark:text-[#8a8a8a] hover:text-gray-700 dark:hover:text-[#9e9e9e]">
                     <X aria-hidden="true" className="w-4 h-4" />
                   </button>
                 )}
@@ -116,7 +116,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
                 {/* Recent searches */}
                 {!query && recentSearches.length > 0 && (
                   <div className="p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#555] mb-2 px-1">Recent</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#8a8a8a] mb-2 px-1">Recent</p>
                     {recentSearches.map(q => (
                       <button
                         key={q}
@@ -133,7 +133,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
                 {/* Nav results */}
                 {navResults.length > 0 && (
                   <div className="p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#555] mb-2 px-1">Pages</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#8a8a8a] mb-2 px-1">Pages</p>
                     {navResults.map(item => (
                       <button
                         key={item.href}
@@ -143,7 +143,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
                         <item.icon aria-hidden="true" className="w-4 h-4 flex-shrink-0 text-[#0078D4]" />
                         <div className="text-left">
                           <p className="text-gray-900 dark:text-[#f2f2f2] text-sm">{item.label}</p>
-                          {item.description && <p className="text-[10px] text-gray-400 dark:text-[#555]">{item.description}</p>}
+                          {item.description && <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">{item.description}</p>}
                         </div>
                       </button>
                     ))}
@@ -153,7 +153,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
                 {/* Resource results */}
                 {query && results.length > 0 && (
                   <div className="p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#555] mb-2 px-1">Resources</p>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#8a8a8a] mb-2 px-1">Resources</p>
                     {results.map(r => (
                       <button
                         key={r.id}
@@ -163,7 +163,7 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
                         {r.type === "app" ? <Box aria-hidden="true" className="w-4 h-4 flex-shrink-0 text-indigo-400" /> : <Server aria-hidden="true" className="w-4 h-4 flex-shrink-0 text-blue-400" />}
                         <div className="text-left">
                           <p className="text-gray-900 dark:text-[#f2f2f2] text-sm">{r.name}</p>
-                          <p className="text-[10px] text-gray-400 dark:text-[#555]">{r.subtitle}</p>
+                          <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">{r.subtitle}</p>
                         </div>
                       </button>
                     ))}
@@ -171,13 +171,13 @@ export function SpotlightSearch({ open, onClose }: SpotlightSearchProps) {
                 )}
 
                 {query && !loading && results.length === 0 && navResults.length === 0 && (
-                  <div className="p-8 text-center text-gray-400 dark:text-[#555] text-sm">
+                  <div className="p-8 text-center text-gray-400 dark:text-[#8a8a8a] text-sm">
                     No results for &ldquo;{query}&rdquo;
                   </div>
                 )}
 
                 {loading && (
-                  <div className="p-4 text-center text-gray-400 dark:text-[#555] text-sm">Searching…</div>
+                  <div className="p-4 text-center text-gray-400 dark:text-[#8a8a8a] text-sm">Searching…</div>
                 )}
               </div>
             </div>

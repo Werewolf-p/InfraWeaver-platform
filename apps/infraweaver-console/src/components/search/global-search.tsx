@@ -244,18 +244,18 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[500] bg-black/70 backdrop-blur-sm" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[501] overflow-hidden bg-white dark:bg-[#111] p-0 shadow-2xl outline-none sm:inset-x-auto sm:left-1/2 sm:top-[14vh] sm:w-[min(92vw,42rem)] sm:-translate-x-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a]">
+        <Dialog.Overlay className="fixed inset-0 z-overlay bg-black/70 backdrop-blur-sm" />
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-modal overflow-hidden bg-white dark:bg-[#111] p-0 shadow-2xl outline-none sm:inset-x-auto sm:left-1/2 sm:top-[14vh] sm:w-[min(92vw,42rem)] sm:-translate-x-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a]">
           <Dialog.Title className="sr-only">Global search</Dialog.Title>
           <div className="flex items-center border-b border-gray-200 dark:border-[#2a2a2a] px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] sm:pt-0">
-            <SearchIcon className="mr-2 h-4 w-4 shrink-0 text-gray-400 dark:text-[#666]" />
+            <SearchIcon className="mr-2 h-4 w-4 shrink-0 text-gray-400 dark:text-[#9a9a9a]" />
             <input
               ref={inputRef}
               role="combobox"
               aria-expanded={open}
               aria-controls="infraweaver-global-search-results"
               aria-activedescendant={activeResult ? `infraweaver-search-option-${activeResult.id}` : undefined}
-              className="flex-1 bg-transparent py-3.5 text-base text-gray-900 dark:text-[#f2f2f2] outline-none placeholder:text-gray-400 dark:placeholder:text-[#444] sm:text-sm"
+              className="flex-1 bg-transparent py-3.5 text-base text-gray-900 dark:text-[#f2f2f2] outline-none placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] sm:text-sm"
               placeholder="Search pods, servers, apps, and pages..."
               value={query}
               onChange={(event) => {
@@ -285,12 +285,12 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                 }
               }}
             />
-            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-gray-400 dark:text-[#666]" /> : null}
-            <kbd className="hidden rounded border border-gray-200 dark:border-[#333] px-1 text-xs text-gray-400 dark:text-[#444] sm:inline-flex">↑↓ ↵ ESC</kbd>
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin text-gray-400 dark:text-[#9a9a9a]" /> : null}
+            <kbd className="hidden rounded border border-gray-200 dark:border-[#333] px-1 text-xs text-gray-400 dark:text-[#8a8a8a] sm:inline-flex">↑↓ ↵ ESC</kbd>
             <button
               type="button"
               onClick={() => handleOpenChange(false)}
-              className="ml-1 inline-flex h-11 w-11 items-center justify-center rounded-xl text-gray-400 dark:text-[#666] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] sm:hidden"
+              className="ml-1 inline-flex h-11 w-11 items-center justify-center rounded-xl text-gray-400 dark:text-[#9a9a9a] transition-colors hover:bg-gray-100 dark:hover:bg-[#1a1a1a] hover:text-gray-900 dark:hover:text-[#f2f2f2] sm:hidden"
               aria-label="Close search"
             >
               <X className="h-4 w-4" />
@@ -309,7 +309,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                   <button
                     type="button"
                     onClick={clearRecentSearches}
-                    className="text-[11px] text-gray-400 dark:text-[#666] transition-colors hover:text-gray-900 dark:hover:text-[#f2f2f2]"
+                    className="text-[11px] text-gray-400 dark:text-[#9a9a9a] transition-colors hover:text-gray-900 dark:hover:text-[#f2f2f2]"
                   >
                     Clear
                   </button>

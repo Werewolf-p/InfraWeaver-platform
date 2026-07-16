@@ -50,9 +50,9 @@ export function QueueMenu({
     >
       {items.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-10 text-center">
-          <ListOrdered className="h-6 w-6 text-gray-300 dark:text-[#444]" />
+          <ListOrdered className="h-6 w-6 text-gray-300 dark:text-[#8a8a8a]" />
           <p className="text-sm text-gray-500 dark:text-[#888]">The queue is empty.</p>
-          <p className="max-w-xs text-xs text-gray-400 dark:text-[#555]">
+          <p className="max-w-xs text-xs text-gray-400 dark:text-[#8a8a8a]">
             Approving an entry while a run is in progress adds it here, and it starts automatically when the
             pipeline frees up.
           </p>

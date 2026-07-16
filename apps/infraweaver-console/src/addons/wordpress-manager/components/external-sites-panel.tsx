@@ -504,7 +504,7 @@ export function ExternalSitesPanel() {
 
       {/* §5 step 3 — mandatory-manual fingerprint comparison for external sites. */}
       {compare && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Compare key fingerprints">
+        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Compare key fingerprints">
           <div className="w-full max-w-lg rounded-xl border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
             <div className="flex items-center gap-2 text-zinc-100">
               <Fingerprint className="h-5 w-5 text-amber-400" aria-hidden />

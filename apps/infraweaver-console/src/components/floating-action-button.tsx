@@ -12,6 +12,7 @@ import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import { useRBAC } from "@/hooks/useRBAC";
 import { apiClient, toApiErrorMessage } from "@/lib/api-client";
+import { useMotionSafe } from "@/lib/spring";
 
 interface FABAction {
   icon: React.ElementType;
@@ -32,6 +33,7 @@ export function FloatingActionButton() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { can } = useRBAC();
+  const motionSafe = useMotionSafe();
 
   const submitFeedback = useCallback(async () => {
     if (!feedbackDesc.trim()) { toast.error("Please describe the issue"); return; }
@@ -109,7 +111,7 @@ export function FloatingActionButton() {
 
   return (
     <>
-      <div className="fixed bottom-24 right-4 sm:bottom-6 sm:right-6 z-40 flex flex-col items-end gap-2">
+      <div className="fixed bottom-24 right-4 sm:bottom-6 sm:right-6 z-nav flex flex-col items-end gap-2">
         <AnimatePresence>
           {open && (
             <div id="fab-actions-menu" role="menu">
@@ -120,7 +122,7 @@ export function FloatingActionButton() {
                   initial={{ opacity: 0, scale: 0.8, y: 10 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.8, y: 10 }}
-                  transition={{ delay: i * 0.04, type: "spring", stiffness: 400, damping: 25 }}
+                  transition={motionSafe.transition({ delay: i * 0.04, type: "spring", stiffness: 400, damping: 25 })}
                   onClick={action.onClick}
                   className={cn("flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-medium shadow-lg backdrop-blur-sm", action.color)}
                 >
@@ -136,7 +138,7 @@ export function FloatingActionButton() {
           onClick={() => setOpen(o => !o)}
           whileTap={{ scale: 0.9 }}
           animate={{ rotate: open ? 45 : 0 }}
-          transition={{ type: "spring", stiffness: 400, damping: 25 }}
+          transition={motionSafe.transition({ type: "spring", stiffness: 400, damping: 25 })}
           aria-label={open ? "Close actions menu" : "Open actions menu"}
           aria-expanded={open}
           aria-haspopup="menu"
@@ -150,8 +152,8 @@ export function FloatingActionButton() {
       {/* Inline feedback modal */}
       <AnimatePresence>
         {feedbackOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setFeedbackOpen(false)}>
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} onClick={e => e.stopPropagation()} className="w-full max-w-md mx-4 p-6 rounded-2xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] shadow-2xl">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionSafe.transition({ duration: 0.2 })} className="fixed inset-0 z-modal flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setFeedbackOpen(false)}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} transition={motionSafe.transition({ duration: 0.2 })} onClick={e => e.stopPropagation()} className="w-full max-w-md mx-4 p-6 rounded-2xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] shadow-2xl">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Report Feedback</h3>
               <div className="flex gap-2 mb-3">
                 {(["bug", "feature-request", "note"] as const).map(t => (

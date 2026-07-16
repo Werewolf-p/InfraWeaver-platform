@@ -26,7 +26,6 @@ export * from "./horizontal-scroll-hint";
 export * from "./keyboard-shortcuts-modal";
 export * from "./loading-spinner";
 export * from "./metric-card";
-export * from "./mobile-nav";
 export * from "./namespace-heatmap";
 export * from "./namespace-usage";
 export * from "./notification-center";

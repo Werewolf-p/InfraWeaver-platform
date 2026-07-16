@@ -96,7 +96,7 @@ export function OfflineIndicator() {
         initial={{ y: -16, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: -16, opacity: 0 }}
-        className="fixed left-0 right-0 top-0 z-[500]"
+        className="fixed left-0 right-0 top-0 z-max"
       >
         {collapsed ? (
           <button

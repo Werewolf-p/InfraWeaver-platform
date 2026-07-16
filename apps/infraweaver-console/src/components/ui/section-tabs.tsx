@@ -41,7 +41,7 @@ const TabButton = memo(function TabButton({ tab, active, onTabChange }: TabButto
       {Icon && <Icon className="w-4 h-4" />}
       {tab.label}
       {tab.badge !== undefined && (
-        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-mono", active ? "bg-[#0078D4]/20 text-[#0078D4]" : "bg-gray-100 dark:bg-[#2a2a2a] text-gray-400 dark:text-[#666]")}>
+        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-mono", active ? "bg-[#0078D4]/20 text-[#0078D4]" : "bg-gray-100 dark:bg-[#2a2a2a] text-gray-400 dark:text-[#9a9a9a]")}>
           {tab.badge}
         </span>
       )}

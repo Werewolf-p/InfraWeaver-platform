@@ -192,9 +192,9 @@ export function DeleteServerModal({
   return (
     <Dialog.Root open={open} onOpenChange={(v) => !v && phase !== "deleting" && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm" />
+        <Dialog.Overlay className="fixed inset-0 z-overlay bg-black/70 backdrop-blur-sm" />
         <Dialog.Content
-          className="fixed inset-x-0 bottom-0 top-0 z-[61] w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-[calc(env(safe-area-inset-top,0px)+1rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6"
+          className="fixed inset-x-0 bottom-0 top-0 z-modal w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-[calc(env(safe-area-inset-top,0px)+1rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6"
           onInteractOutside={(e) => phase === "deleting" && e.preventDefault()}
         >
           <AnimatePresence mode="wait">
@@ -234,7 +234,7 @@ export function DeleteServerModal({
                       <span className="text-red-400/70 shrink-0">{r.icon}</span>
                       <span className="text-sm text-gray-700 dark:text-[#ccc]">{r.label}</span>
                       {r.detail && (
-                        <span className="ml-auto text-xs text-gray-400 dark:text-[#666] font-mono truncate max-w-[40%]">
+                        <span className="ml-auto text-xs text-gray-400 dark:text-[#9a9a9a] font-mono truncate max-w-[40%]">
                           {r.detail}
                         </span>
                       )}
@@ -259,7 +259,7 @@ export function DeleteServerModal({
                       onKeyDown={(e) => e.key === "Enter" && isMatch && void handleDelete()}
                       placeholder={serverName}
                       className={cn(
-                        "w-full rounded-lg border bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm font-mono text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] transition-colors focus:outline-none focus:ring-1 focus:ring-red-500/50",
+                        "w-full rounded-lg border bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm font-mono text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] transition-colors focus:outline-none focus:ring-1 focus:ring-red-500/50",
                         typedName === "" ? "border-gray-200 dark:border-[#2a2a2a]"
                           : isMatch ? "border-emerald-500/40"
                           : "border-red-500/30",
@@ -326,7 +326,7 @@ export function DeleteServerModal({
                           step.status === "done" && "text-emerald-400",
                           step.status === "running" && "text-blue-400",
                           step.status === "skipped" && "text-gray-400 line-through",
-                          step.status === "pending" && "text-gray-400 dark:text-[#666]",
+                          step.status === "pending" && "text-gray-400 dark:text-[#9a9a9a]",
                         )}
                       >
                         {step.label}

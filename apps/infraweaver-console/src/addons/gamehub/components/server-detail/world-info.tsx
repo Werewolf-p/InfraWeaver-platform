@@ -58,7 +58,7 @@ export function WorldInfo({ serverName, mountPath, gameType }: WorldInfoProps) {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {LABELS.map(([key, label]) => (
               <div key={key} className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-3">
-                <div className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-[#555]">{label}</div>
+                <div className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-[#8a8a8a]">{label}</div>
                 <div className="mt-2 break-words text-sm text-gray-900 dark:text-[#f2f2f2]">
                   {worldQuery.data?.[key] || "—"}
                 </div>
@@ -69,7 +69,7 @@ export function WorldInfo({ serverName, mountPath, gameType }: WorldInfoProps) {
           <div className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0a0a0a] p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-[#555]">Seed</div>
+                <div className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-[#8a8a8a]">Seed</div>
                 <div className="mt-2 break-all font-mono text-sm text-gray-900 dark:text-[#f2f2f2]">
                   {seed || "—"}
                 </div>

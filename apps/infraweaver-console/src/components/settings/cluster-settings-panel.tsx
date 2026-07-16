@@ -116,7 +116,7 @@ function NodeCard({ metric }: { metric: NodeMetric }) {
         </div>
         <div>
           <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2] capitalize">{shortName}</p>
-          <p className="text-xs text-gray-400 dark:text-[#666]">{metric.name}</p>
+          <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">{metric.name}</p>
         </div>
       </div>
 
@@ -186,7 +186,7 @@ function NodeOverview() {
       <div className="flex items-center gap-2">
         <HardDrive className="h-4 w-4 text-gray-500 dark:text-[#888]" />
         <h3 className="text-sm font-medium text-gray-600 dark:text-[#ccc]">Node Resources</h3>
-        <span className="ml-auto text-xs text-gray-400 dark:text-[#555]">Live · refreshes every 30s</span>
+        <span className="ml-auto text-xs text-gray-400 dark:text-[#8a8a8a]">Live · refreshes every 30s</span>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         {metrics.map((m) => <NodeCard key={m.name} metric={m} />)}
@@ -238,7 +238,7 @@ function NodeSpecCard({
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-gray-900 dark:text-[#f2f2f2] capitalize">{shortName}</p>
-          <p className="text-xs text-gray-400 dark:text-[#555]">{spec.ip} · VM {spec.vm_id}</p>
+          <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">{spec.ip} · VM {spec.vm_id}</p>
         </div>
         {anyDirty && (
           <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
@@ -281,7 +281,7 @@ function NodeSpecCard({
               {fmtMemMb(spec.memory_mb)} → {fmtMemMb(local.memory_mb)}
             </span>
           ) : (
-            <span className="text-[10px] text-gray-400 dark:text-[#555]">{fmtMemMb(local.memory_mb)}</span>
+            <span className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">{fmtMemMb(local.memory_mb)}</span>
           )}
         </div>
         <input
@@ -299,7 +299,7 @@ function NodeSpecCard({
           disabled={disabled}
           className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         />
-        <p className="text-[11px] text-gray-400 dark:text-[#555]">Must be a multiple of 512 MB · {spec.disk_gb} GB disk (read-only)</p>
+        <p className="text-[11px] text-gray-400 dark:text-[#8a8a8a]">Must be a multiple of 512 MB · {spec.disk_gb} GB disk (read-only)</p>
       </div>
     </motion.div>
   );
@@ -366,7 +366,7 @@ function NodeSpecsEditorContent({ data, canWrite }: { data: NodeSpecsResponse; c
       <div className="flex items-center gap-2">
         <Settings2 className="h-4 w-4 text-gray-500 dark:text-[#888]" />
         <h3 className="text-sm font-medium text-gray-600 dark:text-[#ccc]">Node Specs (CPU / Memory)</h3>
-        <span className="ml-auto text-xs text-gray-400 dark:text-[#555]">Changes drain → resize → uncordon each node</span>
+        <span className="ml-auto text-xs text-gray-400 dark:text-[#8a8a8a]">Changes drain → resize → uncordon each node</span>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -430,7 +430,7 @@ function NodeSpecsEditorContent({ data, canWrite }: { data: NodeSpecsResponse; c
       )}
 
       {!canWrite && (
-        <p className="text-xs text-gray-400 dark:text-[#555]">
+        <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">
           <AlertCircle className="mr-1 inline h-3.5 w-3.5" />
           Config write permission required to resize nodes.
         </p>
@@ -499,7 +499,7 @@ function ResourceField({ def, value, onChange, disabled, isDirty }: ResourceFiel
       <div className="flex items-center gap-2">
         <label className="text-xs font-medium text-gray-600 dark:text-[#ccc]">{def.label}</label>
         {def.unit && (
-          <span className="rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-1.5 py-0.5 text-[10px] text-gray-400 dark:text-[#666]">
+          <span className="rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-1.5 py-0.5 text-[10px] text-gray-400 dark:text-[#9a9a9a]">
             {def.unit}
           </span>
         )}
@@ -532,7 +532,7 @@ function ResourceField({ def, value, onChange, disabled, isDirty }: ResourceFiel
           className="w-full rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder-[#444] focus:border-[#3b82f6] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         />
       )}
-      <p className="text-[11px] text-gray-400 dark:text-[#555]">{def.description}</p>
+      <p className="text-[11px] text-gray-400 dark:text-[#8a8a8a]">{def.description}</p>
     </div>
   );
 }
@@ -627,7 +627,7 @@ function ResourceEditorContent({
       <div className="flex items-center gap-2">
         <GitBranch className="h-4 w-4 text-gray-500 dark:text-[#888]" />
         <h3 className="text-sm font-medium text-gray-600 dark:text-[#ccc]">Service Resource Limits</h3>
-        <span className="ml-auto text-xs text-gray-400 dark:text-[#555]">Changes commit to git → ArgoCD rolling update</span>
+        <span className="ml-auto text-xs text-gray-400 dark:text-[#8a8a8a]">Changes commit to git → ArgoCD rolling update</span>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -721,7 +721,7 @@ function ResourceEditorContent({
       )}
 
       {!canWrite && (
-        <p className="text-xs text-gray-400 dark:text-[#555]">
+        <p className="text-xs text-gray-400 dark:text-[#8a8a8a]">
           <AlertCircle className="mr-1 inline h-3.5 w-3.5" />
           You have read-only access. Config write permission required to save changes.
         </p>

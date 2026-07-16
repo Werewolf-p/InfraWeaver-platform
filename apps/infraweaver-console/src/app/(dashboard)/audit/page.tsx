@@ -129,11 +129,11 @@ export default function AuditPage() {
           <FilterSelect label="Severity" value={severity} options={SEVERITY_OPTIONS} onChange={(v) => { setSeverity(v); resetPaging(); }} />
           <FilterSelect label="Result" value={result} options={RESULT_OPTIONS} onChange={(v) => { setResult(v); resetPaging(); }} />
           <label className="flex min-h-[44px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-[#333] dark:bg-[#0f0f0f] dark:text-[#f2f2f2]">
-            <span className="shrink-0 text-slate-400 dark:text-[#666]">From</span>
+            <span className="shrink-0 text-slate-400 dark:text-[#9a9a9a]">From</span>
             <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); resetPaging(); }} aria-label="From date" className="w-full bg-transparent outline-none" />
           </label>
           <label className="flex min-h-[44px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-[#333] dark:bg-[#0f0f0f] dark:text-[#f2f2f2]">
-            <span className="shrink-0 text-slate-400 dark:text-[#666]">To</span>
+            <span className="shrink-0 text-slate-400 dark:text-[#9a9a9a]">To</span>
             <input type="date" value={to} onChange={(e) => { setTo(e.target.value); resetPaging(); }} aria-label="To date" className="w-full bg-transparent outline-none" />
           </label>
         </div>

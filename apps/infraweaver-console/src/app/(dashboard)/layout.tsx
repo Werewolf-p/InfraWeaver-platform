@@ -15,6 +15,8 @@ import {
   ChevronDown, ChevronRight, Settings, LogOut, Server,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useMotionSafe } from "@/lib/spring";
+import { useDialogA11y } from "@/hooks/use-dialog-a11y";
 import { useQuery } from "@tanstack/react-query";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
 import { NAV_GROUPS, GOTO_SHORTCUTS } from "@/lib/nav-config";
@@ -155,6 +157,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [countdown, setCountdown] = useState(300);
   const [searchOpen, setSearchOpen] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
+  const sessionDialogRef = useRef<HTMLDivElement | null>(null);
+  const motionSafe = useMotionSafe();
+  // Focus-trap + scroll-lock + focus-restore for the session-expiry modal.
+  // Escape must NOT silently dismiss a security warning, so closeOnEscape is off.
+  useDialogA11y({
+    open: sessionWarning,
+    onClose: () => setSessionWarning(false),
+    ref: sessionDialogRef,
+    closeOnEscape: false,
+  });
   const handlePullToRefresh = async () => {
     router.refresh();
     await new Promise<void>((resolve) => {
@@ -369,7 +381,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <SimpleModeProvider>
     <a
       href="#dashboard-main"
-      className="sr-only fixed left-4 top-4 z-[9999] rounded-lg bg-[#0078D4] px-3 py-2 text-sm font-medium text-white focus:not-sr-only"
+      className="sr-only fixed left-4 top-4 z-max rounded-lg bg-[#0078D4] px-3 py-2 text-sm font-medium text-white focus:not-sr-only"
     >
       Skip to content
     </a>
@@ -389,7 +401,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-40 bg-black/70 md:hidden"
+              transition={motionSafe.transition({ duration: 0.2 })}
+              className="fixed inset-0 z-drawer-backdrop bg-black/70 md:hidden"
               style={{ touchAction: "pan-y" }}
               onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}
             />
@@ -398,7 +411,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               initial={{ x: -300 }}
               animate={{ x: 0 }}
               exit={{ x: -300 }}
-              transition={{ type: "spring", damping: 50, stiffness: 700, restDelta: 0.5 }}
+              transition={motionSafe.transition({ type: "spring", damping: 50, stiffness: 700, restDelta: 0.5 })}
               drag="x"
               dragConstraints={{ left: -300, right: 0 }}
               dragElastic={0}
@@ -406,7 +419,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onDragEnd={(_, info) => {
                 if (info.offset.x < -60 || info.velocity.x < -300) { setMobileOpen(false); setDrawerSearch(""); }
               }}
-              className="fixed left-0 top-0 bottom-0 z-50 flex w-[min(86vw,320px)] flex-col overflow-hidden border-r border-gray-200 dark:border-[#222] bg-white dark:bg-[#111] md:hidden"
+              className="fixed left-0 top-0 bottom-0 z-drawer flex w-[min(86vw,320px)] flex-col overflow-hidden border-r border-gray-200 dark:border-[#222] bg-white dark:bg-[#111] md:hidden"
               style={{ touchAction: "pan-y" }}
             >
               {/* ── ITER 1: Header with branding + cluster health dot ── */}
@@ -423,7 +436,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
                 <button
                   onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}
-                  className="flex h-11 w-11 items-center justify-center rounded-xl text-gray-400 dark:text-[#666] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-white touch-manipulation"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-gray-400 dark:text-[#9a9a9a] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-white touch-manipulation"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -432,16 +445,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {/* ── ITER 1: Search ── */}
               <div className="flex-shrink-0 px-3 py-2.5 border-b border-gray-200 dark:border-[#1e1e1e]">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
                   <input
                     value={drawerSearch}
                     onChange={e => setDrawerSearch(e.target.value)}
                     placeholder="Search pages…"
-                    className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-xl pl-9 pr-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] focus:outline-none focus:border-[#0078D4]/50"
+                    className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-xl pl-9 pr-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:outline-none focus:border-[#0078D4]/50"
                   />
                   {drawerSearch && (
                     <button onClick={() => setDrawerSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 touch-manipulation">
-                      <X className="w-3.5 h-3.5 text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-white" />
+                      <X className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a] hover:text-gray-900 dark:hover:text-white" />
                     </button>
                   )}
                 </div>
@@ -453,7 +466,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   className="flex-shrink-0 px-3 pt-2.5 pb-1"
                   onPointerDown={e => e.stopPropagation()}
                 >
-                  <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-[#444] mb-1.5 px-1">Recent</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-[#8a8a8a] mb-1.5 px-1">Recent</p>
                   <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none" style={{ touchAction: "pan-x" }}>
                     {recentPages.slice(0, 4).map((page: { href: string; title: string }) => (
                       <Link key={page.href} href={page.href} onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}>
@@ -495,7 +508,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className={cn("text-sm font-medium truncate", isActive ? "text-[#0078D4]" : "text-gray-600 dark:text-[#ccc]")}>{item.label}</div>
-                              {item.description && <div className="text-[10px] text-gray-400 dark:text-[#555] truncate">{item.description}</div>}
+                              {item.description && <div className="text-[10px] text-gray-400 dark:text-[#8a8a8a] truncate">{item.description}</div>}
                             </div>
                             {isActive && <div className="w-1.5 h-1.5 rounded-full bg-[#0078D4] flex-shrink-0" />}
                           </div>
@@ -511,7 +524,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       i.label.toLowerCase().includes(drawerSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(drawerSearch.toLowerCase())
                     ).length === 0 && (
-                      <div className="py-6 text-center text-gray-400 dark:text-[#444] text-sm">No pages match &ldquo;{drawerSearch}&rdquo; — searching resources…</div>
+                      <div className="py-6 text-center text-gray-400 dark:text-[#8a8a8a] text-sm">No pages match &ldquo;{drawerSearch}&rdquo; — searching resources…</div>
                     )}
                   </div>
                 )}
@@ -540,7 +553,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           {group.label}
                         </span>
                         {/* Item count badge */}
-                        <span className="text-[9px] font-mono bg-gray-50 dark:bg-[#1e1e1e] border border-gray-200 dark:border-[#2a2a2a] px-1.5 py-0.5 rounded-full text-gray-400 dark:text-[#555]">
+                        <span className="text-[9px] font-mono bg-gray-50 dark:bg-[#1e1e1e] border border-gray-200 dark:border-[#2a2a2a] px-1.5 py-0.5 rounded-full text-gray-400 dark:text-[#8a8a8a]">
                           {group.items.length}
                         </span>
                         {isOpen
@@ -584,7 +597,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                           "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors",
                                           isActive ? "bg-[rgba(0,120,212,0.2)]" : "bg-[#181818]"
                                         )}>
-                                          <item.icon className={cn("w-4 h-4", isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#666]")} />
+                                          <item.icon className={cn("w-4 h-4", isActive ? "text-[#0078D4]" : "text-gray-400 dark:text-[#9a9a9a]")} />
                                         </div>
                                         <div className="min-w-0 flex-1">
                                           <div className={cn(
@@ -615,7 +628,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {/* ── ITER 5: Footer — user profile + quick actions ── */}
               <div className="flex-shrink-0 border-t border-gray-200 dark:border-[#1e1e1e]" style={{ paddingBottom: "calc(env(safe-area-inset-bottom,0px) + 6px)" }}>
                 <div className="px-4 pt-3 pb-1">
-                  <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-[#444] mb-1.5">Active Cluster</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-[#8a8a8a] mb-1.5">Active Cluster</p>
                   <ClusterSelector popupDirection="up" />
                 </div>
                 {/* User row */}
@@ -630,7 +643,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       <div className="text-[12px] font-medium text-gray-700 dark:text-[#d4d4d4] truncate leading-tight">
                         {session?.user?.name ?? "User"}
                       </div>
-                      <div className="text-[10px] text-gray-400 dark:text-[#444] truncate leading-tight mt-0.5">
+                      <div className="text-[10px] text-gray-400 dark:text-[#8a8a8a] truncate leading-tight mt-0.5">
                         {session?.user?.email ?? ""}
                       </div>
                     </div>
@@ -650,14 +663,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {/* Quick action row */}
                 <div className="flex items-center gap-1 px-3 pb-1">
                   <Link href="/settings" onClick={() => { setMobileOpen(false); setDrawerSearch(""); }}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-gray-400 dark:text-[#555] hover:text-[#999] hover:bg-[#181818] transition-colors touch-manipulation text-[11px]"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-gray-400 dark:text-[#8a8a8a] hover:text-[#999] hover:bg-[#181818] transition-colors touch-manipulation text-[11px]"
                   >
                     <Settings className="w-3.5 h-3.5" />
                     <span>Settings</span>
                   </Link>
                   <button
                     onClick={() => signOut({ callbackUrl: "/auth/signin" })}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-gray-400 dark:text-[#555] hover:text-red-400 hover:bg-[#1a1010] transition-colors touch-manipulation text-[11px]"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-gray-400 dark:text-[#8a8a8a] hover:text-red-400 hover:bg-[#1a1010] transition-colors touch-manipulation text-[11px]"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Sign out</span>
@@ -670,7 +683,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       </AnimatePresence>
 
-      <div className="relative z-10 flex min-w-0 w-full flex-1 flex-col overflow-hidden overflow-x-hidden">
+      <div className="relative z-raised flex min-w-0 w-full flex-1 flex-col overflow-hidden overflow-x-hidden">
         <TopBar onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setSearchOpen(true)} />
         <StatusBar />
         <Breadcrumb className="hidden sm:flex" />
@@ -692,7 +705,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
         <div className="hidden xl:flex items-center justify-between gap-3 border-b border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#101010] px-6 py-2">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-gray-400 dark:text-[#555]">Recent</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-gray-400 dark:text-[#8a8a8a]">Recent</span>
             {recentPages.length > 0 ? (
               recentPages.slice(0, 4).map((page) => (
                 <Link
@@ -704,7 +717,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </Link>
               ))
             ) : (
-              <span className="text-xs text-gray-400 dark:text-[#666]">Use quick search to jump between dashboards and operator tools.</span>
+              <span className="text-xs text-gray-400 dark:text-[#9a9a9a]">Use quick search to jump between dashboards and operator tools.</span>
             )}
           </div>
           <button
@@ -713,7 +726,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#141414] px-3 py-1.5 text-xs text-gray-500 dark:text-[#9e9e9e] transition-colors hover:border-[#0078D4]/40 hover:text-gray-900 dark:hover:text-white"
           >
             Quick search
-            <span className="rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-1.5 py-0.5 font-mono text-[10px] text-gray-400 dark:text-[#666]">⌘K</span>
+            <span className="rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-1.5 py-0.5 font-mono text-[10px] text-gray-400 dark:text-[#9a9a9a]">⌘K</span>
           </button>
         </div>
         <main
@@ -728,7 +741,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
-                transition={{ type: "spring", stiffness: 260, damping: 24, mass: 1 }}
+                transition={motionSafe.transition({ type: "spring", stiffness: 260, damping: 24, mass: 1 })}
                 className="min-w-0"
               >
                 <ErrorBoundary>
@@ -745,7 +758,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Bottom mobile nav — Home | Game Hub | Apps | Cluster | More */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 flex gap-1 border-t border-gray-200 dark:border-[#2a2a2a] bg-[#141414]/95 px-2 pt-2 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden"
+        className="fixed bottom-0 left-0 right-0 z-nav flex gap-1 border-t border-gray-200 dark:border-[#2a2a2a] bg-white/95 dark:bg-[#141414]/95 px-2 pt-2 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}
       >
         {mobilePrimaryNavItems.map((item) => {
@@ -757,7 +770,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(false); }}
               className={cn(
                 "relative flex min-h-[58px] flex-1 flex-col items-center justify-center rounded-2xl px-2 py-2 text-[10px] transition-colors touch-manipulation",
-                isActive ? "bg-[#0078D4]/10 text-[#4db3ff]" : "text-gray-400 dark:text-[#666] hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-[#9e9e9e]",
+                isActive ? "bg-[#0078D4]/10 text-[#4db3ff]" : "text-gray-400 dark:text-[#9a9a9a] hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-[#9e9e9e]",
               )}
             >
               {isActive ? <span className="absolute top-2 h-1.5 w-1.5 rounded-full bg-[#0078D4]" /> : null}
@@ -770,7 +783,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           onClick={() => { if (typeof navigator !== "undefined") navigator.vibrate?.(10); setMoreOpen(true); }}
           className={cn(
             "relative flex min-h-[58px] flex-1 flex-col items-center justify-center rounded-2xl px-2 py-2 text-[10px] transition-colors touch-manipulation",
-            moreOpen ? "bg-[#0078D4]/10 text-[#4db3ff]" : "text-gray-400 dark:text-[#666] hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-[#9e9e9e]",
+            moreOpen ? "bg-[#0078D4]/10 text-[#4db3ff]" : "text-gray-400 dark:text-[#9a9a9a] hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-700 dark:hover:text-[#9e9e9e]",
           )}
         >
           {moreOpen ? <span className="absolute top-2 h-1.5 w-1.5 rounded-full bg-[#0078D4]" /> : null}
@@ -787,7 +800,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[200] bg-black/70 sm:hidden"
+              transition={motionSafe.transition({ duration: 0.2 })}
+              className="fixed inset-0 z-overlay bg-black/70 sm:hidden"
               style={{ touchAction: "pan-y" }}
               onClick={() => { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }}
             />
@@ -795,7 +809,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 50, stiffness: 700, restDelta: 0.5 }}
+              transition={motionSafe.transition({ type: "spring", damping: 50, stiffness: 700, restDelta: 0.5 })}
               drag="y"
               dragConstraints={{ top: 0 }}
               dragElastic={0}
@@ -803,7 +817,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               onDragEnd={(_, info) => {
                 if (info.offset.y > 80 || info.velocity.y > 500) { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }
               }}
-              className="fixed inset-x-0 bottom-0 z-[201] flex max-h-[85vh] flex-col overflow-hidden rounded-t-[28px] border border-gray-200 dark:border-[#222] bg-white dark:bg-[#111] shadow-2xl sm:hidden"
+              className="fixed inset-x-0 bottom-0 z-modal flex max-h-[85vh] flex-col overflow-hidden rounded-t-[28px] border border-gray-200 dark:border-[#222] bg-white dark:bg-[#111] shadow-2xl sm:hidden"
               style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 12px)", touchAction: "pan-y" }}
             >
               <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-gray-100 dark:bg-[#2a2a2a]" />
@@ -812,11 +826,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="flex-shrink-0 flex items-center justify-between px-4 pt-1 pb-2.5">
                 <div>
                   <h2 className="text-base font-semibold text-gray-900 dark:text-white leading-tight">Menu</h2>
-                  <p className="text-[10px] text-gray-400 dark:text-[#555] mt-0.5">{moreNavGroups.reduce((n, g) => n + g.items.length, 0)} pages grouped for quick access</p>
+                  <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a] mt-0.5">{moreNavGroups.reduce((n, g) => n + g.items.length, 0)} pages grouped for quick access</p>
                 </div>
                 <button
                   onClick={() => { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }}
-                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-50 dark:bg-[#1e1e1e] text-gray-400 dark:text-[#666] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-white touch-manipulation"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-50 dark:bg-[#1e1e1e] text-gray-400 dark:text-[#9a9a9a] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-900 dark:hover:text-white touch-manipulation"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -825,16 +839,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {/* Search */}
               <div className="flex-shrink-0 px-4 pb-3">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
                   <input
                     value={moreSearch}
                     onChange={e => { setMoreSearch(e.target.value); setMoreCategory("all"); }}
                     placeholder="Search all pages…"
-                    className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-xl pl-9 pr-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] focus:outline-none focus:border-[#0078D4]/50"
+                    className="w-full bg-white dark:bg-[#0d0d0d] border border-gray-200 dark:border-[#2a2a2a] rounded-xl pl-9 pr-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:outline-none focus:border-[#0078D4]/50"
                   />
                   {moreSearch && (
                     <button onClick={() => setMoreSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 touch-manipulation">
-                      <X className="w-3.5 h-3.5 text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-white" />
+                      <X className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a] hover:text-gray-900 dark:hover:text-white" />
                     </button>
                   )}
                 </div>
@@ -850,7 +864,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {/* Recent pages (all + no search) */}
                 {recentPages.length > 0 && !moreSearch && moreCategory === "all" && (
                   <div className="mb-4">
-                    <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-[#444] px-2 mb-2">Recently visited</p>
+                    <p className="text-[9px] font-semibold uppercase tracking-widest text-gray-400 dark:text-[#8a8a8a] px-2 mb-2">Recently visited</p>
                     <div
                       className="flex gap-2 overflow-x-auto pb-1 scrollbar-none"
                       onPointerDown={e => e.stopPropagation()}
@@ -887,7 +901,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className={cn("text-sm font-medium truncate", isActive ? "text-[#4db3ff]" : "text-gray-600 dark:text-[#ccc]")}>{item.label}</div>
-                              {item.description && <div className="text-[11px] text-gray-400 dark:text-[#555] truncate">{item.description}</div>}
+                              {item.description && <div className="text-[11px] text-gray-400 dark:text-[#8a8a8a] truncate">{item.description}</div>}
                             </div>
                             {isActive && <div className="w-1.5 h-1.5 rounded-full bg-[#0078D4] flex-shrink-0" />}
                           </div>
@@ -903,7 +917,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       i.label.toLowerCase().includes(moreSearch.toLowerCase()) ||
                       (i.description ?? "").toLowerCase().includes(moreSearch.toLowerCase())
                     ).length === 0 && (
-                      <div className="text-center py-8 text-gray-400 dark:text-[#444] text-sm">No pages match &ldquo;{moreSearch}&rdquo; — searching resources…</div>
+                      <div className="text-center py-8 text-gray-400 dark:text-[#8a8a8a] text-sm">No pages match &ldquo;{moreSearch}&rdquo; — searching resources…</div>
                     )}
                   </div>
                 )}
@@ -916,9 +930,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       {/* Section header */}
                       <div className="flex items-center gap-2 px-1 mb-2.5">
                         <span className={cn("w-2 h-2 rounded-full flex-shrink-0", accent)} />
-                        <group.icon className="w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#555]">{group.label}</p>
-                        <span className="text-[9px] font-mono text-gray-400 dark:text-[#444] bg-white dark:bg-[#1a1a1a] px-1.5 py-0.5 rounded-full">{group.items.length}</span>
+                        <group.icon className="w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-[#8a8a8a]">{group.label}</p>
+                        <span className="text-[9px] font-mono text-gray-400 dark:text-[#8a8a8a] bg-white dark:bg-[#1a1a1a] px-1.5 py-0.5 rounded-full">{group.items.length}</span>
                       </div>
                       {/* 2-column item grid */}
                       <div className="grid grid-cols-2 gap-1.5">
@@ -936,12 +950,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                   "w-8 h-8 rounded-lg flex items-center justify-center",
                                   isActive ? "bg-[rgba(0,120,212,0.2)]" : "bg-[#202020]"
                                 )}>
-                                  <item.icon className={cn("w-4 h-4", isActive ? "text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} />
+                                  <item.icon className={cn("w-4 h-4", isActive ? "text-[#4db3ff]" : "text-gray-400 dark:text-[#9a9a9a]")} />
                                 </div>
                                 <div className="min-w-0">
                                   <div className={cn("text-[12px] font-medium leading-tight truncate", isActive ? "text-[#4db3ff]" : "text-gray-600 dark:text-[#ccc]")}>{item.label}</div>
                                   {item.description && (
-                                    <div className="text-[9px] text-gray-400 dark:text-[#444] leading-tight mt-0.5 line-clamp-2">{item.description}</div>
+                                    <div className="text-[9px] text-gray-400 dark:text-[#8a8a8a] leading-tight mt-0.5 line-clamp-2">{item.description}</div>
                                   )}
                                 </div>
                               </div>
@@ -955,8 +969,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
 
               <div className="flex-shrink-0 border-t border-gray-200 dark:border-[#1e1e1e] px-4 pt-3 text-center">
-                <p className="text-[10px] text-gray-400 dark:text-[#555]">InfraWeaver Console</p>
-                <p className="mt-1 text-[10px] font-mono text-gray-400 dark:text-[#444]">
+                <p className="text-[10px] text-gray-400 dark:text-[#8a8a8a]">InfraWeaver Console</p>
+                <p className="mt-1 text-[10px] font-mono text-gray-400 dark:text-[#8a8a8a]">
                   v{process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
                 </p>
               </div>
@@ -974,20 +988,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999] flex items-end justify-center px-0 sm:items-center sm:px-4"
+            transition={motionSafe.transition({ duration: 0.2 })}
+            className="fixed inset-0 z-max flex items-end justify-center px-0 sm:items-center sm:px-4"
           >
             <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
             <motion.div
+              ref={sessionDialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="session-expiry-title"
               initial={{ opacity: 0, scale: 0.95, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 8 }}
-              transition={{ duration: 0.15 }}
+              transition={motionSafe.transition({ duration: 0.15 })}
               className="relative w-full rounded-t-2xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] px-5 pt-5 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-center shadow-2xl sm:max-w-sm sm:rounded-xl sm:p-6"
             >
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-yellow-500/20 bg-yellow-500/10">
                 <AlertTriangle className="h-6 w-6 text-yellow-400" />
               </div>
-              <h2 className="mb-1 text-lg font-semibold text-gray-900 dark:text-white">Session expiring soon</h2>
+              <h2 id="session-expiry-title" className="mb-1 text-lg font-semibold text-gray-900 dark:text-white">Session expiring soon</h2>
               <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
                 Your session will expire in{" "}
                 <span className="font-mono text-yellow-400">

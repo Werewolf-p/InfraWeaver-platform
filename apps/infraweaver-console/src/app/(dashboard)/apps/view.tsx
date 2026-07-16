@@ -1131,7 +1131,7 @@ function AllInstalledTab() {
                   { label: "Syncing", value: summary.syncing, tone: "text-blue-300" },
                 ].map(item => (
                   <div key={item.label} className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">{item.label}</p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#9a9a9a]">{item.label}</p>
                     <p className={`mt-2 text-2xl font-semibold ${item.tone}`}>{item.value}</p>
                   </div>
                 ))}
@@ -1316,7 +1316,7 @@ function AllInstalledTab() {
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#666] text-xs">
+                <tr className="border-b border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#9a9a9a] text-xs">
                   <th className="w-10 py-2 px-3" />
                   <th className="text-left py-2 px-3 font-medium">Name</th>
                   {!simpleMode && <th className="text-left py-2 px-3 font-medium">Namespace</th>}
@@ -1352,7 +1352,7 @@ function AllInstalledTab() {
         {filtered.length > 0 && (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#666] text-xs">
+              <tr className="border-b border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#9a9a9a] text-xs">
                 <th className="w-10 py-2 px-3">
                   <input type="checkbox" checked={filtered.length > 0 && filtered.every(row => selectedIds.has(row.id))} onChange={selectAllVisible} />
                 </th>
@@ -1401,7 +1401,7 @@ function AllInstalledTab() {
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       {row.ingressHost && <p className="text-xs text-[#4a9eff] font-mono truncate max-w-[240px]">{row.ingressHost}</p>}
                       <AppAccessBadges access={row.access} />
-                      {row.createdAt && <span className="text-xs text-gray-400 dark:text-[#666]"><RelativeTime date={row.createdAt} live={false} className="text-xs text-gray-400 dark:text-[#666]" /></span>}
+                      {row.createdAt && <span className="text-xs text-gray-400 dark:text-[#9a9a9a]"><RelativeTime date={row.createdAt} live={false} className="text-xs text-gray-400 dark:text-[#9a9a9a]" /></span>}
                     </div>
                   </td>
                   {!simpleMode && <td className="py-2.5 px-3 align-top"><div className="flex items-center gap-2"><span className="font-mono text-xs text-gray-500 dark:text-[#9e9e9e]">{row.namespace}</span><CopyButton text={row.namespace} className="h-7 px-2 text-[11px]" /></div></td>}
@@ -1409,8 +1409,8 @@ function AllInstalledTab() {
                   <td className="py-2.5 px-3 align-top">{row.source === "WordPress" ? <span className="text-xs text-slate-500 dark:text-slate-400" title="WordPress sites are provisioned directly, not GitOps-synced">—</span> : row.powerState === "off" ? <span className="text-xs text-slate-500 dark:text-slate-400">Sync paused</span> : <StatusBadge status={row.syncStatus} />}</td>
                   <td className="py-2.5 px-3 align-top"><span className={cn("px-2 py-0.5 rounded text-xs font-medium", SOURCE_PILL_CLASS[row.source])}>{row.source}</span></td>
                   {!simpleMode && (
-                    <td className="py-2.5 px-3 align-top text-xs text-gray-400 dark:text-[#666]">
-                      <div>{row.lastSync ? <RelativeTime date={row.lastSync} live={false} className="text-xs text-gray-400 dark:text-[#666]" /> : row.source === "WordPress" ? "—" : "Never synced"}</div>
+                    <td className="py-2.5 px-3 align-top text-xs text-gray-400 dark:text-[#9a9a9a]">
+                      <div>{row.lastSync ? <RelativeTime date={row.lastSync} live={false} className="text-xs text-gray-400 dark:text-[#9a9a9a]" /> : row.source === "WordPress" ? "—" : "Never synced"}</div>
                       <div className="mt-1">{row.lastSync ? new Date(row.lastSync).toLocaleString() : "—"}</div>
                     </td>
                   )}
@@ -1476,7 +1476,7 @@ function AllInstalledTab() {
               {row.source === "Catalog" && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
                   <PolicyBadge slug={row.name} />
-                  <button onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })} disabled={!canManageApps} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#666] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors min-h-[36px] disabled:opacity-50">
+                  <button onClick={() => setUpdatePolicyApp({ name: row.name, slug: row.name })} disabled={!canManageApps} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-gray-200 dark:border-[#2a2a2a] text-gray-400 dark:text-[#9a9a9a] hover:text-[#0078D4] hover:border-[#0078D4]/40 transition-colors min-h-[36px] disabled:opacity-50">
                     <Settings2 className="w-3.5 h-3.5" /> Update Policy
                   </button>
                 </div>
@@ -1712,12 +1712,12 @@ function CatalogBrowseView({
       {/* Toolbar */}
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#555]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search catalog apps…"
-            className="w-full bg-white dark:bg-[#0f0f0f] border border-gray-200 dark:border-[#333] rounded-lg pl-9 pr-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] focus:outline-none focus:border-[#0078D4]/50"
+            className="w-full bg-white dark:bg-[#0f0f0f] border border-gray-200 dark:border-[#333] rounded-lg pl-9 pr-3 py-2 text-sm text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:outline-none focus:border-[#0078D4]/50"
           />
         </div>
         <button
@@ -1732,7 +1732,7 @@ function CatalogBrowseView({
 
       {/* Counts */}
       {!loading && (
-        <p className="text-xs text-gray-400 dark:text-[#666]">
+        <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">
           {sorted.length} app{sorted.length !== 1 ? "s" : ""} in catalog
           {installedNames.size > 0 && ` · ${installedNames.size} installed`}
         </p>
@@ -1746,7 +1746,7 @@ function CatalogBrowseView({
           ))}
         </div>
       ) : sorted.length === 0 ? (
-        <div className="text-center py-16 text-gray-400 dark:text-[#555]">
+        <div className="text-center py-16 text-gray-400 dark:text-[#8a8a8a]">
           <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No catalog apps found</p>
         </div>
@@ -2263,7 +2263,7 @@ function DeployModal({ app, onClose }: { app: AppSummary; onClose: () => void })
 
   // NOTE: no backdrop-blur — iOS Safari backdrop-filter causes sibling content to be invisible
   return (
-    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/75 p-0 sm:p-4"
+    <div className="fixed inset-0 z-modal flex items-end sm:items-center justify-center bg-black/75 p-0 sm:p-4"
       onClick={(e) => { if (e.target === e.currentTarget && step !== "deploying") onClose(); }}>
       <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
@@ -2997,7 +2997,7 @@ export function AppsView() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/75 p-4"
+              className="fixed inset-0 z-modal flex items-end sm:items-center justify-center bg-black/75 p-4"
               onClick={() => setShowInstallModal(false)}
             >
               <motion.div
@@ -3010,7 +3010,7 @@ export function AppsView() {
               >
                 <div className="flex items-center justify-between mb-5">
                   <h2 className="text-base font-semibold text-gray-900 dark:text-white">Choose Install Source</h2>
-                  <button onClick={() => setShowInstallModal(false)} className="text-gray-400 dark:text-[#666] hover:text-gray-900 dark:hover:text-white transition-colors">
+                  <button onClick={() => setShowInstallModal(false)} className="text-gray-400 dark:text-[#9a9a9a] hover:text-gray-900 dark:hover:text-white transition-colors">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
@@ -3022,7 +3022,7 @@ export function AppsView() {
                     <Package className="w-8 h-8 text-gray-500 dark:text-[#9e9e9e] group-hover:text-indigo-400 transition-colors" />
                     <div className="text-center">
                       <p className="text-sm font-medium text-gray-900 dark:text-white">Platform Catalog</p>
-                      <p className="text-xs text-gray-400 dark:text-[#666] mt-0.5">Helm &amp; Git apps</p>
+                      <p className="text-xs text-gray-400 dark:text-[#9a9a9a] mt-0.5">Helm &amp; Git apps</p>
                     </div>
                   </button>
                   <button
@@ -3032,7 +3032,7 @@ export function AppsView() {
                     <Store className="w-8 h-8 text-gray-500 dark:text-[#9e9e9e] group-hover:text-purple-400 transition-colors" />
                     <div className="text-center">
                       <p className="text-sm font-medium text-gray-900 dark:text-white">Community Store</p>
-                      <p className="text-xs text-gray-400 dark:text-[#666] mt-0.5">3,500+ UnrAid apps</p>
+                      <p className="text-xs text-gray-400 dark:text-[#9a9a9a] mt-0.5">3,500+ UnrAid apps</p>
                     </div>
                   </button>
                 </div>

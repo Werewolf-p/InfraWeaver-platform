@@ -118,7 +118,7 @@ export function ClusterSelector() {
       </button>
 
       {open && clusters.length > 1 ? (
-        <div className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] shadow-2xl">
+        <div className="absolute right-0 top-full z-popover mt-2 w-64 overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] shadow-2xl">
           <div className="border-b border-gray-200 dark:border-[#2a2a2a] px-3 py-2">
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-[#777]">Active cluster</p>
           </div>

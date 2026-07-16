@@ -176,7 +176,7 @@ function MigratePodModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75"
+      className="fixed inset-0 z-modal flex items-center justify-center p-4 bg-black/75"
       onClick={onClose}
     >
       <motion.div
@@ -749,8 +749,8 @@ export default function ClusterPage() {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <Globe className="mb-4 h-10 w-10 text-gray-700 dark:text-[#333]" />
-        <p className="text-sm font-medium text-gray-400 dark:text-[#666]">Select a specific cluster to view this page</p>
-        <p className="mt-1 text-xs text-gray-400 dark:text-[#444]">Use the cluster selector in the top bar</p>
+        <p className="text-sm font-medium text-gray-400 dark:text-[#9a9a9a]">Select a specific cluster to view this page</p>
+        <p className="mt-1 text-xs text-gray-400 dark:text-[#8a8a8a]">Use the cluster selector in the top bar</p>
       </div>
     );
   }
@@ -833,7 +833,7 @@ export default function ClusterPage() {
                   <div key={agent.agentId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/20 bg-black/20 px-4 py-3">
                     <div>
                       <p className="text-sm font-medium text-gray-900 dark:text-white">{agent.clusterName}</p>
-                      <p className="mt-0.5 font-mono text-[11px] text-gray-400 dark:text-[#666]">{agent.agentId}</p>
+                      <p className="mt-0.5 font-mono text-[11px] text-gray-400 dark:text-[#9a9a9a]">{agent.agentId}</p>
                       <p className="text-[11px] text-gray-500 dark:text-[#777]">
                         Connected {new Date(agent.receivedAt).toLocaleTimeString()} · CA {agent.clusterCaFingerprint.slice(0, 16)}…
                       </p>
@@ -960,11 +960,11 @@ export default function ClusterPage() {
               />
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">Search & filters</p>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#9a9a9a]">Search & filters</p>
                   <p className="mt-2 text-sm text-gray-600 dark:text-[#b8b8b8]">Use <span className="text-gray-900 dark:text-white">/</span> to focus the node search. <span className="text-gray-900 dark:text-white">Esc</span> clears filters and closes dialogs.</p>
                 </div>
                 <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">Events in scope</p>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#9a9a9a]">Events in scope</p>
                   <p className="mt-2 text-sm text-gray-600 dark:text-[#b8b8b8]">{recentEvents.length} recent event(s) loaded · {hotQuotas.length} quota hotspot(s) highlighted below.</p>
                 </div>
               </div>
@@ -1173,17 +1173,17 @@ export default function ClusterPage() {
           <CollapsibleSection title="Disruption budgets" count={pdbs.length} storageKey="cluster-pdbs" badge={<AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />}>
             <div className="mb-4 grid gap-3 md:grid-cols-3">
               <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">Protected services</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#9a9a9a]">Protected services</p>
                 <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{pdbs.length}</p>
                 <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">{protectedPdbs} currently allow at least one voluntary disruption.</p>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">Zero-disruption budgets</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#9a9a9a]">Zero-disruption budgets</p>
                 <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{blockedPdbs}</p>
                 <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">Single-replica platform services are expected here during maintenance windows.</p>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">At-risk budgets</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#9a9a9a]">At-risk budgets</p>
                 <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{pdbsAtRisk}</p>
                 <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">Budgets where currentHealthy is below desiredHealthy and disruption safety is already reduced.</p>
               </div>
@@ -1247,7 +1247,7 @@ export default function ClusterPage() {
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-semibold text-gray-900 dark:text-white">{quota.namespace}</p>
-                          <p className="text-xs text-gray-400 dark:text-[#666]">{quota.name}</p>
+                          <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">{quota.name}</p>
                         </div>
                         <span className={cn("rounded-full px-2 py-1 text-xs font-medium", quota.peak >= 90 ? "bg-red-500/10 text-red-300" : "bg-amber-500/10 text-amber-300")}>{quota.peak}% used</span>
                       </div>
@@ -1285,7 +1285,7 @@ export default function ClusterPage() {
                         <span className={cn("rounded-full px-2 py-1 text-[11px] font-medium", event.type === "Warning" ? "bg-red-500/10 text-red-300" : "bg-emerald-500/10 text-emerald-300")}>{event.type}</span>
                       </div>
                       <p className="mt-2 text-sm text-gray-600 dark:text-[#b8b8b8]">{event.message}</p>
-                      <p className="mt-2 text-xs text-gray-400 dark:text-[#666]">Last seen {timeAgo(event.lastTimestamp ?? new Date())}</p>
+                      <p className="mt-2 text-xs text-gray-400 dark:text-[#9a9a9a]">Last seen {timeAgo(event.lastTimestamp ?? new Date())}</p>
                     </div>
                   ))}
                 </div>
@@ -1346,7 +1346,7 @@ export default function ClusterPage() {
         )}
 
         {showAddNode && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75" onClick={() => setShowAddNode(false)}>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-modal flex items-center justify-center p-4 bg-black/75" onClick={() => setShowAddNode(false)}>
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} onClick={e => e.stopPropagation()} className="w-full max-w-lg bg-slate-100 dark:bg-slate-900 border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden">
               <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mt-3" />
               <div className="p-5">

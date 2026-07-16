@@ -39,9 +39,9 @@ export function AssignCart({ cart, assignments }: AssignCartProps) {
     <div className="space-y-4">
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-[#2a2a2a] dark:bg-[#111]">
         <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-[#1e1e1e]">
-          <ShoppingCart className="h-3.5 w-3.5 text-gray-400 dark:text-[#555]" />
+          <ShoppingCart className="h-3.5 w-3.5 text-gray-400 dark:text-[#8a8a8a]" />
           <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-[#888]">Staged changes</span>
-          <span className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] text-gray-400 dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:text-[#555]">{cart.dirtyCount}</span>
+          <span className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] text-gray-400 dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:text-[#8a8a8a]">{cart.dirtyCount}</span>
         </div>
 
         {cart.dirtyCount === 0 ? (
@@ -72,7 +72,7 @@ export function AssignCart({ cart, assignments }: AssignCartProps) {
                         {grant.expiresAt ? ` · expires ${new Date(grant.expiresAt).toLocaleDateString()}` : ""}
                       </p>
                     </div>
-                    <button onClick={() => cart.unstageGrant(grant.key)} aria-label="Remove from staged" className="p-1 text-gray-400 transition-colors hover:text-red-400 dark:text-[#444]"><X className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => cart.unstageGrant(grant.key)} aria-label="Remove from staged" className="p-1 text-gray-400 transition-colors hover:text-red-400 dark:text-[#8a8a8a]"><X className="h-3.5 w-3.5" /></button>
                   </motion.div>
                 );
               })}

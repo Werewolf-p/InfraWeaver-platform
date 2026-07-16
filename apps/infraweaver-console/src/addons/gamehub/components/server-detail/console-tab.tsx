@@ -475,7 +475,7 @@ const XtermConsole = dynamic<XtermConsoleProps>(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full items-center justify-center text-xs text-gray-400 dark:text-[#666]">
+      <div className="flex h-full items-center justify-center text-xs text-gray-400 dark:text-[#9a9a9a]">
         Loading terminal…
       </div>
     ),
@@ -484,7 +484,7 @@ const XtermConsole = dynamic<XtermConsoleProps>(
 
 function ModalShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
         className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl dark:border-[#2a2a2a] dark:bg-[#111]"
         onClick={(event) => event.stopPropagation()}
@@ -546,7 +546,7 @@ function HistorySearchModal({
         />
         <div className="max-h-72 space-y-1 overflow-y-auto">
           {filtered.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-xs text-gray-500 dark:border-[#2a2a2a] dark:text-[#666]">
+            <div className="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-xs text-gray-500 dark:border-[#2a2a2a] dark:text-[#9a9a9a]">
               No matching history
             </div>
           ) : (
@@ -743,7 +743,7 @@ function MacroPanel({
           ) : null}
           <div className="space-y-2">
             {macros.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-xs text-gray-500 dark:border-[#2a2a2a] dark:text-[#666]">
+              <div className="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-xs text-gray-500 dark:border-[#2a2a2a] dark:text-[#9a9a9a]">
                 No macros saved yet
               </div>
             ) : (
@@ -2123,7 +2123,7 @@ export function ConsoleTab({
     >
       <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-gray-200 px-3 py-2 dark:border-[#1e1e1e]" style={{ backgroundColor: currentTheme.bg }}>
         <Circle className={cn("h-2 w-2 flex-shrink-0", isConnected ? "fill-green-400 text-green-400" : "fill-[#444] text-gray-400")} />
-        <span className={cn("min-w-0 flex-1 truncate text-xs", isConnected ? "text-green-400" : "text-gray-400 dark:text-[#555]")}>
+        <span className={cn("min-w-0 flex-1 truncate text-xs", isConnected ? "text-green-400" : "text-gray-400 dark:text-[#8a8a8a]")}>
           {isConnected ? podLabel : status === "stopped" ? "Server stopped" : "Connecting…"}
         </span>
         {worldSavedAt ? (
@@ -2295,9 +2295,9 @@ export function ConsoleTab({
 
       <div className={cn("flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2 dark:border-[#1e1e1e] dark:bg-[#101010]", !showMobileSearch && "hidden sm:flex", showMobileSearch && "flex")}>
         <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-[#2a2a2a] dark:bg-[#0d0d0d]">
-          <Search className="h-3.5 w-3.5 text-gray-400 dark:text-[#666]" />
+          <Search className="h-3.5 w-3.5 text-gray-400 dark:text-[#9a9a9a]" />
           <input ref={searchRef} value={logSearch} onChange={(event) => setLogSearch(event.target.value)} placeholder="Search logs…" className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none dark:text-[#f2f2f2]" />
-          {logSearch ? <button type="button" onClick={() => setLogSearch("")} className="rounded p-1 text-gray-400 hover:bg-gray-100 dark:text-[#666] dark:hover:bg-[#1a1a1a]"><X className="h-3.5 w-3.5" /></button> : null}
+          {logSearch ? <button type="button" onClick={() => setLogSearch("")} className="rounded p-1 text-gray-400 hover:bg-gray-100 dark:text-[#9a9a9a] dark:hover:bg-[#1a1a1a]"><X className="h-3.5 w-3.5" /></button> : null}
         </div>
         <span className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-[#bbb] dark:border-[#2a2a2a] dark:bg-[#0d0d0d]">{matchingLineIds.length} matches</span>
         <button type="button" onClick={() => setLogFilterMode((value) => !value)} className={cn("rounded-lg border px-3 py-1.5 text-[11px]", logFilterMode ? "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]" : "border-gray-200 bg-white text-gray-500 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#888]")}>{logFilterMode ? "Filter mode" : "Dim mode"}</button>
@@ -2312,9 +2312,9 @@ export function ConsoleTab({
 
       <div className="border-b border-gray-200 bg-white/70 px-4 py-1.5 text-[11px] dark:border-[#1e1e1e] dark:bg-[#0d0d0d]/70">
         <span className="text-red-300">Errors: {errorCount} ({errorsPerMin}/min)</span>
-        <span className="mx-2 text-gray-500 dark:text-[#666]">·</span>
+        <span className="mx-2 text-gray-500 dark:text-[#9a9a9a]">·</span>
         <span className="text-yellow-300">Warnings: {warnCount} ({warnsPerMin}/min)</span>
-        <span className="mx-2 text-gray-500 dark:text-[#666]">·</span>
+        <span className="mx-2 text-gray-500 dark:text-[#9a9a9a]">·</span>
         <span className="text-gray-300">Lines: {totalCount}</span>
       </div>
 
@@ -2337,15 +2337,15 @@ export function ConsoleTab({
           {status === "stopped" && logLines.length === 0 ? (
             <div className="flex h-full items-center justify-center p-6">
               <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white px-6 py-10 text-center shadow-[0_0_40px_rgba(0,0,0,0.35)] dark:border-[#2a2a2a] dark:bg-[#111]">
-                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#666]"><Square className="h-8 w-8" /></div>
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-400 dark:border-[#2a2a2a] dark:bg-[#0d0d0d] dark:text-[#9a9a9a]"><Square className="h-8 w-8" /></div>
                 <h3 className="text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">Server Stopped</h3>
-                <p className="mt-2 text-sm text-gray-400 dark:text-[#666]">Start the server to stream logs and run commands.</p>
+                <p className="mt-2 text-sm text-gray-400 dark:text-[#9a9a9a]">Start the server to stream logs and run commands.</p>
                 {canStartServer ? (
                   <button type="button" onClick={() => void startServer()} disabled={startingServer} className="mx-auto mt-6 inline-flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/20 px-4 py-2.5 text-sm font-medium text-green-200 transition-colors hover:bg-green-500/30 disabled:opacity-50">
                     {startingServer ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                     Start Server
                   </button>
-                ) : <p className="mt-6 text-xs text-gray-400 dark:text-[#555]">You do not have permission to start this server.</p>}
+                ) : <p className="mt-6 text-xs text-gray-400 dark:text-[#8a8a8a]">You do not have permission to start this server.</p>}
               </div>
             </div>
           ) : xtermMode ? (
@@ -2362,7 +2362,7 @@ export function ConsoleTab({
               />
             </div>
           ) : displayedLogLines.length === 0 ? (
-            <div className="flex items-center gap-2 pt-1 text-gray-400 dark:text-[#444]">
+            <div className="flex items-center gap-2 pt-1 text-gray-400 dark:text-[#8a8a8a]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>{logLines.length === 0 ? "Connecting to log stream…" : "No logs match the current filters."}</span>
             </div>
@@ -2407,7 +2407,7 @@ export function ConsoleTab({
                       className="mr-2 mt-1"
                     />
                   ) : null}
-                  {showLineNumbers ? <span className="mr-2 w-8 flex-shrink-0 select-none text-right text-gray-600 dark:text-[#444]">{index + 1}</span> : null}
+                  {showLineNumbers ? <span className="mr-2 w-8 flex-shrink-0 select-none text-right text-gray-600 dark:text-[#8a8a8a]">{index + 1}</span> : null}
                   <div className="flex-1" style={{ fontSize: `${fontSize}px` }}>
                     {regexMode ? renderEntryLine(entry, showTimestamps) : highlightLogMatch(renderEntryLine(entry, showTimestamps), logSearch)}
                   </div>
@@ -2422,14 +2422,14 @@ export function ConsoleTab({
 
       {isConnected && (eggCommands.length > 0 || savedCommands.length > 0) ? (
         <div className="flex-shrink-0 border-t border-gray-200 bg-white dark:border-[#1a1a1a] dark:bg-[#0d0d0d]">
-          <button type="button" onClick={() => setShowCommandsPanel((value) => !value)} className="flex w-full items-center justify-between px-3 py-2 text-[10px] text-gray-400 transition-colors hover:text-gray-700 dark:text-[#555] dark:hover:text-[#888] sm:hidden">
+          <button type="button" onClick={() => setShowCommandsPanel((value) => !value)} className="flex w-full items-center justify-between px-3 py-2 text-[10px] text-gray-400 transition-colors hover:text-gray-700 dark:text-[#8a8a8a] dark:hover:text-[#888] sm:hidden">
             <span className="uppercase tracking-wide">Commands ({eggCommands.length + savedCommands.length})</span>
             <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", showCommandsPanel && "rotate-180")} />
           </button>
           <div className={cn("space-y-3 px-3 py-2", !showCommandsPanel && "hidden sm:block")}>
             {eggCommands.length > 0 ? (
               <div>
-                <p className="mb-2 text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#444]">Quick Commands</p>
+                <p className="mb-2 text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#8a8a8a]">Quick Commands</p>
                 <div className="overflow-x-auto scrollbar-none">
                   <div className="flex w-max gap-2 pb-1">
                     {eggCommands.map((entry) => (
@@ -2456,7 +2456,7 @@ export function ConsoleTab({
             ) : null}
             {savedCommands.length > 0 ? (
               <div>
-                <p className="mb-2 text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#444]">Saved Commands</p>
+                <p className="mb-2 text-[10px] uppercase tracking-wide text-gray-400 dark:text-[#8a8a8a]">Saved Commands</p>
                 <div className="overflow-x-auto scrollbar-none">
                   <div className="flex w-max gap-2 pb-1">
                     {savedCommands.map((entry) => {
@@ -2477,7 +2477,7 @@ export function ConsoleTab({
                               ✎
                             </button>
                           ) : null}
-                          <button type="button" onClick={() => void deleteSavedCommand(entry)} className="min-h-[36px] px-2 py-1 text-[10px] text-gray-400 transition-colors hover:bg-red-500/10 hover:text-red-300 dark:text-[#555]">✕</button>
+                          <button type="button" onClick={() => void deleteSavedCommand(entry)} className="min-h-[36px] px-2 py-1 text-[10px] text-gray-400 transition-colors hover:bg-red-500/10 hover:text-red-300 dark:text-[#8a8a8a]">✕</button>
                         </div>
                       );
                     })}
@@ -2531,7 +2531,7 @@ export function ConsoleTab({
                 className="flex-1 bg-transparent py-1 font-mono leading-none text-gray-900 outline-none placeholder:text-gray-400 disabled:cursor-not-allowed dark:text-[#f0f0f0] dark:placeholder:text-[#333]"
                 style={{ fontSize: `${fontSize}px` }}
               />
-              <button type="button" onClick={saveCurrentCommand} disabled={!command.trim()} title="Save command" className="rounded p-1 text-gray-400 transition-colors hover:text-gray-700 disabled:opacity-30 dark:text-[#444] dark:hover:text-[#888] sm:hidden">
+              <button type="button" onClick={saveCurrentCommand} disabled={!command.trim()} title="Save command" className="rounded p-1 text-gray-400 transition-colors hover:text-gray-700 disabled:opacity-30 dark:text-[#8a8a8a] dark:hover:text-[#888] sm:hidden">
                 <Save className="h-3.5 w-3.5" />
               </button>
             </div>

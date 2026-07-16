@@ -77,7 +77,7 @@ export function SessionsPanel({ username, open, onClose }: Props) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex">
+    <div className="fixed inset-0 z-modal flex">
       <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="w-96 bg-slate-100 dark:bg-slate-900 border-l border-gray-200 dark:border-white/10 flex flex-col h-full shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-white/10">

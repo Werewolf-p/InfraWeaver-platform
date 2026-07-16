@@ -94,7 +94,7 @@ export function AssignBySubject({ users, groups, assignments, cart, onGrant, sel
                         {assignment.expiresAt && <span className="inline-flex items-center gap-1 text-[10px] text-amber-500"><Clock className="h-3 w-3" />{new Date(assignment.expiresAt).toLocaleDateString()}</span>}
                         <button
                           onClick={() => cart.toggleRevoke({ id: assignment.id, principalType: assignment.principalType, principal: assignment.username })}
-                          className={cn("ml-auto p-1 transition-colors", revoked ? "text-indigo-400 hover:text-indigo-300" : "text-gray-400 hover:text-red-400 dark:text-[#444]")}
+                          className={cn("ml-auto p-1 transition-colors", revoked ? "text-indigo-400 hover:text-indigo-300" : "text-gray-400 hover:text-red-400 dark:text-[#8a8a8a]")}
                           title={revoked ? "Keep this assignment" : "Stage removal"}
                         >
                           {revoked ? <Undo2 className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
@@ -117,7 +117,7 @@ export function AssignBySubject({ users, groups, assignments, cart, onGrant, sel
                         <Plus className="h-3.5 w-3.5 text-emerald-500" />
                         <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">{role?.name ?? grant.roleId}</span>
                         <span className="text-[11px] text-slate-500 dark:text-slate-400">{scopeLabel(grant.scope)}</span>
-                        <button onClick={() => cart.unstageGrant(grant.key)} className="ml-auto p-1 text-gray-400 hover:text-red-400 dark:text-[#444]" title="Discard staged grant"><Trash2 className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => cart.unstageGrant(grant.key)} className="ml-auto p-1 text-gray-400 hover:text-red-400 dark:text-[#8a8a8a]" title="Discard staged grant"><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
                     );
                   })}

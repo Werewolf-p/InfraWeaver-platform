@@ -24,7 +24,7 @@ export function WidgetCard({ title, icon: Icon, children, onRemove, draggable, l
     >
       <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#2a2a2a] flex-shrink-0">
         {draggable && (
-          <GripVertical className={cn("w-4 h-4 text-gray-400 dark:text-[#555] cursor-grab transition-opacity", hovered ? "opacity-100" : "opacity-0")} />
+          <GripVertical className={cn("w-4 h-4 text-gray-400 dark:text-[#8a8a8a] cursor-grab transition-opacity", hovered ? "opacity-100" : "opacity-0")} />
         )}
         {Icon && <Icon className="w-4 h-4 text-[#0078D4] flex-shrink-0" />}
         <span className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2] flex-1">{title}</span>
@@ -32,7 +32,7 @@ export function WidgetCard({ title, icon: Icon, children, onRemove, draggable, l
         {onRemove && (
           <button
             onClick={onRemove}
-            className={cn("p-1 rounded text-gray-400 dark:text-[#555] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0078D4] focus-visible:opacity-100", hovered ? "opacity-100" : "opacity-0")}
+            className={cn("p-1 rounded text-gray-400 dark:text-[#8a8a8a] hover:text-gray-900 dark:hover:text-[#f2f2f2] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0078D4] focus-visible:opacity-100", hovered ? "opacity-100" : "opacity-0")}
             title="Remove widget"
           >
             <X className="w-3.5 h-3.5" />

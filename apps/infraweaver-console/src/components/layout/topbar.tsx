@@ -112,7 +112,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
           </div>
           <div className="min-w-0 md:hidden">
             <p className="truncate text-xs font-semibold text-gray-900 dark:text-[#f2f2f2]">InfraWeaver</p>
-            <p className="truncate text-[10px] text-gray-400 dark:text-[#666]">{currentTitle}</p>
+            <p className="truncate text-[10px] text-gray-400 dark:text-[#9a9a9a]">{currentTitle}</p>
           </div>
         </Link>
 
@@ -127,17 +127,17 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
             >
               {currentTitle}
             </motion.p>
-            <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0f0f0f] px-2 py-0.5 text-[10px] font-mono text-gray-400 dark:text-[#666]">
+            <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0f0f0f] px-2 py-0.5 text-[10px] font-mono text-gray-400 dark:text-[#9a9a9a]">
               v{appVersion}
             </span>
           </div>
-          <p className="truncate text-xs text-gray-400 dark:text-[#666]">{pageContext.description}</p>
+          <p className="truncate text-xs text-gray-400 dark:text-[#9a9a9a]">{pageContext.description}</p>
         </div>
 
         <button
           type="button"
           onClick={onSearchClick}
-          className="hidden max-w-xl flex-1 items-center gap-3 rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#0f0f0f] px-3 py-2 text-sm text-gray-400 dark:text-[#666] transition-colors hover:border-[#555] hover:text-gray-700 dark:hover:text-[#9e9e9e] md:flex"
+          className="hidden max-w-xl flex-1 items-center gap-3 rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#0f0f0f] px-3 py-2 text-sm text-gray-400 dark:text-[#9a9a9a] transition-colors hover:border-[#555] hover:text-gray-700 dark:hover:text-[#9e9e9e] md:flex"
         >
           <Search className="h-3.5 w-3.5" />
           <span>Search resources, pages, and commands…</span>
@@ -195,11 +195,11 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: -4 }}
                 transition={springs.snappy}
-                className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] shadow-xl"
+                className="absolute right-0 top-full z-popover mt-2 w-56 overflow-hidden rounded-xl border border-gray-200 dark:border-[#333] bg-white dark:bg-[#1a1a1a] shadow-xl"
               >
                 <div className="border-b border-gray-200 dark:border-[#2a2a2a] px-3 py-2">
                   <p className="text-xs font-semibold text-gray-900 dark:text-white">Quick create</p>
-                  <p className="mt-1 text-[11px] text-gray-400 dark:text-[#666]">Jump into common operator workflows.</p>
+                  <p className="mt-1 text-[11px] text-gray-400 dark:text-[#9a9a9a]">Jump into common operator workflows.</p>
                 </div>
                 <div className="py-1">
                   {QUICK_CREATE_ITEMS.map((item) => (
@@ -210,7 +210,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
                       onClick={() => setQuickOpen(false)}
                       className="flex items-center gap-2 px-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a]"
                     >
-                      <ExternalLink aria-hidden="true" className="h-3.5 w-3.5 text-gray-400 dark:text-[#555]" />
+                      <ExternalLink aria-hidden="true" className="h-3.5 w-3.5 text-gray-400 dark:text-[#8a8a8a]" />
                       {item.label}
                     </Link>
                   ))}
@@ -249,7 +249,7 @@ export function TopBar({ onMenuClick, onSearchClick }: { title?: string; onMenuC
           </div>
           <div className="min-w-0">
             <span className="block truncate text-xs text-gray-500 dark:text-[#9e9e9e]">{session?.user?.name ?? "Operator"}</span>
-            <span className="block text-[10px] text-gray-400 dark:text-[#555]">What’s new</span>
+            <span className="block text-[10px] text-gray-400 dark:text-[#8a8a8a]">What’s new</span>
           </div>
         </Link>
       </div>

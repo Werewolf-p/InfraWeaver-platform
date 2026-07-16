@@ -7,6 +7,8 @@ jest.mock("framer-motion", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.mock factory cannot reference the out-of-scope React import
   const ReactLib = require("react");
   return {
+    // Shared primitives now degrade motion via useMotionSafe() -> useReducedMotion().
+    useReducedMotion: () => false,
     AnimatePresence: ({ children }: { children: React.ReactNode }) =>
       ReactLib.createElement(ReactLib.Fragment, null, children),
     motion: new Proxy(

@@ -834,13 +834,13 @@ export function GameHubView() {
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex flex-col items-center gap-2 pt-1">
-              <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-yellow-300" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
+              <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#9a9a9a] transition-colors hover:border-[#3a3a3a] hover:text-yellow-300" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
                 <Star className={cn("h-4 w-4", favorites.has(server.name) && "fill-yellow-300 text-yellow-300")} />
               </button>
-              <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
-                {selected.has(server.name) ? <CheckSquare className="h-4 w-4 text-[#0078D4]" /> : <SquareIcon className="h-4 w-4 text-gray-400 dark:text-[#666]" />}
+              <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#9a9a9a] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
+                {selected.has(server.name) ? <CheckSquare className="h-4 w-4 text-[#0078D4]" /> : <SquareIcon className="h-4 w-4 text-gray-400 dark:text-[#9a9a9a]" />}
               </button>
-              <button onClick={(event) => { event.stopPropagation(); toggleExpanded(server.name); }} aria-expanded={isExpanded} aria-label={isExpanded ? `Collapse ${server.name} details` : `Expand ${server.name} details`} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white" title={isExpanded ? "Collapse details" : "Expand details"}>
+              <button onClick={(event) => { event.stopPropagation(); toggleExpanded(server.name); }} aria-expanded={isExpanded} aria-label={isExpanded ? `Collapse ${server.name} details` : `Expand ${server.name} details`} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#9a9a9a] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white" title={isExpanded ? "Collapse details" : "Expand details"}>
                 {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </button>
             </div>
@@ -1073,7 +1073,7 @@ export function GameHubView() {
           ) : (
             <span
               title="Requires game-hub:admin permission"
-              className="hidden min-h-[44px] cursor-not-allowed select-none items-center gap-2 rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-400 opacity-60 dark:bg-[#111] dark:text-[#555] md:inline-flex"
+              className="hidden min-h-[44px] cursor-not-allowed select-none items-center gap-2 rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-400 opacity-60 dark:bg-[#111] dark:text-[#8a8a8a] md:inline-flex"
             >
               <Lock className="h-4 w-4" />
               New Server
@@ -1099,14 +1099,14 @@ export function GameHubView() {
             <ChevronDown className={cn("h-4 w-4 transition-transform", mobileFiltersOpen && "rotate-180")} />
           </button>
           <div className="ml-auto flex items-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-1">
-            <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
-            <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
+            <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#9a9a9a]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
+            <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#9a9a9a]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className={cn("relative min-w-0 flex-1", mobileSearchOpen ? "block" : "hidden sm:block", "sm:min-w-[260px] sm:max-w-sm")}>
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-[#555]" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers, tags, or groups" className="min-h-[48px] w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] pl-10 pr-4 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] focus:border-[#0078D4]/50 focus:outline-none" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-[#8a8a8a]" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers, tags, or groups" className="min-h-[48px] w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] pl-10 pr-4 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:border-[#0078D4]/50 focus:outline-none" />
             <p className="mt-2 text-sm text-gray-500 dark:text-[#777]">Search by server name, game type, tag, or group.</p>
           </div>
           <div className={cn("w-full space-y-3", mobileFiltersOpen ? "block" : "hidden sm:block", "sm:w-auto sm:space-y-2")}>
@@ -1119,18 +1119,18 @@ export function GameHubView() {
             </HorizontalScrollHint>
             <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
               {uniqueGameTypes.length > 1 && (
-                <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="relative z-50 min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="relative z-popover min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
                   <option value="">All game types</option>
                   {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
                 </select>
               )}
               {allGroups.length > 0 && (
-                <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="relative z-50 min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="relative z-popover min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
                   <option value="">All groups</option>
                   {allGroups.map((group) => <option key={group} value={group}>{group}</option>)}
                 </select>
               )}
-              <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="relative z-50 min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+              <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="relative z-popover min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
                 <option value="health">Sort by health</option>
                 <option value="name">Sort by name</option>
                 <option value="status">Sort by status</option>
@@ -1139,8 +1139,8 @@ export function GameHubView() {
                 <option value="started">Sort by last started</option>
               </select>
               <div className="hidden items-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-1 sm:flex">
-                <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
-                <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
+                <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#9a9a9a]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
+                <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#9a9a9a]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
               </div>
               {(search || filterType || filterTag || filterGroup || filterStatus !== "all") && (
                 <button onClick={resetFilters} className="min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">Reset filters</button>
@@ -1253,7 +1253,7 @@ export function GameHubView() {
       {!isLoading && !error && servers.length > 0 && filteredServers.length === 0 && (
         <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-6 text-center">
           <p className="text-sm text-gray-900 dark:text-[#f2f2f2] font-medium">No servers match the current filters</p>
-          <p className="text-xs text-gray-400 dark:text-[#666] mt-1">Try clearing filters, changing the sort order, or searching for a different game.</p>
+          <p className="text-xs text-gray-400 dark:text-[#9a9a9a] mt-1">Try clearing filters, changing the sort order, or searching for a different game.</p>
         </div>
       )}
 
@@ -1296,7 +1296,7 @@ export function GameHubView() {
             <BarChart2 className="w-4 h-4 text-[#4db3ff]" />
             <div>
               <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Server Comparison</p>
-              <p className="text-xs text-gray-400 dark:text-[#666]">Compare up to three servers side by side.</p>
+              <p className="text-xs text-gray-400 dark:text-[#9a9a9a]">Compare up to three servers side by side.</p>
             </div>
           </div>
           <div className="space-y-3 p-3 sm:hidden">
@@ -1307,12 +1307,12 @@ export function GameHubView() {
                   <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-3 py-1 text-sm uppercase text-gray-500 dark:text-[#888]">{server.status}</span>
                 </div>
                 <dl className="grid grid-cols-2 gap-3 text-sm">
-                  <div><dt className="text-gray-400 dark:text-[#666]">Game</dt><dd className="mt-1">{server.gameType}</dd></div>
-                  <div><dt className="text-gray-400 dark:text-[#666]">Players</dt><dd className="mt-1">{server.playerCount ?? 0}</dd></div>
-                  <div><dt className="text-gray-400 dark:text-[#666]">Replicas</dt><dd className="mt-1">{replicaSummary(server)}</dd></div>
-                  <div><dt className="text-gray-400 dark:text-[#666]">Restarts</dt><dd className="mt-1">{server.restartCount ?? 0}</dd></div>
-                  <div><dt className="text-gray-400 dark:text-[#666]">CPU</dt><dd className="mt-1">{formatUsage(server.cpuUsage, server.cpuLimit, "cpu")}</dd></div>
-                  <div><dt className="text-gray-400 dark:text-[#666]">Memory</dt><dd className="mt-1">{formatUsage(server.memoryUsage, server.memoryLimit, "memory")}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#9a9a9a]">Game</dt><dd className="mt-1">{server.gameType}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#9a9a9a]">Players</dt><dd className="mt-1">{server.playerCount ?? 0}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#9a9a9a]">Replicas</dt><dd className="mt-1">{replicaSummary(server)}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#9a9a9a]">Restarts</dt><dd className="mt-1">{server.restartCount ?? 0}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#9a9a9a]">CPU</dt><dd className="mt-1">{formatUsage(server.cpuUsage, server.cpuLimit, "cpu")}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#9a9a9a]">Memory</dt><dd className="mt-1">{formatUsage(server.memoryUsage, server.memoryLimit, "memory")}</dd></div>
                 </dl>
               </div>
             ))}
@@ -1321,7 +1321,7 @@ export function GameHubView() {
             <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-white dark:bg-[#0d0d0d]">
                 <tr>
-                  <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-400 dark:text-[#666]">Metric</th>
+                  <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-400 dark:text-[#9a9a9a]">Metric</th>
                   {comparedServers.map((server) => (
                     <th key={server.name} className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</th>
                   ))}
@@ -1338,7 +1338,7 @@ export function GameHubView() {
                   { label: "Uptime", render: (server: GameServer) => formatUptime(server.podStartTime, now) },
                 ].map((row) => (
                   <tr key={row.label} className="border-t border-gray-200 dark:border-[#1e1e1e]">
-                    <td className="px-4 py-3 text-gray-400 dark:text-[#666] text-xs uppercase tracking-wide">{row.label}</td>
+                    <td className="px-4 py-3 text-gray-400 dark:text-[#9a9a9a] text-xs uppercase tracking-wide">{row.label}</td>
                     {comparedServers.map((server) => (
                       <td key={`${row.label}-${server.name}`} className="px-4 py-3 text-gray-700 dark:text-[#d4d4d4]">{row.render(server)}</td>
                     ))}

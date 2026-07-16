@@ -63,7 +63,7 @@ const APP_CATALOG: AppAccessOption[] = [
   },
 ];
 
-const inputCls = "w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#444] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm";
+const inputCls = "w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 py-3 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm";
 
 export function InviteModal({ open, onClose }: Props) {
   const { canAny, can } = useRBAC();
@@ -157,8 +157,8 @@ export function InviteModal({ open, onClose }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && handleClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/70" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[61] w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
+        <Dialog.Overlay className="fixed inset-0 z-overlay bg-black/70" />
+        <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-modal w-full overflow-y-auto bg-white dark:bg-[#111] p-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[90dvh] sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a] sm:p-6 sm:pt-6 sm:pb-6">
           <div className="mb-5 flex items-center justify-between gap-3">
             <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">
               <Mail className="h-4 w-4 text-[#3b82f6]" />
@@ -207,9 +207,9 @@ export function InviteModal({ open, onClose }: Props) {
                 <label className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">
                   <AppWindow className="h-4 w-4 text-[#3b82f6]" />
                   App access
-                  <span className="font-normal text-gray-400 dark:text-[#666]">(optional)</span>
+                  <span className="font-normal text-gray-400 dark:text-[#9a9a9a]">(optional)</span>
                 </label>
-                <p className="mb-2 text-sm text-gray-400 dark:text-[#666]">
+                <p className="mb-2 text-sm text-gray-400 dark:text-[#9a9a9a]">
                   Pick an app, then a role. It&apos;s provisioned automatically when they finish enrolling — no extra steps.
                 </p>
                 <div className="space-y-2">
@@ -233,7 +233,7 @@ export function InviteModal({ open, onClose }: Props) {
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{app.label}</span>
                             <span
-                              className={`block truncate text-xs ${selectedRole ? "text-[#3b82f6]" : "text-gray-400 dark:text-[#666]"}`}
+                              className={`block truncate text-xs ${selectedRole ? "text-[#3b82f6]" : "text-gray-400 dark:text-[#9a9a9a]"}`}
                             >
                               {selectedRole ? selectedRole.label : "No access"}
                             </span>
@@ -268,7 +268,7 @@ export function InviteModal({ open, onClose }: Props) {
                                         </span>
                                       )}
                                     </span>
-                                    <span className="block truncate text-xs text-gray-400 dark:text-[#666]">{role.description}</span>
+                                    <span className="block truncate text-xs text-gray-400 dark:text-[#9a9a9a]">{role.description}</span>
                                   </span>
                                 </button>
                               );
@@ -286,9 +286,9 @@ export function InviteModal({ open, onClose }: Props) {
                   <label className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">
                     <Users className="h-4 w-4 text-[#3b82f6]" />
                     Grant RBAC groups
-                    <span className="font-normal text-gray-400 dark:text-[#666]">(advanced, optional)</span>
+                    <span className="font-normal text-gray-400 dark:text-[#9a9a9a]">(advanced, optional)</span>
                   </label>
-                  <p className="mb-2 text-sm text-gray-400 dark:text-[#666]">
+                  <p className="mb-2 text-sm text-gray-400 dark:text-[#9a9a9a]">
                     The new account joins these groups when they finish enrolling, inheriting each group&apos;s roles.
                   </p>
                   {groupsLoading ? (
@@ -321,7 +321,7 @@ export function InviteModal({ open, onClose }: Props) {
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-sm text-gray-900 dark:text-[#f2f2f2]">{group.name}</span>
                               {group.secondary && (
-                                <span className="block truncate text-xs text-gray-400 dark:text-[#666]">{group.secondary}</span>
+                                <span className="block truncate text-xs text-gray-400 dark:text-[#9a9a9a]">{group.secondary}</span>
                               )}
                             </span>
                           </label>
@@ -333,7 +333,7 @@ export function InviteModal({ open, onClose }: Props) {
               )}
 
               <div>
-                <p className="mt-2 text-sm text-gray-400 dark:text-[#666]">The invite link stays below the input on mobile so expiry is never hidden behind the keyboard.</p>
+                <p className="mt-2 text-sm text-gray-400 dark:text-[#9a9a9a]">The invite link stays below the input on mobile so expiry is never hidden behind the keyboard.</p>
                 <label className="mb-2 mt-3 block text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">Link expiry</label>
                 <Select.Root value={String(expiryHours)} onValueChange={(value) => setExpiryHours(Number(value))}>
                   <Select.Trigger className="flex min-h-[48px] w-full items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-4 text-base text-gray-900 dark:text-[#f2f2f2] focus:border-[#3b82f6] focus:outline-none focus:ring-1 focus:ring-[#3b82f6] sm:text-sm">
@@ -341,7 +341,7 @@ export function InviteModal({ open, onClose }: Props) {
                     <ChevronDown className="h-4 w-4 text-gray-500 dark:text-[#888]" />
                   </Select.Trigger>
                   <Select.Portal>
-                    <Select.Content className="z-[70] overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl">
+                    <Select.Content className="z-popover overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl">
                       <Select.Viewport className="p-1">
                         {EXPIRY_OPTIONS.map((option) => (
                           <Select.Item

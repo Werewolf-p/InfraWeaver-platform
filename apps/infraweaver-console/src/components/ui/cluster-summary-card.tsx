@@ -7,7 +7,7 @@ function StatusIcon({ status }: { status: ClusterInfo["status"] }) {
   if (status === "healthy") return <CheckCircle2 className="h-4 w-4 text-emerald-400" />;
   if (status === "degraded") return <AlertTriangle className="h-4 w-4 text-amber-400" />;
   if (status === "offline") return <WifiOff className="h-4 w-4 text-red-400" />;
-  return <HelpCircle className="h-4 w-4 text-gray-400 dark:text-[#555]" />;
+  return <HelpCircle className="h-4 w-4 text-gray-400 dark:text-[#8a8a8a]" />;
 }
 
 interface ClusterStats {
@@ -71,7 +71,7 @@ export function ClusterSummaryCard({ cluster }: { cluster: ClusterInfo }) {
           </div>
           <div>
             <p className="truncate text-sm font-medium tracking-tight text-gray-900 dark:text-[#f2f2f2]">{cluster.name}</p>
-            <p className="mt-0.5 text-[10px] leading-snug text-gray-400 dark:text-[#666]">{cluster.description}</p>
+            <p className="mt-0.5 text-[10px] leading-snug text-gray-400 dark:text-[#9a9a9a]">{cluster.description}</p>
           </div>
         </div>
         <StatusIcon status={cluster.status} />
@@ -83,21 +83,21 @@ export function ClusterSummaryCard({ cluster }: { cluster: ClusterInfo }) {
           <div className="flex items-center gap-1.5">
             <CheckCircle2 className="h-3 w-3 text-emerald-400/60" />
             {statsLoading ? (
-              <span className="text-[11px] text-gray-400 dark:text-[#555]">…</span>
+              <span className="text-[11px] text-gray-400 dark:text-[#8a8a8a]">…</span>
             ) : stats?.apps ? (
               <span className="text-[11px] text-gray-500 dark:text-[#888]">{stats.apps.healthy}/{stats.apps.total} apps</span>
             ) : (
-              <span className="text-[11px] text-gray-400 dark:text-[#444]">apps n/a</span>
+              <span className="text-[11px] text-gray-400 dark:text-[#8a8a8a]">apps n/a</span>
             )}
           </div>
           <div className="flex items-center gap-1.5">
             <Box className="h-3 w-3 text-[#60a5fa]/60" />
             {statsLoading ? (
-              <span className="text-[11px] text-gray-400 dark:text-[#555]">…</span>
+              <span className="text-[11px] text-gray-400 dark:text-[#8a8a8a]">…</span>
             ) : stats?.pods ? (
               <span className="text-[11px] text-gray-500 dark:text-[#888]">{stats.pods.running}/{stats.pods.total} pods</span>
             ) : (
-              <span className="text-[11px] text-gray-400 dark:text-[#444]">pods n/a</span>
+              <span className="text-[11px] text-gray-400 dark:text-[#8a8a8a]">pods n/a</span>
             )}
           </div>
         </div>
@@ -106,7 +106,7 @@ export function ClusterSummaryCard({ cluster }: { cluster: ClusterInfo }) {
       {cluster.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {cluster.tags.map(tag => (
-            <span key={tag} className="rounded-full bg-gray-100 dark:bg-[#2a2a2a] px-2 py-0.5 text-[10px] text-gray-400 dark:text-[#666]">{tag}</span>
+            <span key={tag} className="rounded-full bg-gray-100 dark:bg-[#2a2a2a] px-2 py-0.5 text-[10px] text-gray-400 dark:text-[#9a9a9a]">{tag}</span>
           ))}
         </div>
       )}

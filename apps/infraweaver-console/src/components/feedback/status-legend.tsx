@@ -19,7 +19,7 @@ export function StatusLegend() {
             {STATUS_COPY[status].label}
           </span>
           {index < STATUS_STEPS.length - 1 && (
-            <ChevronRight className="h-3 w-3 text-gray-300 dark:text-[#444]" aria-hidden />
+            <ChevronRight className="h-3 w-3 text-gray-300 dark:text-[#8a8a8a]" aria-hidden />
           )}
         </div>
       ))}

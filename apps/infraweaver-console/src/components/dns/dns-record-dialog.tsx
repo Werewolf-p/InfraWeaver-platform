@@ -240,8 +240,8 @@ export function DnsRecordDialog({
     <>
       <Dialog.Root open={open} onOpenChange={(nextOpen) => (nextOpen ? onOpenChange(true) : requestClose())}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm" />
-          <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-[71] flex w-full flex-col overflow-hidden bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[calc(100vw-2rem)] sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a]">
+          <Dialog.Overlay className="fixed inset-0 z-overlay bg-black/70 backdrop-blur-sm" />
+          <Dialog.Content className="fixed inset-x-0 bottom-0 top-0 z-modal flex w-full flex-col overflow-hidden bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl focus:outline-none sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[calc(100vw-2rem)] sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-gray-200 dark:border-[#2a2a2a]">
             <div className="flex items-start justify-between gap-4 border-b border-gray-200 dark:border-[#2a2a2a] px-4 py-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] sm:px-6 sm:py-5 sm:pt-5">
               <div>
                 <Dialog.Title className="text-lg font-semibold text-gray-900 dark:text-[#f2f2f2]">
@@ -345,7 +345,7 @@ export function DnsRecordDialog({
                     disabled={isEditing}
                     placeholder="minecraft"
                     className={cn(
-                      "w-full rounded-xl border bg-white dark:bg-[#0d0d0d] px-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition placeholder:text-gray-400 dark:placeholder:text-[#444] focus:ring-1 focus:ring-[#3b82f6]",
+                      "w-full rounded-xl border bg-white dark:bg-[#0d0d0d] px-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:ring-1 focus:ring-[#3b82f6]",
                       errors.name ? "border-red-500/50" : "border-gray-200 dark:border-[#2a2a2a] focus:border-[#3b82f6]",
                       isEditing && "cursor-not-allowed opacity-70",
                     )}
@@ -367,7 +367,7 @@ export function DnsRecordDialog({
                     onChange={(event) => updateField("value", event.target.value)}
                     placeholder={form.type === "A" ? "10.25.0.10" : form.type === "TXT" ? "verification-token" : "target.example.com"}
                     className={cn(
-                      "w-full rounded-xl border bg-white dark:bg-[#0d0d0d] px-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition placeholder:text-gray-400 dark:placeholder:text-[#444] focus:ring-1 focus:ring-[#3b82f6]",
+                      "w-full rounded-xl border bg-white dark:bg-[#0d0d0d] px-3 py-2.5 text-sm text-gray-900 dark:text-[#f2f2f2] outline-none transition placeholder:text-gray-400 dark:placeholder:text-[#8a8a8a] focus:ring-1 focus:ring-[#3b82f6]",
                       errors.value ? "border-red-500/50" : "border-gray-200 dark:border-[#2a2a2a] focus:border-[#3b82f6]",
                     )}
                   />

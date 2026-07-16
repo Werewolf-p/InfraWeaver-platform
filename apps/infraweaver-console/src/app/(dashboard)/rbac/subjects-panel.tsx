@@ -60,7 +60,7 @@ export function SubjectsPanel({ subjects, selectedId, onSelect, filter, onFilter
             <Select.Icon><ChevronDown className="h-3.5 w-3.5 text-gray-500 dark:text-[#888]" /></Select.Icon>
           </Select.Trigger>
           <Select.Portal>
-            <Select.Content className="z-[60] overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl">
+            <Select.Content className="z-popover overflow-hidden rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-900 dark:text-[#f2f2f2] shadow-2xl">
               <Select.Viewport className="p-1">
                 {FILTER_OPTIONS.map((option) => (
                   <Select.Item

@@ -39,7 +39,7 @@ export function ResourceResults({
   if (!query.trim()) return null;
   if (results.length === 0) {
     return loading ? (
-      <div className={cn("flex items-center gap-2 px-3 py-2 text-xs text-gray-400 dark:text-[#555]", className)}>
+      <div className={cn("flex items-center gap-2 px-3 py-2 text-xs text-gray-400 dark:text-[#8a8a8a]", className)}>
         <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> Searching resources…
       </div>
     ) : null;
@@ -54,7 +54,7 @@ export function ResourceResults({
     <div className={className}>
       {groups.map((group) => (
         <div key={group.type} className="mb-2">
-          <p className="px-2 py-1 text-[10px] uppercase tracking-wider text-gray-400 dark:text-[#555]">
+          <p className="px-2 py-1 text-[10px] uppercase tracking-wider text-gray-400 dark:text-[#8a8a8a]">
             {TYPE_LABEL[group.type] ?? group.type}
           </p>
           <div className="space-y-0.5">
@@ -67,10 +67,10 @@ export function ResourceResults({
                   onClick={onNavigate}
                   className="flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 dark:text-[#9e9e9e] transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-[#2a2a2a] dark:hover:text-[#f2f2f2]"
                 >
-                  <Icon className="h-4 w-4 flex-shrink-0 text-gray-400 dark:text-[#666]" aria-hidden />
+                  <Icon className="h-4 w-4 flex-shrink-0 text-gray-400 dark:text-[#9a9a9a]" aria-hidden />
                   <span className="min-w-0 flex-1 truncate">{item.name}</span>
                   {item.subtitle && (
-                    <span className="ml-1 flex-shrink-0 truncate text-[10px] text-gray-400 dark:text-[#555]">
+                    <span className="ml-1 flex-shrink-0 truncate text-[10px] text-gray-400 dark:text-[#8a8a8a]">
                       {item.subtitle}
                     </span>
                   )}

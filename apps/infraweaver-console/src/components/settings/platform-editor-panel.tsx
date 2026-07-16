@@ -281,7 +281,7 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
               <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">
                 Changes are committed to git → ArgoCD auto-syncs → Helm upgrade triggers rolling restart of affected pods.
               </p>
-              <p className="mt-2 text-xs text-gray-400 dark:text-[#666]">
+              <p className="mt-2 text-xs text-gray-400 dark:text-[#9a9a9a]">
                 ArgoCD polls for drift, detects the change, and Kubernetes rolls pods with zero-downtime where replica counts allow it.
               </p>
             </div>
@@ -362,7 +362,7 @@ function PlatformEditorContent({ data, canWrite }: { data: PlatformEditorRespons
                             <span className="rounded-full border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-3 py-1 text-xs font-medium text-gray-700 dark:text-[#d4d4d4]">
                               {formatSettingValue(setting, currentValue)}
                             </span>
-                            <span className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#666]">{setting.argoApp}</span>
+                            <span className="text-[11px] uppercase tracking-[0.18em] text-gray-400 dark:text-[#9a9a9a]">{setting.argoApp}</span>
                           </div>
 
                           {setting.type === "number" ? (
