@@ -9,13 +9,44 @@ set -euo pipefail
 
 # Cleanup on exit
 PF_PID=""
+VAULT_CURL_CFG=""
 cleanup() {
   [[ -n "${PF_PID:-}" ]] && kill "${PF_PID}" 2>/dev/null || true
+  [[ -n "${VAULT_CURL_CFG:-}" ]] && rm -f "${VAULT_CURL_CFG}" 2>/dev/null || true
 }
 trap cleanup EXIT
 ENV=${ENV_NAME:?ENV_NAME required}
 KB=~/.kube/config-platform-$ENV
 LOCAL_OPENBAO="http://127.0.0.1:8200"
+
+# ── Secret-safe curl helpers (CWE-214: keep secrets out of process argv) ──────
+# Auth tokens and secret request bodies must never appear on a curl command
+# line, where any local user can read them via `ps auxww` or /proc/<pid>/cmdline.
+# The token is passed through a mode-0600 `curl -K` config file and every request
+# body through a mode-0600 temp file consumed with `--data @file`.
+init_vault_curl_cfg() {
+  VAULT_CURL_CFG=$(mktemp)
+  chmod 600 "$VAULT_CURL_CFG"
+  printf 'header = "X-Vault-Token: %s"\n' "$1" > "$VAULT_CURL_CFG"
+}
+
+# GET from OpenBao with the token supplied via the config file.
+bao_get() {
+  curl -s -K "$VAULT_CURL_CFG" "$1"
+}
+
+# POST a JSON body to OpenBao; both token and body are file-backed.
+bao_post() {
+  local body_file rc
+  body_file=$(mktemp)
+  chmod 600 "$body_file"
+  printf '%s' "$2" > "$body_file"
+  curl -s -X POST "$1" -K "$VAULT_CURL_CFG" \
+    -H "Content-Type: application/json" --data @"$body_file"
+  rc=$?
+  rm -f "$body_file"
+  return "$rc"
+}
 
 # Apply RBAC so the autounseal sidecar can read the openbao-unseal secret
 kubectl --kubeconfig "$KB" apply -f kubernetes/core/openbao/manifests/rbac.yaml 2>/dev/null || true
@@ -158,10 +189,14 @@ if [ "$INIT_STATUS" != "True" ]; then
     --from-literal=root_token="$ROOT_TOKEN" \
     --dry-run=client -o yaml | kubectl --kubeconfig "$KB" apply -f -
 
-  # Unseal via the API
+  # Unseal via the API (key passed via mode-0600 file, never in argv)
+  UNSEAL_BODY=$(mktemp)
+  chmod 600 "$UNSEAL_BODY"
+  printf '{"key": "%s"}' "$UNSEAL_KEY" > "$UNSEAL_BODY"
   curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/unseal" \
     -H "Content-Type: application/json" \
-    -d "{\"key\": \"$UNSEAL_KEY\"}" > /dev/null || true
+    --data @"$UNSEAL_BODY" > /dev/null || true
+  rm -f "$UNSEAL_BODY"
   echo "==> OpenBao initialized and unsealed"
 
   # Wait for pod to become Ready after unseal (up to 3 min)
@@ -180,9 +215,13 @@ else
     python3 -c "import json,sys; print(json.load(sys.stdin).get('sealed', True))" \
     2>/dev/null || echo "True")
   if [ "$SEALED" != "False" ] && [ -n "$UNSEAL_KEY" ]; then
+    UNSEAL_BODY=$(mktemp)
+    chmod 600 "$UNSEAL_BODY"
+    printf '{"key": "%s"}' "$UNSEAL_KEY" > "$UNSEAL_BODY"
     curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/unseal" \
       -H "Content-Type: application/json" \
-      -d "{\"key\": \"$UNSEAL_KEY\"}" > /dev/null || true
+      --data @"$UNSEAL_BODY" > /dev/null || true
+    rm -f "$UNSEAL_BODY"
     echo "==> Unsealed"
   fi
 fi
@@ -193,19 +232,17 @@ if [ -z "$ROOT_TOKEN" ]; then
   exit 0
 fi
 
+# Move the root token off the curl command line for every subsequent request.
+init_vault_curl_cfg "$ROOT_TOKEN"
+
 # Enable KV v2 at path "secret" (idempotent — 400 if already mounted is OK)
-curl -s -X POST "${LOCAL_OPENBAO}/v1/sys/mounts/secret" \
-  -H "X-Vault-Token: $ROOT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"type": "kv", "options": {"version": "2"}}' > /dev/null 2>&1 || true
+bao_post "${LOCAL_OPENBAO}/v1/sys/mounts/secret" \
+  '{"type": "kv", "options": {"version": "2"}}' > /dev/null 2>&1 || true
 
 # Wait for KV v2 upgrade to complete (OpenBao briefly enters "upgrading" state)
 echo "==> Waiting for KV v2 backend to be ready..."
 for i in $(seq 1 20); do
-  PROBE=$(curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/_ready_probe" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"data":{"ok":"1"}}')
+  PROBE=$(bao_post "${LOCAL_OPENBAO}/v1/secret/data/_ready_probe" '{"data":{"ok":"1"}}')
   PROBE_ERR=$(echo "$PROBE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('errors',[''])[0])" 2>/dev/null || echo "parse_err")
   if echo "$PROBE_ERR" | grep -qi "upgrading"; then
     echo "  KV upgrading... ($i/20)"
@@ -214,22 +251,19 @@ for i in $(seq 1 20); do
     echo "  KV backend ready"
     # Clean up probe key (best-effort)
     curl -s -X DELETE "${LOCAL_OPENBAO}/v1/secret/metadata/_ready_probe" \
-      -H "X-Vault-Token: $ROOT_TOKEN" > /dev/null 2>&1 || true
+      -K "$VAULT_CURL_CFG" > /dev/null 2>&1 || true
     break
   fi
 done
 
 # Write Grafana secret — only on first deploy (do not overwrite existing password)
-EXISTING_GRAFANA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/grafana" | \
+EXISTING_GRAFANA=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/grafana" | \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('admin-password',''))" \
   2>/dev/null || echo "")
 if [ -z "$EXISTING_GRAFANA" ]; then
   GRAFANA_PASS=$(openssl rand -base64 20 | tr -d '=+/')
-  GRAFANA_WRITE=$(curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/grafana" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"data\": {\"admin-user\": \"admin\", \"admin-password\": \"$GRAFANA_PASS\"}}")
+  GRAFANA_WRITE=$(bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/grafana" \
+    "{\"data\": {\"admin-user\": \"admin\", \"admin-password\": \"$GRAFANA_PASS\"}}")
   GRAFANA_VERSION=$(echo "$GRAFANA_WRITE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('data',{}).get('version',''))" 2>/dev/null || echo "")
   if [ -n "$GRAFANA_VERSION" ]; then
     echo "==> Grafana secret written (randomly generated, version=$GRAFANA_VERSION)"
@@ -269,10 +303,8 @@ echo ""
 ARGOCD_ADMIN_PASS=$(kubectl --kubeconfig "$KB" get secret argocd-initial-admin-secret \
   -n argocd -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "")
 if [ -n "$ARGOCD_ADMIN_PASS" ]; then
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/argocd" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"data\": {\"admin-user\": \"admin\", \"admin-password\": \"$ARGOCD_ADMIN_PASS\"}}" > /dev/null
+  bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/argocd" \
+    "{\"data\": {\"admin-user\": \"admin\", \"admin-password\": \"$ARGOCD_ADMIN_PASS\"}}" > /dev/null
   echo "==> ArgoCD admin password stored in OpenBao (auto-generated by ArgoCD)"
 else
   echo "==> argocd-initial-admin-secret not found — ArgoCD already configured"
@@ -296,10 +328,8 @@ REMON_PYEOF
 if [ -s "$REMON_PATCH_FILE" ]; then
   kubectl --kubeconfig "$KB" patch secret argocd-secret -n argocd \
     --patch-file "$REMON_PATCH_FILE" 2>/dev/null || true
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/argocd-admin" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"data\": {\"user\": \"${ADMIN_USERNAME:-admin}\", \"password\": \"$ADMIN_PASS\"}}" > /dev/null
+  bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/argocd-admin" \
+    "{\"data\": {\"user\": \"${ADMIN_USERNAME:-admin}\", \"password\": \"$ADMIN_PASS\"}}" > /dev/null
   echo "==> ArgoCD admin password randomized and stored in OpenBao"
 else
   echo "==> WARNING: bcrypt unavailable — admin password not set"
@@ -312,8 +342,7 @@ bash scripts/deploy/seed-openbao-authentik.sh "$LOCAL_OPENBAO" "$ROOT_TOKEN"
 # Authentik SMTP: always update OpenBao with real credentials from GitHub secrets
 # (ESO ExternalSecret manages authentik-smtp-secret from these values)
 if [ -n "${SMTP_PASSWORD}" ]; then
-  EXISTING_DATA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-    "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
+  EXISTING_DATA=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
     python3 -c "import json,sys; d=json.load(sys.stdin); print(__import__('json').dumps(d.get('data',{}).get('data',{})))" \
     2>/dev/null || echo "{}")
   SMTP_PATCHED=$(python3 -c \
@@ -323,10 +352,7 @@ if [ -n "${SMTP_PASSWORD}" ]; then
     "${SMTP_PASSWORD}" \
     2>/dev/null || echo "")
   if [ -n "$SMTP_PATCHED" ]; then
-    curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" \
-      -H "X-Vault-Token: $ROOT_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d "$SMTP_PATCHED" > /dev/null
+    bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" "$SMTP_PATCHED" > /dev/null
     echo "==> Authentik SMTP credentials updated in OpenBao"
   fi
 else
@@ -336,14 +362,12 @@ fi
 # GitHub PAT: optional — for console pipeline listing, pelican eggs, workflow dispatch.
 # Does NOT overwrite an existing non-empty token (preserves manually rotated PATs).
 if [ -n "${PLATFORM_GITHUB_PAT:-}" ]; then
-  EXISTING_GH=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-    "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
+  EXISTING_GH=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
     python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('github-token',''))" \
     2>/dev/null || echo "")
   if [ -z "$EXISTING_GH" ]; then
     # Read-modify-write to preserve all other keys
-    EXISTING_DATA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-      "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
+    EXISTING_DATA=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
       python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('data',{}).get('data',{})))" \
       2>/dev/null || echo "{}")
     PATCHED=$(python3 -c "
@@ -351,10 +375,7 @@ import json,sys
 d=json.loads(sys.argv[1]); d['github-token']=sys.argv[2]
 print(json.dumps({'data':d}))
 " "$EXISTING_DATA" "$PLATFORM_GITHUB_PAT")
-    curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" \
-      -H "X-Vault-Token: $ROOT_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d "$PATCHED" > /dev/null
+    bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" "$PATCHED" > /dev/null
     echo "==> GitHub token stored in OpenBao (platform/infraweaver-console[github-token])"
   else
     echo "==> GitHub token already exists in OpenBao — preserving existing value"
@@ -365,44 +386,45 @@ fi
 
 # ── Authentik API token for InfraWeaver console ─────────────────────────────
 echo "==> Seeding Authentik API token for InfraWeaver console..."
-EXISTING_AUTH_TOKEN=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
+EXISTING_AUTH_TOKEN=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get(data,{}).get(data,{}).get(authentik-token,))" \
   2>/dev/null || echo "")
 
 if [ -z "$EXISTING_AUTH_TOKEN" ]; then
   AUTHENTIK_URL="${LOCAL_AUTHENTIK:-http://authentik-server.authentik.svc.cluster.local}"
-  BOOTSTRAP_TOKEN=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-    "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
+  BOOTSTRAP_TOKEN=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/authentik" | \
     python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('bootstrap-token',''))" \
     2>/dev/null || echo "")
 
   if [ -n "$BOOTSTRAP_TOKEN" ]; then
-    AUTH_TOKEN_KEY=$(curl -s -H "Authorization: Bearer $BOOTSTRAP_TOKEN" \
+    # Keep the Authentik bearer token off the curl command line (CWE-214).
+    AUTH_BEARER_CFG=$(mktemp)
+    chmod 600 "$AUTH_BEARER_CFG"
+    printf 'header = "Authorization: Bearer %s"\n' "$BOOTSTRAP_TOKEN" > "$AUTH_BEARER_CFG"
+    AUTH_TOKEN_KEY=$(curl -s -K "$AUTH_BEARER_CFG" \
       "${AUTHENTIK_URL}/api/v3/core/tokens/infraweaver-console-api/view_key/" | \
       python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('key',''))" 2>/dev/null || echo "")
     if [ -z "$AUTH_TOKEN_KEY" ]; then
-      ADMIN_PK=$(curl -s -H "Authorization: Bearer $BOOTSTRAP_TOKEN" \
+      ADMIN_PK=$(curl -s -K "$AUTH_BEARER_CFG" \
         "${AUTHENTIK_URL}/api/v3/core/users/?username=akadmin" | \
         python3 -c "import json,sys; d=json.load(sys.stdin); print(d['results'][0]['pk']) if d['results'] else print(4)" \
         2>/dev/null || echo "4")
       curl -s -X POST "${AUTHENTIK_URL}/api/v3/core/tokens/" \
-        -H "Authorization: Bearer $BOOTSTRAP_TOKEN" \
+        -K "$AUTH_BEARER_CFG" \
         -H "Content-Type: application/json" \
         -d "{\"identifier\":\"infraweaver-console-api\",\"intent\":\"api\",\"user\":${ADMIN_PK},\"description\":\"InfraWeaver Console API Token\",\"expiring\":false}" \
         > /dev/null 2>&1
-      AUTH_TOKEN_KEY=$(curl -s -H "Authorization: Bearer $BOOTSTRAP_TOKEN" \
+      AUTH_TOKEN_KEY=$(curl -s -K "$AUTH_BEARER_CFG" \
         "${AUTHENTIK_URL}/api/v3/core/tokens/infraweaver-console-api/view_key/" | \
         python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('key',''))" 2>/dev/null || echo "")
     fi
+    rm -f "$AUTH_BEARER_CFG"
     if [ -n "$AUTH_TOKEN_KEY" ]; then
-      EXISTING_DATA=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-        "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
+      EXISTING_DATA=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
         python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('data',{}).get('data',{})))" \
         2>/dev/null || echo "{}")
       PATCHED=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); d['authentik-token']=sys.argv[2]; print(json.dumps({'data':d}))" "$EXISTING_DATA" "$AUTH_TOKEN_KEY")
-      curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" \
-        -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" -d "$PATCHED" > /dev/null
+      bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" "$PATCHED" > /dev/null
       echo "==> Authentik API token stored in OpenBao (platform/infraweaver-console[authentik-token])"
     else
       echo "==> Could not get Authentik API token — console Authentik features may be limited"
@@ -475,73 +497,59 @@ print(json.dumps({"data": payload}))
 PYEOF
 )
 
-curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/dns-provider" \
-  -H "X-Vault-Token: $ROOT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "$DNS_SECRETS_JSON" > /dev/null
+bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/dns-provider" "$DNS_SECRETS_JSON" > /dev/null
 echo "==> DNS provider credentials stored in OpenBao (platform/dns-provider)"
 
 if [ "$DNS_PROV" = "cloudflare" ] && [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/cloudflare" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"data\": {\"CF_API_TOKEN\": \"${CLOUDFLARE_API_TOKEN}\", \"CF_EMAIL\": \"${ADMIN_EMAIL:-$SMTP_USERNAME}\"}}" > /dev/null
+  bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/cloudflare" \
+    "{\"data\": {\"CF_API_TOKEN\": \"${CLOUDFLARE_API_TOKEN}\", \"CF_EMAIL\": \"${ADMIN_EMAIL:-$SMTP_USERNAME}\"}}" > /dev/null
   echo "==> Cloudflare token stored in OpenBao (platform/cloudflare)"
 fi
 
 # ── Discord webhook (optional) ────────────────────────────────────────────────
-EXISTING_DISCORD=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/discord" | \
+EXISTING_DISCORD=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/discord" | \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('webhook_url',''))" 2>/dev/null || echo "")
 if [ -z "$EXISTING_DISCORD" ]; then
   WEBHOOK="${DISCORD_WEBHOOK_URL:-placeholder-discord-webhook}"
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/discord" \
-    -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
-    -d "{\"data\": {\"webhook_url\": \"${WEBHOOK}\"}}" > /dev/null
+  bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/discord" \
+    "{\"data\": {\"webhook_url\": \"${WEBHOOK}\"}}" > /dev/null
   [ "${WEBHOOK}" = "placeholder-discord-webhook" ] && \
     echo "⚠ DISCORD_WEBHOOK_URL not set — alerting will not work until updated" || \
     echo "==> Discord webhook stored in OpenBao (platform/discord)"
 fi
 
 # ── Minio/Velero S3 credentials ────────────────────────────────────────────────
-EXISTING_MINIO=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/minio-velero" | \
+EXISTING_MINIO=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/minio-velero" | \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('access_key',''))" 2>/dev/null || echo "")
 if [ -z "$EXISTING_MINIO" ]; then
   # Generate random credentials for in-cluster Minio
   MINIO_ACCESS="${MINIO_VELERO_ACCESS_KEY:-velero-$(openssl rand -hex 8)}"
   MINIO_SECRET="${MINIO_VELERO_SECRET_KEY:-$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)}"
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/minio-velero" \
-    -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
-    -d "{\"data\": {\"access_key\": \"${MINIO_ACCESS}\", \"secret_key\": \"${MINIO_SECRET}\"}}" > /dev/null
+  bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/minio-velero" \
+    "{\"data\": {\"access_key\": \"${MINIO_ACCESS}\", \"secret_key\": \"${MINIO_SECRET}\"}}" > /dev/null
   echo "==> Minio Velero credentials generated and stored in OpenBao (platform/minio-velero)"
 fi
 
 # ── NAS credentials (optional, placeholders if not set) ──────────────────────
-EXISTING_NAS=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/synology" | \
+EXISTING_NAS=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/synology" | \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('user',''))" 2>/dev/null || echo "")
 if [ -z "$EXISTING_NAS" ]; then
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/synology" \
-    -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
-    -d "{\"data\": {\"user\": \"${SYNOLOGY_USER:-placeholder}\", \"password\": \"${SYNOLOGY_PASSWORD:-placeholder}\", \"host\": \"${SYNOLOGY_HOST:-placeholder}\"}}" > /dev/null
+  bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/synology" \
+    "{\"data\": {\"user\": \"${SYNOLOGY_USER:-placeholder}\", \"password\": \"${SYNOLOGY_PASSWORD:-placeholder}\", \"host\": \"${SYNOLOGY_HOST:-placeholder}\"}}" > /dev/null
   echo "==> NAS/Synology credentials seeded (platform/nas/synology)"
 fi
 
-EXISTING_TRUENAS=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/truenas" | \
+EXISTING_TRUENAS=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/truenas" | \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('api-key',''))" 2>/dev/null || echo "")
 if [ -z "$EXISTING_TRUENAS" ]; then
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/truenas" \
-    -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
-    -d "{\"data\": {\"api-key\": \"${TRUENAS_API_KEY:-placeholder}\", \"host\": \"${TRUENAS_HOST:-placeholder}\"}}" > /dev/null
+  bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/nas/truenas" \
+    "{\"data\": {\"api-key\": \"${TRUENAS_API_KEY:-placeholder}\", \"host\": \"${TRUENAS_HOST:-placeholder}\"}}" > /dev/null
   echo "==> NAS/TrueNAS credentials seeded (platform/nas/truenas)"
 fi
 
 # ── InfraWeaver Console additional secrets ───────────────────────────────────
 # Patch infraweaver-console with DNS provider metadata (and Cloudflare fields when applicable)
-EXISTING_IW=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
+EXISTING_IW=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" | \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('data',{}).get('data',{})))" 2>/dev/null || echo "{}")
 CF_ZONE_ID=""
 CF_TOKEN_VAL=""
@@ -558,22 +566,17 @@ d['cf-zone-id'] = sys.argv[4]
 print(json.dumps({'data': d}))
 " "$EXISTING_IW" "$DNS_PROV" "$CF_TOKEN_VAL" "$CF_ZONE_ID" 2>/dev/null || echo "")
 if [ -n "$PATCHED" ]; then
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" \
-    -H "X-Vault-Token: $ROOT_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "$PATCHED" > /dev/null
+  bao_post "${LOCAL_OPENBAO}/v1/secret/data/platform/infraweaver-console" "$PATCHED" > /dev/null
   echo "==> dns-provider metadata added to infraweaver-console"
 fi
 
 # ── Infraweaver API console secret ───────────────────────────────────────────
-EXISTING_API=$(curl -s -H "X-Vault-Token: $ROOT_TOKEN" \
-  "${LOCAL_OPENBAO}/v1/secret/data/infraweaver/api/console-secret" | \
+EXISTING_API=$(bao_get "${LOCAL_OPENBAO}/v1/secret/data/infraweaver/api/console-secret" | \
   python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',{}).get('data',{}).get('value',''))" 2>/dev/null || echo "")
 if [ -z "$EXISTING_API" ]; then
   API_SECRET=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
-  curl -s -X POST "${LOCAL_OPENBAO}/v1/secret/data/infraweaver/api/console-secret" \
-    -H "X-Vault-Token: $ROOT_TOKEN" -H "Content-Type: application/json" \
-    -d "{\"data\": {\"value\": \"${API_SECRET}\"}}" > /dev/null
+  bao_post "${LOCAL_OPENBAO}/v1/secret/data/infraweaver/api/console-secret" \
+    "{\"data\": {\"value\": \"${API_SECRET}\"}}" > /dev/null
   echo "==> InfraWeaver API console secret generated (infraweaver/api/console-secret)"
 fi
 

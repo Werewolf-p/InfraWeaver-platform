@@ -75,16 +75,17 @@ generate_helm_bootstrap() {
   local output="$BOOTSTRAP_DIR/catalog-${app}.yaml"
 
   # Read catalog.yaml fields
-  eval "$(python3 - << PYEOF
-import yaml, shlex
-d = yaml.safe_load(open('$catalog_yaml'))
+  eval "$(APP_NAME="$app" CATALOG_YAML="$catalog_yaml" python3 - << 'PYEOF'
+import os, yaml, shlex
+app = os.environ['APP_NAME']
+d = yaml.safe_load(open(os.environ['CATALOG_YAML']))
 h = d.get('helm', {})
 vals = {
-    'APP_NS': d.get('namespace', '$app'),
+    'APP_NS': d.get('namespace', app),
     'APP_REPO': h.get('repoURL', ''),
     'APP_CHART': h.get('chart', ''),
     'APP_VERSION': h.get('targetRevision', '*'),
-    'APP_RELEASE': h.get('releaseName', '$app'),
+    'APP_RELEASE': h.get('releaseName', app),
     'APP_DESC': d.get('description', ''),
 }
 # shlex.quote prevents catalog.yaml values from breaking out of the shell
@@ -156,12 +157,13 @@ generate_manifests_bootstrap() {
   local catalog_yaml="$CATALOG_DIR/$app/catalog.yaml"
   local output="$BOOTSTRAP_DIR/catalog-${app}-manifests.yaml"
 
-  eval "$(python3 - << PYEOF2
-import yaml, shlex
-d = yaml.safe_load(open('$catalog_yaml'))
+  eval "$(APP_NAME="$app" CATALOG_YAML="$catalog_yaml" python3 - << 'PYEOF2'
+import os, yaml, shlex
+app = os.environ['APP_NAME']
+d = yaml.safe_load(open(os.environ['CATALOG_YAML']))
 # shlex.quote prevents catalog.yaml values from breaking out of the shell
 # assignment and executing arbitrary commands when eval'd.
-print(f"APP_NS={shlex.quote(str(d.get('namespace', '$app')))}")
+print(f"APP_NS={shlex.quote(str(d.get('namespace', app)))}")
 print(f"APP_DESC={shlex.quote(str(d.get('description', '')))}")
 PYEOF2
 )"
@@ -243,6 +245,10 @@ log "=== Syncing enabled apps ==="
 # For each enabled app: ensure bootstrap files exist and are up to date
 while IFS= read -r app; do
   [[ -z "$app" ]] && continue
+  if [[ ! "$app" =~ ^[a-z0-9-]+$ ]]; then
+    warn "invalid app name '$app' — skipping"
+    continue
+  fi
   log ""
   log "Processing: $app"
 

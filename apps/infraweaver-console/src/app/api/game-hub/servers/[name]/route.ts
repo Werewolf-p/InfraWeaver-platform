@@ -453,9 +453,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ name
   const { name } = await params;
   const nameErr = validateK8sName(name);
   if (nameErr) return NextResponse.json(nameErr.error, { status: nameErr.status });
-  const token = req.nextUrl.searchParams.get("token");
+  const headerToken = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() || null;
+  // Query-param token retained only for backward compatibility with existing shared links; deprecated because query strings leak into proxy/CDN access logs and Referer headers.
+  const token = headerToken ?? req.nextUrl.searchParams.get("token");
 
   if (token) {
+    if (!checkRateLimit(rateLimitKey("game-hub-token-get", req), 30, 60_000)) {
+      return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    }
     try {
       const { coreApi } = makeGameHubClients();
       const valid = await validateServerToken(coreApi, name, token);

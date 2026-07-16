@@ -1,6 +1,6 @@
 import * as k8s from "@kubernetes/client-node";
 import { createConfiguration, ServerConfiguration, type RequestContext, type ResponseContext } from "@kubernetes/client-node";
-import { randomBytes, randomUUID } from "crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import net from "net";
 import { Writable } from "stream";
 import type { Session } from "next-auth";
@@ -1172,11 +1172,18 @@ export async function writeServerTokens(coreApi: k8s.CoreV1Api, name: string, to
   }
 }
 
+function tokensMatch(stored: string, provided: string): boolean {
+  const storedBuf = Buffer.from(stored, "utf8");
+  const providedBuf = Buffer.from(provided, "utf8");
+  if (storedBuf.length !== providedBuf.length) return false;
+  return timingSafeEqual(storedBuf, providedBuf);
+}
+
 export async function validateServerToken(coreApi: k8s.CoreV1Api, name: string, token: string) {
   const tokens = await readServerTokens(coreApi, name);
   const now = Date.now();
   return tokens.find((entry) => {
-    if (entry.token !== token) return false;
+    if (!tokensMatch(entry.token, token)) return false;
     if (!entry.expiresAt) return true;
     return new Date(entry.expiresAt).getTime() >= now;
   }) ?? null;

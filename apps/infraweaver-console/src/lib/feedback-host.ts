@@ -32,8 +32,9 @@ export function feedbackDashboardHost(): string {
 
 /**
  * True when the request targets the canonical console host. Accepts a Headers
- * instance (route handlers) or a plain host string. Honours `x-forwarded-host`
- * (set by Traefik) ahead of `host`.
+ * instance (route handlers) or a plain host string. Derives the host from the
+ * `host` header only: `x-forwarded-host` is client-settable and must never be
+ * trusted for this canonical-vs-preview security gate.
  */
 export function isFeedbackHost(source: Headers | string | null | undefined): boolean {
   const canonical = feedbackDashboardHost();
@@ -43,7 +44,7 @@ export function isFeedbackHost(source: Headers | string | null | undefined): boo
   if (typeof source === "string" || source == null) {
     host = source;
   } else {
-    host = source.get("x-forwarded-host") ?? source.get("host");
+    host = source.get("host");
   }
   return normalizeHost(host) === canonical;
 }

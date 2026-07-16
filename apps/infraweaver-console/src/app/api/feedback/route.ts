@@ -13,7 +13,7 @@ import {
 import { isDispatchConfigured } from "@/lib/feedback-dispatch";
 import { FEEDBACK_MANAGE_PERMISSIONS } from "@/lib/feedback-host";
 import { needsReconcile, reconcileStaleEntries } from "@/lib/feedback-pipeline";
-import { signHmac, verifyHmac } from "@/lib/hmac";
+import { signHmac, verifyHmac, HMAC_SKEW_MS } from "@/lib/hmac";
 import { checkRateLimit, rateLimitKey } from "@/lib/rate-limit";
 
 // Any authenticated user may submit/list feedback context.
@@ -39,6 +39,29 @@ const UPSTREAM_SIGNATURE_HEADER = "x-iw-signature";
 
 // Unauthenticated + auto-deploy-adjacent, so rate-limit every submission per IP.
 const FEEDBACK_RATE_LIMIT = { max: 20, windowMs: 60_000 };
+
+// Replay guard for upstream ingest. A valid signature stays acceptable for its
+// full ±HMAC_SKEW_MS window, so a captured signature could be replayed verbatim
+// within that window. Track each verified signature until it can no longer pass
+// the timestamp check (worst case: seen at now == ts − skew, replayable until
+// now == ts + skew), i.e. 2×HMAC_SKEW_MS after first sight, then reject repeats.
+const REPLAY_RETENTION_MS = 2 * HMAC_SKEW_MS;
+const seenUpstreamSignatures = new Map<string, number>();
+
+/**
+ * Record a just-verified upstream signature and report whether it is a replay.
+ * Returns `false` when the signature has already been seen inside its validity
+ * window (reject the request); `true` for a first-seen signature. Prunes expired
+ * entries on each call so the map stays bounded by the active replay window.
+ */
+function registerUpstreamSignature(signature: string, now: number): boolean {
+  for (const [seen, expiry] of seenUpstreamSignatures) {
+    if (expiry <= now) seenUpstreamSignatures.delete(seen);
+  }
+  if (seenUpstreamSignatures.has(signature)) return false;
+  seenUpstreamSignatures.set(signature, now + REPLAY_RETENTION_MS);
+  return true;
+}
 
 /** Shared fork↔canonical secret. When unset, upstream ingest/forward are disabled (fail-closed). */
 function upstreamSecret(): string {
@@ -132,8 +155,13 @@ export async function POST(request: NextRequest) {
     // A cross-deployment copy claiming to be signed. Fail closed: a bad/expired
     // signature, or no shared secret configured, is rejected — it must never fall
     // through to the auth-gated path or the anonymous ingest.
-    const ok = verifyHmac({ timestamp, signature, rawBody, secret: upstreamSecret(), now: Date.now() });
+    const now = Date.now();
+    const ok = verifyHmac({ timestamp, signature, rawBody, secret: upstreamSecret(), now });
     if (!ok) return apiError("Invalid upstream signature", { status: 401 });
+    // Signature is authentic and in-window; reject a verbatim replay of it.
+    if (!signature || !registerUpstreamSignature(signature, now)) {
+      return apiError("Replayed upstream signature", { status: 401 });
+    }
     isUpstream = true;
   }
 

@@ -10,14 +10,38 @@ import type { AppBindings } from '../types/index.js';
 const APP_SOURCE_RESOLUTION_ATTEMPTS = 6;
 const APP_SOURCE_RESOLUTION_DELAY_MS = 5000;
 
+const k8sNameRe = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
+const k8sNamespaceRe = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$/;
+
 const argoAppBodySchema = z.object({
   repoUrl: z.string().url(),
   baseDir: z.string().min(1).max(500),
-  namespace: z.string().min(1).max(63),
+  namespace: z.string().min(1).max(63).regex(k8sNamespaceRe, 'Invalid namespace'),
 });
 
-const k8sNameRe = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
-const k8sNamespaceRe = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$/;
+// A community-app ArgoCD Application syncs from `repoUrl`/`baseDir` and applies
+// the result cluster-wide (project "platform", automated prune+selfHeal,
+// ServerSideApply). Its source MUST be the platform's OWN GitOps repository —
+// the same repo the console commits the generated catalog manifests into
+// (getGitRepoUrl in the console's git-provider builds exactly this URL). A repoUrl
+// pointing anywhere else would let a catalog:write holder register an app that
+// syncs attacker-controlled manifests. Derive the trusted owner from the same env
+// the console uses (GITOPS_REPO, falling back to GITHUB_REPO).
+const GITOPS_REPO = process.env.GITOPS_REPO ?? process.env.GITHUB_REPO ?? 'your-org/your-repo';
+const GITOPS_OWNER = (GITOPS_REPO.split('/')[0] ?? '').toLowerCase();
+
+const isTrustedRepoUrl = (repoUrl: string): boolean => {
+  let parsed: URL;
+  try {
+    parsed = new URL(repoUrl);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:') return false;
+  if (parsed.host.toLowerCase() !== 'github.com') return false;
+  const owner = parsed.pathname.split('/').filter(Boolean)[0]?.toLowerCase();
+  return GITOPS_OWNER.length > 0 && owner === GITOPS_OWNER;
+};
 
 // Core/system namespaces a community-app operation must never target — deleting
 // or writing secrets into these would escape the community-apps scope entirely.
@@ -165,6 +189,18 @@ communityAppsRoute.post('/:slug/argocd-app', async (c) => {
   const parsed = argoAppBodySchema.safeParse(body);
   if (!parsed.success) return invalidBody(c, parsed.error);
   const { repoUrl, baseDir, namespace } = parsed.data;
+
+  // Constrain the ArgoCD source/destination so a catalog:write holder cannot turn
+  // this into a cluster-wide GitOps write: the repo must be the platform's own
+  // GitOps repo, the manifests path must be within this app's catalog directory,
+  // and the destination must not be a core/system namespace. Mirrors the guards
+  // the sibling /secrets and DELETE routes enforce.
+  if (!isTrustedRepoUrl(repoUrl)) return forbidden(c, 'Refusing to register an ArgoCD app for an untrusted repository');
+  const catalogPrefix = `kubernetes/catalog/${slug}/`;
+  if (baseDir.includes('..') || !baseDir.startsWith(catalogPrefix)) {
+    return badRequest(c, "Manifests path must be within this app's catalog directory");
+  }
+  if (isReservedNamespace(namespace)) return forbidden(c, 'Refusing to deploy into a reserved namespace');
 
   const argoAppName = `catalog-${slug}-manifests`;
   try {

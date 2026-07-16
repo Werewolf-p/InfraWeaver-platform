@@ -9,12 +9,13 @@
  *   Config Type "Path"     → volumeMounts[] + PVC / hostPath / emptyDir (classified)
  *   Config Type "Device"   → securityContext.privileged (flagged as complex)
  *   Network: host          → hostNetwork: true
- *   Privileged: true       → securityContext.privileged: true
+ *   Privileged: true       → least-privilege caps (privileged reserved for real devices)
  *   WebUI field            → port extracted for Traefik IngressRoute
  *   ExtraParams            → capabilities, sysctls, runAsUser, memory limits
  */
 
 import { dump } from "js-yaml";
+import { parseSafeExternalUrl } from "./outbound-url";
 import { UserError } from "./utils";
 
 export type K8sCompatTier = "simple" | "medium" | "complex";
@@ -631,6 +632,13 @@ function parseWwwAuthenticate(header: string): Record<string, string> {
 }
 
 async function fetchRegistryResource(url: string, accept: string): Promise<Response> {
+  // SSRF guard: the registry host derives from external AppFeed data (ref.registry),
+  // so reject any URL resolving to a private/loopback/link-local/metadata or
+  // cluster-internal host before issuing the request.
+  if (!(await parseSafeExternalUrl(url))) {
+    return new Response(null, { status: 403, statusText: "Blocked registry host" });
+  }
+
   let res = await fetch(url, { headers: { Accept: accept }, cache: "no-store" });
   if (res.status !== 401) return res;
 
@@ -643,6 +651,9 @@ async function fetchRegistryResource(url: string, accept: string): Promise<Respo
   const tokenUrl = new URL(auth.realm);
   if (auth.service) tokenUrl.searchParams.set("service", auth.service);
   if (auth.scope) tokenUrl.searchParams.set("scope", auth.scope);
+  // The token realm host is attacker-controllable via the registry's response —
+  // vet it with the same guard before following it.
+  if (!(await parseSafeExternalUrl(tokenUrl))) return res;
   const tokenRes = await fetch(tokenUrl, { cache: "no-store" });
   if (!tokenRes.ok) return res;
   const tokenBody = await tokenRes.json() as { token?: string; access_token?: string };
@@ -1111,9 +1122,10 @@ export function convertAppFeedEntry(
   const warnings: string[] = [];
   const configs = getConfigs(app);
 
+  const hasDevice = configs.some(c => c["@attributes"]?.Type === "Device");
   const isPrivileged = extra.privileged ||
     String(app.Privileged ?? "").toLowerCase() === "true" ||
-    configs.some(c => c["@attributes"]?.Type === "Device");
+    hasDevice;
   const isHostNetwork = String(app.Network ?? "").toLowerCase() === "host";
   const hasCustomNetwork = String(app.Network ?? "") !== "" &&
     !["bridge", "host", "none"].includes(String(app.Network ?? "").toLowerCase());
@@ -1204,15 +1216,30 @@ export function convertAppFeedEntry(
   const pvcs = buildPVCs(volumeInfos, namespace, pvcSizeGi, storageClass);
 
   // ── Container security context ──────────────────────────────────────────────
+  // Full `privileged: true` is reserved for apps that genuinely need node-level
+  // device access (an Unraid "Device" config) or that explicitly pass --privileged in
+  // ExtraParams. A bare `Privileged: true` in Unraid template *metadata* is routinely
+  // over-declared (Unraid runs every container as root regardless), so on its own it
+  // must not produce a container-escape-capable pod: drop ALL capabilities and re-add
+  // only the ones a linuxserver.io-style s6 root→PUID step-down needs, plus any
+  // explicit --cap-add. This keeps "complex" catalog installs off privileged mode.
   let containerSecurityContext: ManifestNode | undefined;
-  if (isPrivileged) {
+  if (hasDevice || extra.privileged) {
     containerSecurityContext = { privileged: true };
+  } else if (isPrivileged) {
+    const stepDownCaps = ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"];
+    containerSecurityContext = {
+      allowPrivilegeEscalation: false,
+      capabilities: { drop: ["ALL"], add: [...new Set([...stepDownCaps, ...extra.caps])] },
+      seccompProfile: { type: "RuntimeDefault" },
+    };
   } else if (extra.caps.length > 0) {
     // Add capabilities from ExtraParams (e.g. NET_ADMIN, SYS_MODULE for WireGuard)
     containerSecurityContext = { capabilities: { add: [...extra.caps] } };
   }
-  // Note: we deliberately do NOT set allowPrivilegeEscalation: false — many community
-  // apps use setuid binaries or spawn privileged child processes and would crash silently.
+  // Note: for the cap-only path we deliberately do NOT set allowPrivilegeEscalation:
+  // false — many community apps use setuid binaries or spawn privileged child processes
+  // and would crash silently.
 
   // ── Pod-level security context ──────────────────────────────────────────────
   const podSecurityContext: ManifestNode = { fsGroup: extra.runAsGroup ?? 1000 };

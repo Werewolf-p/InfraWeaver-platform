@@ -27,6 +27,12 @@ spec:
       labels:
         app.kubernetes.io/name: homeassistant
     spec:
+      # hostNetwork retained deliberately: Home Assistant relies on host-level
+      # mDNS/SSDP/DHCP broadcast + multicast to auto-discover LAN smart-home
+      # devices (Chromecast, Sonos, Hue, etc.). Removing it breaks discovery.
+      # This is also the sole reason the namespace PodSecurity level stays
+      # `privileged` — hostNetwork is forbidden under the baseline/restricted
+      # PSA profiles, so the namespace label must NOT be tightened while it is on.
       hostNetwork: true
       enableServiceLinks: false
       securityContext:
@@ -67,7 +73,25 @@ spec:
             - name: homeassistant-data-0
               mountPath: "/config"
           securityContext:
-            privileged: true
+            # Hardened 2026-07-16: replaced blanket `privileged: true`.
+            # This pod mounts NO host devices (no /dev hostPath, no volumeDevices,
+            # no USB/Bluetooth/Zigbee/Z-Wave dongle) — only a PVC at /config — so
+            # full privileged mode granted node-level (container-escape) reach for
+            # zero functional benefit. The lscr.io/s6-overlay image still starts as
+            # root to fix /config ownership and step down to PUID/PGID, so we keep
+            # only the capabilities that init path demonstrably uses and drop ALL else.
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN         # chown /config to PUID:PGID on first start
+                - DAC_OVERRIDE  # s6 init edits /config files it does not own
+                - FOWNER        # permission/ownership fixups during init
+                - SETGID        # step down from root to PGID (100)
+                - SETUID        # step down from root to PUID (99)
+            seccompProfile:
+              type: RuntimeDefault
           resources:
             requests:
               memory: "256Mi"

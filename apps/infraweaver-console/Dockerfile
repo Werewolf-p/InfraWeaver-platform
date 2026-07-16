@@ -26,11 +26,15 @@ RUN --mount=type=tmpfs,target=/dev/shm npm run build
 FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# Run as non-root user (required by PodSecurity restricted policy)
+RUN groupadd --system --gid 1001 nodejs && \
+    useradd --system --uid 1001 --gid 1001 nextjs
 COPY --from=builder --chown=1001:1001 /app/.next/standalone ./
 COPY --from=builder --chown=1001:1001 /app/.next/static ./.next/static
 COPY --from=builder --chown=1001:1001 /app/public ./public
 # Vendored InfraWeaver Connector plugin (see scripts/sync-wp-connector.sh) —
 # read at runtime by the connector-package zip route + managed enrollment.
 COPY --from=builder --chown=1001:1001 /app/vendor ./vendor
+USER 1001
 EXPOSE 3000
 CMD ["node", "server.js"]

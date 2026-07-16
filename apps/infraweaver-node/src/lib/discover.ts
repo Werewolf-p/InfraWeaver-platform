@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { hostname } from 'node:os'
 
-import WebSocket from 'ws'
+import WebSocket, { type ClientOptions } from 'ws'
 
 import { exportPrivateKey, exportPublicKey, generateKeyPair, importPublicKey } from './crypto.js'
 import { saveState, type NodeState } from './state.js'
@@ -12,6 +12,27 @@ const SERVICE_ACCOUNT_CA_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/c
 
 export interface DiscoverOptions {
   hubUrl: string
+}
+
+// TLS options for the discovery handshake, which bootstraps the cryptographic
+// root of trust (the Hub public key). Strict certificate verification is the
+// default so a MITM/DNS-hijack cannot inject a forged hubPublicKey. An internal
+// CA can be trusted explicitly via HUB_CA_PATH; verification may only be
+// disabled through an explicit opt-in that is unsafe for production.
+async function getDiscoveryTlsOptions(): Promise<ClientOptions> {
+  if (process.env.INFRAWEAVER_INSECURE_DISCOVERY_TLS === 'true') {
+    console.warn(
+      '[discovery] INFRAWEAVER_INSECURE_DISCOVERY_TLS=true — TLS verification disabled. Never use this in production.',
+    )
+    return { rejectUnauthorized: false }
+  }
+
+  const hubCaPath = process.env.HUB_CA_PATH
+  if (hubCaPath) {
+    return { ca: await readFile(hubCaPath) }
+  }
+
+  return {}
 }
 
 function normalizeWsUrl(rawUrl: string, path: string): string {
@@ -39,13 +60,14 @@ export async function discover({ hubUrl }: DiscoverOptions): Promise<NodeState> 
   const clusterName = process.env.CLUSTER_NAME ?? hostname()
   const clusterCaFingerprint = await getClusterCaFingerprint()
   const discoverUrl = normalizeWsUrl(hubUrl, '/v1/ws/discover')
+  const tlsOptions = await getDiscoveryTlsOptions()
 
   console.log(`[discovery] Connecting to Hub at ${discoverUrl}`)
   console.log(`[discovery] Agent ID: ${AGENT_ID} — waiting for admin approval in console`)
 
   return await new Promise<NodeState>((resolve, reject) => {
     let settled = false
-    const ws = new WebSocket(discoverUrl, { rejectUnauthorized: false })
+    const ws = new WebSocket(discoverUrl, tlsOptions)
 
     const finish = (callback: () => void): void => {
       if (settled) {

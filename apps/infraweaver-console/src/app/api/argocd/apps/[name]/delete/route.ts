@@ -10,7 +10,12 @@ const ARGOCD_TOKEN = process.env.ARGOCD_TOKEN ?? "";
 const SAFE_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 export const DELETE = withAuth<{ name: string }>(
-  { permission: "apps:sync", rateLimit: { name: "argocd-delete", limit: 5, windowMs: 60_000 } },
+  // Deleting an ArgoCD Application issues a real cascading DELETE, so it must
+  // require apps:delete — matching the backend's dedicated DELETE /argocd/apps/:name
+  // route and the bulk-remove BFLA guard (infraweaver-api argocd.ts). apps:sync
+  // (held by platform-operator/developer, roles NOT allowed to delete apps) is
+  // too weak: it let an operator delete any Application through this path.
+  { permission: "apps:delete", rateLimit: { name: "argocd-delete", limit: 5, windowMs: 60_000 } },
   async ({ session, params }) => {
     const { name } = params;
     const nameErr = validateK8sName(name);
