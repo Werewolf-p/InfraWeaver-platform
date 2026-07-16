@@ -112,7 +112,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     icon: HardDrive,
     defaultOpen: false,
     items: [
-      { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S", description: "Volumes, usage timeline, PV browser, and backups", pinnable: true, keywords: ["pvc", "volumes", "storage classes", "timeline", "pv browser", "backups", "longhorn", "restore", "snapshot", "files"] },
+      { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S", description: "Volumes, usage timeline, PV browser, and backups", pinnable: true, keywords: ["pvc", "volumes", "storage classes", "timeline", "pv browser", "backups", "longhorn", "restore", "snapshot", "files", "dr", "disaster recovery", "rpo", "unprotected", "coverage", "backup coverage"] },
       { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", description: "Container image registry browser", keywords: ["images", "containers", "harbor"] },
       { href: "/config", icon: Cog, label: "Config", shortcut: "G C", description: "Config editor, ConfigMaps, and drift vs Git", pinnable: true, keywords: ["configmap", "config maps", "drift", "git", "secrets editor"] },
       { href: "/secrets", icon: KeyRound, label: "Secrets & Certs", description: "Secret browser, expiry tracking, and TLS certificates", keywords: ["externalsecret", "credentials", "vault", "expiry", "rotation", "tls", "ssl", "cert-manager", "certificates"] },
