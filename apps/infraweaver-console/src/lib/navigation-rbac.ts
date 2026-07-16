@@ -62,6 +62,7 @@ const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
   "/pv-browser": { any: ["cluster:admin"] },
   "/cost": { any: ["infra:read"] },
   "/storage-timeline": { any: ["infra:read"] },
+  "/dr-readiness": { any: ["infra:read"] },
   "/scheduled-tasks": { any: ["config:write"] },
   "/automations": { any: ["cluster:read", "infra:read"] },
   "/tests": { any: ["infra:read"] },
