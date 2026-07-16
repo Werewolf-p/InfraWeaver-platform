@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, Radar, Unplug } from "lucide-react";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { computeBlastRadius, computeDependencies, type OrphanFinding, type SpofFinding } from "@/lib/topology/blast-radius";
+import { findShortestPath } from "@/lib/topology/paths";
 import type { DependencyGraph, GraphNode } from "@/lib/topology/graph-model";
 
 interface GraphResponse extends DependencyGraph {
@@ -40,10 +41,12 @@ export function DependencyGraphPanel() {
   });
 
   const [selected, setSelected] = useState<string>("");
+  const [target, setTarget] = useState<string>("");
 
   const graph = useMemo<DependencyGraph>(() => ({ nodes: data?.nodes ?? [], edges: data?.edges ?? [] }), [data]);
   const blast = useMemo(() => (selected ? computeBlastRadius(graph, selected) : null), [graph, selected]);
   const deps = useMemo(() => (selected ? computeDependencies(graph, selected) : null), [graph, selected]);
+  const path = useMemo(() => (selected && target ? findShortestPath(graph, selected, target) : null), [graph, selected, target]);
 
   if (isLoading) return <div className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" />;
 
@@ -95,6 +98,36 @@ export function DependencyGraphPanel() {
             </p>
             <IdList ids={[...(deps?.direct ?? []), ...(deps?.transitive ?? [])]} nodes={graph.nodes} empty="This node has no declared dependencies." />
           </div>
+        </div>
+      )}
+
+      {selected && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-3 dark:border-white/10">
+          <span className="text-xs font-semibold text-slate-500">Trace path to</span>
+          <select
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            className="min-w-48 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-900 dark:border-white/10 dark:bg-slate-800 dark:text-white"
+          >
+            <option value="">Select a dependency…</option>
+            {sortedNodes.filter((n) => n.id !== selected).map((n) => (
+              <option key={n.id} value={n.id}>{labelFor(graph.nodes, n.id)}</option>
+            ))}
+          </select>
+          {target && (
+            path && path.length > 0 ? (
+              <span className="flex flex-wrap items-center gap-1 text-[11px] text-slate-600 dark:text-slate-300">
+                {path.map((id, i) => (
+                  <span key={id} className="flex items-center gap-1">
+                    <span className="rounded-md bg-indigo-500/10 px-2 py-0.5 font-mono text-indigo-300">{labelFor(graph.nodes, id)}</span>
+                    {i < path.length - 1 && <span className="text-slate-400">→</span>}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              <span className="text-[11px] text-slate-500">No dependency path exists.</span>
+            )
+          )}
         </div>
       )}
 
