@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Package, ShieldAlert, ShieldCheck, Boxes } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { AsyncBoundary } from "@/components/ui";
 import { useApiQuery } from "@/hooks/use-api-query";
 import type { PinStatus, SupplyChainFinding, SupplyChainSummary } from "@/lib/images/supply-chain";
 import type { ImageMatrixRow, ScanCoverage, VulnRollup } from "@/lib/images/vuln-rollup";
@@ -32,13 +33,11 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
 }
 
 export default function ImageVulnerabilitiesPage() {
-  const { data, isLoading } = useApiQuery<ImageIntel>({
+  const { data, isLoading, isError, refetch } = useApiQuery<ImageIntel>({
     queryKey: ["security", "image-intel"],
     path: "/api/security/image-intel",
     staleTime: 120_000,
   });
-
-  if (isLoading) return <div className="space-y-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-100 dark:bg-white/5" />)}</div>;
 
   const sc = data?.supplyChain;
   const cve = data?.cve;
@@ -48,6 +47,13 @@ export default function ImageVulnerabilitiesPage() {
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <PageHeader icon={ShieldCheck} title="Image Supply Chain" description="Pin-status integrity and CVE exposure for every running image" />
 
+      <AsyncBoundary
+        isLoading={isLoading}
+        isError={isError}
+        isEmpty={!isLoading && !isError && findings.length === 0}
+        onRetry={() => refetch()}
+        emptyTitle="No running images found"
+      >
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Supply-chain grade" value={sc?.summary.grade ?? "—"} color={GRADE_TONE[sc?.summary.grade ?? "A"]} />
         <StatCard label="Digest-pinned" value={sc?.summary.pinnedDigest ?? 0} color="text-green-400" />
@@ -118,6 +124,7 @@ export default function ImageVulnerabilitiesPage() {
           </div>
         )}
       </div>
+      </AsyncBoundary>
     </motion.div>
   );
 }
