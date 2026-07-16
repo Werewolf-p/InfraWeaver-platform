@@ -98,8 +98,18 @@ export default function ResourceOptimizerPage() {
     staleTime: 60_000,
   });
 
+  const { data: headroom } = useApiQuery<{
+    nodes: Array<{ name: string; allocatableCpuM: number; allocatableMemMi: number; freeCpuM: number; freeMemMi: number }>;
+    cluster: { freeCpuM: number; freeMemMi: number; allocatableCpuM: number; allocatableMemMi: number };
+  }>({
+    queryKey: ["cluster", "headroom"],
+    path: "/api/cluster/headroom",
+    staleTime: 60_000,
+  });
+
   const recs = data?.recommendations ?? [];
   const summary = data?.summary;
+  const nodes = headroom?.nodes ?? [];
 
   return (
     <PageScaffold
@@ -130,6 +140,28 @@ export default function ResourceOptimizerPage() {
         </div>
 
         <ResourceTable columns={columns} data={recs} getRowKey={(row) => `${row.namespace}/${row.pod}/${row.container}`} />
+
+        {nodes.length > 0 && (
+          <div className="rounded-xl border border-gray-200 bg-slate-100 p-4 backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/60">
+            <p className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
+              Cluster headroom · {cpu(headroom?.cluster.freeCpuM ?? 0)} CPU · {mem(headroom?.cluster.freeMemMi ?? 0)} free
+            </p>
+            <div className="space-y-2">
+              {nodes.map((node) => {
+                const memPct = node.allocatableMemMi > 0 ? Math.round((node.freeMemMi / node.allocatableMemMi) * 100) : 0;
+                return (
+                  <div key={node.name} className="flex items-center gap-3 text-xs">
+                    <span className="w-40 shrink-0 truncate font-mono text-slate-600 dark:text-slate-300">{node.name}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-200 dark:bg-white/10">
+                      <div className="h-full rounded-full bg-emerald-500/60" style={{ width: `${memPct}%` }} />
+                    </div>
+                    <span className="w-32 shrink-0 text-right text-slate-500">{cpu(node.freeCpuM)} · {mem(node.freeMemMi)} free</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </motion.div>
     </PageScaffold>
   );
