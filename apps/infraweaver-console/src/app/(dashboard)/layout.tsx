@@ -168,7 +168,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
   const mobilePrimaryNavItems = useMemo(
     () =>
-      ["/home", "/apps", "/pods", "/cluster"]
+      ["/home", "/workloads", "/pods", "/cluster"]
         .map((href) => flatNavItems.find((item) => item.href === href))
         .filter((item): item is (typeof flatNavItems)[number] => Boolean(item)),
     [flatNavItems],

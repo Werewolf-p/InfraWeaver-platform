@@ -1,7 +1,8 @@
-import { WordpressDashboard } from "@/addons/wordpress-manager/components/wordpress-dashboard";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default function WordpressPage() {
-  return <WordpressDashboard />;
+// Consolidated into the Workloads hub — WordPress is now the addon-gated
+// "wordpress" tab (renders the WordpressDashboard). Old URLs and bookmarks keep
+// working. Detail routes (/wordpress/[site]) are unchanged.
+export default function WordpressRedirect() {
+  redirect("/workloads?tab=wordpress");
 }

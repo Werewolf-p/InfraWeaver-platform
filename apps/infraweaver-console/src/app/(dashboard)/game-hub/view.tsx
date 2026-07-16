@@ -1,0 +1,1370 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent } from "react";
+import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import { Plus, Lock, Gamepad2, Play, Square, RotateCcw, Trash2, Terminal, Loader2, AlertTriangle, HardDrive, CheckSquare, Square as SquareIcon, Search, ChevronDown, ChevronUp, BarChart2, Star, LayoutGrid, Rows3, MoreVertical, Copy, Folder, FolderOpen, Upload } from "lucide-react";
+import { cn, timeAgo } from "@/lib/utils";
+import { useRBAC } from "@/hooks/use-rbac";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useDebounce } from "@/hooks/use-debounce";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useMutationWithToast } from "@/hooks/use-mutation-with-toast";
+import { fetchJson } from "@/lib/fetch-json";
+import { toast } from "@/lib/notify";
+import Link from "next/link";
+import { RefreshCountdown } from "@/components/ui/refresh-countdown";
+import { HorizontalScrollHint } from "@/components/ui/horizontal-scroll-hint";
+import { ResponsiveSheet } from "@/components/ui/responsive-sheet";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ServerActionButtons, type ServerPowerAction } from "@/components/game-hub/server-actions";
+
+interface GameServer {
+  name: string;
+  gameType: string;
+  status: string;
+  replicas: number;
+  readyReplicas: number;
+  podName: string | null;
+  port: number;
+  nodePort: number;
+  nodeIp?: string | null;
+  memory: string;
+  cpu: string;
+  createdAt: string | null;
+  description?: string;
+  icon?: string;
+  tags?: string[];
+  groups?: string[];
+  notes?: string;
+  playerHistory?: Array<{ t: number; n: number }>;
+  playerCount?: number;
+  imageVersion?: string;
+  imagePinned?: boolean;
+  restartCount?: number;
+  healthScore?: number;
+  podStartTime?: string | null;
+  cpuUsage?: number | null;
+  memoryUsage?: number | null;
+  cpuLimit?: number | null;
+  memoryLimit?: number | null;
+  permissions?: {
+    canRead: boolean;
+    canPlayers: boolean;
+    canConsole: boolean;
+    canFiles: boolean;
+    canAdmin: boolean;
+    canStart: boolean;
+    canStop: boolean;
+  };
+  inGit: boolean;
+}
+
+interface UnusedPVC {
+  namespace: string;
+  name: string;
+  status: string;
+  storageClass: string;
+  capacity: string;
+  createdAt: string | null;
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  running: "bg-green-500/20 text-green-300 border-green-500/30",
+  starting: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+  stopping: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+  stopped: "bg-[#333] text-gray-500 dark:text-[#999] border-gray-200 dark:border-[#444]",
+  crashed: "bg-red-500/20 text-red-300 border-red-500/30",
+};
+
+function PVCCleanupModal({ onClose }: { onClose: () => void }) {
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["pvc-cleanup"],
+    queryFn: async () => {
+      const res = await fetch("/api/game-hub/pvcs/unused");
+      if (!res.ok) throw new Error("Failed to fetch unused PVCs");
+      const result = await res.json() as { unused: UnusedPVC[] };
+      setChecked(new Set(result.unused.map((pvc) => `${pvc.namespace}/${pvc.name}`)));
+      return result;
+    },
+    staleTime: 0,
+  });
+
+  const unused = data?.unused ?? [];
+
+  function toggleAll() {
+    if (checked.size === unused.length) setChecked(new Set());
+    else setChecked(new Set(unused.map((pvc) => `${pvc.namespace}/${pvc.name}`)));
+  }
+
+  function toggle(key: string) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  const cleanup = useMutation({
+    mutationFn: async (toDelete: UnusedPVC[]) => {
+      const results = await Promise.all(toDelete.map(async (pvc) => {
+        const res = await fetch(`/api/game-hub/pvcs/${encodeURIComponent(pvc.name)}`, { method: "DELETE" });
+        return res.ok;
+      }));
+      const deleted = results.filter(Boolean).length;
+      return { deleted, failed: results.length - deleted };
+    },
+    onSuccess: ({ deleted, failed }) => {
+      if (failed > 0) toast.error(`${failed} PVC(s) failed to delete`);
+      if (deleted > 0) toast.success(`${deleted} PVC(s) deleted`);
+      onClose();
+    },
+    onError: (error) => toast.error(String(error)),
+  });
+
+  function doCleanup() {
+    const toDelete = unused.filter((pvc) => checked.has(`${pvc.namespace}/${pvc.name}`));
+    if (toDelete.length === 0) return;
+    cleanup.mutate(toDelete);
+  }
+
+  return (
+    <ResponsiveSheet
+      open
+      onClose={onClose}
+      size="lg"
+      title="PVC Cleanup"
+      description="Review unused volumes, select what to remove, and swipe down when you are done."
+      footer={!isLoading && unused.length > 0 ? (
+        <div className="space-y-3 sm:flex sm:items-center sm:justify-between sm:gap-4 sm:space-y-0">
+          <p className="text-sm text-gray-500 dark:text-[#888]">{checked.size} of {unused.length} selected</p>
+          <div className="grid grid-cols-1 gap-3 sm:flex sm:gap-2">
+            <button onClick={onClose} className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">Cancel</button>
+            <button onClick={doCleanup} disabled={checked.size === 0 || cleanup.isPending} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-red-500/20 px-4 text-sm font-semibold text-red-200 transition-colors hover:bg-red-500/30 disabled:cursor-not-allowed disabled:opacity-50">
+              {cleanup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete {checked.size > 0 ? `${checked.size} PVC${checked.size !== 1 ? "s" : ""}` : "selected PVCs"}
+            </button>
+          </div>
+        </div>
+      ) : undefined}
+    >
+      {isLoading && (
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="h-24 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] animate-pulse" />
+          ))}
+        </div>
+      )}
+      {error && (
+        <div className="flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+          <div>
+            <p className="font-medium text-red-100">PVC scan failed</p>
+            <p className="mt-1">{String(error)}</p>
+          </div>
+        </div>
+      )}
+      {!isLoading && !error && unused.length === 0 && (
+        <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-6 text-center">
+          <div className="text-4xl">✅</div>
+          <p className="text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">No unused PVCs found</p>
+          <p className="text-sm text-gray-500 dark:text-[#888]">All PersistentVolumeClaims are currently bound and in use.</p>
+        </div>
+      )}
+      {!isLoading && unused.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex flex-col gap-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-base font-semibold text-gray-900 dark:text-white">{unused.length} unused PVC{unused.length !== 1 ? "s" : ""}</p>
+              <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">Select the volumes you want to remove. Destructive actions stay in the bottom footer for thumb reach.</p>
+            </div>
+            <button onClick={toggleAll} className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 text-sm font-medium text-[#9ecfff] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
+              {checked.size === unused.length ? <SquareIcon className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
+              {checked.size === unused.length ? "Deselect all" : "Select all"}
+            </button>
+          </div>
+          <div className="space-y-3">
+            {unused.map((pvc) => {
+              const key = `${pvc.namespace}/${pvc.name}`;
+              const isChecked = checked.has(key);
+              return (
+                <button key={key} onClick={() => toggle(key)} className={cn("w-full rounded-2xl border p-4 text-left transition-colors", isChecked ? "border-red-500/30 bg-red-500/10 hover:bg-red-500/15" : "border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] hover:border-[#3a3a3a]")}>
+                  <div className="flex items-start gap-3">
+                    <div className={cn("mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border", isChecked ? "border-red-500 bg-red-500" : "border-[#555]")}>{isChecked ? <span className="text-sm font-bold text-gray-900 dark:text-white">✓</span> : null}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{pvc.name}</span>
+                        <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", pvc.status === "Released" ? "border-yellow-500/30 bg-yellow-500/20 text-yellow-200" : pvc.status === "Lost" ? "border-red-500/30 bg-red-500/20 text-red-200" : "border-gray-200 dark:border-[#444] bg-gray-50 dark:bg-[#252525] text-gray-600 dark:text-[#b3b3b3]")}>{pvc.status}</span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-gray-600 dark:text-[#b3b3b3] sm:grid-cols-3">
+                        <div>
+                          <p className="text-gray-500 dark:text-[#777]">Namespace</p>
+                          <p className="mt-1 text-gray-900 dark:text-white">{pvc.namespace}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 dark:text-[#777]">Storage class</p>
+                          <p className="mt-1 text-gray-900 dark:text-white">{pvc.storageClass || "default"}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 dark:text-[#777]">Capacity</p>
+                          <p className="mt-1 text-gray-900 dark:text-white">{pvc.capacity || "unknown size"}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </ResponsiveSheet>
+  );
+}
+
+type ServerSortKey = "name" | "status" | "cpu" | "players" | "started" | "health";
+type ServerViewMode = "detailed" | "compact";
+const SERVER_SORT_KEY = "infraweaver:game-hub-sort";
+const SERVER_FAVORITES_KEY = "infraweaver:game-hub-favorites";
+const SERVER_VIEW_KEY = "infraweaver:game-hub-view";
+const SERVER_COLLAPSED_KEY = "infraweaver:game-hub-collapsed";
+const CONFIG_VERSION = 1;
+const IMPORT_DRAFT_STORAGE_KEY = "infraweaver-game-server-draft";
+
+type ImportedWizardConfig = {
+  version: number;
+  eggSource?: "built-in" | "pelican";
+  eggId?: string | null;
+  eggName?: string | null;
+  eggPath?: string | null;
+  serverName?: string;
+  dnsType?: "internal" | "public" | "custom";
+  dnsHostname?: string;
+  envValues?: Record<string, string>;
+  memoryMi?: number;
+  cpuCores?: number;
+  storageGi?: number;
+  storageClass?: string;
+  dockerImage?: string | null;
+  eulaAccepted?: boolean;
+  targetNode?: string | null;
+};
+
+function computeHealthScore(server: GameServer) {
+  const readyScore = server.readyReplicas > 0 ? 40 : 0;
+  const restartPenalty = Math.min((server.restartCount ?? 0) * 5, 20);
+  const cpuPct = server.cpuUsage && server.cpuLimit ? (server.cpuUsage / server.cpuLimit) * 100 : 0;
+  const memoryPct = server.memoryUsage && server.memoryLimit ? (server.memoryUsage / server.memoryLimit) * 100 : 0;
+  const cpuScore = cpuPct <= 0 ? 10 : cpuPct <= 80 ? 20 : cpuPct <= 95 ? 10 : 0;
+  const memoryScore = memoryPct <= 0 ? 10 : memoryPct <= 80 ? 20 : memoryPct <= 95 ? 10 : 0;
+  const ageHours = server.podStartTime ? (Date.now() - new Date(server.podStartTime).getTime()) / 3_600_000 : 0;
+  const ageScore = !server.podStartTime ? 0 : ageHours >= 24 ? 20 : ageHours >= 1 ? 12 : 6;
+  return Math.max(0, Math.min(100, readyScore + cpuScore + memoryScore + ageScore - restartPenalty));
+}
+
+function healthBadge(server: GameServer) {
+  const score = computeHealthScore(server);
+  if (server.status === "stopped") return { label: "Stopped", score, className: "bg-[#333] text-[#bbb] border-gray-200 dark:border-[#444]" };
+  if (score >= 80) return { label: `${score}/100`, score, className: "bg-green-500/15 text-green-300 border-green-500/30" };
+  if (score >= 50) return { label: `${score}/100`, score, className: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30" };
+  return { label: `${score}/100`, score, className: "bg-red-500/15 text-red-300 border-red-500/30" };
+}
+
+function formatUsage(value: number | null | undefined, limit: number | null | undefined, kind: "cpu" | "memory") {
+  if (!value || !limit) return "—";
+  const pct = Math.round((value / limit) * 100);
+  if (kind === "cpu") return `${pct}%`;
+  const gib = (value / (1024 ** 3)).toFixed(1);
+  return `${gib}Gi (${pct}%)`;
+}
+
+function replicaSummary(server: GameServer) {
+  if (server.readyReplicas === 0 && server.replicas === 0) return "—";
+  return `${server.readyReplicas}/${server.replicas}`;
+}
+
+function formatUptime(startTime: string | null | undefined, now: number) {
+  if (!startTime || !now) return "—";
+  const diff = Math.max(0, Math.floor((now - new Date(startTime).getTime()) / 1000));
+  if (diff < 60) return `${diff}s`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ${diff % 60}s`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`;
+  return `${Math.floor(diff / 86400)}d ${Math.floor((diff % 86400) / 3600)}h`;
+}
+
+function getConnectionString(server: GameServer) {
+  if (!server.nodePort) return "";
+  return server.nodeIp ? `${server.nodeIp}:${server.nodePort}` : String(server.nodePort);
+}
+
+function getPlayerTrend(server: GameServer) {
+  const history = server.playerHistory ?? [];
+  if (history.length < 2) return null;
+  const previous = history[history.length - 2]?.n ?? 0;
+  const latest = history[history.length - 1]?.n ?? 0;
+  if (latest > previous) return { icon: "↑", className: "text-green-400" };
+  if (latest < previous) return { icon: "↓", className: "text-red-400" };
+  return null;
+}
+
+function getUsagePercent(usage: number | null | undefined, limit: number | null | undefined) {
+  if (!usage || !limit) return null;
+  return Math.max(0, Math.min(100, Math.round((usage / limit) * 100)));
+}
+
+function getUsageTone(percent: number | null) {
+  if (percent === null) return "bg-gray-200 dark:bg-[#2a2a2a]";
+  if (percent > 90) return "bg-red-500";
+  if (percent >= 70) return "bg-yellow-500";
+  return "bg-emerald-500";
+}
+
+function ServerActionSheet({
+  server,
+  open,
+  onClose,
+  actionLoading,
+  onAction,
+  onClone,
+  onToggleFavorite,
+  onToggleSelected,
+  onToggleCompare,
+  isFavorite,
+  isSelected,
+  compareSelected,
+  now,
+}: {
+  server: GameServer | null;
+  open: boolean;
+  onClose: () => void;
+  actionLoading?: string;
+  onAction: (action: string) => Promise<void>;
+  onClone: () => Promise<void>;
+  onToggleFavorite: () => void;
+  onToggleSelected: () => void;
+  onToggleCompare: () => void;
+  isFavorite: boolean;
+  isSelected: boolean;
+  compareSelected: boolean;
+  now: number;
+}) {
+  if (!server) return null;
+
+  const metrics = [
+    { label: "Players", value: String(server.playerCount ?? 0) },
+    { label: "CPU", value: formatUsage(server.cpuUsage, server.cpuLimit, "cpu") },
+    { label: "Memory", value: formatUsage(server.memoryUsage, server.memoryLimit, "memory") },
+    { label: "Uptime", value: formatUptime(server.podStartTime, now) },
+  ];
+
+  return (
+    <ResponsiveSheet
+      open={open}
+      onClose={onClose}
+      title={<span>{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</span>}
+      description="Thumb-friendly actions, swipe-to-dismiss, and live server health in one place."
+      footer={
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Link
+            href={`/game-hub/${server.name}`}
+            onClick={onClose}
+            className="inline-flex min-h-[48px] items-center justify-center rounded-2xl bg-[#0078D4] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#006cbe]"
+          >
+            {server.permissions?.canConsole ? "Open Console" : "Open Details"}
+          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              onToggleSelected();
+              onClose();
+            }}
+            className="inline-flex min-h-[48px] items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white"
+          >
+            {isSelected ? "Selected for bulk actions" : "Select for bulk actions"}
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          {metrics.map((metric) => (
+            <div key={metric.label} className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-3">
+              <p className="text-sm text-gray-500 dark:text-[#888]">{metric.label}</p>
+              <p className="mt-1 text-base font-semibold text-gray-900 dark:text-white">{metric.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={cn("rounded-full border px-3 py-1 text-sm font-medium capitalize", STATUS_COLORS[server.status] ?? STATUS_COLORS.stopped)}>{server.status}</span>
+            <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", healthBadge(server).className)}>
+              {server.status === "stopped" ? "Stopped" : `Health ${healthBadge(server).label}`}
+            </span>
+            <span className={cn("rounded-full border px-3 py-1 text-sm font-medium", server.inGit ? "border-green-500/30 bg-green-500/10 text-green-300" : "border-gray-200 dark:border-[#444] bg-gray-50 dark:bg-[#252525] text-gray-600 dark:text-[#b3b3b3]")}>{server.inGit ? "IaC tracked" : "Cluster-only"}</span>
+          </div>
+          <p className="mt-3 text-sm text-gray-600 dark:text-[#b3b3b3]">{server.description ?? "Use the action sheet for quick lifecycle operations without leaving the list."}</p>
+        </div>
+
+        <div className="space-y-2">
+          {(server.status === "stopped" && server.permissions?.canStart) ? (
+            <button type="button" onClick={() => void onAction("start")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-green-500/30 bg-green-500/15 px-4 text-left text-sm font-medium text-green-200 transition-colors hover:bg-green-500/25 disabled:opacity-50">
+              <span className="flex items-center gap-3"><Play className="h-4 w-4" /> Start server</span>
+              {actionLoading === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            </button>
+          ) : null}
+          {(server.status !== "stopped" && server.permissions?.canAdmin) ? (
+            <button type="button" onClick={() => void onAction("restart")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-left text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white disabled:opacity-50">
+              <span className="flex items-center gap-3"><RotateCcw className="h-4 w-4" /> Restart server</span>
+              {actionLoading === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            </button>
+          ) : null}
+          {(server.status !== "stopped" && server.permissions?.canStop) ? (
+            <button type="button" onClick={() => void onAction("stop")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-left text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-red-500/30 hover:text-red-300 disabled:opacity-50">
+              <span className="flex items-center gap-3"><Square className="h-4 w-4" /> Stop server</span>
+              {actionLoading === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            </button>
+          ) : null}
+          {server.permissions?.canAdmin ? (
+            <button type="button" onClick={() => void onClone()} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-left text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
+              <Plus className="h-4 w-4" /> Clone server
+            </button>
+          ) : null}
+          {!server.inGit && server.permissions?.canAdmin ? (
+            <button type="button" onClick={() => void onAction("sync-to-git")} disabled={!!actionLoading} className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-[#2f6fa8] bg-[#0078D4]/10 px-4 text-left text-sm font-medium text-[#7cc4ff] transition-colors hover:bg-[#0078D4]/20 disabled:opacity-50">
+              <span>Sync manifest to Git</span>
+              {actionLoading === "sync-to-git" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            </button>
+          ) : null}
+          <button type="button" onClick={() => { onToggleFavorite(); onClose(); }} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-left text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
+            <Star className={cn("h-4 w-4", isFavorite && "fill-yellow-300 text-yellow-300")} />
+            {isFavorite ? "Remove favorite" : "Add to favorites"}
+          </button>
+          <button type="button" onClick={() => { onToggleCompare(); onClose(); }} className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-left text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
+            <BarChart2 className="h-4 w-4" />
+            {compareSelected ? "Remove from compare" : "Add to compare"}
+          </button>
+          {server.permissions?.canAdmin ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm(`Delete ${server.name}? This will remove the server and its data.`)) {
+                  void onAction("delete");
+                }
+              }}
+              disabled={!!actionLoading}
+              className="flex min-h-[52px] w-full items-center justify-between rounded-2xl border border-red-500/25 bg-red-500/10 px-4 text-left text-sm font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+            >
+              <span className="flex items-center gap-3"><Trash2 className="h-4 w-4" /> Delete server</span>
+              {actionLoading === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            </button>
+          ) : null}
+        </div>
+
+        <p className="text-sm text-gray-500 dark:text-[#777]">Tip: long-press any server card to open this action sheet without aiming for the menu button.</p>
+      </div>
+    </ResponsiveSheet>
+  );
+}
+
+export function GameHubView() {
+  const router = useRouter();
+  const { can } = useRBAC();
+  const canManageGameHub = can("game-hub:admin", "/game-hub/");
+  const [showPVCCleanup, setShowPVCCleanup] = useState(false);
+  const [search, setSearch] = useState("");
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [filterType, setFilterType] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareSet, setCompareSet] = useState<Set<string>>(new Set());
+  const [filterTag, setFilterTag] = useState("");
+  const [filterGroup, setFilterGroup] = useState("");
+  const [favoriteList, setFavoriteList] = useLocalStorage<string[]>(SERVER_FAVORITES_KEY, []);
+  const [viewMode, setViewMode] = useLocalStorage<ServerViewMode>(SERVER_VIEW_KEY, "detailed");
+  const [collapsedList, setCollapsedList] = useLocalStorage<string[]>(SERVER_COLLAPSED_KEY, []);
+  const [sortPref, setSortPref] = useLocalStorage<{ sortKey?: ServerSortKey; sortDir?: "asc" | "desc" }>(SERVER_SORT_KEY, {});
+  const favorites = useMemo(() => new Set(Array.isArray(favoriteList) ? favoriteList : []), [favoriteList]);
+  const collapsedServers = useMemo(() => new Set(Array.isArray(collapsedList) ? collapsedList : []), [collapsedList]);
+  const sortKey: ServerSortKey = sortPref.sortKey ?? "health";
+  const sortDir: "asc" | "desc" = sortPref.sortDir === "asc" ? "asc" : "desc";
+  const debouncedSearch = useDebounce(search.trim(), 300);
+  const { copy } = useCopyToClipboard();
+  const [now, setNow] = useState(0);
+  const [activeActionServerName, setActiveActionServerName] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; name: string }>({ open: false, name: "" });
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [hoveredTagServer, setHoveredTagServer] = useState<string | null>(null);
+  const [editingTagServer, setEditingTagServer] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const importRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const immediate = setTimeout(tick, 0);
+    const interval = setInterval(tick, 60000);
+    return () => {
+      clearTimeout(immediate);
+      clearInterval(interval);
+    };
+  }, []);
+
+  function clearLongPress() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function startLongPress(name: string) {
+    if (compareMode || typeof window === "undefined") return;
+    clearLongPress();
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      navigator.vibrate?.(10);
+      setActiveActionServerName(name);
+    }, 450);
+  }
+
+  useEffect(() => () => clearLongPress(), []);
+
+  // Quick actions are surfaced by the global FloatingActionButton (layout) so the
+  // page no longer renders its own FAB. Bridge those actions via custom events.
+  useEffect(() => {
+    const handleCleanup = () => setShowPVCCleanup(true);
+    const handleImport = () => triggerImportConfig();
+    window.addEventListener("fab:game-hub:cleanup-pvcs", handleCleanup);
+    window.addEventListener("fab:game-hub:import-config", handleImport);
+    return () => {
+      window.removeEventListener("fab:game-hub:cleanup-pvcs", handleCleanup);
+      window.removeEventListener("fab:game-hub:import-config", handleImport);
+    };
+  }, []);
+
+  const { data, isLoading, error, dataUpdatedAt } = useQuery({
+    queryKey: ["game-hub", "servers"],
+    queryFn: async () => {
+      const res = await fetch("/api/game-hub/servers");
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json() as Promise<{ servers: GameServer[]; setupRequired?: boolean; reason?: string }>;
+    },
+    refetchInterval: 15000,
+  });
+
+  const servers = data?.servers ?? [];
+  const setupRequired = data?.setupRequired ?? false;
+  const setupReason = data?.reason ?? "";
+  const uniqueGameTypes = [...new Set(servers.map((server) => server.gameType))].sort();
+  const allTags = [...new Set(servers.flatMap((server) => server.tags ?? []))].sort((a, b) => a.localeCompare(b));
+  const allGroups = [...new Set(servers.flatMap((server) => server.groups ?? []))].sort((a, b) => a.localeCompare(b));
+  const gameTypeCounts = uniqueGameTypes.map((type) => ({
+    type,
+    count: servers.filter((server) => server.gameType === type).length,
+  }));
+  const filteredServers = [...servers.filter((server) => {
+    const haystack = [server.name, server.description ?? "", ...(server.tags ?? []), ...(server.groups ?? [])].join(" ").toLowerCase();
+    if (debouncedSearch && !haystack.includes(debouncedSearch.toLowerCase())) return false;
+    if (filterStatus !== "all" && server.status !== filterStatus) return false;
+    if (filterType && server.gameType !== filterType) return false;
+    if (filterTag && !(server.tags ?? []).includes(filterTag)) return false;
+    if (filterGroup && !(server.groups ?? []).includes(filterGroup)) return false;
+    return true;
+  })].sort((a, b) => {
+    if (favorites.has(a.name) !== favorites.has(b.name)) return favorites.has(a.name) ? -1 : 1;
+    const direction = sortDir === "asc" ? 1 : -1;
+    if (sortKey === "health") return direction * (computeHealthScore(a) - computeHealthScore(b));
+    if (sortKey === "started") return direction * ((a.podStartTime ? new Date(a.podStartTime).getTime() : 0) - (b.podStartTime ? new Date(b.podStartTime).getTime() : 0));
+    if (sortKey === "cpu") return direction * ((a.cpuLimit && a.cpuUsage ? a.cpuUsage / a.cpuLimit : 0) - (b.cpuLimit && b.cpuUsage ? b.cpuUsage / b.cpuLimit : 0));
+    if (sortKey === "players") return direction * ((a.playerCount ?? 0) - (b.playerCount ?? 0));
+    return direction * String(a[sortKey]).localeCompare(String(b[sortKey]), undefined, { sensitivity: "base" });
+  });
+  const comparedServers = [...compareSet].map((name) => servers.find((server) => server.name === name)).filter((server): server is GameServer => Boolean(server));
+  const selectedServers = filteredServers.filter((server) => selected.has(server.name));
+  const activeActionServer = activeActionServerName ? servers.find((server) => server.name === activeActionServerName) ?? null : null;
+  const canBulkStart = selectedServers.some((server) => server.permissions?.canStart);
+  const canBulkStop = selectedServers.some((server) => server.permissions?.canStop);
+  const canBulkRestart = selectedServers.some((server) => server.permissions?.canAdmin);
+  const hasGroupedServers = allGroups.length > 0;
+  const groupedSections = hasGroupedServers
+    ? [
+        ...allGroups.map((group) => ({
+          name: group,
+          servers: filteredServers.filter((server) => (server.groups ?? [])[0] === group),
+        })),
+        {
+          name: "Ungrouped",
+          servers: filteredServers.filter((server) => (server.groups ?? []).length === 0),
+        },
+      ].filter((section) => section.servers.length > 0)
+    : [];
+
+
+  useEffect(() => {
+    if (!hasGroupedServers) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync with an external/browser store or dependency-driven reset; not derived render state
+    setExpandedGroups((current) => {
+      const next = { ...current };
+      for (const group of [...allGroups, "Ungrouped"]) {
+        if (next[group] === undefined) next[group] = true;
+      }
+      return next;
+    });
+  }, [allGroups, hasGroupedServers]);
+
+  const serverAction = useMutationWithToast<unknown, { name: string; action: string }>({
+    mutationFn: ({ name, action }) =>
+      action === "delete"
+        ? fetchJson(`/api/game-hub/servers/${name}`, { method: "DELETE" })
+        : fetchJson(`/api/game-hub/servers/${name}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action }),
+          }),
+    successMessage: (_data, { name, action }) =>
+      action === "delete" ? `${name} deleted` : action === "sync-to-git" ? `${name} synced to git` : `${name} ${action} successful`,
+    invalidateKeys: [["game-hub", "servers"]],
+  });
+  const pendingServerAction = serverAction.isPending ? serverAction.variables : undefined;
+  const actionLoadingFor = (name: string) => (pendingServerAction?.name === name ? pendingServerAction.action : undefined);
+
+  const cloneMutation = useMutationWithToast<unknown, { source: string; newName: string }>({
+    mutationFn: ({ source, newName }) =>
+      fetchJson("/api/game-hub/servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clone", source, newName }),
+      }),
+    successMessage: "Clone started",
+    invalidateKeys: [["game-hub", "servers"]],
+  });
+
+  async function doAction(name: string, action: string) {
+    await serverAction.mutateAsync({ name, action }).catch(() => undefined);
+  }
+
+  async function cloneServer(source: string) {
+    const newName = prompt("Clone server as", `${source}-copy`);
+    if (!newName) return;
+    await cloneMutation.mutateAsync({ source, newName }).catch(() => undefined);
+  }
+
+  function triggerImportConfig() {
+    importRef.current?.click();
+  }
+
+  function handleImportConfig(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (loadEvent) => {
+      try {
+        const config = JSON.parse(String(loadEvent.target?.result ?? "")) as ImportedWizardConfig;
+        if (config.version !== CONFIG_VERSION) throw new Error("Unrecognised config version");
+        localStorage.setItem(IMPORT_DRAFT_STORAGE_KEY, JSON.stringify(config));
+        toast.success("Config imported — continuing in the wizard");
+        router.push("/game-hub/new");
+      } catch (error) {
+        toast.error(error instanceof Error ? `Failed to import config: ${error.message}` : "Failed to import config");
+      } finally {
+        input.value = "";
+      }
+    };
+    reader.onerror = () => {
+      toast.error("Failed to read config file");
+      input.value = "";
+    };
+    reader.readAsText(file);
+  }
+
+  const bulkMutation = useMutationWithToast<unknown, { action: "start" | "stop" | "restart"; names: string[] }>({
+    mutationFn: ({ action, names }) =>
+      fetchJson("/api/game-hub/servers/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, names }),
+      }),
+    successMessage: (_data, { action, names }) => `${action} requested for ${names.length} server${names.length === 1 ? "" : "s"}`,
+    invalidateKeys: [["game-hub", "servers"]],
+    onSuccess: () => setSelected(new Set()),
+  });
+
+  function doBulkAction(action: "start" | "stop" | "restart") {
+    if (selected.size === 0) return;
+    bulkMutation.mutate({ action, names: [...selected] });
+  }
+
+  function copyConnection(event: MouseEvent, server: GameServer) {
+    event.stopPropagation();
+    const connectionString = getConnectionString(server);
+    if (!connectionString) return;
+    void copy(connectionString, { successMessage: "Copied!" });
+  }
+
+  const tagMutation = useMutationWithToast<unknown, { server: GameServer; tag: string }>({
+    mutationFn: ({ server, tag }) =>
+      fetchJson(`/api/game-hub/servers/${server.name}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update-tags",
+          tags: [...new Set([...(server.tags ?? []), tag])],
+        }),
+      }),
+    successMessage: "Tag added",
+    invalidateKeys: [["game-hub", "servers"]],
+    onSuccess: () => {
+      setEditingTagServer(null);
+      setTagDraft("");
+    },
+  });
+  const tagSavingServer = tagMutation.isPending ? tagMutation.variables?.server.name ?? null : null;
+
+  function saveInlineTag(server: GameServer) {
+    const nextTag = tagDraft.trim();
+    if (!nextTag) return;
+    tagMutation.mutate({ server, tag: nextTag });
+  }
+
+  function toggleSelected(name: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  }
+
+  function toggleCompare(name: string) {
+    setCompareSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+        return next;
+      }
+      if (next.size >= 3) {
+        toast.info("You can compare up to 3 servers at once");
+        return prev;
+      }
+      next.add(name);
+      return next;
+    });
+  }
+
+  function setSort(nextKey: ServerSortKey) {
+    if (sortKey === nextKey) {
+      setSortPref({ sortKey, sortDir: sortDir === "asc" ? "desc" : "asc" });
+      return;
+    }
+    setSortPref({ sortKey: nextKey, sortDir: ["health", "cpu", "players", "started"].includes(nextKey) ? "desc" : "asc" });
+  }
+
+  function toggleFavorite(name: string) {
+    setFavoriteList(favorites.has(name) ? [...favorites].filter((item) => item !== name) : [...favorites, name]);
+  }
+
+  function toggleExpanded(name: string) {
+    setCollapsedList(collapsedServers.has(name) ? [...collapsedServers].filter((item) => item !== name) : [...collapsedServers, name]);
+  }
+
+  function openServerActions(name: string) {
+    clearLongPress();
+    setActiveActionServerName(name);
+  }
+
+  function resetFilters() {
+    setSearch("");
+    setFilterType("");
+    setFilterStatus("all");
+    setFilterTag("");
+    setFilterGroup("");
+  }
+
+  async function handleActionFromSheet(action: string) {
+    if (!activeActionServer) return;
+    await doAction(activeActionServer.name, action);
+    setActiveActionServerName(null);
+  }
+
+  const cardGridClass = cn(
+    "grid gap-3 sm:gap-4",
+    viewMode === "compact" ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3",
+  );
+
+  function renderServerCard(server: GameServer, index: number) {
+    const health = healthBadge(server);
+    const cardIcon = server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮";
+    const stoppedStyle = server.status === "stopped" ? "border-amber-500/30 bg-amber-500/10 text-amber-300" : (STATUS_COLORS[server.status] ?? STATUS_COLORS.stopped);
+    const playerTrend = getPlayerTrend(server);
+    const connectionString = getConnectionString(server);
+    const cpuPercent = getUsagePercent(server.cpuUsage, server.cpuLimit);
+    const memoryPercent = getUsagePercent(server.memoryUsage, server.memoryLimit);
+    const showTagControls = hoveredTagServer === server.name || editingTagServer === server.name;
+    const notePreview = server.notes?.trim();
+    const isExpanded = !collapsedServers.has(server.name);
+
+    return (
+      <motion.div
+        key={server.name}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        transition={{ delay: index * 0.05 }}
+        className={cn("flex flex-col rounded-2xl border bg-white dark:bg-[#1a1a1a] transition-colors", viewMode === "compact" ? "gap-3 p-3 sm:p-4" : "gap-3 p-3 sm:gap-4 sm:p-5", compareMode ? "cursor-pointer" : "cursor-pointer hover:border-[#3a3a3a]", compareSet.has(server.name) ? "border-[#0078D4] ring-1 ring-[#0078D4]/40" : "border-gray-200 dark:border-[#2a2a2a]")}
+        onPointerDown={() => startLongPress(server.name)}
+        onPointerUp={clearLongPress}
+        onPointerLeave={clearLongPress}
+        onPointerCancel={clearLongPress}
+        onClick={() => {
+          if (longPressTriggeredRef.current) {
+            longPressTriggeredRef.current = false;
+            return;
+          }
+          if (compareMode) toggleCompare(server.name);
+          else router.push(`/game-hub/${server.name}`);
+        }}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex flex-col items-center gap-2 pt-1">
+              <button onClick={(event) => { event.stopPropagation(); toggleFavorite(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-yellow-300" title={favorites.has(server.name) ? "Remove favorite" : "Favorite server"}>
+                <Star className={cn("h-4 w-4", favorites.has(server.name) && "fill-yellow-300 text-yellow-300")} />
+              </button>
+              <button onClick={(event) => { event.stopPropagation(); toggleSelected(server.name); }} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
+                {selected.has(server.name) ? <CheckSquare className="h-4 w-4 text-[#0078D4]" /> : <SquareIcon className="h-4 w-4 text-gray-400 dark:text-[#666]" />}
+              </button>
+              <button onClick={(event) => { event.stopPropagation(); toggleExpanded(server.name); }} aria-expanded={isExpanded} aria-label={isExpanded ? `Collapse ${server.name} details` : `Expand ${server.name} details`} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-400 dark:text-[#666] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white" title={isExpanded ? "Collapse details" : "Expand details"}>
+                {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 dark:bg-[#252525] text-2xl flex-shrink-0">{cardIcon}</div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <p className="truncate text-base font-semibold text-gray-900 dark:text-[#f2f2f2]">{server.name}</p>
+                <span className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize sm:px-3 sm:py-1", stoppedStyle)}>{server.status}</span>
+                <span className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium sm:px-3 sm:py-1", health.className)}>{server.status === "stopped" ? "Stopped" : `Health ${health.label}`}</span>
+              </div>
+              <p className="mt-1 text-sm capitalize text-gray-500 dark:text-[#888]">{server.gameType.replace(/-/g, " ")}</p>
+              {connectionString ? (
+                <button onClick={(event) => void copyConnection(event, server)} className="mt-2 inline-flex max-w-full items-center gap-2 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1 text-xs text-gray-600 dark:text-[#b3b3b3] transition-colors hover:border-[#0078D4]/30 hover:text-[#4db3ff]">
+                  <span className="truncate font-mono">{connectionString}</span>
+                  <Copy className="h-3.5 w-3.5 flex-shrink-0" />
+                </button>
+              ) : null}
+              {isExpanded && server.description ? <p className="mt-2 text-sm text-gray-600 dark:text-[#b3b3b3] line-clamp-2">{server.description}</p> : null}
+              {isExpanded && notePreview && viewMode === "detailed" ? <p title={notePreview} className="mt-2 text-xs text-gray-500 dark:text-[#8d8d8d] line-clamp-1">Note: {notePreview.slice(0, 60)}{notePreview.length > 60 ? "…" : ""}</p> : null}
+              {isExpanded && ((server.tags ?? []).length > 0 || (server.groups ?? []).length > 0 || server.imageVersion || server.permissions?.canAdmin) && (
+                <div className="mt-3 space-y-2" onClick={(event) => event.stopPropagation()} onMouseEnter={() => setHoveredTagServer(server.name)} onMouseLeave={() => { setHoveredTagServer((current) => current === server.name ? null : current); if (editingTagServer === server.name) { setEditingTagServer(null); setTagDraft(""); } }}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(server.tags ?? []).map((tag) => <span key={tag} className="rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1 text-sm text-gray-500 dark:text-[#9e9e9e] sm:text-xs">#{tag}</span>)}
+                    {(server.groups ?? []).map((group) => <span key={group} className="rounded-full border border-green-500/20 bg-green-500/10 px-3 py-1 text-sm text-green-300 sm:text-xs">@{group}</span>)}
+                    {server.imageVersion && <span className={cn("rounded-full border px-3 py-1 text-sm sm:text-xs", server.imagePinned ? "bg-white dark:bg-[#111] border-gray-200 dark:border-[#2a2a2a] text-gray-500 dark:text-[#9e9e9e]" : "bg-yellow-500/10 border-yellow-500/20 text-yellow-200")}>{server.imagePinned ? `v${server.imageVersion}` : `latest (${server.imageVersion})`}</span>}
+                    {server.permissions?.canAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => { setEditingTagServer(server.name); setTagDraft(""); }}
+                        className={cn(
+                          "rounded-full border border-dashed px-3 py-1 text-xs transition-opacity",
+                          showTagControls
+                            ? "opacity-100 border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]"
+                            : "pointer-events-none border-transparent opacity-0",
+                        )}
+                      >
+                        + add tag
+                      </button>
+                    ) : null}
+                  </div>
+                  {editingTagServer === server.name ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        value={tagDraft}
+                        onChange={(event) => setTagDraft(event.target.value)}
+                        onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void saveInlineTag(server); } }}
+                        placeholder="new-tag"
+                        className="rounded-lg border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-3 py-1.5 text-xs text-gray-900 dark:text-[#f2f2f2] focus:border-[#0078D4]/40 focus:outline-none"
+                      />
+                      <button type="button" onClick={() => void saveInlineTag(server)} disabled={!tagDraft.trim() || tagSavingServer === server.name} className="inline-flex items-center gap-1 rounded-lg bg-[#0078D4] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                        {tagSavingServer === server.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        Add
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="hidden flex-shrink-0 items-center gap-1 sm:flex" onClick={(e) => e.stopPropagation()}>
+            {server.status === "stopped" ? (
+              server.permissions?.canStart ? (
+                <button onClick={() => void doAction(server.name, "start")} disabled={!!actionLoadingFor(server.name)} title="Start server" className="flex min-h-[44px] items-center gap-2 rounded-xl border border-green-500/30 bg-green-500/15 px-3 text-sm font-medium text-green-300 transition-colors hover:bg-green-500/25 disabled:opacity-50">
+                  {actionLoadingFor(server.name) === "start" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  <span>Start</span>
+                </button>
+              ) : null
+            ) : (
+              <>
+                {server.permissions?.canAdmin ? (
+                  <button onClick={() => void doAction(server.name, "restart")} disabled={!!actionLoadingFor(server.name)} title="Restart" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-gray-100 dark:hover:bg-[#2a2a2a] hover:text-gray-700 dark:hover:text-[#bbb] disabled:opacity-50">
+                    {actionLoadingFor(server.name) === "restart" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                    <span>Restart</span>
+                  </button>
+                ) : null}
+                {server.permissions?.canStop ? (
+                  <button onClick={() => void doAction(server.name, "stop")} disabled={!!actionLoadingFor(server.name)} title="Stop" className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[#222] px-3 text-sm text-gray-500 dark:text-[#888] transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50">
+                    {actionLoadingFor(server.name) === "stop" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                    <span>Stop</span>
+                  </button>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+        {isExpanded ? (
+        <>
+        <div className="grid grid-cols-2 gap-3 sm:hidden">
+          {[
+            { label: "Players", value: <span className="inline-flex items-center gap-1">{server.playerCount ?? 0}{playerTrend ? <span className={playerTrend.className}>{playerTrend.icon}</span> : null}</span> },
+            { label: "CPU", value: formatUsage(server.cpuUsage, server.cpuLimit, "cpu") },
+            { label: "Memory", value: formatUsage(server.memoryUsage, server.memoryLimit, "memory") },
+            { label: "Replicas", value: replicaSummary(server) },
+          ].map((metric) => (
+            <div key={metric.label} className="rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+              <p className="text-sm text-gray-500 dark:text-[#777]">{metric.label}</p>
+              <p className="mt-1 text-base font-semibold text-gray-900 dark:text-white">{metric.value}</p>
+            </div>
+          ))}
+        </div>
+        <div className={cn("hidden gap-2 text-sm text-gray-500 dark:text-[#888] sm:grid", viewMode === "compact" ? "sm:grid-cols-2 lg:grid-cols-5" : "sm:grid-cols-2")}>
+          <div className="flex items-center gap-2">Port: <span className="text-gray-700 dark:text-[#d4d4d4]">{connectionString || server.port || "—"}</span>{server.nodePort ? <button onClick={(event) => void copyConnection(event, server)} className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-gray-200 dark:border-[#2a2a2a] text-gray-500 transition-colors hover:text-[#4db3ff]"><Copy className="h-3.5 w-3.5" /></button> : null}</div>
+          <div>Memory: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.memory || "—"}</span></div>
+          <div>CPU: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.cpu || "—"}</span></div>
+          <div>Players: <span className="inline-flex items-center gap-1 text-gray-700 dark:text-[#d4d4d4]">{server.playerCount ?? 0}{playerTrend ? <span className={playerTrend.className}>{playerTrend.icon}</span> : null}</span></div>
+          <div>Last restart: <span className="text-gray-700 dark:text-[#d4d4d4]">{server.podStartTime ? timeAgo(server.podStartTime) : "—"}</span></div>
+          <div>Replicas: <span className="text-gray-700 dark:text-[#d4d4d4]">{replicaSummary(server)}</span></div>
+        </div>
+        {viewMode === "compact" && (cpuPercent !== null || memoryPercent !== null) ? (
+          <div className="space-y-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3">
+            {[
+              { label: "CPU", percent: cpuPercent },
+              { label: "RAM", percent: memoryPercent },
+            ].map((metric) => metric.percent !== null ? (
+              <div key={metric.label}>
+                <div className="mb-1 flex items-center justify-between text-[11px] text-gray-500 dark:text-[#888]">
+                  <span>{metric.label}</span>
+                  <span>{metric.percent}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-[#222]">
+                  <div className={cn("h-full rounded-full", getUsageTone(metric.percent))} style={{ width: `${metric.percent}%` }} />
+                </div>
+              </div>
+            ) : null)}
+          </div>
+        ) : null}
+        </>
+        ) : null}
+        <div className="grid grid-cols-2 gap-2 sm:hidden" onClick={(event) => event.stopPropagation()}>
+          <Link href={`/game-hub/${server.name}`} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-semibold text-[#4db3ff] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
+            <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "Details"}
+          </Link>
+          <button onClick={() => openServerActions(server.name)} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">
+            <MoreVertical className="h-4 w-4" /> Actions
+          </button>
+        </div>
+        <div className="hidden items-center gap-2 flex-wrap sm:flex" onClick={(event) => event.stopPropagation()}>
+          <ServerActionButtons
+            status={server.status}
+            loadingAction={(actionLoadingFor(server.name) as ServerPowerAction | undefined) ?? null}
+            onAction={(action) => (action === "clone" ? cloneServer(server.name) : doAction(server.name, action))}
+            permissions={{ canStart: !!server.permissions?.canStart, canStop: !!server.permissions?.canStop, canAdmin: !!server.permissions?.canAdmin }}
+            showDelete={false}
+          />
+          <Link href={`/game-hub/${server.name}`} className="flex min-h-[44px] items-center gap-2 rounded-xl bg-[rgba(0,120,212,0.15)] px-4 text-sm font-medium text-[#0078D4] transition-colors hover:bg-[rgba(0,120,212,0.25)]">
+            <Terminal className="h-4 w-4" /> {server.permissions?.canConsole ? "Console" : "View"}
+          </Link>
+          {server.permissions?.canAdmin ? (
+            <button onClick={() => setDeleteConfirm({ open: true, name: server.name })} disabled={!!actionLoadingFor(server.name)} className="ml-auto flex min-h-[44px] items-center gap-2 rounded-xl bg-red-500/10 px-4 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50">
+              {actionLoadingFor(server.name) === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete
+            </button>
+          ) : null}
+        </div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <>
+    <div className="space-y-6">
+      <AnimatePresence>
+        {showPVCCleanup && <PVCCleanupModal onClose={() => setShowPVCCleanup(false)} />}
+      </AnimatePresence>
+      <ServerActionSheet
+        server={activeActionServer}
+        open={Boolean(activeActionServer)}
+        onClose={() => setActiveActionServerName(null)}
+        actionLoading={activeActionServer ? actionLoadingFor(activeActionServer.name) : undefined}
+        onAction={handleActionFromSheet}
+        onClone={async () => {
+          if (!activeActionServer) return;
+          await cloneServer(activeActionServer.name);
+          setActiveActionServerName(null);
+        }}
+        onToggleFavorite={() => { if (activeActionServer) toggleFavorite(activeActionServer.name); }}
+        onToggleSelected={() => { if (activeActionServer) toggleSelected(activeActionServer.name); }}
+        onToggleCompare={() => { if (activeActionServer) toggleCompare(activeActionServer.name); }}
+        isFavorite={activeActionServer ? favorites.has(activeActionServer.name) : false}
+        isSelected={activeActionServer ? selected.has(activeActionServer.name) : false}
+        compareSelected={activeActionServer ? compareSet.has(activeActionServer.name) : false}
+        now={now}
+      />
+
+      <input ref={importRef} type="file" accept=".json,.iwconfig.json" className="hidden" onChange={handleImportConfig} />
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <Gamepad2 className="h-6 w-6 shrink-0 text-[#0078D4] dark:text-[#4db3ff]" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <h1 className="truncate text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">Game Hub</h1>
+              <RefreshCountdown intervalSeconds={15} resetKey={dataUpdatedAt} className="hidden lg:inline-flex" />
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => {
+              setCompareMode((prev) => {
+                if (prev) setCompareSet(new Set());
+                return !prev;
+              });
+            }}
+            className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors", compareMode ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:border-[#2a2a2a] dark:bg-[#111] dark:text-[#9e9e9e] dark:hover:bg-[#1a1a1a] dark:hover:text-[#f2f2f2]")}
+          >
+            <BarChart2 className="h-4 w-4" />
+            <span className="hidden sm:inline">{compareMode ? "Comparing" : "Compare"}</span>
+          </button>
+          {canManageGameHub ? (
+            <>
+              <button
+                onClick={triggerImportConfig}
+                className="hidden min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-[#2a2a2a] dark:bg-[#111] dark:text-[#9e9e9e] dark:hover:bg-[#1a1a1a] dark:hover:text-[#f2f2f2] md:inline-flex"
+              >
+                <Upload className="h-4 w-4" />
+                <span className="hidden xl:inline">Import Config</span>
+              </button>
+              <button
+                onClick={() => setShowPVCCleanup(true)}
+                className="hidden min-h-[44px] items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-[#2a2a2a] dark:bg-[#111] dark:text-[#9e9e9e] dark:hover:bg-[#1a1a1a] dark:hover:text-[#f2f2f2] md:inline-flex"
+              >
+                <HardDrive className="h-4 w-4" />
+                <span className="hidden xl:inline">Cleanup PVCs</span>
+              </button>
+              <Link href="/game-hub/new" className="hidden min-h-[44px] items-center gap-2 rounded-xl bg-[#0078D4] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#006cbe] md:inline-flex">
+                <Plus className="h-4 w-4" />
+                New Server
+              </Link>
+            </>
+          ) : (
+            <span
+              title="Requires game-hub:admin permission"
+              className="hidden min-h-[44px] cursor-not-allowed select-none items-center gap-2 rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-400 opacity-60 dark:bg-[#111] dark:text-[#555] md:inline-flex"
+            >
+              <Lock className="h-4 w-4" />
+              New Server
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-3 sm:border-0 sm:bg-transparent sm:p-0">
+        <div className="flex items-center gap-2 sm:hidden">
+          <button
+            onClick={() => setMobileSearchOpen((value) => !value)}
+            className={cn("flex h-11 w-11 items-center justify-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] text-gray-500 dark:text-[#888] transition-colors", mobileSearchOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
+            aria-label="Toggle search"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setMobileFiltersOpen((value) => !value)}
+            className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm text-gray-500 dark:text-[#888] transition-colors", mobileFiltersOpen && "border-[#0078D4]/30 bg-[#0078D4]/10 text-[#4db3ff]")}
+          >
+            Filters
+            <ChevronDown className={cn("h-4 w-4 transition-transform", mobileFiltersOpen && "rotate-180")} />
+          </button>
+          <div className="ml-auto flex items-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-1">
+            <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
+            <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className={cn("relative min-w-0 flex-1", mobileSearchOpen ? "block" : "hidden sm:block", "sm:min-w-[260px] sm:max-w-sm")}>
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-[#555]" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search servers, tags, or groups" className="min-h-[48px] w-full rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] pl-10 pr-4 text-base text-gray-900 dark:text-[#f2f2f2] placeholder:text-gray-400 dark:placeholder:text-[#555] focus:border-[#0078D4]/50 focus:outline-none" />
+            <p className="mt-2 text-sm text-gray-500 dark:text-[#777]">Search by server name, game type, tag, or group.</p>
+          </div>
+          <div className={cn("w-full space-y-3", mobileFiltersOpen ? "block" : "hidden sm:block", "sm:w-auto sm:space-y-2")}>
+            <HorizontalScrollHint hint="Swipe filters">
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+                {["all", "running", "starting", "stopped"].map((status) => (
+                  <button key={status} onClick={() => setFilterStatus(status)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm font-medium capitalize transition-colors whitespace-nowrap", filterStatus === status ? "border-[#0078D4]/40 bg-[#0078D4]/20 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] text-gray-500 dark:text-[#888] hover:text-gray-900 dark:hover:text-white")}>{status}</button>
+                ))}
+              </div>
+            </HorizontalScrollHint>
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
+              {uniqueGameTypes.length > 1 && (
+                <select value={filterType} onChange={(event) => setFilterType(event.target.value)} className="relative z-50 min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                  <option value="">All game types</option>
+                  {uniqueGameTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                </select>
+              )}
+              {allGroups.length > 0 && (
+                <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)} className="relative z-50 min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                  <option value="">All groups</option>
+                  {allGroups.map((group) => <option key={group} value={group}>{group}</option>)}
+                </select>
+              )}
+              <select value={sortKey} onChange={(event) => setSort(event.target.value as ServerSortKey)} className="relative z-50 min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-base text-gray-700 dark:text-[#d4d4d4] focus:border-[#0078D4]/50 focus:outline-none sm:text-sm">
+                <option value="health">Sort by health</option>
+                <option value="name">Sort by name</option>
+                <option value="status">Sort by status</option>
+                <option value="cpu">Sort by CPU usage</option>
+                <option value="players">Sort by players</option>
+                <option value="started">Sort by last started</option>
+              </select>
+              <div className="hidden items-center rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] p-1 sm:flex">
+                <button onClick={() => setViewMode("detailed")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "detailed" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Detailed cards"><LayoutGrid className="h-4 w-4" /></button>
+                <button onClick={() => setViewMode("compact")} className={cn("min-h-[44px] min-w-[44px] rounded-xl px-2 py-1 text-sm transition-colors", viewMode === "compact" ? "bg-[#0078D4]/15 text-[#4db3ff]" : "text-gray-400 dark:text-[#666]")} title="Compact list"><Rows3 className="h-4 w-4" /></button>
+              </div>
+              {(search || filterType || filterTag || filterGroup || filterStatus !== "all") && (
+                <button onClick={resetFilters} className="min-h-[48px] rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4] transition-colors hover:border-[#3a3a3a] hover:text-gray-900 dark:hover:text-white">Reset filters</button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {uniqueGameTypes.length > 0 && (
+        <HorizontalScrollHint className={cn(mobileFiltersOpen ? "block" : "hidden sm:block")} hint="Swipe game filters">
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+            <button onClick={() => setFilterType("")} className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", !filterType ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#ccc]")}>All <span className="rounded-full bg-black/10 px-2 py-0.5 text-[11px] dark:bg-white/10">{servers.length}</span></button>
+            {gameTypeCounts.map(({ type, count }) => (
+              <button key={type} onClick={() => setFilterType((current) => current === type ? "" : type)} className={cn("inline-flex min-h-[44px] items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", filterType === type ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#ccc]")}>
+                <span className="capitalize">{type.replace(/-/g, " ")}</span>
+                <span className="rounded-full bg-black/10 px-2 py-0.5 text-[11px] dark:bg-white/10">{count}</span>
+              </button>
+            ))}
+          </div>
+        </HorizontalScrollHint>
+      )}
+
+      {allTags.length > 0 && (
+        <HorizontalScrollHint className={cn(mobileFiltersOpen ? "block" : "hidden sm:block")} hint="Swipe tags and groups">
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+            <button onClick={() => setFilterTag("")} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", !filterTag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#ccc]")}>All tags</button>
+            {allTags.map((tag) => (
+              <button key={tag} onClick={() => setFilterTag((prev) => prev === tag ? "" : tag)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", filterTag === tag ? "border-[#0078D4]/30 bg-[#0078D4]/15 text-[#4db3ff]" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#ccc]")}>#{tag}</button>
+            ))}
+            {allGroups.map((group) => (
+              <button key={`group-${group}`} onClick={() => setFilterGroup((prev) => prev === group ? "" : group)} className={cn("min-h-[44px] rounded-full border px-4 py-2 text-sm transition-colors whitespace-nowrap", filterGroup === group ? "border-green-500/30 bg-green-500/15 text-green-300" : "border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] text-gray-500 dark:text-[#777] hover:text-gray-700 dark:hover:text-[#ccc]")}>@{group}</button>
+            ))}
+          </div>
+        </HorizontalScrollHint>
+      )}
+
+      {selected.size > 0 && (canBulkStart || canBulkStop || canBulkRestart) && (
+        <div className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom,0px)+5.5rem)] z-40 rounded-3xl border border-[#0078D4]/30 bg-[#0b1a2a]/95 p-4 shadow-2xl backdrop-blur sm:sticky sm:top-16 sm:bottom-auto sm:inset-x-auto sm:rounded-xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-[#d4e7ff]">{selected.size} selected</span>
+            {canBulkStart ? <button onClick={() => doBulkAction("start")} className="min-h-[44px] rounded-2xl bg-green-500/20 px-4 text-sm font-medium text-green-300">Start all</button> : null}
+            {canBulkStop ? <button onClick={() => doBulkAction("stop")} className="min-h-[44px] rounded-2xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">Stop all</button> : null}
+            {canBulkRestart ? <button onClick={() => doBulkAction("restart")} className="min-h-[44px] rounded-2xl bg-gray-50 dark:bg-[#252525] px-4 text-sm font-medium text-gray-700 dark:text-[#d4d4d4]">Restart all</button> : null}
+            <button onClick={() => setSelected(new Set())} className="ml-auto min-h-[44px] rounded-2xl px-3 text-sm font-medium text-[#7cc4ff]">Clear selection</button>
+          </div>
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="h-56 rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#161616] animate-pulse" />
+          ))}
+        </div>
+      )}
+
+      {setupRequired && !isLoading && (
+        <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-yellow-500/30 bg-yellow-500/5 p-10 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-yellow-500/10">
+            <Gamepad2 className="h-7 w-7 text-yellow-400" />
+          </div>
+          <div>
+            <p className="text-base font-semibold text-yellow-300">
+              {setupReason === "permission_denied" ? "Permission denied" : "Game Hub not set up yet"}
+            </p>
+            <p className="mt-1 text-sm text-yellow-200/70">
+              {setupReason === "permission_denied"
+                ? "Your account does not have access to the game-hub namespace. Ask a platform-admin to grant permissions."
+                : "The game-hub namespace doesn't exist on the cluster yet. Run the one-time setup to create it."}
+            </p>
+          </div>
+          {setupReason !== "permission_denied" && (
+            <Link
+              href="/game-hub/setup"
+              className="flex items-center gap-2 rounded-lg bg-yellow-500 px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-yellow-400"
+            >
+              Run setup
+            </Link>
+          )}
+        </div>
+      )}
+
+      {error && !setupRequired && (
+        <div className="flex items-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-red-300">
+          <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium">Failed to load servers</p>
+            <p className="mt-1 text-sm text-red-200">{error instanceof Error ? error.message : "An unexpected error occurred. Check the console logs."}</p>
+          </div>
+        </div>
+      )}
+
+      {!isLoading && !error && !setupRequired && servers.length === 0 && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-64 rounded-xl border border-dashed border-gray-200 dark:border-[#2a2a2a] gap-4">
+          <div className="text-5xl">🎮</div>
+          <div className="text-center">
+            <p className="text-gray-900 dark:text-[#f2f2f2] font-medium">No game servers yet</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-[#888]">Deploy your first server to get started.</p>
+          </div>
+          {canManageGameHub ? (
+            <Link href="/game-hub/new" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors">
+              <Plus className="w-4 h-4" />
+              Deploy Server
+            </Link>
+          ) : null}
+        </motion.div>
+      )}
+
+      {!isLoading && !error && servers.length > 0 && filteredServers.length === 0 && (
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] p-6 text-center">
+          <p className="text-sm text-gray-900 dark:text-[#f2f2f2] font-medium">No servers match the current filters</p>
+          <p className="text-xs text-gray-400 dark:text-[#666] mt-1">Try clearing filters, changing the sort order, or searching for a different game.</p>
+        </div>
+      )}
+
+      {hasGroupedServers ? (
+        <div className="space-y-4">
+          {groupedSections.map((section) => {
+            const expanded = expandedGroups[section.name] ?? true;
+            return (
+              <div key={section.name} className="space-y-3">
+                <button onClick={() => setExpandedGroups((current) => ({ ...current, [section.name]: !expanded }))} className="flex w-full items-center justify-between rounded-2xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] px-4 py-3 text-left">
+                  <div className="flex items-center gap-2">
+                    {expanded ? <FolderOpen className="h-4 w-4 text-[#4db3ff]" /> : <Folder className="h-4 w-4 text-[#4db3ff]" />}
+                    <span className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">{section.name}</span>
+                    <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-2 py-0.5 text-[11px] text-gray-500 dark:text-[#888]">{section.servers.length}</span>
+                  </div>
+                  {expanded ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                </button>
+                {expanded ? (
+                  <div className={cardGridClass}>
+                    <AnimatePresence>
+                      {section.servers.map((server, index) => renderServerCard(server, index))}
+                    </AnimatePresence>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className={cardGridClass}>
+          <AnimatePresence>
+            {filteredServers.map((server, index) => renderServerCard(server, index))}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {compareMode && comparedServers.length >= 2 && (
+        <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#111] overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-[#1e1e1e]">
+            <BarChart2 className="w-4 h-4 text-[#4db3ff]" />
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Server Comparison</p>
+              <p className="text-xs text-gray-400 dark:text-[#666]">Compare up to three servers side by side.</p>
+            </div>
+          </div>
+          <div className="space-y-3 p-3 sm:hidden">
+            {comparedServers.map((server) => (
+              <div key={server.name} className="rounded-xl border border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#0d0d0d] p-3 text-sm text-gray-700 dark:text-[#d4d4d4]">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="font-medium text-gray-900 dark:text-[#f2f2f2]">{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</p>
+                  <span className="rounded-full border border-gray-200 dark:border-[#2a2a2a] px-3 py-1 text-sm uppercase text-gray-500 dark:text-[#888]">{server.status}</span>
+                </div>
+                <dl className="grid grid-cols-2 gap-3 text-sm">
+                  <div><dt className="text-gray-400 dark:text-[#666]">Game</dt><dd className="mt-1">{server.gameType}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">Players</dt><dd className="mt-1">{server.playerCount ?? 0}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">Replicas</dt><dd className="mt-1">{replicaSummary(server)}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">Restarts</dt><dd className="mt-1">{server.restartCount ?? 0}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">CPU</dt><dd className="mt-1">{formatUsage(server.cpuUsage, server.cpuLimit, "cpu")}</dd></div>
+                  <div><dt className="text-gray-400 dark:text-[#666]">Memory</dt><dd className="mt-1">{formatUsage(server.memoryUsage, server.memoryLimit, "memory")}</dd></div>
+                </dl>
+              </div>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto sm:block">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-white dark:bg-[#0d0d0d]">
+                <tr>
+                  <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-400 dark:text-[#666]">Metric</th>
+                  {comparedServers.map((server) => (
+                    <th key={server.name} className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500 dark:text-[#888]">{server.icon ?? server.gameType[0]?.toUpperCase() ?? "🎮"} {server.name}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: "Status", render: (server: GameServer) => server.status },
+                  { label: "Game type", render: (server: GameServer) => server.gameType },
+                  { label: "Replicas", render: replicaSummary },
+                  { label: "CPU usage", render: (server: GameServer) => formatUsage(server.cpuUsage, server.cpuLimit, "cpu") },
+                  { label: "Memory usage", render: (server: GameServer) => formatUsage(server.memoryUsage, server.memoryLimit, "memory") },
+                  { label: "Restarts", render: (server: GameServer) => String(server.restartCount ?? 0) },
+                  { label: "Uptime", render: (server: GameServer) => formatUptime(server.podStartTime, now) },
+                ].map((row) => (
+                  <tr key={row.label} className="border-t border-gray-200 dark:border-[#1e1e1e]">
+                    <td className="px-4 py-3 text-gray-400 dark:text-[#666] text-xs uppercase tracking-wide">{row.label}</td>
+                    {comparedServers.map((server) => (
+                      <td key={`${row.label}-${server.name}`} className="px-4 py-3 text-gray-700 dark:text-[#d4d4d4]">{row.render(server)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+    </div>
+
+    <ConfirmDialog
+      open={deleteConfirm.open}
+      title={`Delete "${deleteConfirm.name}"?`}
+      description="Permanently removes the deployment, storage, git manifest, and all server data. This cannot be undone."
+      confirmText="Delete server"
+      danger
+      requireTyping={deleteConfirm.name}
+      onConfirm={() => {
+        setDeleteConfirm(d => ({ ...d, open: false }));
+        void doAction(deleteConfirm.name, "delete");
+      }}
+      onCancel={() => setDeleteConfirm(d => ({ ...d, open: false }))}
+    />
+    </>
+  );
+}

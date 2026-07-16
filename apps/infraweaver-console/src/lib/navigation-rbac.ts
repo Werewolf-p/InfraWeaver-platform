@@ -11,6 +11,10 @@ interface NavRequirement {
 }
 
 const NAV_REQUIREMENTS: Record<string, NavRequirement> = {
+  // Consolidated hubs (Subject 1). Legacy keys below are kept so the redirect
+  // stubs (/users, /access, /rbac, /apps, /app-graph, …) still gate correctly.
+  "/workloads": { any: ["apps:read", "infra:read"] },
+  "/identity": { any: ["users:read", "rbac:admin", "cluster:admin"] },
   "/apps": { any: ["apps:read"] },
   "/events": { any: ["apps:read"] },
   "/pods": { any: ["cluster:read", "infra:read"] },

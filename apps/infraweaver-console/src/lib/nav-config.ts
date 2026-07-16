@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Settings, Users, HardDrive,
+  LayoutDashboard, Settings, HardDrive,
   Network, Activity, Terminal, History, Cog,
   Package, FileText, ShieldCheck, Server,
   Sparkles, Home, Trash2, GitBranch, ArrowUpCircle,
@@ -75,9 +75,8 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     icon: Server,
     defaultOpen: true,
     items: [
-      { href: "/apps", icon: LayoutGrid, label: "Apps", shortcut: "G A", description: "Install and manage all platform applications — drill into each app's pods and stop them", pinnable: true, keywords: ["pods", "workloads", "applications", "argocd", "stop", "scale"] },
+      { href: "/workloads", icon: Server, label: "Workloads", shortcut: "G A", description: "Apps, dependency graph, game servers, WordPress, and routing in one tabbed hub — drill into each app's pods, storage, and firewall", pinnable: true, keywords: ["apps", "pods", "workloads", "applications", "argocd", "stop", "scale", "graph", "dependency", "game", "gameservers", "wordpress", "routing", "dns"] },
       { href: "/all-services", icon: Search, label: "All Services", description: "Searchable index of every console page and service" },
-      { href: "/app-graph", icon: Network, label: "App Graph", description: "Visual application dependency graph" },
       { href: "/cronjobs", icon: Calendar, label: "CronJobs", description: "Scheduled Kubernetes cronjobs" },
       { href: "/scheduled-tasks", icon: Calendar, label: "Scheduled Tasks", description: "View and manage scheduled operations" },
       { href: "/deployment-compare", icon: GitBranch, label: "Deploy Compare", description: "Diff current vs previous deployment" },
@@ -142,16 +141,14 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       { href: "/security", icon: ShieldCheck, label: "Security", shortcut: "G Y", description: "Security posture and vulnerability audit", keywords: ["posture", "audit", "compliance"] },
       { href: "/image-vulnerabilities", icon: ShieldCheck, label: "Image Scans", description: "Container image vulnerability reports", keywords: ["cve", "vulnerability", "trivy"] },
       {
-        href: "/access",
+        href: "/identity",
         icon: KeyRound,
-        label: "Privileged Identity Management (PIM)",
-        shortcut: "G P",
-        description: "Just-in-time privileged role elevation, eligible assignments, and activation",
+        label: "Identity",
+        shortcut: "G M",
+        description: "Users, Access Studio, RBAC, PIM (privileged elevation, groups, assignments), and roster drift in one tabbed hub",
         pinnable: true,
-        keywords: ["pim", "privileged", "elevation", "elevate", "just-in-time", "jit", "roles", "access", "identity", "activation", "eligible", "assignments", "groups"],
+        keywords: ["identity", "users", "accounts", "sso", "groups", "members", "rbac", "roles", "permissions", "assign", "grant", "revoke", "access", "pim", "privileged", "elevation", "elevate", "just-in-time", "jit", "activation", "eligible", "assignments", "roster", "drift", "access studio"],
       },
-      { href: "/users", icon: Users, label: "User Management", shortcut: "G M", description: "Manage users, groups, and SSO", pinnable: true, keywords: ["accounts", "sso", "groups", "members"] },
-      { href: "/rbac", icon: Shield, label: "RBAC", description: "Visualize access and assign rights across the platform", keywords: ["roles", "permissions", "graph", "assign", "grant", "revoke", "access", "rbac"] },
       { href: "/audit", icon: History, label: "Audit Log", description: "Searchable, durable audit trail with severity, category, and date filters", keywords: ["audit", "trail", "log", "history", "who", "changed", "mutation", "compliance", "tamper", "severity", "export"] },
     ],
   },
@@ -228,7 +225,7 @@ export const HREF_LABEL_MAP: Record<string, string> = Object.fromEntries(
 // nav groups, and everything else lives in the "More" sheet.
 export const MOBILE_BOTTOM_NAV: NavItem[] = [
   { href: "/home", icon: Home, label: "Home" },
-  { href: "/apps", icon: LayoutGrid, label: "Apps" },
+  { href: "/workloads", icon: LayoutGrid, label: "Apps" },
   { href: "/logs", icon: FileText, label: "Logs" },
   { href: "/cluster", icon: Boxes, label: "Cluster" },
 ];
