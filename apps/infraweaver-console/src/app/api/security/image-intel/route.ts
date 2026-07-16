@@ -4,7 +4,7 @@ import { listItems, makeCoreApi } from "@/lib/kube-client";
 import { withRoute } from "@/lib/route-utils";
 import { assessSupplyChain, type RunningImage } from "@/lib/images/supply-chain";
 import { fetchVulnerabilityReports } from "@/lib/images/trivy-reports";
-import { buildImageMatrix, rollupImageVulns } from "@/lib/images/vuln-rollup";
+import { assessScanCoverage, buildImageMatrix, rollupImageVulns } from "@/lib/images/vuln-rollup";
 
 function registryOf(image: string): string {
   if (!image.includes("/")) return "docker.io";
@@ -46,6 +46,7 @@ export const GET = withRoute("security:read", async (req) => {
   const { reports, available } = await fetchVulnerabilityReports();
   const matrix = buildImageMatrix(running, reports);
   const rollup = rollupImageVulns(matrix);
+  const coverage = assessScanCoverage(matrix, Date.now());
 
-  return NextResponse.json({ supplyChain, cve: { available, matrix, rollup } });
+  return NextResponse.json({ supplyChain, cve: { available, matrix, rollup, coverage } });
 });

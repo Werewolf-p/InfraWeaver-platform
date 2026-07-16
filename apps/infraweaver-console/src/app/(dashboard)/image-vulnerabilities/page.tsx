@@ -5,11 +5,11 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { useApiQuery } from "@/hooks/use-api-query";
 import type { PinStatus, SupplyChainFinding, SupplyChainSummary } from "@/lib/images/supply-chain";
-import type { ImageMatrixRow, VulnRollup } from "@/lib/images/vuln-rollup";
+import type { ImageMatrixRow, ScanCoverage, VulnRollup } from "@/lib/images/vuln-rollup";
 
 interface ImageIntel {
   supplyChain: { findings: SupplyChainFinding[]; summary: SupplyChainSummary };
-  cve: { available: boolean; matrix: ImageMatrixRow[]; rollup: VulnRollup };
+  cve: { available: boolean; matrix: ImageMatrixRow[]; rollup: VulnRollup; coverage: ScanCoverage };
 }
 
 const PIN_META: Record<PinStatus, { label: string; className: string }> = {
@@ -97,6 +97,11 @@ export default function ImageVulnerabilitiesPage() {
               <StatCard label="Coverage" value={`${cve.rollup.coveragePct}%`} />
               <StatCard label="Grade" value={cve.rollup.grade} color={GRADE_TONE[cve.rollup.grade]} />
             </div>
+            {(cve.coverage.unscanned.length > 0 || cve.coverage.staleScans.length > 0) && (
+              <p className="text-xs text-slate-500">
+                Scan blind spots: <span className="text-red-400">{cve.coverage.unscanned.length} unscanned</span> · <span className="text-yellow-400">{cve.coverage.staleScans.length} stale</span> (&gt;24h)
+              </p>
+            )}
             {cve.rollup.worstOffenders.length > 0 && (
               <div>
                 <p className="mb-2 text-xs font-semibold text-slate-500">Worst offenders (severity × replicas)</p>

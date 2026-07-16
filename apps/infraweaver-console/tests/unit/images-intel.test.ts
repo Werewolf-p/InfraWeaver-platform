@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
 import { assessSupplyChain, classifyImageRef, type RunningImage } from "@/lib/images/supply-chain";
-import { buildImageMatrix, imageRiskScore, normalizeImageRef, rollupImageVulns, type ImageVulnReport } from "@/lib/images/vuln-rollup";
+import { assessScanCoverage, buildImageMatrix, imageRiskScore, normalizeImageRef, rollupImageVulns, SCAN_STALE_HOURS, type ImageVulnReport } from "@/lib/images/vuln-rollup";
 
 describe("classifyImageRef", () => {
   it("recognizes a digest pin as safest", () => {
@@ -65,5 +65,14 @@ describe("vuln-rollup", () => {
     expect(rollup.scanned).toBe(1);
     expect(rollup.unscanned).toBe(1);
     expect(rollup.coveragePct).toBe(50);
+  });
+
+  it("flags unscanned and stale scans as blind spots", () => {
+    const now = 1_800_000_000_000;
+    const staleReport: ImageVulnReport = { image: "nginx:1.25", counts: { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 }, updatedAt: new Date(now - (SCAN_STALE_HOURS + 1) * 3_600_000).toISOString() };
+    const coverage = assessScanCoverage(buildImageMatrix(running, [staleReport]), now);
+    expect(coverage.unscanned).toHaveLength(1); // ghcr app has no report
+    expect(coverage.staleScans).toHaveLength(1); // nginx report is stale
+    expect(coverage.coveragePct).toBe(50);
   });
 });

@@ -44,6 +44,23 @@ export interface VulnRollup {
 
 export const SEVERITY_WEIGHT: Record<Severity, number> = { critical: 100, high: 25, medium: 5, low: 1, unknown: 0 };
 export const WORST_OFFENDERS_TOP_N = 10;
+/** A Trivy report older than this is stale — gives false confidence. */
+export const SCAN_STALE_HOURS = 24;
+
+export interface ScanCoverage {
+  coveragePct: number;
+  unscanned: ImageMatrixRow[];
+  staleScans: ImageMatrixRow[];
+}
+
+/** Blind spots: running images with no report (unscanned) or a report older than SCAN_STALE_HOURS (stale). */
+export function assessScanCoverage(matrix: ImageMatrixRow[], nowMs: number): ScanCoverage {
+  const staleBeforeMs = nowMs - SCAN_STALE_HOURS * 3_600_000;
+  const unscanned = matrix.filter((row) => !row.scanned);
+  const staleScans = matrix.filter((row) => row.scanned && row.updatedAt !== null && new Date(row.updatedAt).getTime() < staleBeforeMs);
+  const coveragePct = matrix.length > 0 ? Math.round(((matrix.length - unscanned.length) / matrix.length) * 100) : 100;
+  return { coveragePct, unscanned, staleScans };
+}
 
 const ZERO: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
 
