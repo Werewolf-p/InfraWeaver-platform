@@ -124,7 +124,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     icon: Activity,
     defaultOpen: false,
     items: [
-      { href: "/monitoring", icon: HeartPulse, label: "Monitoring", shortcut: "G H", description: "Unified observability — status, health, uptime, alerts, and latency", pinnable: true, keywords: ["monitoring", "status", "platform status", "health", "uptime", "availability", "sla", "latency", "alerts"] },
+      { href: "/monitoring", icon: HeartPulse, label: "Monitoring", shortcut: "G H", description: "Proactive 'what breaks next' signals board — ArgoCD sync, secret/cert health, resource pressure, cron drift, posture, reliability — plus status, health, uptime, alerts, and latency", pinnable: true, keywords: ["monitoring", "observability", "signals", "what breaks next", "argocd", "sync", "secrets", "certs", "cron", "overdue", "wedged", "resource pressure", "oom", "posture", "reliability", "status", "platform status", "health", "uptime", "availability", "sla", "latency", "alerts", "brewing", "incidents"] },
       { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L", description: "Live streaming pod logs" },
       { href: "/log-analytics", icon: FileText, label: "Log Analytics", description: "Search and analyze pod logs" },
       { href: "/events", icon: History, label: "Activity Log", shortcut: "G E", description: "Cluster events and audit trail" },
