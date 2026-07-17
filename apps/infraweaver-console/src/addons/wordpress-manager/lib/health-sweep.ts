@@ -1,22 +1,46 @@
 import "server-only";
-import { listExternalSites } from "./iwsl-link-store";
-import { connectorHealthCheck } from "./iwsl-managed-ops";
+import { listExternalSites, type ExternalSiteRecord } from "./iwsl-link-store";
+import {
+  connectorHealthCheck,
+  externalConnectorHealthCheck,
+  type ConnectorHealth,
+} from "./iwsl-managed-ops";
 
 /**
  * Server-driven connector health sweep (§12.5). Runs the same signed
  * `health.check` round-trip the operator triggers by hand, but across every
- * commandable managed link at once — so `lastHealth` stays fresh regardless of
- * who has a browser open. Invoked hourly by the health-sweep CronJob.
+ * commandable link at once — so `lastHealth`, `connectorVersion`, and the
+ * derived "update available" badge stay fresh regardless of who has a browser
+ * open. Invoked hourly by the health-sweep CronJob.
  *
- * Only §5.1 managed links that are active + fingerprint-confirmed are swept:
- * connectorHealthCheck runs over the k8s-exec transport and requires a
- * commandable link, so anything else would just fail-closed. Each site is
- * isolated in its own try/catch — one unreachable pod must not abort the rest.
+ * BOTH link families are swept, each over its own transport:
+ *   - §5.1 managed links → `connectorHealthCheck` over the k8s-exec channel.
+ *   - §5 external links   → `externalConnectorHealthCheck` over the public
+ *                           HTTPS command channel (IW initiates the POST; the
+ *                           site never dials in — §2 invariant intact).
+ * Only active + fingerprint-confirmed links are targeted; both check functions
+ * fail-closed on anything else, so a quarantined or half-enrolled link would
+ * just error. Each site is isolated in its own try/catch under a single
+ * Promise.allSettled — one unreachable pod OR one dead external endpoint must
+ * never abort the rest of the batch.
  */
 
+type SweepTransport = "exec" | "https";
+
+interface SweepTarget {
+  /** Result label — managed `siteName` or external `siteId`. */
+  label: string;
+  /** Which transport carries this site's signed health.check. */
+  transport: SweepTransport;
+  /** The signed round-trip; both variants persist `connectorVersion` on success. */
+  check: () => Promise<ConnectorHealth>;
+}
+
 export interface HealthSweepSiteResult {
-  /** The WordPress-manager site name (managed link's siteName). */
+  /** Managed link's siteName, or external link's siteId. */
   site: string;
+  /** Transport the check ran over — lets the caller see both families were swept. */
+  transport: SweepTransport;
   ok: boolean;
   /** Rejection reason or thrown-error message when the check did not pass. */
   reason?: string;
@@ -25,42 +49,67 @@ export interface HealthSweepSiteResult {
 
 export interface HealthSweepSummary {
   ranAt: string;
-  /** Number of managed links the sweep attempted. */
+  /** Number of links the sweep attempted (managed + external). */
   total: number;
   passed: number;
   failed: number;
+  /** Per-transport attempt counts, for observability into external coverage. */
+  managedTotal: number;
+  externalTotal: number;
   results: HealthSweepSiteResult[];
+}
+
+/** Active, fingerprint-confirmed §5.1 managed links — swept over k8s exec. */
+function isSweepableManaged(site: ExternalSiteRecord): boolean {
+  return Boolean(site.managed) && Boolean(site.siteName) && site.state === "active" && site.fingerprintConfirmed;
+}
+
+/** Active, fingerprint-confirmed §5 external links — swept over HTTPS. */
+function isSweepableExternal(site: ExternalSiteRecord): boolean {
+  return !site.managed && site.state === "active" && site.fingerprintConfirmed;
+}
+
+function buildTargets(sites: ExternalSiteRecord[]): SweepTarget[] {
+  const managed = sites.filter(isSweepableManaged).map((site): SweepTarget => {
+    const siteName = site.siteName as string;
+    return { label: siteName, transport: "exec", check: () => connectorHealthCheck(siteName) };
+  });
+  const external = sites.filter(isSweepableExternal).map((site): SweepTarget => ({
+    label: site.siteId,
+    transport: "https",
+    check: () => externalConnectorHealthCheck(site.siteId),
+  }));
+  return [...managed, ...external];
 }
 
 export async function runHealthSweep(): Promise<HealthSweepSummary> {
   const sites = await listExternalSites();
-  const targets = sites.filter(
-    (site) => site.managed && site.siteName && site.state === "active" && site.fingerprintConfirmed,
-  );
+  const targets = buildTargets(sites);
 
-  // Sweep every site CONCURRENTLY. connectorHealthCheck already bounds each
-  // round-trip at COMMAND_TIMEOUT_MS (60s); running them sequentially made the
-  // total wall-time N×60s, so a few unreachable connectors pushed the sweep past
-  // the CronJob's `--max-time 300`, failing the job hourly (BackoffLimitExceeded).
-  // allSettled keeps each site isolated (one failure never rejects the batch) and
-  // caps wall-time at ~one command timeout regardless of site count.
+  // Sweep every target CONCURRENTLY. Each check bounds its own round-trip
+  // (COMMAND_TIMEOUT_MS on exec; the fetch timeout on HTTPS), so running them
+  // sequentially made total wall-time N× a timeout — a few unreachable links
+  // pushed the sweep past the CronJob's `--max-time 300` and failed it hourly.
+  // allSettled keeps each site isolated (one failure never rejects the batch)
+  // and caps wall-time at ~one timeout regardless of site count — so a dead
+  // external endpoint costs one slot, not the whole batch.
   const settled = await Promise.allSettled(
     targets.map(async (target): Promise<HealthSweepSiteResult> => {
-      const siteName = target.siteName as string;
       try {
-        const health = await connectorHealthCheck(siteName);
+        const health = await target.check();
         return {
-          site: siteName,
+          site: target.label,
+          transport: target.transport,
           ok: health.ok,
           roundtripMs: health.roundtripMs,
           ...(health.rejectedReason ? { reason: health.rejectedReason } : {}),
         };
       } catch (err) {
-        // A per-site failure (pod down, quarantined link, tamper) is logged and
-        // recorded, but the sweep carries on for the remaining sites.
+        // A per-site failure (pod down, quarantined link, unreachable external
+        // endpoint, tamper) is logged and recorded, but the sweep carries on.
         const reason = err instanceof Error ? err.message : String(err);
-        console.warn(`[wordpress:iwsl] health sweep for ${siteName} failed:`, reason);
-        return { site: siteName, ok: false, reason };
+        console.warn(`[wordpress:iwsl] health sweep for ${target.label} (${target.transport}) failed:`, reason);
+        return { site: target.label, transport: target.transport, ok: false, reason };
       }
     }),
   );
@@ -68,7 +117,12 @@ export async function runHealthSweep(): Promise<HealthSweepSummary> {
   const results: HealthSweepSiteResult[] = settled.map((outcome, i) =>
     outcome.status === "fulfilled"
       ? outcome.value
-      : { site: targets[i].siteName as string, ok: false, reason: String(outcome.reason) },
+      : {
+          site: targets[i].label,
+          transport: targets[i].transport,
+          ok: false,
+          reason: String(outcome.reason),
+        },
   );
 
   const passed = results.filter((r) => r.ok).length;
@@ -77,6 +131,8 @@ export async function runHealthSweep(): Promise<HealthSweepSummary> {
     total: results.length,
     passed,
     failed: results.length - passed,
+    managedTotal: results.filter((r) => r.transport === "exec").length,
+    externalTotal: results.filter((r) => r.transport === "https").length,
     results,
   };
 }

@@ -1,11 +1,14 @@
 # WordPress Connector health sweep — hourly, server-driven (§12.5).
 #
 # Every hour this CronJob POSTs to the console's own /api/wordpress/health-sweep
-# endpoint, which runs a signed `health.check` against every commandable managed
-# link and persists the outcome (`lastHealth`) on each link record. This keeps
-# the ✓/✗ + "last checked" indicator fresh even when no operator has the console
-# open — the button on the connector page becomes a manual override, not the
-# only trigger.
+# endpoint, which runs a signed `health.check` against every commandable link and
+# persists the outcome (`lastHealth` + `connectorVersion`) on each link record —
+# §5.1 managed links over k8s-exec and §5 external links over the public HTTPS
+# command channel (the console pod makes those outbound calls, reusing the same
+# egress the manual "Health check" button uses). This keeps the ✓/✗ + "last
+# checked" indicator AND the "update available" badge fresh even when no operator
+# has the console open — the button on the connector page becomes a manual
+# override, not the only trigger.
 #
 # APPLY NOTES (operator):
 #   * The Job runs IN the console's namespace and calls the console Service by
