@@ -35,6 +35,16 @@ $verifier->verify_command( $f->commands->valid );
 $verdict = $verifier->verify_command( $f->commands->nonceReuse );
 iwsl_assert_same( 'replayed-nonce', $verdict['reason'], 'nonce reuse rejected even with higher seq' );
 
+// --- concurrency: the atomic per-nonce claim catches a reused nonce even when
+//     the aggregate `nonces` ledger is empty. Clearing the ledger after a commit
+//     simulates the pre-commit window a second parallel worker observes — the
+//     isset() pre-filter misses it, so only the atomic add() guard can reject.
+list( $store, $verifier ) = $fresh();
+$verifier->verify_command( $f->commands->valid );
+$store->set( 'nonces', array() );
+$verdict = $verifier->verify_command( $f->commands->nonceReuse );
+iwsl_assert_same( 'replayed-nonce', $verdict['reason'], 'atomic nonce claim rejects reuse when aggregate ledger is empty (race window)' );
+
 // --- seq rollback -------------------------------------------------------------
 list( $store, $verifier ) = $fresh();
 $verifier->verify_command( $f->commands->valid );

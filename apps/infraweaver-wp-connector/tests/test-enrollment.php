@@ -83,6 +83,18 @@ $malformed->bundle->iw_pk->ed25519 = new stdClass(); // was a b64u string
 $result = $enrollment->handle_bundle( $malformed );
 iwsl_assert_same( 'schema-fail', $result['reason'], 'non-string IW-PK member rejected, not fatal' );
 
+// --- malformed bundle: object enroll_secret fails closed (no fatal, claim released) ------
+// Without the is_string() guard + throwable catch, `(string) $bundle->enroll_secret`
+// on an object fatals mid-process_bundle, stranding `enroll_claim` set forever and
+// wedging all future enrollment at `enroll-in-progress`.
+$store      = new IWSL_Memory_Store();
+$enrollment = new IWSL_Enrollment( $store, iwsl_now_t0( 1000 ) );
+$malformed  = iwsl_clone( $f->enrollment->signed );
+$malformed->bundle->enroll_secret = new stdClass(); // was a b64u string
+$result = $enrollment->handle_bundle( $malformed );
+iwsl_assert_same( 'schema-fail', $result['reason'], 'object enroll_secret rejected, not fatal' );
+iwsl_assert_same( null, $store->get( 'enroll_claim' ), 'claim released after malformed enroll_secret (no strand)' );
+
 // --- concurrent enrollment: the atomic claim blocks a racing second upload -------------
 $store = new IWSL_Memory_Store();
 $store->add( 'enroll_claim', 1 ); // simulate an in-flight peer that claimed first

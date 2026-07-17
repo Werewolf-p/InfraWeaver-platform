@@ -189,6 +189,16 @@ final class IWSL_Plugin {
 			$this->store->delete( 'wp_keys.' . $kid );
 			$this->store->delete( 'iw_keys.' . $kid );
 		}
+		// Per-nonce replay claims live as individual `nonce.<n>` options (§6.3
+		// atomic guard); enumerate them from the aggregate ledger and drop each so
+		// the kill switch leaves no replay state behind. Must run before the loop
+		// below deletes the `nonces` ledger itself.
+		$nonces = $this->store->get( 'nonces', array() );
+		if ( is_array( $nonces ) ) {
+			foreach ( array_keys( $nonces ) as $nonce ) {
+				$this->store->delete( 'nonce.' . (string) $nonce );
+			}
+		}
 		foreach (
 			array(
 				'state', 'site_id', 'enroll_secret', 'last_seq', 'nonces',

@@ -40,7 +40,17 @@ final class IWSL_Enrollment {
 		if ( ! $this->store->add( 'enroll_claim', ( $this->now_ms )() ) ) {
 			return array( 'ok' => false, 'reason' => 'enroll-in-progress' );
 		}
-		$result = $this->process_bundle( $signed );
+		// Release the claim on ANY exit that isn't a committed enrollment: a clean
+		// ok:false OR an unexpected throwable (e.g. a malformed sub-field that
+		// fatals on a cast). Without the catch, a throw between add() and the
+		// cleanup below would strand `enroll_claim` set forever, wedging every
+		// future enrollment at `enroll-in-progress` until an operator clears the DB.
+		try {
+			$result = $this->process_bundle( $signed );
+		} catch ( \Throwable $e ) {
+			$this->store->delete( 'enroll_claim' );
+			return array( 'ok' => false, 'reason' => 'schema-fail' );
+		}
 		if ( ! $result['ok'] ) {
 			$this->store->delete( 'enroll_claim' );
 		}
@@ -60,6 +70,7 @@ final class IWSL_Enrollment {
 			! is_string( $bundle->site_id ) || '' === $bundle->site_id ||
 			! is_int( $bundle->iw_kid ) || $bundle->iw_kid < 1 ||
 			! is_int( $bundle->expires_ts ) ||
+			! is_string( $bundle->enroll_secret ) ||
 			! $bundle->iw_pk instanceof stdClass
 		) {
 			return array( 'ok' => false, 'reason' => 'schema-fail' );

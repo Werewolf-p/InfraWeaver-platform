@@ -110,12 +110,27 @@ final class IWSL_Verifier {
 			return $this->reject( 'schema-fail' );
 		}
 
-		// Commit replay state — persisted BEFORE execution so a crash mid-op
-		// can never reopen the window.
+		// Atomic replay claim (§6.3 concurrency hardening). The isset() pre-filter
+		// above rejects sequential replays cheaply, but two workers handling the
+		// same command in parallel can both pass every check above before either
+		// commits `nonces`/`last_seq` — a check-then-act race that lets one signed
+		// command execute twice. add() is insert-if-absent (the options table's
+		// UNIQUE index in WP, an array guard in the test store), so exactly one
+		// concurrent claim of a given nonce wins; the loser is rejected here
+		// instead of double-executing.
+		if ( ! $this->store->add( 'nonce.' . $envelope->nonce, $envelope->exp ) ) {
+			return $this->reject( 'replayed-nonce' );
+		}
+
+		// Commit replay state — persisted BEFORE execution so a crash mid-op can
+		// never reopen the window. The aggregate `nonces` map is the GC ledger
+		// (pruning, debug count, and wipe() enumeration); the per-nonce option
+		// claimed above is the authoritative concurrency guard.
 		$this->store->set( 'last_seq', $envelope->seq );
 		foreach ( $nonces as $nonce => $expires ) {
 			if ( $expires < $now ) {
 				unset( $nonces[ $nonce ] );
+				$this->store->delete( 'nonce.' . $nonce );
 			}
 		}
 		$nonces[ $envelope->nonce ] = $envelope->exp;
