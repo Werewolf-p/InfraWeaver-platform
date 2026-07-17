@@ -12,6 +12,7 @@ import {
   Trash2,
   ShieldCheck,
   CheckCircle2,
+  CircleArrowUp,
   CircleDashed,
   Lock,
   Sparkles,
@@ -52,6 +53,14 @@ interface WordpressConfig {
   defaultDomain: string;
   internalSubdomain: string;
   catalog: CatalogPlugin[];
+}
+
+/** Slice of the §5.1 connector-update sweep summary the header toast renders. */
+interface ConnectorUpdateSummary {
+  targetVersion: string;
+  total: number;
+  updated: number;
+  failed: number;
 }
 
 const AUTH_MODES: ReadonlyArray<{ value: AuthMode; label: string; helper: string }> = [
@@ -197,6 +206,26 @@ export function WordpressDashboard() {
     onSettled: () => setToDelete(null),
   });
 
+  // §5.1 fleet maintenance — reinstall the bundled Connector on every enrolled
+  // managed link in one push (server enforces namespace-wide wordpress:admin).
+  const updateConnectorsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/wordpress/connector-update-sweep", { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Connector update failed");
+      return ((await res.json()) as { summary: ConnectorUpdateSummary }).summary;
+    },
+    onSuccess: (summary) => {
+      if (summary.total === 0) {
+        toast.success("No enrolled connectors to update");
+      } else if (summary.failed === 0) {
+        toast.success(`Updated ${summary.updated} connector${summary.updated === 1 ? "" : "s"} to ${summary.targetVersion}`);
+      } else {
+        toast.error(`${summary.updated}/${summary.total} connectors updated — ${summary.failed} failed (check each site's connector tab)`);
+      }
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const togglePlugin = (slug: string) =>
     setSelectedPlugins((prev) =>
       prev.includes(slug) ? prev.filter((value) => value !== slug) : [...prev, slug],
@@ -217,13 +246,29 @@ export function WordpressDashboard() {
             Provision hardened WordPress sites — secrets, database, DNS, TLS and Authentik SSO handled for you.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setCreating((open) => !open)}
-          className="inline-flex items-center gap-2 rounded-lg bg-sky-500 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
-        >
-          <Plus className="h-4 w-4" aria-hidden /> New site
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={updateConnectorsMutation.isPending}
+            onClick={() => updateConnectorsMutation.mutate()}
+            title="Reinstall the bundled Connector plugin on every enrolled in-cluster site"
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {updateConnectorsMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <CircleArrowUp className="h-4 w-4" aria-hidden />
+            )}
+            {updateConnectorsMutation.isPending ? "Updating…" : "Update connectors"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setCreating((open) => !open)}
+            className="inline-flex items-center gap-2 rounded-lg bg-sky-500 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+          >
+            <Plus className="h-4 w-4" aria-hidden /> New site
+          </button>
+        </div>
       </header>
 
       <AnimatePresence initial={false}>

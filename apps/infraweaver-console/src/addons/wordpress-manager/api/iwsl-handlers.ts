@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { AddonHttpError } from "../lib/errors";
 import { runHealthSweep } from "../lib/health-sweep";
+import { runConnectorUpdateSweep } from "../lib/update-sweep";
 import {
   getWordpressAccessContext,
   hasWordpressPermission,
@@ -334,4 +335,21 @@ export async function healthSweepHandler(req: NextRequest): Promise<NextResponse
     if (limited) return limited;
   }
   return guard(async () => json({ summary: await runHealthSweep() }));
+}
+
+// ── Fleet-wide Connector update (§5.1 maintenance) ───────────────────────────
+
+/**
+ * POST — reinstall the bundled Connector across every enrolled managed link in
+ * one shot (the fleet version of the per-site `update-plugin` op). Operator-only
+ * and namespace-wide admin: it pushes plugin code into every in-cluster site's
+ * pod, so it is deliberately not driven by the health-sweep cron token — a bad
+ * build must not auto-deploy fleet-wide unattended. Rate-limited hard.
+ */
+export async function connectorUpdateSweepHandler(): Promise<NextResponse> {
+  const gate = await authorize("wordpress:admin");
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("update-sweep", gate.ctx.username, 3);
+  if (limited) return limited;
+  return guard(async () => json({ summary: await runConnectorUpdateSweep() }));
 }
