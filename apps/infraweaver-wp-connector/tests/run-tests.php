@@ -20,6 +20,7 @@ require __DIR__ . '/../includes/class-iwsl-verifier.php';
 require __DIR__ . '/../includes/class-iwsl-enrollment.php';
 require __DIR__ . '/../includes/class-iwsl-rotation.php';
 require __DIR__ . '/../includes/class-iwsl-responder.php';
+require __DIR__ . '/../includes/class-iwsl-command-handler.php';
 require __DIR__ . '/../includes/class-iwsl-plugin.php';
 
 $GLOBALS['iwsl_pass'] = 0;

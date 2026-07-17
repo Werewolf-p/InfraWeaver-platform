@@ -76,6 +76,19 @@ export interface ExternalSiteRecord {
    */
   managed?: boolean;
   siteName?: string;
+  /**
+   * Cert backbone (defense-in-depth): SPKI pin-set (base64 SHA-256 of the
+   * site's TLS SubjectPublicKeyInfo, `sha256//` values). Captured at the
+   * signature-verified §5 proof-pull, so it's proof-authenticated rather than
+   * blind TOFU. When present, external command dispatch fails closed unless the
+   * served chain matches — catching a hijacked-DNS/mis-issued-CA endpoint at the
+   * TLS handshake, before the PQ-signed body is sent. External (HTTPS) links
+   * only; managed links use in-cluster exec and carry no pin. Backup pins let a
+   * key rotation overlap old+new.
+   */
+  pinnedSpki?: string[];
+  /** When `pinnedSpki` was last observed/updated from a verified exchange. */
+  spkiObservedAt?: string;
 }
 
 interface SitesConfigMap {

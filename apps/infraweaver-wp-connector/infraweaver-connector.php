@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.2.2
+ * Version: 0.3.0
  * Requires PHP: 7.4
  * License: AGPL-3.0-only
  *
@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.2.2' );
+define( 'IWSL_CONNECTOR_VERSION', '0.3.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -34,6 +34,7 @@ require_once __DIR__ . '/includes/class-iwsl-verifier.php';
 require_once __DIR__ . '/includes/class-iwsl-enrollment.php';
 require_once __DIR__ . '/includes/class-iwsl-rotation.php';
 require_once __DIR__ . '/includes/class-iwsl-responder.php';
+require_once __DIR__ . '/includes/class-iwsl-command-handler.php';
 require_once __DIR__ . '/includes/class-iwsl-plugin.php';
 
 function iwsl_plugin(): IWSL_Plugin {

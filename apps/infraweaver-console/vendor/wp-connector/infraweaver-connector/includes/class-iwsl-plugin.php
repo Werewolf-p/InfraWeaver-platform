@@ -22,12 +22,17 @@ final class IWSL_Plugin {
 	/** @var IWSL_Responder */
 	private $responder;
 
+	/** @var array<string, IWSL_Command_Handler> the command registry (§7), method-keyed. */
+	private $handlers;
+
 	public function __construct( IWSL_Store $store, ?callable $now_ms = null ) {
 		$this->store      = $store;
 		$this->enrollment = new IWSL_Enrollment( $store, $now_ms );
 		$this->rotation   = new IWSL_Rotation( $store );
 		$this->responder  = new IWSL_Responder( $store, $this->rotation, $now_ms );
-		$this->verifier   = new IWSL_Verifier( $store, self::allowed_methods(), $now_ms );
+		$this->handlers   = self::command_handlers();
+		// Verifier allow-list is derived from the same registry — no parallel list.
+		$this->verifier   = new IWSL_Verifier( $store, self::validators( $this->handlers ), $now_ms );
 	}
 
 	public function store(): IWSL_Store {
@@ -42,8 +47,25 @@ final class IWSL_Plugin {
 		return $this->rotation;
 	}
 
-	/** @return array<string, callable|null> */
+	/**
+	 * Verifier allow-list (§7), derived from the command registry so the method
+	 * set has one definition point. Shape unchanged: method => validator|null.
+	 *
+	 * @return array<string, callable|null>
+	 */
 	public static function allowed_methods(): array {
+		return self::validators( self::command_handlers() );
+	}
+
+	/**
+	 * The six current signed commands (§6/§7). Single source of truth: both the
+	 * verifier allow-list and `execute()` dispatch derive from this. Runners are
+	 * closures scoped to this class, so they reach the private store/rotation/
+	 * debug surface without any of it going public.
+	 *
+	 * @return array<string, IWSL_Command_Handler>
+	 */
+	private static function command_handlers(): array {
 		$rotation_params = static function ( $params ): bool {
 			$vars = get_object_vars( $params );
 			return isset( $vars['rotation_id'] ) && is_string( $vars['rotation_id'] )
@@ -51,14 +73,95 @@ final class IWSL_Plugin {
 				&& ( ! isset( $vars['new_kid'] ) || is_int( $vars['new_kid'] ) )
 				&& array() === array_diff_key( $vars, array( 'rotation_id' => 1, 'new_kid' => 1 ) );
 		};
-		return array(
-			'health.check'       => null,
-			'debug.status'       => null,
-			'key.rotate.self'    => $rotation_params,
-			'key.rotate.confirm' => $rotation_params,
-			'key.rotate.abort'   => $rotation_params,
-			'site.deactivate'    => null,
+
+		$handlers = array(
+			new IWSL_Command_Handler(
+				'health.check',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return array(
+						true,
+						array(
+							'status' => 'ok',
+							'php'    => PHP_VERSION,
+							'plugin' => defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : 'dev',
+							'kid'    => $plugin->rotation->signing_kid(),
+							'seq'    => (int) $plugin->store->get( 'last_seq', 0 ),
+						),
+					);
+				}
+			),
+			new IWSL_Command_Handler(
+				'debug.status',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return array( true, $plugin->debug_status() );
+				}
+			),
+			new IWSL_Command_Handler(
+				'key.rotate.self',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$params = get_object_vars( $envelope->params );
+					$result = $plugin->rotation->prepare(
+						(string) $params['rotation_id'],
+						isset( $params['new_kid'] ) ? (int) $params['new_kid'] : (int) $plugin->store->get( 'wp_current_kid', 1 ) + 1
+					);
+					return array(
+						$result['ok'],
+						$result['ok']
+							? array( 'new_wp_pk' => $result['new_wp_pk'] )
+							: array( 'reason' => $result['reason'] ),
+					);
+				},
+				$rotation_params,
+				true // §8 chain of custody: PREPARE signs under the current confirmed key.
+			),
+			new IWSL_Command_Handler(
+				'key.rotate.confirm',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$params = get_object_vars( $envelope->params );
+					$result = $plugin->rotation->confirm( (string) $params['rotation_id'] );
+					return array( $result['ok'], $result['ok'] ? array() : array( 'reason' => $result['reason'] ) );
+				},
+				$rotation_params
+			),
+			new IWSL_Command_Handler(
+				'key.rotate.abort',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$params = get_object_vars( $envelope->params );
+					$plugin->rotation->abort( (string) $params['rotation_id'] );
+					return array( true, array() );
+				},
+				$rotation_params
+			),
+			new IWSL_Command_Handler(
+				'site.deactivate',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return array( true, array( 'deactivated' => true ) );
+				},
+				null,
+				false,
+				true // §8 kill switch: wipe after the response is built.
+			),
 		);
+
+		$by_method = array();
+		foreach ( $handlers as $handler ) {
+			$by_method[ $handler->method ] = $handler;
+		}
+		return $by_method;
+	}
+
+	/**
+	 * Project a registry to the verifier's method => validator allow-list.
+	 *
+	 * @param array<string, IWSL_Command_Handler> $handlers
+	 * @return array<string, callable|null>
+	 */
+	private static function validators( array $handlers ): array {
+		$out = array();
+		foreach ( $handlers as $method => $handler ) {
+			$out[ $method ] = $handler->validator;
+		}
+		return $out;
 	}
 
 	/**
@@ -77,65 +180,31 @@ final class IWSL_Plugin {
 		}
 		$envelope = $verdict['envelope'];
 
+		// Verifier already enforced the allow-list, so a handler always exists;
+		// guard defensively regardless (a null handler cannot dispatch).
+		$handler = $this->handlers[ $envelope->method ] ?? null;
+		if ( null === $handler ) {
+			return array( 'status' => 403, 'body' => array( 'ok' => false, 'reason' => 'unknown-method' ) );
+		}
+
 		// First verified command completes §5 step 3–4: burn secret, drop proof.
 		$this->enrollment->activate();
 
-		// §8 chain of custody: the PREPARE response is always signed by the
-		// current CONFIRMED key — the new key only proves itself in VERIFY.
-		$sign_kid = 'key.rotate.self' === $envelope->method
+		// §8 chain of custody: a PREPARE response is signed by the current
+		// CONFIRMED key — the new key only proves itself in VERIFY.
+		$sign_kid = $handler->signs_with_current_kid
 			? (int) $this->store->get( 'wp_current_kid', 1 )
 			: null;
 
-		list( $ok, $result ) = $this->execute( $envelope );
+		list( $ok, $result ) = $handler->run( $this, $envelope );
 		$response = $this->responder->build( $envelope->nonce, $ok, $result, $sign_kid );
 		if ( null === $response ) {
 			return array( 'status' => 500, 'body' => array( 'ok' => false, 'reason' => 'internal' ) );
 		}
-		if ( 'site.deactivate' === $envelope->method ) {
+		if ( $handler->wipes_after ) {
 			$this->wipe(); // §8 kill switch — respond, then forget everything.
 		}
 		return array( 'status' => 200, 'body' => $response );
-	}
-
-	/** @return array{0: bool, 1: array} */
-	private function execute( stdClass $envelope ): array {
-		$params = get_object_vars( $envelope->params );
-		switch ( $envelope->method ) {
-			case 'health.check':
-				return array(
-					true,
-					array(
-						'status' => 'ok',
-						'php'    => PHP_VERSION,
-						'plugin' => defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : 'dev',
-						'kid'    => $this->rotation->signing_kid(),
-						'seq'    => (int) $this->store->get( 'last_seq', 0 ),
-					),
-				);
-			case 'debug.status':
-				return array( true, $this->debug_status() );
-			case 'key.rotate.self':
-				$result = $this->rotation->prepare(
-					(string) $params['rotation_id'],
-					isset( $params['new_kid'] ) ? (int) $params['new_kid'] : (int) $this->store->get( 'wp_current_kid', 1 ) + 1
-				);
-				return array(
-					$result['ok'],
-					$result['ok']
-						? array( 'new_wp_pk' => $result['new_wp_pk'] )
-						: array( 'reason' => $result['reason'] ),
-				);
-			case 'key.rotate.confirm':
-				$result = $this->rotation->confirm( (string) $params['rotation_id'] );
-				return array( $result['ok'], $result['ok'] ? array() : array( 'reason' => $result['reason'] ) );
-			case 'key.rotate.abort':
-				$result = $this->rotation->abort( (string) $params['rotation_id'] );
-				return array( true, array() );
-			case 'site.deactivate':
-				return array( true, array( 'deactivated' => true ) );
-			default: // Unreachable — verifier enforces the allow-list.
-				return array( false, array( 'reason' => 'unknown-method' ) );
-		}
 	}
 
 	/**

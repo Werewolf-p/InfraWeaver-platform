@@ -1,6 +1,8 @@
+import crypto from "node:crypto";
 import dns from "node:dns/promises";
 import https from "node:https";
 import net from "node:net";
+import tls from "node:tls";
 
 import { INTERNAL_DOMAIN } from "@/lib/domain";
 
@@ -25,6 +27,67 @@ export interface SafeExternalResponse {
   headers: Record<string, string>;
   status: number;
   statusText: string;
+  /**
+   * SHA-256 of the peer leaf certificate's SubjectPublicKeyInfo, base64 — the
+   * standard `sha256//` SPKI pin value. Present on HTTPS responses so a caller
+   * can capture/compare the served certificate's pin (§ IWSL cert pinning). A
+   * pin is stable across CA renewals as long as the key is reused.
+   */
+  peerSpki?: string;
+}
+
+/**
+ * The base64 SHA-256 SPKI pin for a DER-encoded X.509 certificate — identical
+ * to `openssl x509 -pubkey | openssl pkey -pubin -outform der | openssl dgst
+ * -sha256 -binary | base64` and to a browser/HPKP `sha256//<b64>` pin. We pin
+ * the SubjectPublicKeyInfo, not the whole leaf, so the pin survives certificate
+ * renewals that reuse the key (OWASP guidance).
+ */
+export function spkiSha256Pin(certDer: Buffer): string {
+  const spkiDer = new crypto.X509Certificate(certDer).publicKey.export({ type: "spki", format: "der" });
+  return crypto.createHash("sha256").update(spkiDer).digest("base64");
+}
+
+/**
+ * True when any certificate in the presented chain (leaf → root) matches any
+ * pin in the set — the backup-pin model that lets a key rotation overlap
+ * old+new without a bricked connection. Walks issuers, terminating on the
+ * self-signed root (which references itself).
+ */
+function chainMatchesPin(leaf: tls.DetailedPeerCertificate, pins: Set<string>): boolean {
+  let cert: tls.DetailedPeerCertificate | undefined = leaf;
+  const seenFingerprints = new Set<string>();
+  while (cert && cert.raw && cert.raw.length > 0) {
+    try {
+      if (pins.has(spkiSha256Pin(cert.raw))) return true;
+    } catch {
+      // A cert we cannot parse cannot satisfy a pin — keep walking the chain.
+    }
+    const fingerprint = cert.fingerprint256 ?? "";
+    if (seenFingerprints.has(fingerprint)) break; // self-signed root loops to itself
+    seenFingerprints.add(fingerprint);
+    cert = cert.issuerCertificate;
+  }
+  return false;
+}
+
+/**
+ * A `checkServerIdentity` that keeps Node's built-in hostname/SAN validation
+ * (overriding it would otherwise silently disable that check) and then, if a
+ * pin-set is supplied, additionally requires the chain to match a pinned SPKI.
+ * Fails closed on mismatch — the connection is dropped during the handshake,
+ * before the plugin ever sees a byte.
+ */
+function makeServerIdentityCheck(pinnedSpki: string[] | undefined) {
+  const pins = pinnedSpki && pinnedSpki.length > 0 ? new Set(pinnedSpki) : null;
+  return (hostname: string, cert: tls.PeerCertificate): Error | undefined => {
+    const identityError = tls.checkServerIdentity(hostname, cert);
+    if (identityError) return identityError;
+    if (!pins) return undefined;
+    return chainMatchesPin(cert as tls.DetailedPeerCertificate, pins)
+      ? undefined
+      : new Error(`TLS certificate pin mismatch for ${hostname}`);
+  };
 }
 
 interface ResolvedExternalUrl {
@@ -39,6 +102,14 @@ interface SafeExternalRequestOptions {
   maxResponseBytes?: number;
   method?: string;
   timeoutMs?: number;
+  /**
+   * Certificate SPKI pin-set (base64 SHA-256, `sha256//` values without the
+   * prefix). When non-empty, the TLS handshake fails closed unless the served
+   * chain matches a pin — defence-in-depth on top of the app-layer signatures,
+   * catching a hijacked-DNS or mis-issued-CA endpoint before any request body
+   * is sent. Empty/omitted keeps standard CA validation only.
+   */
+  pinnedSpki?: string[];
 }
 
 interface DnsLookupRecord {
@@ -166,6 +237,7 @@ export async function requestSafeExternalUrl(
 
   return new Promise<SafeExternalResponse>((resolve, reject) => {
     const req = https.request({
+      checkServerIdentity: makeServerIdentityCheck(options.pinnedSpki),
       family: resolved.family,
       headers,
       hostname: resolved.address,
@@ -193,11 +265,22 @@ export async function requestSafeExternalUrl(
           if (Array.isArray(value)) responseHeaders[key] = value.join(", ");
           else if (typeof value === "string") responseHeaders[key] = value;
         }
+        let peerSpki: string | undefined;
+        const socket = res.socket as tls.TLSSocket | undefined;
+        const peerCert = socket?.getPeerCertificate?.(false);
+        if (peerCert && peerCert.raw && peerCert.raw.length > 0) {
+          try {
+            peerSpki = spkiSha256Pin(peerCert.raw);
+          } catch {
+            // Non-fatal: capture is best-effort; enforcement (if any) already ran.
+          }
+        }
         resolve({
           body: Buffer.concat(chunks),
           headers: responseHeaders,
           status: res.statusCode ?? 0,
           statusText: res.statusMessage ?? "",
+          peerSpki,
         });
       });
       res.on("error", reject);

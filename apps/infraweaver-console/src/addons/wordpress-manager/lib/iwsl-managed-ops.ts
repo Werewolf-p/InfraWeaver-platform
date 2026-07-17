@@ -27,6 +27,15 @@ import {
   installConnectorScript,
   signedCommandScript,
 } from "./iwsl-managed-commands";
+import {
+  callRpc,
+  type CommandReply,
+  type DispatchOptions,
+  type RpcMethod,
+  type RpcTransport,
+} from "./rpc/registry";
+
+export type { CommandReply } from "./rpc/registry";
 
 /**
  * Signed command dispatch for §5.1 managed links — the console side of §6 over
@@ -85,7 +94,7 @@ function execDelivery(pod: string): CommandDelivery {
  * holds — the site still never dials IW; this is IW initiating, the plugin only
  * answering inside the same exchange.
  */
-function httpDelivery(url: string): CommandDelivery {
+function httpDelivery(url: string, pinnedSpki?: string[]): CommandDelivery {
   return async (signedJson) => {
     if (Buffer.byteLength(signedJson, "utf8") > MAX_CMD_BODY_BYTES) {
       throw new AddonHttpError("Signed command exceeds the 64 KB channel cap", 413);
@@ -96,6 +105,9 @@ function httpDelivery(url: string): CommandDelivery {
       headers: { "Content-Type": "application/json" },
       maxResponseBytes: MAX_CMD_BODY_BYTES,
       timeoutMs: COMMAND_TIMEOUT_MS,
+      // Cert-pin the site (defense-in-depth): a hijacked-DNS/mis-issued-CA
+      // endpoint fails the TLS handshake here, before the signed command is sent.
+      pinnedSpki,
     }).catch(() => null);
     if (!res) throw new AddonHttpError("Could not reach the site's signed command endpoint", 502);
     const text = res.body.toString("utf8");
@@ -163,22 +175,6 @@ async function recordResponseTamper(siteId: string, reason: string, now: number)
     target.state = "quarantined";
     target.lastVerify = { at: new Date(now).toISOString(), ok: false, reason };
   });
-}
-
-export interface CommandReply {
-  /** The plugin's verified `ok` verdict for the command. */
-  ok: boolean;
-  /** WP key epoch that signed the (verified) response. */
-  kid: number;
-  result: Record<string, unknown>;
-  roundtripMs: number;
-  /** Set when the plugin rejected the command unsigned (§12.5 reason). */
-  rejectedReason?: string;
-}
-
-interface DispatchOptions {
-  /** Additional legitimate WP-PK (§8 — a prepared-but-unconfirmed new key). */
-  altWpPk?: string | null;
 }
 
 /**
@@ -264,6 +260,16 @@ async function dispatchSignedCommand(
   };
 }
 
+/**
+ * Bind a link record and a delivery (exec or HTTPS) onto `dispatchSignedCommand`
+ * to get the transport `callRpc` funnels the six methods through. The registry
+ * layer sits on top of this — same signed bytes, one typed entry point.
+ */
+function rpcTransport(record: ExternalSiteRecord, deliver: CommandDelivery): RpcTransport {
+  return (method: RpcMethod, params: Record<string, unknown>, opts?: DispatchOptions) =>
+    dispatchSignedCommand(record, deliver, method, params, opts);
+}
+
 // ── Debugging ────────────────────────────────────────────────────────────────
 
 export interface ConnectorHealth {
@@ -303,7 +309,7 @@ export async function connectorHealthCheck(site: string): Promise<ConnectorHealt
   const record = await requireManagedRecord(site);
   requireCommandable(record);
   const pod = await requireRunningPod(site);
-  const reply = await dispatchSignedCommand(record, execDelivery(pod), "health.check", {});
+  const reply = await callRpc(rpcTransport(record, execDelivery(pod)), "health.check", {});
   await persistHealthResult(record, reply);
   return toConnectorHealth(reply);
 }
@@ -320,7 +326,7 @@ export async function connectorHealthCheck(site: string): Promise<ConnectorHealt
 export async function externalConnectorHealthCheck(siteId: string): Promise<ConnectorHealth> {
   const record = await requireExternalRecord(siteId);
   requireCommandable(record);
-  const reply = await dispatchSignedCommand(record, httpDelivery(record.url), "health.check", {});
+  const reply = await callRpc(rpcTransport(record, httpDelivery(record.url, record.pinnedSpki)), "health.check", {});
   await persistHealthResult(record, reply);
   return toConnectorHealth(reply);
 }
@@ -352,7 +358,7 @@ export async function connectorDebug(site: string): Promise<ConnectorDebug> {
   let debug: Record<string, unknown> | null = null;
   let debugUnavailable: string | undefined;
   if (record.state === "active" && record.fingerprintConfirmed && record.wpPk) {
-    const reply = await dispatchSignedCommand(record, execDelivery(pod), "debug.status", {});
+    const reply = await callRpc(rpcTransport(record, execDelivery(pod)), "debug.status", {});
     if (reply.rejectedReason === "unknown-method") {
       debugUnavailable = "The installed Connector predates debug.status — update the plugin below.";
     } else if (reply.rejectedReason) {
@@ -471,7 +477,7 @@ export async function deactivateConnector(site: string): Promise<{ wiped: boolea
   if (record.state === "active" && record.fingerprintConfirmed && record.wpPk) {
     try {
       const pod = await requireRunningPod(site);
-      const reply = await dispatchSignedCommand(record, execDelivery(pod), "site.deactivate", {});
+      const reply = await callRpc(rpcTransport(record, execDelivery(pod)), "site.deactivate", {});
       wiped = reply.ok;
     } catch (err) {
       console.warn(
@@ -502,7 +508,7 @@ export async function updateConnectorPlugin(site: string): Promise<{ version: st
   if (record.state !== "active" || !record.fingerprintConfirmed || !record.wpPk) {
     return { version: null };
   }
-  const reply = await dispatchSignedCommand(record, execDelivery(pod), "health.check", {});
+  const reply = await callRpc(rpcTransport(record, execDelivery(pod)), "health.check", {});
   const version = typeof reply.result.plugin === "string" ? reply.result.plugin : null;
   if (version) {
     // Persist the freshly-installed version (verified round-trip) so the update

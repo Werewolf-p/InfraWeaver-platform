@@ -225,6 +225,10 @@ export async function verifyExternalSite(
   if (now > bundleExpiresTs) return failed("enroll-expired");
 
   let proofText: string;
+  // SPKI observed on the proof-pull TLS connection. Trustworthy to pin because
+  // this same exchange carries the signature-verified enroll proof — a MITM
+  // can't forge that proof, so the cert it served is the real site's.
+  let observedSpki: string | undefined;
   if (pastedProof !== undefined) {
     proofText = pastedProof;
   } else {
@@ -233,6 +237,7 @@ export async function verifyExternalSite(
       timeoutMs: PROOF_TIMEOUT_MS,
     }).catch(() => null);
     if (!response) return failed("proof-unreachable");
+    observedSpki = response.peerSpki;
     proofText = response.body.toString("utf8");
     if (response.status !== 200) {
       // A site on plain permalinks 3xx-redirects /wp-json to its homepage
@@ -277,6 +282,12 @@ export async function verifyExternalSite(
     target.activatedAt = new Date(now).toISOString();
     target.fingerprintConfirmed = false;
     target.lastVerify = { at: new Date(now).toISOString(), ok: true };
+    // Pin the cert observed on this proof-verified pull (external HTTPS links
+    // only; the pasted-proof path has no TLS connection to observe).
+    if (observedSpki) {
+      target.pinnedSpki = [observedSpki];
+      target.spkiObservedAt = new Date(now).toISOString();
+    }
     return { ...target };
   });
   await deleteEnrollSecret(siteId);
