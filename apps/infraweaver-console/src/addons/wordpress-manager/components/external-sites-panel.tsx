@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertTriangle,
   CheckCircle2,
+  CircleArrowUp,
   CircleDashed,
   Download,
   Fingerprint,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+import { isConnectorOutdated } from "../lib/connector-version";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 /**
@@ -47,6 +49,8 @@ interface ExternalSite {
   iwKid: number;
   lastVerify?: { at: string; ok: boolean; reason?: string };
   lastHealth?: { at: string; ok: boolean; roundtripMs?: number; reason?: string };
+  /** Running plugin version from the last verified health.check (§5.1 update signal). */
+  connectorVersion?: string;
   rejections: number;
   wpFingerprint: string | null;
   iwFingerprint: string;
@@ -54,6 +58,12 @@ interface ExternalSite {
   /** §5.1 managed links belong to a provisioned site's own settings card. */
   managed?: boolean;
   siteName?: string;
+}
+
+interface ExternalSitesResponse {
+  sites: ExternalSite[];
+  /** Connector version bundled in the console image; null when unreadable. */
+  bundledConnectorVersion: string | null;
 }
 
 interface VerifyOutcome {
@@ -64,10 +74,11 @@ interface VerifyOutcome {
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 
-async function fetchExternalSites(): Promise<ExternalSite[]> {
+async function fetchExternalSites(): Promise<ExternalSitesResponse> {
   const res = await fetch("/api/wordpress/external-sites");
   if (!res.ok) throw new Error("Failed to load external sites");
-  return ((await res.json()) as { sites: ExternalSite[] }).sites;
+  const body = (await res.json()) as { sites?: ExternalSite[]; bundledConnectorVersion?: string | null };
+  return { sites: body.sites ?? [], bundledConnectorVersion: body.bundledConnectorVersion ?? null };
 }
 
 async function readError(res: Response, fallback: string): Promise<string> {
@@ -163,14 +174,15 @@ export function ExternalSitesPanel() {
   const [pasteFor, setPasteFor] = useState<string | null>(null);
   const [pastedProof, setPastedProof] = useState("");
 
-  const { data: allSites = [], isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["wordpress-external-sites"],
     queryFn: fetchExternalSites,
     refetchInterval: 15000,
   });
+  const bundledConnectorVersion = data?.bundledConnectorVersion ?? null;
   // Managed (§5.1) links live on their own site's settings card — this panel
   // is strictly the "hosted elsewhere" fleet.
-  const sites = allSites.filter((site) => !site.managed);
+  const sites = (data?.sites ?? []).filter((site) => !site.managed);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["wordpress-external-sites"] });
 
@@ -403,6 +415,19 @@ export function ExternalSitesPanel() {
                     }
                   />
                   <HealthField lastHealth={site.lastHealth} />
+                  {site.connectorVersion && (
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="shrink-0 text-zinc-500">Connector version</span>
+                      <span className="inline-flex items-center gap-1.5 text-zinc-300">
+                        <span className="font-mono">{site.connectorVersion}</span>
+                        {isConnectorOutdated(site.connectorVersion, bundledConnectorVersion) && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300">
+                            <CircleArrowUp className="h-3 w-3" aria-hidden /> update available
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
                   <LinkField label="Rejections" value={String(site.rejections)} />
                   {site.state === "pending" && site.bundleIssuedAt && (
                     <LinkField

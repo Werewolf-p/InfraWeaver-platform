@@ -63,6 +63,13 @@ export interface ExternalSiteRecord {
   /** Last signed health.check outcome (§12.5 diagnostics). */
   lastHealth?: { at: string; ok: boolean; roundtripMs?: number; reason?: string };
   /**
+   * Running Connector version, read from the last signature-verified
+   * `health.check` (§5.1 update signal). Only ever written from a verified
+   * response, so it can't be spoofed down by a MITM to hide an out-of-date
+   * plugin. Absent until the link has answered at least one health.check.
+   */
+  connectorVersion?: string;
+  /**
    * §5.1 — true for links to IW-provisioned cluster sites, enrolled over
    * k8s exec instead of the public bundle/verify flow. `siteName` is the
    * WordPress-manager site the record belongs to.

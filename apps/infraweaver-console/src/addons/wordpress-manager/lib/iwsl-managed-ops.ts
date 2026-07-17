@@ -207,6 +207,10 @@ export async function connectorHealthCheck(site: string): Promise<ConnectorHealt
   requireCommandable(record);
   const pod = await requireRunningPod(site);
   const reply = await dispatchSignedCommand(record, pod, "health.check", {});
+  // The version is trusted only because we reach here with a signature-verified
+  // reply — dispatchSignedCommand quarantines (throws 502) on a bad signature,
+  // so a MITM can't feed us a lower version to mask an out-of-date connector.
+  const version = typeof reply.result.plugin === "string" ? reply.result.plugin : null;
   await mutateExternalSites((sites) => {
     const target = sites.find((s) => s.siteId === record.siteId);
     if (!target) return;
@@ -216,6 +220,7 @@ export async function connectorHealthCheck(site: string): Promise<ConnectorHealt
       roundtripMs: reply.roundtripMs,
       ...(reply.rejectedReason ? { reason: reply.rejectedReason } : {}),
     };
+    if (version) target.connectorVersion = version;
   });
   return { ok: reply.ok, roundtripMs: reply.roundtripMs, result: reply.result, rejectedReason: reply.rejectedReason };
 }
@@ -399,5 +404,13 @@ export async function updateConnectorPlugin(site: string): Promise<{ version: st
   }
   const reply = await dispatchSignedCommand(record, pod, "health.check", {});
   const version = typeof reply.result.plugin === "string" ? reply.result.plugin : null;
+  if (version) {
+    // Persist the freshly-installed version (verified round-trip) so the update
+    // badge clears the moment the reinstall lands, without waiting for a sweep.
+    await mutateExternalSites((sites) => {
+      const target = sites.find((s) => s.siteId === record.siteId);
+      if (target) target.connectorVersion = version;
+    });
+  }
   return { version };
 }

@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+import { isConnectorOutdated } from "../lib/connector-version";
 import { SiteTabs } from "./site-tabs";
 
 /** Slice of ExternalSiteView the connector tab renders (§5.1 managed link). */
@@ -39,7 +40,15 @@ interface ManagedLink {
   lastSeq?: number;
   lastVerify?: { at: string; ok: boolean; reason?: string };
   lastHealth?: { at: string; ok: boolean; roundtripMs?: number; reason?: string };
+  /** Running plugin version from the last verified health.check (§5.1 update signal). */
+  connectorVersion?: string;
   pendingRotation?: { newKid: number; phase: string } | null;
+}
+
+interface ManagedLinkResponse {
+  link: ManagedLink | null;
+  /** Connector version bundled in the console image; null when unreadable. */
+  bundledConnectorVersion: string | null;
 }
 
 interface HealthResult {
@@ -62,10 +71,11 @@ interface RotationResult {
   wpFingerprint: string | null;
 }
 
-async function fetchManagedLink(site: string): Promise<ManagedLink | null> {
+async function fetchManagedLink(site: string): Promise<ManagedLinkResponse> {
   const res = await fetch(`/api/wordpress/sites/${site}/iwsl`);
   if (!res.ok) throw new Error("Failed to load connector link state");
-  return ((await res.json()) as { link: ManagedLink | null }).link;
+  const body = (await res.json()) as { link?: ManagedLink | null; bundledConnectorVersion?: string | null };
+  return { link: body.link ?? null, bundledConnectorVersion: body.bundledConnectorVersion ?? null };
 }
 
 async function postOp<T>(site: string, action: string): Promise<T> {
@@ -173,10 +183,12 @@ export function ConnectorView({ site }: { site: string }) {
   const queryClient = useQueryClient();
   const [killArmed, setKillArmed] = useState(false);
 
-  const { data: link, isLoading: linkLoading } = useQuery({
+  const { data: linkData, isLoading: linkLoading } = useQuery({
     queryKey: ["wordpress-iwsl-link", site],
     queryFn: () => fetchManagedLink(site),
   });
+  const link = linkData?.link ?? null;
+  const bundledConnectorVersion = linkData?.bundledConnectorVersion ?? null;
 
   const refetchLink = () => void queryClient.invalidateQueries({ queryKey: ["wordpress-iwsl-link", site] });
 
@@ -268,6 +280,7 @@ export function ConnectorView({ site }: { site: string }) {
 
   const linked = Boolean(link);
   const commandable = link?.state === "active" && link.fingerprintConfirmed;
+  const updateAvailable = isConnectorOutdated(link?.connectorVersion, bundledConnectorVersion);
   const health = healthMutation.data?.health;
   const debug = debugMutation.data?.debug;
 
@@ -323,6 +336,19 @@ export function ConnectorView({ site }: { site: string }) {
               <MetaRow label="Command seq" value={`${link.lastSeq ?? 0}`} />
               {link.activatedAt && <MetaRow label="Linked since" value={new Date(link.activatedAt).toLocaleString()} />}
               {(commandable || link.lastHealth) && <HealthRow lastHealth={link.lastHealth} />}
+              {link.connectorVersion && (
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className="shrink-0 text-zinc-500">Plugin version</span>
+                  <span className="inline-flex items-center gap-1.5 font-mono text-zinc-300">
+                    {link.connectorVersion}
+                    {updateAvailable && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 font-sans text-[11px] text-amber-300">
+                        <CircleArrowUp className="h-3 w-3" aria-hidden /> update available
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
               {link.lastVerify && !link.lastVerify.ok && (
                 <MetaRow label="Last verify" value={link.lastVerify.reason ?? "failed"} tone="danger" />
               )}
@@ -522,10 +548,23 @@ export function ConnectorView({ site }: { site: string }) {
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-zinc-100">Update Connector plugin</p>
+            <p className="flex items-center gap-2 text-sm font-medium text-zinc-100">
+              Update Connector plugin
+              {updateAvailable && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300">
+                  <CircleArrowUp className="h-3 w-3" aria-hidden /> update available
+                </span>
+              )}
+            </p>
             <p className="mt-0.5 text-xs text-zinc-400">
               Reinstalls the plugin from the console&rsquo;s bundled version in place — keys, epochs and link state
               are untouched.
+              {updateAvailable && link?.connectorVersion && bundledConnectorVersion && (
+                <span className="text-amber-300/90">
+                  {" "}
+                  Running {link.connectorVersion}, bundle ships {bundledConnectorVersion}.
+                </span>
+              )}
             </p>
           </div>
           <button

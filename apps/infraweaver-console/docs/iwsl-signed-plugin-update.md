@@ -105,10 +105,27 @@ separate project.
 
 1. **Now:** ship the exec-based bulk sweep for managed sites (this change). It
    already covers every in-cluster site with zero new protocol surface.
-2. **Cheap interim for external sites:** surface an *"update available"* signal by
-   comparing each link's `health.check` `plugin` version against the console's
-   bundled `buildConnectorPackage().version`, so operators know exactly which
-   external sites need a manual push (and can stop guessing). No protocol change.
+2. **Cheap interim — SHIPPED.** The console now surfaces an *"update available"*
+   badge by comparing each link's `connectorVersion` (persisted from the last
+   verified `health.check` `plugin` field) against the bundled
+   `buildConnectorPackage().version`. Managed connector cards show it live; the
+   external-sites cards render the same badge the moment an external link reports
+   a version (today they have no command channel, so the field stays empty and no
+   badge shows — correct: you can't claim a site you've never spoken to is stale).
+   The compare (`lib/connector-version.ts`) only flags a site running *behind* the
+   bundle, never one ahead or on an unparseable version. No protocol change.
+
+   *Why the signal is trustworthy (command validation / MITM).* Every command the
+   console sends is dual-signed (Ed25519 **and** SLH-DSA) and the plugin's
+   `verify_command` (`includes/class-iwsl-verifier.php`) is the enforcement point:
+   it re-canonicalizes with JCS, verifies both signatures, rejects a downgraded
+   `alg`, and enforces TTL, `seq` monotonicity and single-use nonces before the
+   command executes — so a machine-in-the-middle cannot forge, replay, downgrade,
+   or tamper with a command. Symmetrically, the console verifies every response
+   against the pinned WP-PK (`dispatchSignedCommand`) and quarantines the link on
+   a bad signature. The version behind this badge inherits that guarantee: it is
+   written only from a signature-verified response, so a MITM cannot spoof a
+   matching version to hide an out-of-date (and possibly vulnerable) connector.
 3. **Deferred project — `plugin.update`:** chunked push (§2-safe, cap-safe) +
    separate code-signing key + `Plugin_Upgrader` staging with sha256 verify,
    version-monotonic, and post-swap auto-rollback. Scope it against the §7 fleet-ops

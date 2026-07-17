@@ -77,6 +77,19 @@ function rateLimited(action: string, user: string, max: number): NextResponse | 
   return null;
 }
 
+/**
+ * The Connector version bundled in this console image, for the client-side
+ * "update available" compare. Best-effort: a missing vendor dir must degrade to
+ * "no signal" (badge simply never shows), never fail the list/link read.
+ */
+async function safeBundledConnectorVersion(): Promise<string | null> {
+  try {
+    return (await buildConnectorPackage()).version;
+  } catch {
+    return null;
+  }
+}
+
 async function guard(action: () => Promise<NextResponse>): Promise<NextResponse> {
   try {
     return await action();
@@ -103,7 +116,13 @@ const verifySchema = z.object({
 export async function listExternalSitesHandler(): Promise<NextResponse> {
   const gate = await authorize("wordpress:read");
   if (!gate.ok) return gate.error;
-  return guard(async () => json({ sites: await listExternalSiteViews() }));
+  return guard(async () => {
+    const [sites, bundledConnectorVersion] = await Promise.all([
+      listExternalSiteViews(),
+      safeBundledConnectorVersion(),
+    ]);
+    return json({ sites, bundledConnectorVersion });
+  });
 }
 
 export async function createExternalSiteHandler(req: NextRequest): Promise<NextResponse> {
@@ -218,7 +237,13 @@ export async function getManagedLinkHandler(site: string): Promise<NextResponse>
   if (!gate.ok) return gate.error;
   const limited = rateLimited("managed-read", gate.ctx.username, 60);
   if (limited) return limited;
-  return guard(async () => json({ link: await getManagedLink(site) }));
+  return guard(async () => {
+    const [link, bundledConnectorVersion] = await Promise.all([
+      getManagedLink(site),
+      safeBundledConnectorVersion(),
+    ]);
+    return json({ link, bundledConnectorVersion });
+  });
 }
 
 /**
