@@ -21,6 +21,11 @@ export interface NavItem {
   badge?: string;
   pinnable?: boolean;
   keywords?: string[];
+  // Low-frequency page: kept in the nav model (searchable, pinnable, reachable
+  // via command palette + /all-services) but hidden from the sidebar's default
+  // view behind each group's "Show more" expander. Declutters the primary rail
+  // without deleting any capability. Mobile bottom nav + More sheet ignore this.
+  secondary?: boolean;
 }
 
 export interface NavGroup {
@@ -63,11 +68,11 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       { href: "/home", icon: Home, label: "Home Portal", shortcut: "G O", description: "Platform overview and quick access", pinnable: true },
       { href: "/", icon: LayoutDashboard, label: "Dashboard", shortcut: "G D", description: "Real-time cluster metrics and status", pinnable: true },
       { href: "/cluster", icon: Boxes, label: "Cluster Nodes", shortcut: "G K", description: "Node management and cluster overview" },
-      navItemFromPage("/cost"),
-      { href: "/feedback", icon: MessageSquarePlus, label: "Feedback & Fix Flow", description: "Review reported issues, run the Claude fix pipeline, preview, and publish", keywords: ["feedback", "report", "bug", "feature request", "note", "claude", "fix", "review", "publish", "preview"] },
-      navItemFromPage("/wiki"),
+      { ...navItemFromPage("/cost"), secondary: true },
+      { href: "/feedback", icon: MessageSquarePlus, label: "Feedback & Fix Flow", description: "Review reported issues, run the Claude fix pipeline, preview, and publish", keywords: ["feedback", "report", "bug", "feature request", "note", "claude", "fix", "review", "publish", "preview"], secondary: true },
+      { ...navItemFromPage("/wiki"), secondary: true },
       { href: "/self-service", icon: HandHelping, label: "Self-Service", description: "Request app access or storage quota, reset your password, and update your profile — applied instantly when within your access, or routed to an admin", keywords: ["self service", "self-service", "request", "access request", "storage quota", "password reset", "profile", "my requests", "guardrails"] },
-      { href: "/changelog", icon: Sparkles, label: "What's New", description: "Recent platform updates" },
+      { href: "/changelog", icon: Sparkles, label: "What's New", description: "Recent platform updates", secondary: true },
     ],
   },
   {
@@ -78,16 +83,16 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: true,
     items: [
       { href: "/workloads", icon: Server, label: "Workloads", shortcut: "G A", description: "Apps, dependency graph, game servers, WordPress, and routing in one tabbed hub — drill into each app's pods, storage, and firewall", pinnable: true, keywords: ["apps", "pods", "workloads", "applications", "argocd", "stop", "scale", "graph", "dependency", "game", "gameservers", "wordpress", "routing", "dns"] },
-      { href: "/all-services", icon: Search, label: "All Services", description: "Searchable index of every console page and service" },
-      { href: "/cronjobs", icon: Calendar, label: "CronJobs", description: "Scheduled Kubernetes cronjobs" },
-      { href: "/scheduled-tasks", icon: Calendar, label: "Scheduled Tasks", description: "View and manage scheduled operations" },
-      { href: "/deployment-compare", icon: GitBranch, label: "Deploy Compare", description: "Diff current vs previous deployment" },
-      { href: "/resource-optimizer", icon: Activity, label: "Optimizer", description: "Right-size CPU and memory requests" },
-      { href: "/node-top", icon: Activity, label: "Node Metrics", description: "Live node CPU and memory usage" },
-      { href: "/memory", icon: MemoryStick, label: "Memory Heatmap", description: "Namespace memory reservations and top consumers" },
-      navItemFromPage("/quota"),
+      { href: "/all-services", icon: Search, label: "All Services", description: "Searchable index of every console page and service", secondary: true },
+      { href: "/cronjobs", icon: Calendar, label: "CronJobs", description: "Scheduled Kubernetes cronjobs", secondary: true },
+      { href: "/scheduled-tasks", icon: Calendar, label: "Scheduled Tasks", description: "View and manage scheduled operations", secondary: true },
+      { href: "/deployment-compare", icon: GitBranch, label: "Deploy Compare", description: "Diff current vs previous deployment", secondary: true },
+      { href: "/resource-optimizer", icon: Activity, label: "Optimizer", description: "Right-size CPU and memory requests", secondary: true },
+      { href: "/node-top", icon: Activity, label: "Node Metrics", description: "Live node CPU and memory usage", secondary: true },
+      { href: "/memory", icon: MemoryStick, label: "Memory Heatmap", description: "Namespace memory reservations and top consumers", secondary: true },
+      { ...navItemFromPage("/quota"), secondary: true },
       { href: "/power-groups", icon: Boxes, label: "Power Groups", description: "Group apps and stop/start them as one unit", pinnable: true },
-      { href: "/namespace-cleanup", icon: Trash2, label: "NS Cleanup", description: "Find and remove stale namespaces" },
+      { href: "/namespace-cleanup", icon: Trash2, label: "NS Cleanup", description: "Find and remove stale namespaces", secondary: true },
       { href: "/pod-shell", icon: Terminal, label: "Pod Shell", description: "Browser-based terminal into pods" },
     ],
   },
@@ -100,9 +105,9 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     items: [
       { href: "/network", icon: Network, label: "Network", shortcut: "G N", description: "Service topology, NetworkPolicies, and Ingress", pinnable: true, keywords: ["services", "topology", "connectivity", "networkpolicy", "policies", "ingress", "traefik", "hosts"] },
       { href: "/network/firewall", icon: ShieldCheck, label: "Pod Security", description: "Recent denies per pod — allow with one click, remove allowed rules", pinnable: true, keywords: ["firewall", "cilium", "hubble", "denied", "allow", "ingress", "egress", "networkpolicy", "block"] },
-      { href: "/network/wan", icon: Shield, label: "WAN Firewall", description: "All UDM port-forward rules — WAN ports opened to internal services", pinnable: true, keywords: ["firewall", "udm", "unifi", "port forward", "port-forward", "wan", "nat", "gateway", "router", "game", "expose"] },
+      { href: "/network/wan", icon: Shield, label: "WAN Firewall", description: "All UDM port-forward rules — WAN ports opened to internal services", pinnable: true, keywords: ["firewall", "udm", "unifi", "port forward", "port-forward", "wan", "nat", "gateway", "router", "game", "expose"], secondary: true },
       { href: "/routes", icon: Globe, label: "Routing & DNS", shortcut: "G Z", description: "Routes, DNS records, access modes, middleware, and port routing — view and edit in one place", pinnable: true, keywords: ["routes", "ingress", "traefik", "external routes", "port routing", "hosts", "tls", "tier", "dns", "cloudflare", "records", "domain", "middleware", "auth", "mode"] },
-      { href: "/gameservers", icon: Network, label: "Port Routing", description: "DNS-based port routing for external services", keywords: ["ports", "tcp", "udp", "external services"] },
+      { href: "/gameservers", icon: Network, label: "Port Routing", description: "DNS-based port routing for external services", keywords: ["ports", "tcp", "udp", "external services"], secondary: true },
     ],
   },
   {
@@ -113,10 +118,10 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: false,
     items: [
       { href: "/storage", icon: HardDrive, label: "Storage", shortcut: "G S", description: "Volumes, usage timeline, PV browser, and backups", pinnable: true, keywords: ["pvc", "volumes", "storage classes", "timeline", "pv browser", "backups", "longhorn", "restore", "snapshot", "files", "dr", "disaster recovery", "rpo", "unprotected", "coverage", "backup coverage"] },
-      { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", description: "Container image registry browser", keywords: ["images", "containers", "harbor"] },
+      { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", description: "Container image registry browser", keywords: ["images", "containers", "harbor"], secondary: true },
       { href: "/config", icon: Cog, label: "Config", shortcut: "G C", description: "Config editor, ConfigMaps, and drift vs Git", pinnable: true, keywords: ["configmap", "config maps", "drift", "git", "secrets editor"] },
       { href: "/secrets", icon: KeyRound, label: "Secrets & Certs", description: "Secret browser, expiry tracking, and TLS certificates", keywords: ["externalsecret", "credentials", "vault", "expiry", "rotation", "tls", "ssl", "cert-manager", "certificates"] },
-      { href: "/secret-health", icon: ShieldAlert, label: "Secret Health", description: "OpenBao token TTL countdown, ExternalSecret sync + Retain traps, catalog key coverage, and public-mirror status", keywords: ["secret health", "openbao", "vault", "token", "ttl", "expiry", "externalsecret", "eso", "retain", "deletionpolicy", "seed", "catalog", "coverage", "mirror", "sync-to-public", "gitops", "lifecycle", "remediation"] },
+      { href: "/secret-health", icon: ShieldAlert, label: "Secret Health", description: "OpenBao token TTL countdown, ExternalSecret sync + Retain traps, catalog key coverage, and public-mirror status", keywords: ["secret health", "openbao", "vault", "token", "ttl", "expiry", "externalsecret", "eso", "retain", "deletionpolicy", "seed", "catalog", "coverage", "mirror", "sync-to-public", "gitops", "lifecycle", "remediation"], secondary: true },
     ],
   },
   {
@@ -128,10 +133,10 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     items: [
       { href: "/monitoring", icon: HeartPulse, label: "Monitoring", shortcut: "G H", description: "Proactive 'what breaks next' signals board — ArgoCD sync, secret/cert health, resource pressure, cron drift, posture, reliability — plus status, health, uptime, alerts, and latency", pinnable: true, keywords: ["monitoring", "observability", "signals", "what breaks next", "argocd", "sync", "secrets", "certs", "cron", "overdue", "wedged", "resource pressure", "oom", "posture", "reliability", "status", "platform status", "health", "uptime", "availability", "sla", "latency", "alerts", "brewing", "incidents"] },
       { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L", description: "Live streaming pod logs" },
-      { href: "/log-analytics", icon: FileText, label: "Log Analytics", description: "Search and analyze pod logs" },
+      { href: "/log-analytics", icon: FileText, label: "Log Analytics", description: "Search and analyze pod logs", secondary: true },
       { href: "/events", icon: History, label: "Activity Log", shortcut: "G E", description: "Cluster events and audit trail" },
-      { href: "/alert-silence", icon: BellOff, label: "Alert Silence", description: "Silence Prometheus alert rules" },
-      { href: "/tests", icon: TestTube2, label: "Diagnostics", description: "Platform tests, self-test, health probes, and webhook testing", pinnable: true, keywords: ["tests", "self test", "self-test", "health tester", "endpoint", "webhook", "diagnostics", "connectivity"] },
+      { href: "/alert-silence", icon: BellOff, label: "Alert Silence", description: "Silence Prometheus alert rules", secondary: true },
+      { href: "/tests", icon: TestTube2, label: "Diagnostics", description: "Platform tests, self-test, health probes, and webhook testing", pinnable: true, keywords: ["tests", "self test", "self-test", "health tester", "endpoint", "webhook", "diagnostics", "connectivity"], secondary: true },
     ],
   },
   {
@@ -142,7 +147,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     defaultOpen: true,
     items: [
       { href: "/security", icon: ShieldCheck, label: "Security", shortcut: "G Y", description: "Security posture and vulnerability audit", keywords: ["posture", "audit", "compliance"] },
-      { href: "/image-vulnerabilities", icon: ShieldCheck, label: "Image Scans", description: "Container image vulnerability reports", keywords: ["cve", "vulnerability", "trivy"] },
+      { href: "/image-vulnerabilities", icon: ShieldCheck, label: "Image Scans", description: "Container image vulnerability reports", keywords: ["cve", "vulnerability", "trivy"], secondary: true },
       {
         href: "/identity",
         icon: KeyRound,
@@ -152,7 +157,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
         pinnable: true,
         keywords: ["identity", "users", "accounts", "sso", "groups", "members", "rbac", "roles", "permissions", "assign", "grant", "revoke", "access", "pim", "privileged", "elevation", "elevate", "just-in-time", "jit", "activation", "eligible", "assignments", "roster", "drift", "access studio"],
       },
-      { href: "/audit", icon: History, label: "Audit Log", description: "Searchable, durable audit trail with severity, category, and date filters", keywords: ["audit", "trail", "log", "history", "who", "changed", "mutation", "compliance", "tamper", "severity", "export"] },
+      { href: "/audit", icon: History, label: "Audit Log", description: "Searchable, durable audit trail with severity, category, and date filters", keywords: ["audit", "trail", "log", "history", "who", "changed", "mutation", "compliance", "tamper", "severity", "export"], secondary: true },
       { href: "/approvals", icon: Inbox, label: "Approvals", description: "Review and decide self-service requests — approve to apply under your ceiling, or deny with a note", keywords: ["approvals", "approve", "deny", "self-service", "requests", "queue", "access request", "storage quota", "pending"] },
     ],
   },
@@ -163,16 +168,16 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     icon: Cog,
     defaultOpen: false,
     items: [
-      { href: "/gitops-diff", icon: GitBranch, label: "GitOps Diff", description: "ArgoCD app manifest diffs" },
+      { href: "/gitops-diff", icon: GitBranch, label: "GitOps Diff", description: "ArgoCD app manifest diffs", secondary: true },
       { href: "/automations", icon: Sparkles, label: "Automation Hub", description: "Track self-healing jobs and workflow automations" },
-      { href: "/pipelines", icon: GitBranch, label: "Pipelines", description: "CI/CD pipeline overview" },
-      { href: "/maintenance", icon: Settings, label: "Maintenance", description: "Drain, cordon, and node maintenance" },
+      { href: "/pipelines", icon: GitBranch, label: "Pipelines", description: "CI/CD pipeline overview", secondary: true },
+      { href: "/maintenance", icon: Settings, label: "Maintenance", description: "Drain, cordon, and node maintenance", secondary: true },
       { href: "/admin/updates", icon: ArrowUpCircle, label: "Update Manager", description: "Review GitOps versions and commit application updates", pinnable: true },
-      { href: "/settings/platform", icon: ArrowUpCircle, label: "Platform Updates", description: "Pull latest InfraWeaver platform code and scripts from Onedev", pinnable: true },
+      { href: "/settings/platform", icon: ArrowUpCircle, label: "Platform Updates", description: "Pull latest InfraWeaver platform code and scripts from Onedev", pinnable: true, secondary: true },
       navItemFromPage("/settings"),
-      { href: "/settings/addons", icon: Puzzle, label: "Addons", description: "Enable/disable platform addons and features" },
-      navItemFromPage("/settings/infrastructure"),
-      navItemFromPage("/profile"),
+      { href: "/settings/addons", icon: Puzzle, label: "Addons", description: "Enable/disable platform addons and features", secondary: true },
+      { ...navItemFromPage("/settings/infrastructure"), secondary: true },
+      { ...navItemFromPage("/profile"), secondary: true },
     ],
   },
   {

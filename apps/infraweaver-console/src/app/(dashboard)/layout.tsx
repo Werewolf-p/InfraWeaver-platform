@@ -19,7 +19,7 @@ import { useMotionSafe } from "@/lib/spring";
 import { useDialogA11y } from "@/hooks/use-dialog-a11y";
 import { useQuery } from "@tanstack/react-query";
 import { SimpleModeProvider } from "@/contexts/simple-mode-context";
-import { NAV_GROUPS, GOTO_SHORTCUTS } from "@/lib/nav-config";
+import { NAV_GROUPS, GOTO_SHORTCUTS, MOBILE_BOTTOM_NAV } from "@/lib/nav-config";
 import { OfflineIndicator } from "@/components/ui/offline-indicator";
 import { DegradedBackendsBanner } from "@/components/ui/degraded-backends-banner";
 import { KeyboardShortcutsProvider } from "@/components/ui/keyboard-shortcuts-modal";
@@ -115,6 +115,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [moreOpen, setMoreOpen] = useState(false);
   const [moreSearch, setMoreSearch] = useState("");
   const [moreCategory, setMoreCategory] = useState<string>("all");
+  // Per-group reveal for secondary items inside the "All" view of the More
+  // sheet, mirroring the desktop sidebar so phones default to primary pages.
+  const [moreExpanded, setMoreExpanded] = useState<Record<string, boolean>>({});
   const [drawerSearch, setDrawerSearch] = useState("");
   const { addons } = useAddons();
   const { permissions, assignments } = useRBAC();
@@ -181,8 +184,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
   const mobilePrimaryNavItems = useMemo(
     () =>
-      ["/home", "/workloads", "/pods", "/cluster"]
-        .map((href) => flatNavItems.find((item) => item.href === href))
+      // Stable core destinations from nav-config's MOBILE_BOTTOM_NAV, resolved
+      // against the live RBAC/addon-filtered nav so each phone tab always points
+      // at a page the user can actually reach. (Previously hardcoded "/pods",
+      // which is not a nav href, so only 3 of 4 tabs ever rendered.)
+      MOBILE_BOTTOM_NAV
+        .map((navItem) => flatNavItems.find((item) => item.href === navItem.href))
         .filter((item): item is (typeof flatNavItems)[number] => Boolean(item)),
     [flatNavItems],
   );
@@ -758,7 +765,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Unified Floating Action Button (includes feedback + back-to-top) */}
       <FloatingActionButton />
 
-      {/* Bottom mobile nav — Home | Game Hub | Apps | Cluster | More */}
+      {/* Bottom mobile nav — MOBILE_BOTTOM_NAV core destinations + More */}
       <nav
         className="fixed bottom-0 left-0 right-0 z-nav flex gap-1 border-t border-gray-200 dark:border-[#2a2a2a] bg-white/95 dark:bg-[#141414]/95 px-2 pt-2 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden"
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}
@@ -927,6 +934,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 {/* Category/All mode: section groups with 2-col grid */}
                 {!moreSearch && moreNavGroups.filter(g => moreCategory === "all" || g.id === moreCategory).map(group => {
                   const accent = GROUP_ACCENT[group.id] ?? "bg-[#555]";
+                  // In "All" view, default to primary pages only (plus the active
+                  // one), with a per-group "Show more". Drilling into a single
+                  // category shows everything — the user asked for that group.
+                  const inAllView = moreCategory === "all";
+                  const primaryItems = group.items.filter(item => !item.secondary);
+                  const secondaryItems = group.items.filter(item => item.secondary);
+                  const activeSecondary = secondaryItems.filter(item => item.href !== "/" && pathname.startsWith(item.href));
+                  const showAll = !inAllView || moreExpanded[group.id];
+                  const renderedSecondary = showAll ? secondaryItems : activeSecondary;
+                  const hiddenCount = secondaryItems.length - renderedSecondary.length;
+                  const visibleItems = [...primaryItems, ...renderedSecondary];
                   return (
                     <div key={group.id} className="mb-5">
                       {/* Section header */}
@@ -938,7 +956,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       </div>
                       {/* 2-column item grid */}
                       <div className="grid grid-cols-2 gap-1.5">
-                        {group.items.map(item => {
+                        {visibleItems.map(item => {
                           const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
                           return (
                             <Link key={item.href} href={item.href} onClick={() => { setMoreOpen(false); setMoreSearch(""); setMoreCategory("all"); }}>
@@ -965,6 +983,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           );
                         })}
                       </div>
+                      {inAllView && secondaryItems.length > 0 && (hiddenCount > 0 || moreExpanded[group.id]) && (
+                        <button
+                          type="button"
+                          onClick={() => setMoreExpanded(prev => ({ ...prev, [group.id]: !prev[group.id] }))}
+                          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-[#1e1e1e] bg-gray-50 dark:bg-[#161616] py-2 text-[11px] font-medium text-gray-500 dark:text-[#9a9a9a] touch-manipulation active:bg-gray-100 dark:active:bg-[#1a1a1a]"
+                        >
+                          <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", moreExpanded[group.id] && "rotate-180")} />
+                          {moreExpanded[group.id] ? "Show less" : `Show ${hiddenCount} more`}
+                        </button>
+                      )}
                     </div>
                   );
                 })}

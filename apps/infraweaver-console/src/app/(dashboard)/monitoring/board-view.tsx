@@ -21,6 +21,7 @@ import { ResourcePressureWidget } from "./_widgets/resource-pressure-widget";
 import { CronHealthWidget } from "./_widgets/cron-health-widget";
 import { PostureWidget, type PostureData } from "./_widgets/posture-widget";
 import { ReliabilityWidget, type ReliabilityData } from "./_widgets/reliability-widget";
+import { ClusterVitalsWidget } from "./_widgets/cluster-vitals-widget";
 
 const DEFAULT_REFRESH_MS = 30_000;
 
@@ -155,6 +156,7 @@ export function ObservabilityBoardView() {
       <SignalSummaryStrip summary={summary} isLoading={anyLoading} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <ClusterVitalsWidget />
         <ArgoSyncWidget signal={signalFor("argocd")} summary={argoSummary} isLoading={argoQuery.isLoading} isError={argoQuery.isError} />
         <SecretHealthWidget />
         <ReliabilityWidget signal={signalFor("reliability")} reliability={reliabilityQuery.data} isLoading={reliabilityQuery.isLoading} isError={reliabilityQuery.isError} />

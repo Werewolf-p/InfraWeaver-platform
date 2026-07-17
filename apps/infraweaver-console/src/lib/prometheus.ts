@@ -63,3 +63,50 @@ export async function promQueryRange(query: string, opts: PromQueryRangeOptions)
   }
   return body.data?.result ?? [];
 }
+
+/** One instant-vector sample: label set + [unix seconds, value-as-string]. */
+export interface PromVectorSeries {
+  metric?: Record<string, string>;
+  value?: PromMatrixValue;
+}
+
+interface PrometheusVectorResponse {
+  status?: string;
+  error?: string;
+  errorType?: string;
+  data?: { resultType?: string; result?: PromVectorSeries[] };
+}
+
+/**
+ * Run a PromQL instant query (`/api/v1/query`) and return ALL vector series.
+ * Throws when the HTTP call fails or Prometheus reports status !== "success".
+ */
+export async function promQueryInstant(query: string, timeoutMs = 5000): Promise<PromVectorSeries[]> {
+  const params = new URLSearchParams({ query });
+  const response = await circuitBreakers.prometheus.call(() =>
+    fetch(`${PROMETHEUS_URL}/api/v1/query?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    }),
+  );
+  const body = await response.json() as PrometheusVectorResponse;
+  if (!response.ok || body.status !== "success") {
+    throw new Error(body.error ?? body.errorType ?? `Prometheus query failed (${response.status})`);
+  }
+  return body.data?.result ?? [];
+}
+
+/**
+ * Convenience for single-value gauges: run an instant query and return the first
+ * series' numeric value, or `null` when the query yields no samples (an empty
+ * result is normal for e.g. "no alerts firing", so callers treat null as "0/none"
+ * rather than an error).
+ */
+export async function promScalar(query: string, timeoutMs = 5000): Promise<number | null> {
+  const series = await promQueryInstant(query, timeoutMs);
+  const raw = series[0]?.value?.[1];
+  if (raw === undefined) return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+}

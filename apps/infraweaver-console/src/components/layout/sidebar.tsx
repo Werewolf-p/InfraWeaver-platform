@@ -148,6 +148,13 @@ export function Sidebar() {
     });
   };
 
+  // Per-group reveal for `secondary` (low-frequency) items. Collapsed by default
+  // so the default rail only shows primary destinations; secondary pages stay
+  // reachable via the filter box, favorites, command palette, and /all-services.
+  const [expandedSecondary, setExpandedSecondary] = useState<Record<string, boolean>>({});
+  const toggleSecondary = (id: string) =>
+    setExpandedSecondary(prev => ({ ...prev, [id]: !prev[id] }));
+
   useEffect(() => {
     try {
       localStorage.setItem("infraweaver_sidebar_collapsed", String(collapsed));
@@ -342,26 +349,50 @@ export function Sidebar() {
                 <ChevronDown className={cn("w-3 h-3 transition-transform", isOpen && "rotate-180")} />
               </button>
               <AnimatePresence initial={false}>
-                {isOpen && (
-                  <motion.div
-                    key={group.id}
-                    id={`nav-section-${group.id}`}
-                    className="space-y-0.5"
-                    variants={motionSafe.variants(staggerContainer)}
-                    initial="hidden"
-                    animate="show"
-                    exit="hidden"
-                  >
-                    {group.items.map(item => {
-                      const isActive = item.href === "/" ? pathname === "/" : item.href !== "/" && pathname.startsWith(item.href);
-                      return (
-                        <motion.div key={item.href} variants={staggerItem}>
-                          <NavItemRow item={item} isActive={isActive} collapsed={false} />
-                        </motion.div>
-                      );
-                    })}
-                  </motion.div>
-                )}
+                {isOpen && (() => {
+                  const primaryItems = group.items.filter(item => !item.secondary);
+                  const secondaryItems = group.items.filter(item => item.secondary);
+                  // A secondary item on the active page must stay visible even when
+                  // the group's extra items are collapsed, so the current page is
+                  // never hidden behind "Show more".
+                  const activeSecondary = secondaryItems.filter(item => item.href !== "/" && pathname.startsWith(item.href));
+                  const showAllSecondary = expandedSecondary[group.id];
+                  const renderedSecondary = showAllSecondary ? secondaryItems : activeSecondary;
+                  const hiddenCount = secondaryItems.length - renderedSecondary.length;
+                  const renderRow = (item: NavItem) => {
+                    const isActive = item.href === "/" ? pathname === "/" : item.href !== "/" && pathname.startsWith(item.href);
+                    return (
+                      <motion.div key={item.href} variants={staggerItem}>
+                        <NavItemRow item={item} isActive={isActive} collapsed={false} />
+                      </motion.div>
+                    );
+                  };
+                  return (
+                    <motion.div
+                      key={group.id}
+                      id={`nav-section-${group.id}`}
+                      className="space-y-0.5"
+                      variants={motionSafe.variants(staggerContainer)}
+                      initial="hidden"
+                      animate="show"
+                      exit="hidden"
+                    >
+                      {primaryItems.map(renderRow)}
+                      {renderedSecondary.map(renderRow)}
+                      {secondaryItems.length > 0 && (hiddenCount > 0 || showAllSecondary) && (
+                        <button
+                          type="button"
+                          onClick={() => toggleSecondary(group.id)}
+                          aria-expanded={Boolean(showAllSecondary)}
+                          className="flex w-full items-center gap-1.5 rounded-lg px-3 py-1 text-[11px] font-medium text-gray-400 dark:text-[#8a8a8a] hover:text-gray-700 dark:hover:text-[#c8c8c8] hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors"
+                        >
+                          <ChevronDown className={cn("w-3 h-3 transition-transform", showAllSecondary && "rotate-180")} />
+                          {showAllSecondary ? "Show less" : `Show ${hiddenCount} more`}
+                        </button>
+                      )}
+                    </motion.div>
+                  );
+                })()}
               </AnimatePresence>
             </div>
           );
