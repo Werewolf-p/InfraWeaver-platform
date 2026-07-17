@@ -19,6 +19,7 @@ import { buildConnectorPackage } from "./connector-package";
 import { loadOrCreateIwKeys } from "./iwsl-keys";
 import { listExternalSites, mutateExternalSites, type ExternalSiteRecord } from "./iwsl-link-store";
 import { unlinkManagedSite } from "./iwsl-managed";
+import { PLAIN_PERMALINKS_HINT, isPlainPermalinkSymptom } from "./iwsl-rest-hint";
 import {
   connectorSelftestCliScript,
   connectorStatusCliScript,
@@ -97,9 +98,13 @@ function httpDelivery(url: string): CommandDelivery {
       timeoutMs: COMMAND_TIMEOUT_MS,
     }).catch(() => null);
     if (!res) throw new AddonHttpError("Could not reach the site's signed command endpoint", 502);
+    const text = res.body.toString("utf8");
     try {
-      return JSON.parse(res.body.toString("utf8"));
+      return JSON.parse(text);
     } catch {
+      if (isPlainPermalinkSymptom(res.status, text)) {
+        throw new AddonHttpError(PLAIN_PERMALINKS_HINT, 502);
+      }
       throw new AddonHttpError("Connector returned an unreadable response — is the plugin installed?", 502);
     }
   };

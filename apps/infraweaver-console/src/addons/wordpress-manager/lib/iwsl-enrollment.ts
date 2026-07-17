@@ -14,6 +14,7 @@ import {
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
 import { AddonHttpError } from "./errors";
 import { loadOrCreateIwKeys } from "./iwsl-keys";
+import { PLAIN_PERMALINKS_HINT, isPlainPermalinkSymptom, looksLikeWordpressHtml } from "./iwsl-rest-hint";
 import {
   deleteEnrollSecret,
   getEnrollSecret,
@@ -231,10 +232,14 @@ export async function verifyExternalSite(
       maxResponseBytes: MAX_PROOF_BYTES,
       timeoutMs: PROOF_TIMEOUT_MS,
     }).catch(() => null);
-    if (!response || response.status !== 200) {
-      return failed(response ? `proof-endpoint-${response.status}` : "proof-unreachable");
-    }
+    if (!response) return failed("proof-unreachable");
     proofText = response.body.toString("utf8");
+    if (response.status !== 200) {
+      // A site on plain permalinks 3xx-redirects /wp-json to its homepage
+      // (or serves the HTML page) — surface the fix, not the raw status.
+      if (isPlainPermalinkSymptom(response.status, proofText)) return failed(PLAIN_PERMALINKS_HINT);
+      return failed(`proof-endpoint-${response.status}`);
+    }
   }
 
   // The network branch caps via maxResponseBytes, but a pasted proof (also the
@@ -250,6 +255,9 @@ export async function verifyExternalSite(
       now,
     );
   } catch {
+    // A 200 that is the HTML homepage (plain permalinks) also lands here —
+    // the parse blew up on markup, not on a malformed proof.
+    if (looksLikeWordpressHtml(proofText)) return failed(PLAIN_PERMALINKS_HINT);
     return failed("schema-fail");
   }
   if (!result.ok) return failed(result.reason);

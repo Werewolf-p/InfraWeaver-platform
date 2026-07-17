@@ -140,4 +140,35 @@ describe("externalConnectorHealthCheck", () => {
     await expect(externalConnectorHealthCheck(store[0].siteId)).rejects.toThrow(/could not reach/i);
     expect(store[0].state).toBe("active");
   });
+
+  test("plain-permalinks HTML reply → the pretty-permalinks hint, not a bare 502, no quarantine", async () => {
+    const store = [externalLink()];
+    withStore(store);
+    // /wp-json/... resolved to the site's homepage instead of the Connector.
+    fetchMock.mockResolvedValue({
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      body: Buffer.from("<!DOCTYPE html>\n<html><head><title>My Blog</title></head></html>"),
+    });
+
+    await expect(externalConnectorHealthCheck(store[0].siteId)).rejects.toThrow(/pretty permalinks/i);
+    // A routing/permalink miss is not tamper — the link stays active.
+    expect(store[0].state).toBe("active");
+    expect(verifyMock).not.toHaveBeenCalled();
+  });
+
+  test("a 3xx redirect toward the homepage also yields the permalinks hint", async () => {
+    const store = [externalLink()];
+    withStore(store);
+    fetchMock.mockResolvedValue({
+      status: 301,
+      statusText: "Moved Permanently",
+      headers: { location: "https://blog.example.com/" },
+      body: Buffer.from(""),
+    });
+
+    await expect(externalConnectorHealthCheck(store[0].siteId)).rejects.toThrow(/pretty permalinks/i);
+    expect(store[0].state).toBe("active");
+  });
 });
