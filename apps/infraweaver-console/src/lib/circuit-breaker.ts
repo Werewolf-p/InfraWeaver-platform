@@ -109,6 +109,7 @@ export const circuitBreakers = {
   authentik: new CircuitBreaker("authentik", DEFAULT_OPTIONS),
   longhorn: new CircuitBreaker("longhorn", DEFAULT_OPTIONS),
   gatus: new CircuitBreaker("gatus", DEFAULT_OPTIONS),
+  loki: new CircuitBreaker("loki", DEFAULT_OPTIONS),
 };
 
 export function getAllCircuitBreakerStatuses(): CircuitBreakerStatus[] {
