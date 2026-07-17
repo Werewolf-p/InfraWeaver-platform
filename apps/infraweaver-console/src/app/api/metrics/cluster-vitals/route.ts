@@ -33,8 +33,11 @@ export interface ClusterVitalsResponse {
 }
 
 // PromQL kept declarative so each tile is independently swappable and one bad
-// query never masks the others. Uses kube-state / node-exporter / nginx metrics
-// shipped by kube-prometheus-stack.
+// query never masks the others. Uses kube-state / node-exporter metrics shipped
+// by kube-prometheus-stack, plus Traefik entrypoint metrics (this platform's
+// ingress is Traefik, not nginx) scraped via the traefik PodMonitor. Ingress
+// tiles sum the public "web" + "websecure" entrypoints only, excluding the
+// internal "traefik" (dashboard/api) and "metrics" entrypoints.
 const QUERIES = {
   cpuPct:
     '100 * sum(rate(node_cpu_seconds_total{mode!="idle"}[5m])) / sum(machine_cpu_cores or on() count(node_cpu_seconds_total{mode="idle"}))',
@@ -42,9 +45,9 @@ const QUERIES = {
     '100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))',
   runningPods: 'sum(kube_pod_status_phase{phase="Running"})',
   firingAlerts: 'count(ALERTS{alertstate="firing",severity!="none"}) or on() vector(0)',
-  ingressReqPerSec: 'sum(rate(nginx_ingress_controller_requests[5m]))',
+  ingressReqPerSec: 'sum(rate(traefik_entrypoint_requests_total{entrypoint=~"web|websecure"}[5m]))',
   ingressErrorPct:
-    '100 * sum(rate(nginx_ingress_controller_requests{status=~"5.."}[5m])) / clamp_min(sum(rate(nginx_ingress_controller_requests[5m])), 1)',
+    '100 * sum(rate(traefik_entrypoint_requests_total{entrypoint=~"web|websecure",code=~"5.."}[5m])) / clamp_min(sum(rate(traefik_entrypoint_requests_total{entrypoint=~"web|websecure"}[5m])), 1)',
 } as const satisfies Record<keyof ClusterVitals, string>;
 
 function round(value: number | null, digits: number): number | null {
