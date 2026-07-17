@@ -25,6 +25,7 @@ import {
   connectorDebug,
   connectorHealthCheck,
   deactivateConnector,
+  externalConnectorHealthCheck,
   rotateConnectorKey,
   setConnectorQuarantine,
   updateConnectorPlugin,
@@ -188,6 +189,23 @@ export async function confirmFingerprintHandler(siteId: string): Promise<NextRes
   const limited = rateLimited("confirm", gate.ctx.username, 20);
   if (limited) return limited;
   return guard(async () => json({ site: await confirmFingerprint(siteId) }));
+}
+
+/**
+ * POST — signed health.check to an external (§5) site over the HTTPS command
+ * channel (§6 phase-4). Same wire objects and pinned-key verification as the
+ * managed exec path, so a MITM is caught by the plugin/response verifier, not
+ * trusted. Populates the site's connectorVersion for the update-available badge.
+ * `wordpress:write` (a read-only probe of an already-linked site) and rate-
+ * limited PER SITE so one slow endpoint can't be hammered.
+ */
+export async function externalHealthCheckHandler(siteId: string): Promise<NextResponse> {
+  if (!SITE_ID_RE.test(siteId)) return fail("Invalid site id", 400);
+  const gate = await authorize("wordpress:write");
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited(`ext-health-${siteId}`, gate.ctx.username, 20);
+  if (limited) return limited;
+  return guard(async () => json({ health: await externalConnectorHealthCheck(siteId) }));
 }
 
 export async function deleteExternalSiteHandler(siteId: string): Promise<NextResponse> {

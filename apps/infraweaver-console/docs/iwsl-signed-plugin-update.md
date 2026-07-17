@@ -108,12 +108,12 @@ separate project.
 2. **Cheap interim — SHIPPED.** The console now surfaces an *"update available"*
    badge by comparing each link's `connectorVersion` (persisted from the last
    verified `health.check` `plugin` field) against the bundled
-   `buildConnectorPackage().version`. Managed connector cards show it live; the
-   external-sites cards render the same badge the moment an external link reports
-   a version (today they have no command channel, so the field stays empty and no
-   badge shows — correct: you can't claim a site you've never spoken to is stale).
-   The compare (`lib/connector-version.ts`) only flags a site running *behind* the
-   bundle, never one ahead or on an unparseable version. No protocol change.
+   `buildConnectorPackage().version`. Managed connector cards show it live. External
+   (§5) cards now populate their version too: the phase-4 signed HTTPS `health.check`
+   (`externalConnectorHealthCheck`, "Health check" button on each linked card) reads
+   it back over the verified command channel. The compare (`lib/connector-version.ts`)
+   only flags a site running *behind* the bundle, never one ahead or on an
+   unparseable version.
 
    *Why the signal is trustworthy (command validation / MITM).* Every command the
    console sends is dual-signed (Ed25519 **and** SLH-DSA) and the plugin's

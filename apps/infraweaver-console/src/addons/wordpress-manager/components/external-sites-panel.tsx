@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Activity,
   AlertTriangle,
   CheckCircle2,
   CircleArrowUp,
@@ -242,6 +243,20 @@ export function ExternalSitesPanel() {
       invalidate();
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to confirm fingerprints"),
+  });
+
+  const healthMutation = useMutation({
+    mutationFn: async (siteId: string) => {
+      const res = await fetch(`/api/wordpress/external-sites/${siteId}/health`, { method: "POST" });
+      if (!res.ok) throw new Error(await readError(res, "Health check failed"));
+      return ((await res.json()) as { health: { ok: boolean; roundtripMs: number; rejectedReason?: string } }).health;
+    },
+    onSuccess: (health) => {
+      if (health.ok) toast.success(`Signed health check passed in ${health.roundtripMs} ms`);
+      else toast.error(`Health check rejected: ${health.rejectedReason ?? "unknown"}`);
+      invalidate();
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Health check failed"),
   });
 
   const bundleMutation = useMutation({
@@ -510,6 +525,22 @@ export function ExternalSitesPanel() {
                       className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-2.5 py-1.5 text-xs font-medium text-zinc-950 hover:bg-amber-400"
                     >
                       <Fingerprint className="h-3.5 w-3.5" aria-hidden /> Compare fingerprints
+                    </button>
+                  )}
+                  {site.state === "active" && site.fingerprintConfirmed && (
+                    <button
+                      type="button"
+                      disabled={healthMutation.isPending}
+                      onClick={() => healthMutation.mutate(site.siteId)}
+                      title="Signed health check over the IWSL command channel — also refreshes the connector version"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-2.5 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-600 hover:text-white disabled:opacity-50"
+                    >
+                      {healthMutation.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <Activity className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                      Health check
                     </button>
                   )}
                   <button

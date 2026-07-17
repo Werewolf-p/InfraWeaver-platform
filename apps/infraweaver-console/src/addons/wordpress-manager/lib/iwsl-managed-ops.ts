@@ -11,6 +11,7 @@ import {
   type SignedResponse,
   type SiteLinkState,
 } from "@/lib/iwsl";
+import { requestSafeExternalUrl } from "@/lib/outbound-url";
 import { AddonHttpError } from "./errors";
 import { execInWpPod } from "./k8s-exec";
 import { findWpPodName } from "./provision";
@@ -39,6 +40,71 @@ import {
 const COMMAND_TIMEOUT_MS = 60_000;
 const INSTALL_TIMEOUT_MS = 120_000;
 
+/** §6 signed-command REST endpoint the Connector exposes (external §5 transport). */
+const COMMAND_PATH = "/wp-json/infraweaver/v1/command";
+/**
+ * Outbound command body cap for the HTTP transport — matches the plugin's own
+ * IWSL_MAX_BODY_BYTES (§12 anti-DoS). We refuse to send a body the plugin would
+ * 413 anyway, and bound the response read to the same size (a health.check
+ * signed response is ~24 KB — SLH-DSA sig dominates — so this is generous).
+ */
+const MAX_CMD_BODY_BYTES = 64 * 1024;
+
+/**
+ * How a signed command reaches the site and comes back. Returns the plugin's
+ * response `body` (either a signed response object or an unsigned `{ok,reason}`
+ * rejection) — identical shape across transports so verification stays shared.
+ */
+type CommandDelivery = (signedJson: string) => Promise<unknown>;
+
+/**
+ * Managed (§5.1) transport: k8s exec into the site pod, signed wire object over
+ * stdin. handle_command prints `{status, body}`; we return `body`.
+ */
+function execDelivery(pod: string): CommandDelivery {
+  return async (signedJson) => {
+    const { stdout } = await execInWpPod(pod, signedCommandScript(), {
+      stdin: signedJson,
+      timeoutMs: COMMAND_TIMEOUT_MS,
+    });
+    let parsed: { status?: unknown; body?: unknown };
+    try {
+      parsed = JSON.parse(extractCommandJson(stdout)) as { status?: unknown; body?: unknown };
+    } catch {
+      throw new AddonHttpError("Connector returned an unreadable response — is the plugin installed?", 502);
+    }
+    return parsed.body;
+  };
+}
+
+/**
+ * External (§5) transport: SSRF-safe HTTPS POST to the plugin's /command REST
+ * endpoint. The REST callback returns the plugin `body` directly (HTTP status
+ * mirrors the plugin), so the parsed HTTP body IS the `body`. The §2 invariant
+ * holds — the site still never dials IW; this is IW initiating, the plugin only
+ * answering inside the same exchange.
+ */
+function httpDelivery(url: string): CommandDelivery {
+  return async (signedJson) => {
+    if (Buffer.byteLength(signedJson, "utf8") > MAX_CMD_BODY_BYTES) {
+      throw new AddonHttpError("Signed command exceeds the 64 KB channel cap", 413);
+    }
+    const res = await requestSafeExternalUrl(`${url}${COMMAND_PATH}`, {
+      method: "POST",
+      body: signedJson,
+      headers: { "Content-Type": "application/json" },
+      maxResponseBytes: MAX_CMD_BODY_BYTES,
+      timeoutMs: COMMAND_TIMEOUT_MS,
+    }).catch(() => null);
+    if (!res) throw new AddonHttpError("Could not reach the site's signed command endpoint", 502);
+    try {
+      return JSON.parse(res.body.toString("utf8"));
+    } catch {
+      throw new AddonHttpError("Connector returned an unreadable response — is the plugin installed?", 502);
+    }
+  };
+}
+
 /** Raw record (incl. pinned wpPk) for a managed link — internal only. */
 async function getManagedRecord(site: string): Promise<ExternalSiteRecord | null> {
   const sites = await listExternalSites();
@@ -48,6 +114,14 @@ async function getManagedRecord(site: string): Promise<ExternalSiteRecord | null
 async function requireManagedRecord(site: string): Promise<ExternalSiteRecord> {
   const record = await getManagedRecord(site);
   if (!record) throw new AddonHttpError("This site has no connector link — enable the connector first", 404);
+  return record;
+}
+
+/** Raw record for an EXTERNAL (§5, non-managed) link by site id — internal only. */
+async function requireExternalRecord(siteId: string): Promise<ExternalSiteRecord> {
+  const sites = await listExternalSites();
+  const record = sites.find((s) => s.siteId === siteId && !s.managed);
+  if (!record) throw new AddonHttpError("External site not found", 404);
   return record;
 }
 
@@ -103,13 +177,16 @@ interface DispatchOptions {
 }
 
 /**
- * Sign, deliver over exec, and verify one command. Throws AddonHttpError for
- * operator-actionable failures; a plugin-side unsigned rejection comes back as
+ * Sign, deliver over the given transport, and verify one command. The verifier
+ * (pinned WP-PK check + §12.5 quarantine on tamper) is identical regardless of
+ * transport, so a MITM on the external HTTP channel is caught exactly as an
+ * in-cluster tamper would be. Throws AddonHttpError for operator-actionable
+ * failures; a plugin-side unsigned rejection comes back as
  * `{ ok:false, rejectedReason }` so callers can surface the §12.5 reason.
  */
 async function dispatchSignedCommand(
   record: ExternalSiteRecord,
-  pod: string,
+  deliver: CommandDelivery,
   method: string,
   params: Record<string, unknown>,
   opts: DispatchOptions = {},
@@ -129,19 +206,9 @@ async function dispatchSignedCommand(
     keys,
   );
 
-  const { stdout } = await execInWpPod(pod, signedCommandScript(), {
-    stdin: JSON.stringify(signed),
-    timeoutMs: COMMAND_TIMEOUT_MS,
-  });
+  const body = await deliver(JSON.stringify(signed));
   const roundtripMs = Date.now() - started;
 
-  let parsed: { status?: unknown; body?: unknown };
-  try {
-    parsed = JSON.parse(extractCommandJson(stdout)) as { status?: unknown; body?: unknown };
-  } catch {
-    throw new AddonHttpError("Connector returned an unreadable response — is the plugin installed?", 502);
-  }
-  const body = parsed.body;
   if (!body || typeof body !== "object") {
     throw new AddonHttpError("Connector returned an unreadable response — is the plugin installed?", 502);
   }
@@ -201,15 +268,13 @@ export interface ConnectorHealth {
   rejectedReason?: string;
 }
 
-/** Signed health.check round-trip; outcome persisted on the link (§12.5). */
-export async function connectorHealthCheck(site: string): Promise<ConnectorHealth> {
-  const record = await requireManagedRecord(site);
-  requireCommandable(record);
-  const pod = await requireRunningPod(site);
-  const reply = await dispatchSignedCommand(record, pod, "health.check", {});
-  // The version is trusted only because we reach here with a signature-verified
-  // reply — dispatchSignedCommand quarantines (throws 502) on a bad signature,
-  // so a MITM can't feed us a lower version to mask an out-of-date connector.
+/**
+ * Persist a verified health.check outcome on the link (§12.5). The version is
+ * trusted only because dispatchSignedCommand already verified the response
+ * signature (a bad signature quarantines and throws before we get here), so a
+ * MITM can't feed us a lower version to mask an out-of-date connector.
+ */
+async function persistHealthResult(record: ExternalSiteRecord, reply: CommandReply): Promise<void> {
   const version = typeof reply.result.plugin === "string" ? reply.result.plugin : null;
   await mutateExternalSites((sites) => {
     const target = sites.find((s) => s.siteId === record.siteId);
@@ -222,7 +287,37 @@ export async function connectorHealthCheck(site: string): Promise<ConnectorHealt
     };
     if (version) target.connectorVersion = version;
   });
+}
+
+function toConnectorHealth(reply: CommandReply): ConnectorHealth {
   return { ok: reply.ok, roundtripMs: reply.roundtripMs, result: reply.result, rejectedReason: reply.rejectedReason };
+}
+
+/** Signed health.check over exec (§5.1 managed link); outcome persisted (§12.5). */
+export async function connectorHealthCheck(site: string): Promise<ConnectorHealth> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  const pod = await requireRunningPod(site);
+  const reply = await dispatchSignedCommand(record, execDelivery(pod), "health.check", {});
+  await persistHealthResult(record, reply);
+  return toConnectorHealth(reply);
+}
+
+/**
+ * §5 phase-4 — signed health.check to an EXTERNAL site over the public HTTPS
+ * command channel. IW initiates the POST; the plugin verifies the dual signature
+ * and answers inside the same exchange (§2 invariant intact — the site never
+ * dials IW). The response is verified against the pinned WP-PK exactly as the
+ * exec path is, so a machine-in-the-middle that tampers with either the command
+ * or the reply is caught and quarantines the link. Populates `connectorVersion`
+ * for the external-site update-available badge.
+ */
+export async function externalConnectorHealthCheck(siteId: string): Promise<ConnectorHealth> {
+  const record = await requireExternalRecord(siteId);
+  requireCommandable(record);
+  const reply = await dispatchSignedCommand(record, httpDelivery(record.url), "health.check", {});
+  await persistHealthResult(record, reply);
+  return toConnectorHealth(reply);
 }
 
 export interface ConnectorDebug {
@@ -252,7 +347,7 @@ export async function connectorDebug(site: string): Promise<ConnectorDebug> {
   let debug: Record<string, unknown> | null = null;
   let debugUnavailable: string | undefined;
   if (record.state === "active" && record.fingerprintConfirmed && record.wpPk) {
-    const reply = await dispatchSignedCommand(record, pod, "debug.status", {});
+    const reply = await dispatchSignedCommand(record, execDelivery(pod), "debug.status", {});
     if (reply.rejectedReason === "unknown-method") {
       debugUnavailable = "The installed Connector predates debug.status — update the plugin below.";
     } else if (reply.rejectedReason) {
@@ -298,7 +393,7 @@ export async function rotateConnectorKey(site: string): Promise<RotationResult> 
   let altWpPk: string | null = record.pendingRotation?.newWpPk ?? null;
   const transport = async (method: string, params: Record<string, unknown>): Promise<RotationReply | null> => {
     try {
-      const reply = await dispatchSignedCommand(record, pod, method, params, { altWpPk });
+      const reply = await dispatchSignedCommand(record, execDelivery(pod), method, params, { altWpPk });
       if (reply.rejectedReason) return { ok: false, kid: reply.kid, result: { reason: reply.rejectedReason } };
       if (method === "key.rotate.self" && reply.ok && typeof reply.result.new_wp_pk === "string") {
         altWpPk = reply.result.new_wp_pk;
@@ -371,7 +466,7 @@ export async function deactivateConnector(site: string): Promise<{ wiped: boolea
   if (record.state === "active" && record.fingerprintConfirmed && record.wpPk) {
     try {
       const pod = await requireRunningPod(site);
-      const reply = await dispatchSignedCommand(record, pod, "site.deactivate", {});
+      const reply = await dispatchSignedCommand(record, execDelivery(pod), "site.deactivate", {});
       wiped = reply.ok;
     } catch (err) {
       console.warn(
@@ -402,7 +497,7 @@ export async function updateConnectorPlugin(site: string): Promise<{ version: st
   if (record.state !== "active" || !record.fingerprintConfirmed || !record.wpPk) {
     return { version: null };
   }
-  const reply = await dispatchSignedCommand(record, pod, "health.check", {});
+  const reply = await dispatchSignedCommand(record, execDelivery(pod), "health.check", {});
   const version = typeof reply.result.plugin === "string" ? reply.result.plugin : null;
   if (version) {
     // Persist the freshly-installed version (verified round-trip) so the update
