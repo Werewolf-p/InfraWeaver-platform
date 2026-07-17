@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { AddonHttpError } from "../lib/errors";
+import { WpPodExecError } from "../lib/k8s-exec";
 import { runHealthSweep } from "../lib/health-sweep";
 import { runConnectorUpdateSweep } from "../lib/update-sweep";
 import {
@@ -97,6 +98,9 @@ async function guard(action: () => Promise<NextResponse>): Promise<NextResponse>
   } catch (err) {
     console.error("[wordpress:iwsl] handler error:", err instanceof Error ? err.message : err);
     if (err instanceof AddonHttpError) return fail(err.message, err.status);
+    if (err instanceof WpPodExecError) {
+      return fail("The site's WordPress didn't respond as expected — its database or pod may be briefly unavailable. Retry in a moment.", 502);
+    }
     return fail("Operation failed — check the server logs for details", 500);
   }
 }

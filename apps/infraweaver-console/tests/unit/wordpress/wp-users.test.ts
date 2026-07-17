@@ -1,10 +1,12 @@
 import {
+  applyWpUserSyncPlan,
   buildWpUserSyncPlan,
   createWpUserCommand,
   listWpUsersCommand,
   parseWpUserList,
   updateWpUserCommand,
   type ExistingWpUser,
+  type WpUserSyncPlan,
 } from "@/addons/wordpress-manager/lib/wp-users";
 import type { DesiredWordpressUser } from "@/addons/wordpress-manager/lib/access-policy";
 
@@ -102,5 +104,59 @@ describe("buildWpUserSyncPlan", () => {
 
   test("wp-cli list command is the machine-readable form", () => {
     expect(listWpUsersCommand()).toBe("wp --allow-root user list --fields=user_login,roles --format=json");
+  });
+});
+
+describe("applyWpUserSyncPlan", () => {
+  /** A plan that creates carol and updates remon; dave is unchanged (no command). */
+  function twoActionPlan(): WpUserSyncPlan {
+    return {
+      commands: ["wp update remon", "wp create carol"],
+      actions: [
+        { username: "remon", role: "administrator", action: "updated" },
+        { username: "dave", role: "subscriber", action: "unchanged" },
+        { username: "carol", role: "editor", action: "created" },
+      ],
+    };
+  }
+
+  test("runs every command in order and reports no failures on success", async () => {
+    const ran: string[] = [];
+    const result = await applyWpUserSyncPlan(twoActionPlan(), async (cmd) => {
+      ran.push(cmd);
+    });
+
+    expect(ran).toEqual(["wp update remon", "wp create carol"]);
+    expect(result.failed).toEqual([]);
+    expect(result.actions.map((a) => a.action)).toEqual(["updated", "unchanged", "created"]);
+  });
+
+  test("a single failing command is recorded against its user; the rest still run", async () => {
+    const ran: string[] = [];
+    // The first actionable command (remon's update) throws; carol must still be created.
+    const result = await applyWpUserSyncPlan(twoActionPlan(), async (cmd) => {
+      ran.push(cmd);
+      if (cmd === "wp update remon") throw new Error("exec failed: user update remon — Error: DB gone");
+    });
+
+    expect(ran).toEqual(["wp update remon", "wp create carol"]); // did not abort early
+    expect(result.failed).toEqual([{ username: "remon", reason: expect.stringContaining("DB gone") }]);
+    // The failed account is remapped from "updated" to "failed"; carol still created.
+    const byUser = Object.fromEntries(result.actions.map((a) => [a.username, a.action]));
+    expect(byUser).toEqual({ remon: "failed", dave: "unchanged", carol: "created" });
+  });
+
+  test("the failure reason is single-lined and bounded", async () => {
+    const plan: WpUserSyncPlan = {
+      commands: ["wp create carol"],
+      actions: [{ username: "carol", role: "editor", action: "created" }],
+    };
+    const result = await applyWpUserSyncPlan(plan, async () => {
+      throw new Error("line one\n   line two   \n" + "x".repeat(500));
+    });
+
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].reason).not.toContain("\n");
+    expect(result.failed[0].reason.length).toBeLessThanOrEqual(200);
   });
 });

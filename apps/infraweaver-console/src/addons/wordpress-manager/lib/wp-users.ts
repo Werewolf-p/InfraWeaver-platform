@@ -81,13 +81,59 @@ export function updateWpUserCommand(user: DesiredWordpressUser): string {
 export interface WpUserSyncAction {
   username: string;
   role: WordpressRole;
-  action: "created" | "updated" | "unchanged";
+  /** `failed` is set at apply time when the account's command threw. */
+  action: "created" | "updated" | "unchanged" | "failed";
 }
 
 export interface WpUserSyncPlan {
   /** Ordered commands to run; parallel to `actions` entries that need work. */
   commands: string[];
   actions: WpUserSyncAction[];
+}
+
+export interface WpUserSyncFailure {
+  username: string;
+  /** Bounded, human-readable reason (the exec error), safe to show an operator. */
+  reason: string;
+}
+
+export interface WpUserSyncResult {
+  actions: WpUserSyncAction[];
+  failed: WpUserSyncFailure[];
+}
+
+/** Compress an exec error into a short, single-line reason for the summary. */
+function userSyncFailureReason(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  return raw.replace(/\s+/g, " ").trim().slice(0, 200) || "unknown error";
+}
+
+/**
+ * Run a plan's create/update commands, tolerating a per-account failure.
+ * `commands[i]` converges the i-th *actionable* account (the non-`unchanged`
+ * actions, in the order buildWpUserSyncPlan emitted them). A command that throws
+ * — a transient wp-cli/DB race, or a duplicate from a concurrent reconcile — is
+ * recorded against its user and the remaining accounts still reconcile, so one
+ * bad account never sinks the whole sync (and never surfaces as a bare 500).
+ */
+export async function applyWpUserSyncPlan(
+  plan: WpUserSyncPlan,
+  run: (command: string) => Promise<void>,
+): Promise<WpUserSyncResult> {
+  const actionable = plan.actions.filter((entry) => entry.action !== "unchanged");
+  const failed: WpUserSyncFailure[] = [];
+  for (let i = 0; i < plan.commands.length; i += 1) {
+    try {
+      await run(plan.commands[i]);
+    } catch (err) {
+      const target = actionable[i];
+      if (target) {
+        target.action = "failed";
+        failed.push({ username: target.username, reason: userSyncFailureReason(err) });
+      }
+    }
+  }
+  return { actions: plan.actions, failed };
 }
 
 /**

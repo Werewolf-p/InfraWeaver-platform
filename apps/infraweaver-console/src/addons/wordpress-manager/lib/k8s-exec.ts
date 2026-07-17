@@ -27,6 +27,21 @@ export interface ExecOptions {
  */
 const MAX_EXEC_OUTPUT_BYTES = 1024 * 1024;
 
+/** Captured stderr excerpt cap for the failure message — enough to diagnose, not to flood the logs. */
+const STDERR_EXCERPT_BYTES = 2000;
+
+/**
+ * A command inside the site pod exited non-zero (or the exec channel failed).
+ * Carries the captured stderr so the log — and a caller that wants to classify
+ * the failure — can see *why*, instead of the opaque k8s "non-zero exit code".
+ */
+export class WpPodExecError extends Error {
+  constructor(message: string, readonly stderr: string) {
+    super(message);
+    this.name = "WpPodExecError";
+  }
+}
+
 export async function execInWpPod(podName: string, script: string, opts: ExecOptions = {}): Promise<{ stdout: string; stderr: string }> {
   const { stdin = null, timeoutMs = 60_000, maxOutputBytes = MAX_EXEC_OUTPUT_BYTES } = opts;
   const kc = loadKubeConfig();
@@ -88,7 +103,10 @@ export async function execInWpPod(podName: string, script: string, opts: ExecOpt
         (status) => {
           settle(() => {
             if (status.status === "Failure") {
-              reject(new Error(`exec failed: ${status.message ?? err}`));
+              const stderrExcerpt = err.trim().slice(0, STDERR_EXCERPT_BYTES);
+              const detail = status.message ?? "non-zero exit";
+              const message = stderrExcerpt ? `exec failed: ${detail} — ${stderrExcerpt}` : `exec failed: ${detail}`;
+              reject(new WpPodExecError(message, stderrExcerpt));
             } else {
               resolve({ stdout: out, stderr: err });
             }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { AddonHttpError } from "../lib/errors";
+import { WpPodExecError } from "../lib/k8s-exec";
 import {
   getWordpressAccessContext,
   hasWordpressPermission,
@@ -75,6 +76,12 @@ async function guard(action: () => Promise<NextResponse>): Promise<NextResponse>
     // Typed domain errors carry a safe message + status (404 missing site, 503
     // pod/vault not ready); everything else is generic so internals aren't leaked.
     if (err instanceof AddonHttpError) return fail(err.message, err.status);
+    // A wp-cli exec that exited non-zero is almost always the site's WordPress or
+    // its database briefly not answering — say so (and say "retry") instead of an
+    // opaque 500. The stderr detail stays in the server log above, not the client.
+    if (err instanceof WpPodExecError) {
+      return fail("The site's WordPress didn't respond as expected — its database or pod may be briefly unavailable. Retry in a moment.", 502);
+    }
     return fail("Operation failed — check the server logs for details", 500);
   }
 }
@@ -335,7 +342,9 @@ export async function syncAccessHandler(site: string): Promise<NextResponse> {
     // Also materialize the grants as WordPress accounts. Reported separately and
     // non-fatal: the Authentik reconcile above is the security control, while the
     // pod may simply not be running yet.
-    let wordpressUsers: { actions: unknown[]; skippedNoEmail: string[] } | { error: string };
+    let wordpressUsers:
+      | { actions: unknown[]; skippedNoEmail: string[]; failed: { username: string; reason: string }[] }
+      | { error: string };
     try {
       wordpressUsers = await syncSiteWpUsers(site);
     } catch (err) {

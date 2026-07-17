@@ -15,7 +15,7 @@ import { ensureSsoGate, removeSsoGate } from "@/lib/sso/sso-gate";
 import { ensureSiteAccess, removeSiteAccess } from "./access";
 import { loadUsersConfig } from "@/lib/users-config";
 import { computeSiteWordpressUsers } from "./access-policy";
-import { buildWpUserSyncPlan, listWpUsersCommand, parseWpUserList, type WpUserSyncAction } from "./wp-users";
+import { applyWpUserSyncPlan, buildWpUserSyncPlan, listWpUsersCommand, parseWpUserList, type WpUserSyncAction, type WpUserSyncFailure } from "./wp-users";
 import { execInWpPod } from "./k8s-exec";
 import { isK8sNotFound } from "./k8s-errors";
 import { ServiceUnavailableError, SiteNotFoundError } from "./errors";
@@ -298,10 +298,12 @@ export async function deleteSite(site: string): Promise<void> {
 }
 
 export interface WordpressUserSyncSummary {
-  /** What the reconcile did per RBAC-granted user (created/updated/unchanged). */
+  /** What the reconcile did per RBAC-granted user (created/updated/unchanged/failed). */
   actions: WpUserSyncAction[];
   /** Granted users that cannot get an account because users.yaml has no email. */
   skippedNoEmail: string[];
+  /** Accounts whose create/update threw — reconcile continued past them. */
+  failed: WpUserSyncFailure[];
 }
 
 /**
@@ -320,10 +322,10 @@ export async function syncSiteWpUsers(site: string): Promise<WordpressUserSyncSu
   const pod = await runningWpPod(core, site);
   const existing = parseWpUserList((await execInWpPod(pod, listWpUsersCommand())).stdout);
   const plan = buildWpUserSyncPlan(desired.users, existing, adminUser());
-  for (const command of plan.commands) {
+  const { actions, failed } = await applyWpUserSyncPlan(plan, async (command) => {
     await execInWpPod(pod, command);
-  }
-  return { actions: plan.actions, skippedNoEmail: desired.skippedNoEmail };
+  });
+  return { actions, skippedNoEmail: desired.skippedNoEmail, failed };
 }
 
 /**
