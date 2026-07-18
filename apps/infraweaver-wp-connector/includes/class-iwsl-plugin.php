@@ -95,6 +95,13 @@ final class IWSL_Plugin {
 					if ( null !== $site_url ) {
 						$result['site_url'] = $site_url;
 					}
+					// §8 observability: last signing-key reroll outcome, so the
+					// console keeps "Last reroll" fresh from the signed channel on
+					// every hourly sweep (not only right after an operator reroll).
+					$last_reroll = $plugin->rotation->last_reroll();
+					if ( null !== $last_reroll ) {
+						$result['last_reroll'] = $last_reroll;
+					}
 					return array( true, $result );
 				}
 			),
@@ -255,6 +262,7 @@ final class IWSL_Plugin {
 			'rotation'       => is_array( $pending )
 				? array( 'phase' => 'pending', 'new_kid' => (int) $pending['new_kid'] )
 				: null,
+			'last_reroll'    => $this->rotation->last_reroll(),
 			'last_rejection' => is_array( $reject )
 				? array( 'reason' => (string) $reject['reason'], 'ts' => (int) $reject['ts'] )
 				: null,

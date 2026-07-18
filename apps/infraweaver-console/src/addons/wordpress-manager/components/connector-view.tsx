@@ -44,6 +44,8 @@ interface ManagedLink {
   /** Running plugin version from the last verified health.check (§5.1 update signal). */
   connectorVersion?: string;
   pendingRotation?: { newKid: number; phase: string } | null;
+  /** §8 — last signing-key reroll outcome (from rotation run or plugin's signed report). */
+  lastReroll?: { at: string; outcome: "confirmed" | "aborted" | "pending"; kid: number; reason?: string };
   /** §5 identity binding — the site's confirmed canonical URL. */
   canonicalUrl?: string;
   /** §5 safe mode: state-changing ops suspended after a self-reported URL change. */
@@ -439,6 +441,19 @@ export function ConnectorView({ site }: { site: string }) {
               {link.rejections > 0 && <MetaRow label="Rejections seen" value={`${link.rejections}`} tone="danger" />}
               {link.pendingRotation && (
                 <MetaRow label="Rotation in flight" value={`kid ${link.pendingRotation.newKid} (${link.pendingRotation.phase})`} />
+              )}
+              {link.lastReroll && (
+                <MetaRow
+                  label="Last reroll"
+                  value={`${
+                    link.lastReroll.outcome === "confirmed"
+                      ? "success"
+                      : link.lastReroll.outcome === "aborted"
+                        ? "failed"
+                        : "in progress"
+                  } · ${new Date(link.lastReroll.at).toLocaleString()}`}
+                  tone={link.lastReroll.outcome === "aborted" ? "danger" : undefined}
+                />
               )}
             </div>
             <div className="mt-4 flex justify-end">

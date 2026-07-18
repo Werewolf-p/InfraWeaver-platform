@@ -60,6 +60,21 @@ export interface ExternalSiteRecord {
     startedTs: number;
     deadlineTs: number;
   } | null;
+  /**
+   * §8 — outcome of the last WP signing-key reroll, for operator visibility.
+   * `outcome` mirrors the rotation driver's terminal result: "confirmed" (new
+   * epoch live), "aborted" (failed / rolled back — old key retained), "pending"
+   * (in-flight, will resume). Written from the console-driven rotation run and
+   * also reconciled from the plugin's own signed `last_reroll` (in health.check /
+   * debug.status), so it stays truthful even if a reroll ran out of band or the
+   * console lost the ack. `at` is ISO8601; the record keeps only the most recent.
+   */
+  lastReroll?: {
+    at: string;
+    outcome: "confirmed" | "aborted" | "pending";
+    kid: number;
+    reason?: string;
+  };
   /** Last signed health.check outcome (§12.5 diagnostics). */
   lastHealth?: { at: string; ok: boolean; roundtripMs?: number; reason?: string };
   /**

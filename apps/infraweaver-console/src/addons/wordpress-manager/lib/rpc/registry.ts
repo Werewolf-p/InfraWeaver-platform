@@ -49,6 +49,8 @@ export interface RpcResult {
     seq: number;
     /** §5 — the site's own live canonical URL, for clone/identity-crisis detection. */
     site_url?: string;
+    /** §8 — last signing-key reroll outcome (unix seconds); absent before first reroll. */
+    last_reroll?: { at: number; kid: number; ok: boolean; reason?: string };
   };
   "debug.status": Record<string, unknown>;
   "key.rotate.self": { new_wp_pk: string } | { reason: string };

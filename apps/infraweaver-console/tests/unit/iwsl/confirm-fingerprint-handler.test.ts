@@ -49,6 +49,7 @@ jest.mock("@/addons/wordpress-manager/lib/iwsl-managed-ops", () => ({
 jest.mock("@/addons/wordpress-manager/lib/k8s-exec", () => ({ WpPodExecError: class WpPodExecError extends Error {} }));
 jest.mock("@/addons/wordpress-manager/lib/health-sweep", () => ({ runHealthSweep: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/update-sweep", () => ({ runConnectorUpdateSweep: jest.fn() }));
+jest.mock("@/addons/wordpress-manager/lib/rotation-sweep", () => ({ runRotationSweep: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/connector-package", () => ({ buildConnectorPackage: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/iwsl-managed", () => ({
   enrollManagedSite: jest.fn(),

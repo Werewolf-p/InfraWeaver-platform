@@ -37,6 +37,13 @@ iwsl_assert_same( null, $store->get( 'wp_keys.1' ), 'old key destroyed at retire
 $confirm = $rotation->confirm( 'rot-1' );
 iwsl_assert( $confirm['ok'], 'confirm retry (lost ack) still ok' );
 
+// --- last_reroll stamped on confirm (§8 observability) --------------------------------
+$lr = $rotation->last_reroll();
+iwsl_assert( is_array( $lr ), 'confirm stamps last_reroll' );
+iwsl_assert_same( true, $lr['ok'], 'last_reroll marks success on confirm' );
+iwsl_assert_same( 2, $lr['kid'], 'last_reroll records the new kid' );
+iwsl_assert( is_int( $lr['at'] ) && $lr['at'] > 0, 'last_reroll carries a unix timestamp' );
+
 // --- committed epochs never reopen ----------------------------------------------------
 $replayed = $rotation->prepare( 'rot-1', 3 );
 iwsl_assert_same( 'rotation-committed', $replayed['reason'], 'PREPARE replay after commit refused' );
@@ -53,3 +60,9 @@ iwsl_assert_same( null, $store->get( 'pending_rotation' ), 'abort clears pending
 iwsl_assert_same( null, $store->get( 'wp_keys.3' ), 'abort destroys the uncommitted key' );
 iwsl_assert_same( 2, $rotation->signing_kid(), 'signing falls back to committed epoch' );
 iwsl_assert( is_array( $store->get( 'wp_keys.2' ) ), 'committed key untouched by abort' );
+
+// --- last_reroll marks a FAILED reroll on abort (old key stayed live) ------------------
+$lr = $rotation->last_reroll();
+iwsl_assert_same( false, $lr['ok'], 'abort marks last_reroll failed' );
+iwsl_assert_same( 3, $lr['kid'], 'last_reroll records the aborted kid' );
+iwsl_assert_same( 'aborted', $lr['reason'], 'aborted reroll carries a reason' );

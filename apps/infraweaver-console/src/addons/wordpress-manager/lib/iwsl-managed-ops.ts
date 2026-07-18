@@ -337,6 +337,23 @@ export interface ConnectorHealth {
  * signature (a bad signature quarantines and throws before we get here), so a
  * MITM can't feed us a lower version to mask an out-of-date connector.
  */
+/**
+ * Parse the plugin's own signed `last_reroll` (§8) into the record's shape. The
+ * plugin reports unix seconds + an ok flag; map ok→outcome. Returns null for any
+ * missing/malformed field (the plugin predates the field, or nothing to report).
+ */
+function parsePluginReroll(raw: unknown): ExternalSiteRecord["lastReroll"] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as { at?: unknown; kid?: unknown; ok?: unknown; reason?: unknown };
+  if (typeof r.at !== "number" || typeof r.kid !== "number" || typeof r.ok !== "boolean") return null;
+  return {
+    at: new Date(r.at * 1000).toISOString(),
+    outcome: r.ok ? "confirmed" : "aborted",
+    kid: r.kid,
+    ...(typeof r.reason === "string" ? { reason: r.reason } : {}),
+  };
+}
+
 async function persistHealthResult(record: ExternalSiteRecord, reply: CommandReply): Promise<void> {
   const version = typeof reply.result.plugin === "string" ? reply.result.plugin : null;
   // The self-reported canonical URL rode inside the response `dispatchSignedCommand`
@@ -354,6 +371,16 @@ async function persistHealthResult(record: ExternalSiteRecord, reply: CommandRep
       ...(reply.rejectedReason ? { reason: reply.rejectedReason } : {}),
     };
     if (version) target.connectorVersion = version;
+    // §8: reconcile the reroll outcome from the plugin's own signed report. It's
+    // authoritative (signature-verified above); prefer it over a stale local
+    // stamp, and always let a terminal outcome replace an in-flight "pending".
+    const pluginReroll = parsePluginReroll(reply.result.last_reroll);
+    if (pluginReroll) {
+      const cur = target.lastReroll;
+      if (!cur || cur.outcome === "pending" || Date.parse(pluginReroll.at) >= Date.parse(cur.at)) {
+        target.lastReroll = pluginReroll;
+      }
+    }
     applyIdentityObservation(target, observedUrl, new Date().toISOString());
   });
 }
@@ -505,6 +532,10 @@ export async function rotateConnectorKey(site: string): Promise<RotationResult> 
     target.epochFloor = run.state.epochFloor;
     target.wpPk = run.state.wpPk;
     target.pendingRotation = run.state.pendingRotation;
+    // §8 observability: stamp the reroll outcome so the operator (and the
+    // age-based auto-rotation sweep) can see when this key last rolled and
+    // whether it took. Reconciled later from the plugin's own signed value.
+    target.lastReroll = { at: new Date().toISOString(), outcome: run.outcome, kid: run.state.kid };
   });
 
   return {

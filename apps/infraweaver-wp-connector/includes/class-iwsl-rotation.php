@@ -76,6 +76,7 @@ final class IWSL_Rotation {
 		$this->store->delete( 'wp_keys.' . $old_kid );
 		$this->store->delete( 'pending_rotation' );
 		$this->store->set( 'last_confirmed_rotation', $rotation_id );
+		$this->store->set( 'last_reroll', array( 'at' => time(), 'kid' => $new_kid, 'ok' => true ) );
 		return array( 'ok' => true, 'reason' => null );
 	}
 
@@ -85,8 +86,27 @@ final class IWSL_Rotation {
 		if ( is_array( $pending ) && $pending['rotation_id'] === $rotation_id ) {
 			$this->store->delete( 'wp_keys.' . $pending['new_kid'] );
 			$this->store->delete( 'pending_rotation' );
+			// §8 observability: record the failed reroll so the console can show
+			// "last reroll: failed" (old key stayed live). Only stamped when a
+			// matching pending was actually rolled back, not on a no-op replay.
+			$this->store->set(
+				'last_reroll',
+				array( 'at' => time(), 'kid' => (int) $pending['new_kid'], 'ok' => false, 'reason' => 'aborted' )
+			);
 		}
 		return array( 'ok' => true, 'reason' => null );
+	}
+
+	/**
+	 * Last completed reroll outcome for operator visibility (§8), surfaced in the
+	 * signed health.check / debug.status. {at:int(unix), kid:int, ok:bool, reason?:string}
+	 * or null before the first reroll.
+	 *
+	 * @return array|null
+	 */
+	public function last_reroll() {
+		$value = $this->store->get( 'last_reroll' );
+		return is_array( $value ) ? $value : null;
 	}
 
 	/**

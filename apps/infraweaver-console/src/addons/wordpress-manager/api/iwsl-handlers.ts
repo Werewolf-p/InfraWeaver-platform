@@ -6,6 +6,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { AddonHttpError } from "../lib/errors";
 import { WpPodExecError } from "../lib/k8s-exec";
 import { runHealthSweep } from "../lib/health-sweep";
+import { runRotationSweep } from "../lib/rotation-sweep";
 import { runConnectorUpdateSweep } from "../lib/update-sweep";
 import {
   getWordpressAccessContext,
@@ -427,6 +428,23 @@ export async function healthSweepHandler(req: NextRequest): Promise<NextResponse
     if (limited) return limited;
   }
   return guard(async () => json({ summary: await runHealthSweep() }));
+}
+
+/**
+ * POST — run the automated key-reroll sweep (§8). Authenticated exactly like the
+ * health sweep: the in-cluster cron token (`x-internal-cron-token`, how the daily
+ * CronJob calls in) OR an operator session. Unlike health-check reads, this rolls
+ * live signing keys, so the operator fallback demands `wordpress:admin` (not
+ * `write`) and the rate limit is tighter. Fail-closed on both.
+ */
+export async function rotationSweepHandler(req: NextRequest): Promise<NextResponse> {
+  if (!cronTokenValid(req)) {
+    const gate = await authorize("wordpress:admin");
+    if (!gate.ok) return gate.error;
+    const limited = rateLimited("rotation-sweep", gate.ctx.username, 3);
+    if (limited) return limited;
+  }
+  return guard(async () => json({ summary: await runRotationSweep() }));
 }
 
 // ── Fleet-wide Connector update (§5.1 maintenance) ───────────────────────────
