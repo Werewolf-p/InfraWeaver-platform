@@ -180,27 +180,100 @@ export async function getExternalSite(siteId: string): Promise<ExternalSiteRecor
   return (await readSites()).sites.find((s) => s.siteId === siteId) ?? null;
 }
 
+/** How many times a conflicting read-modify-write is retried before giving up. */
+const MUTATE_MAX_ATTEMPTS = 3;
+/** Base for the exponential backoff (ms); actual wait is full-jittered below. */
+const MUTATE_BACKOFF_BASE_MS = 25;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
- * Read-modify-write with one optimistic-concurrency retry on 409, mirroring
- * access-store. The mutator returns its result and may edit `sites` in place
- * on the freshly loaded copy.
+ * Full-jitter exponential backoff. `retry` is 0-based (the wait BEFORE the
+ * n-th retry). Jitter is essential here: the hourly health sweep persists every
+ * fleet site's result in near-lockstep, so a fixed backoff would just re-collide
+ * them into the same retry window (thundering herd on the one ConfigMap).
+ */
+function backoffDelayMs(retry: number): number {
+  const ceiling = MUTATE_BACKOFF_BASE_MS * 2 ** retry;
+  return Math.floor(Math.random() * ceiling);
+}
+
+/** node-fetch/undici error codes for a dropped or refused kube-apiserver connection. */
+const TRANSIENT_API_ERROR_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "EAI_AGAIN",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+/**
+ * True for a transient kube-apiserver connection failure — surfaced by the k8s
+ * client as a node-fetch/undici NETWORK error with no HTTP status, e.g. "socket
+ * hang up" or "Client network socket disconnected before secure TLS connection
+ * was established". Under the concurrent fleet health sweep these spike as the
+ * ~5 simultaneous CM reads+writes contend for connections. Re-reading and
+ * retrying is safe: the write is idempotent under optimistic concurrency (a
+ * landed-but-lost write advances resourceVersion, so the retry re-reads it and
+ * re-applies), and the append mutators dedupe by url/siteName. Distinct from a
+ * 409 Conflict, which carries an HTTP status and is handled by isWriteConflict.
+ */
+function isTransientApiError(err: unknown): boolean {
+  let cur: unknown = err;
+  for (let depth = 0; cur != null && depth < 4; depth += 1) {
+    if (typeof cur === "object") {
+      const code = (cur as { code?: unknown }).code;
+      if (typeof code === "string" && TRANSIENT_API_ERROR_CODES.has(code)) return true;
+    }
+    const message = cur instanceof Error ? cur.message : String(cur);
+    if (
+      /socket hang up|socket disconnected|network socket disconnected|secure TLS connection|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed/i.test(
+        message,
+      )
+    ) {
+      return true;
+    }
+    cur = (cur as { cause?: unknown } | null)?.cause;
+  }
+  return false;
+}
+
+/** A mutate failure worth another attempt: an optimistic-lock 409 or a transient API drop. */
+function isRetriableMutateError(err: unknown): boolean {
+  return isWriteConflict(err) || isTransientApiError(err);
+}
+
+/**
+ * Read-modify-write with retry, mirroring access-store. Retries on both an
+ * optimistic-concurrency 409 AND a transient kube-apiserver connection drop —
+ * the two failure modes the hourly fleet health sweep hits when every site
+ * persists its result in near-lockstep. Each attempt re-reads the latest
+ * ConfigMap (fresh resourceVersion) and re-applies the mutator to it, so a
+ * concurrent replace that lands between our read and our write is merged rather
+ * than clobbered. Retries are spread by a full-jitter backoff so the writers
+ * don't lock-step back into the same window. The mutator may edit `sites` in
+ * place on the freshly loaded copy; because it can run more than once it must be
+ * free of side effects beyond that edit (the append mutators dedupe by url).
  */
 export async function mutateExternalSites<T>(
   mutator: (sites: ExternalSiteRecord[]) => T,
 ): Promise<T> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const state = await readSites();
-    const result = mutator(state.sites);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MUTATE_MAX_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await sleep(backoffDelayMs(attempt - 1));
     try {
+      const state = await readSites();
+      const result = mutator(state.sites);
       await writeSites(state);
       return result;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const conflict = /409|conflict/i.test(message);
-      if (!conflict || attempt === 1) throw err;
+      lastErr = err;
+      if (!isRetriableMutateError(err) || attempt === MUTATE_MAX_ATTEMPTS - 1) throw err;
     }
   }
-  throw new Error("Failed to persist IWSL site state");
+  throw lastErr ?? new Error("Failed to persist IWSL site state");
 }
 
 // ── Enrollment secrets (§5 — single-use, sensitive, burned on verify) ────────
