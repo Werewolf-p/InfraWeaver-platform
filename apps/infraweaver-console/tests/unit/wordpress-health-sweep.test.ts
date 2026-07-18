@@ -100,11 +100,13 @@ describe("runHealthSweep", () => {
     expect(httpsMock).toHaveBeenCalledWith("ext-ok");
     expect(summary).toMatchObject({ total: 3, passed: 2, failed: 1, managedTotal: 1, externalTotal: 2 });
     const dead = summary.results.find((r) => r.site === "ext-dead");
+    // A transport fault is re-confirmed before the link is reported down.
     expect(dead).toEqual({
       site: "ext-dead",
       transport: "https",
       ok: false,
       reason: "fetch failed: ECONNREFUSED",
+      attempts: 2,
     });
   });
 
@@ -136,6 +138,40 @@ describe("runHealthSweep", () => {
 
     expect(summary).toMatchObject({ total: 1, passed: 0, failed: 1, externalTotal: 1 });
     expect(summary.results[0]).toMatchObject({ site: "ext-1", transport: "https", ok: false, reason: "epoch-too-low" });
+    // A deterministic plugin verdict is NOT re-checked — one call, attempts=1.
+    expect(httpsMock).toHaveBeenCalledTimes(1);
+    expect(summary.results[0].attempts).toBe(1);
+  });
+
+  test("down-confirmation: a transient transport blip that clears on re-check is not flapped down", async () => {
+    listMock.mockResolvedValue([link({ siteId: "ext-flap", managed: false })]);
+    // First attempt throws (momentary 502/reset), second attempt succeeds.
+    httpsMock
+      .mockRejectedValueOnce(new Error("fetch failed: 502"))
+      .mockResolvedValueOnce(health({ roundtripMs: 20 }));
+
+    const summary = await runHealthSweep();
+
+    expect(httpsMock).toHaveBeenCalledTimes(2);
+    expect(summary).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(summary.results[0]).toMatchObject({
+      site: "ext-flap",
+      ok: true,
+      attempts: 2,
+      flapSuppressed: true,
+    });
+  });
+
+  test("down-confirmation: a link down on BOTH attempts is reported down (confirmed)", async () => {
+    listMock.mockResolvedValue([link({ siteId: "ext-down", managed: false })]);
+    httpsMock.mockRejectedValue(new Error("fetch failed: ECONNREFUSED"));
+
+    const summary = await runHealthSweep();
+
+    expect(httpsMock).toHaveBeenCalledTimes(2);
+    expect(summary).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(summary.results[0]).toMatchObject({ site: "ext-down", ok: false, attempts: 2 });
+    expect(summary.results[0].flapSuppressed).toBeUndefined();
   });
 
   test("no commandable links → empty, zeroed summary", async () => {

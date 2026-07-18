@@ -11,15 +11,20 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ALG_ED25519,
+  ALG_SLHDSA,
   canonicalize,
   commandMessage,
   createEnrollmentBundle,
   createSignedCommand,
   createSignedResponse,
+  dualSign,
   generateIwKeyPair,
   generateWpKeyPair,
   iwPublicKeys,
   toB64u,
+  type CommandChannel,
+  type CommandEnvelope,
   type SignedCommand,
 } from "../../infraweaver-console/src/lib/iwsl";
 
@@ -35,15 +40,52 @@ const iwKeys = generateIwKeyPair({
 const wpKeys = generateWpKeyPair(new Uint8Array(32).fill(0x63));
 const enrollSecret = new Uint8Array(32).fill(0x0f);
 
-function command(
-  label: string,
-  input: { method: string; params: Record<string, unknown>; seq: number; ts: number; ttlMs?: number; nonce?: string },
-): SignedCommand {
+// Test-only SPKI pin (never a real cert). The plugin bounds aud.spki's SHAPE
+// but doesn't verify the value, so a placeholder base64 exercises the binding.
+const FIXTURE_SPKI = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+interface CommandInput {
+  method: string;
+  params: Record<string, unknown>;
+  seq: number;
+  ts: number;
+  ttlMs?: number;
+  nonce?: string;
+  /** §6.4 channel to bind (default "exec" — the managed transport). */
+  channel?: CommandChannel;
+  spki?: string[];
+}
+
+function command(label: string, input: CommandInput): SignedCommand {
   process.stderr.write(`signing ${label}...\n`);
   return createSignedCommand(
     { siteId: SITE_ID, kid: 1, ...input },
     iwKeys,
   );
+}
+
+/**
+ * A pre-§6.4 command with NO aud claim — proves the verifier accepts a legacy
+ * (pre-binding) console over any channel, which is what makes the aud rollout
+ * backward-compatible. Built envelope-first so the signature covers an envelope
+ * that genuinely omits `aud` (not one with aud deleted afterward).
+ */
+function legacyCommand(label: string, input: CommandInput): SignedCommand {
+  process.stderr.write(`signing ${label} (legacy, no aud)...\n`);
+  const envelope: CommandEnvelope = {
+    v: 1,
+    typ: "cmd",
+    site_id: SITE_ID,
+    nonce: input.nonce ?? "legacy",
+    seq: input.seq,
+    kid: 1,
+    ts: input.ts,
+    exp: input.ts + (input.ttlMs ?? 120_000),
+    method: input.method,
+    params: input.params,
+    alg: [ALG_ED25519, ALG_SLHDSA],
+  };
+  return { envelope, sigs: dualSign(commandMessage(envelope), iwKeys) };
 }
 
 const valid = command("valid", {
@@ -128,6 +170,26 @@ const commands = {
     seq: 20,
     ts: T0,
     nonce: "fixture-nonce-deactivate",
+  }),
+  // §6.4 channel binding: a health.check bound to the HTTPS transport (with an
+  // SPKI provenance pin). Accepted over 'https', rejected 'channel-mismatch'
+  // over 'exec'.
+  httpsHealth: command("httpsHealth", {
+    method: "health.check",
+    params: {},
+    seq: 19,
+    ts: T0,
+    nonce: "fixture-nonce-https",
+    channel: "https",
+    spki: [FIXTURE_SPKI],
+  }),
+  // §6.4 rollout: a command with no aud claim at all (legacy console).
+  legacyNoAud: legacyCommand("legacyNoAud", {
+    method: "health.check",
+    params: {},
+    seq: 21,
+    ts: T0,
+    nonce: "fixture-nonce-legacy",
   }),
 };
 

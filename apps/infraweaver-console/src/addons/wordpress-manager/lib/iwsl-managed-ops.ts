@@ -5,6 +5,7 @@ import {
   runScheduledRotation,
   verifySignedResponse,
   wpKeyFingerprint,
+  type CommandChannel,
   type RotationOutcome,
   type RotationReply,
   type SignedCommand,
@@ -188,6 +189,7 @@ async function recordResponseTamper(siteId: string, reason: string, now: number)
 async function dispatchSignedCommand(
   record: ExternalSiteRecord,
   deliver: CommandDelivery,
+  channel: CommandChannel,
   method: string,
   params: Record<string, unknown>,
   opts: DispatchOptions = {},
@@ -203,6 +205,11 @@ async function dispatchSignedCommand(
       seq,
       kid: record.iwKid > 0 ? record.iwKid : currentIwKid,
       ts: started,
+      // §6.4 channel/audience binding: bind the command to the transport it is
+      // sent over (and, on HTTPS, the pinned SPKI) so a captured valid command
+      // is non-redirectable to another channel or endpoint.
+      channel,
+      spki: channel === "https" ? record.pinnedSpki : undefined,
     },
     keys,
   );
@@ -265,9 +272,13 @@ async function dispatchSignedCommand(
  * to get the transport `callRpc` funnels the six methods through. The registry
  * layer sits on top of this — same signed bytes, one typed entry point.
  */
-function rpcTransport(record: ExternalSiteRecord, deliver: CommandDelivery): RpcTransport {
+function rpcTransport(
+  record: ExternalSiteRecord,
+  deliver: CommandDelivery,
+  channel: CommandChannel,
+): RpcTransport {
   return (method: RpcMethod, params: Record<string, unknown>, opts?: DispatchOptions) =>
-    dispatchSignedCommand(record, deliver, method, params, opts);
+    dispatchSignedCommand(record, deliver, channel, method, params, opts);
 }
 
 // ── Debugging ────────────────────────────────────────────────────────────────
@@ -309,7 +320,7 @@ export async function connectorHealthCheck(site: string): Promise<ConnectorHealt
   const record = await requireManagedRecord(site);
   requireCommandable(record);
   const pod = await requireRunningPod(site);
-  const reply = await callRpc(rpcTransport(record, execDelivery(pod)), "health.check", {});
+  const reply = await callRpc(rpcTransport(record, execDelivery(pod), "exec"), "health.check", {});
   await persistHealthResult(record, reply);
   return toConnectorHealth(reply);
 }
@@ -326,7 +337,11 @@ export async function connectorHealthCheck(site: string): Promise<ConnectorHealt
 export async function externalConnectorHealthCheck(siteId: string): Promise<ConnectorHealth> {
   const record = await requireExternalRecord(siteId);
   requireCommandable(record);
-  const reply = await callRpc(rpcTransport(record, httpDelivery(record.url, record.pinnedSpki)), "health.check", {});
+  const reply = await callRpc(
+    rpcTransport(record, httpDelivery(record.url, record.pinnedSpki), "https"),
+    "health.check",
+    {},
+  );
   await persistHealthResult(record, reply);
   return toConnectorHealth(reply);
 }
@@ -358,7 +373,7 @@ export async function connectorDebug(site: string): Promise<ConnectorDebug> {
   let debug: Record<string, unknown> | null = null;
   let debugUnavailable: string | undefined;
   if (record.state === "active" && record.fingerprintConfirmed && record.wpPk) {
-    const reply = await callRpc(rpcTransport(record, execDelivery(pod)), "debug.status", {});
+    const reply = await callRpc(rpcTransport(record, execDelivery(pod), "exec"), "debug.status", {});
     if (reply.rejectedReason === "unknown-method") {
       debugUnavailable = "The installed Connector predates debug.status — update the plugin below.";
     } else if (reply.rejectedReason) {
@@ -404,7 +419,7 @@ export async function rotateConnectorKey(site: string): Promise<RotationResult> 
   let altWpPk: string | null = record.pendingRotation?.newWpPk ?? null;
   const transport = async (method: string, params: Record<string, unknown>): Promise<RotationReply | null> => {
     try {
-      const reply = await dispatchSignedCommand(record, execDelivery(pod), method, params, { altWpPk });
+      const reply = await dispatchSignedCommand(record, execDelivery(pod), "exec", method, params, { altWpPk });
       if (reply.rejectedReason) return { ok: false, kid: reply.kid, result: { reason: reply.rejectedReason } };
       if (method === "key.rotate.self" && reply.ok && typeof reply.result.new_wp_pk === "string") {
         altWpPk = reply.result.new_wp_pk;
@@ -477,7 +492,7 @@ export async function deactivateConnector(site: string): Promise<{ wiped: boolea
   if (record.state === "active" && record.fingerprintConfirmed && record.wpPk) {
     try {
       const pod = await requireRunningPod(site);
-      const reply = await callRpc(rpcTransport(record, execDelivery(pod)), "site.deactivate", {});
+      const reply = await callRpc(rpcTransport(record, execDelivery(pod), "exec"), "site.deactivate", {});
       wiped = reply.ok;
     } catch (err) {
       console.warn(
@@ -508,7 +523,7 @@ export async function updateConnectorPlugin(site: string): Promise<{ version: st
   if (record.state !== "active" || !record.fingerprintConfirmed || !record.wpPk) {
     return { version: null };
   }
-  const reply = await callRpc(rpcTransport(record, execDelivery(pod)), "health.check", {});
+  const reply = await callRpc(rpcTransport(record, execDelivery(pod), "exec"), "health.check", {});
   const version = typeof reply.result.plugin === "string" ? reply.result.plugin : null;
   if (version) {
     // Persist the freshly-installed version (verified round-trip) so the update

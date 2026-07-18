@@ -21,6 +21,8 @@ import {
   DOMAIN_RESP,
   IWSL_VERSION,
   RESPONSE_ALGS,
+  type CommandAudience,
+  type CommandChannel,
   type CommandEnvelope,
   type IwKeyPair,
   type ResponseEnvelope,
@@ -39,6 +41,26 @@ export interface CreateCommandInput {
   ts: number;
   ttlMs?: number;
   nonce?: string;
+  /**
+   * §6.4 — the transport this command is minted for. Bound into the signed
+   * `aud` claim; the plugin rejects a command whose `chan` doesn't match the
+   * channel it arrived on. Optional so legacy callers/fixtures still compile;
+   * defaults to `"exec"` (the managed in-cluster transport).
+   */
+  channel?: CommandChannel;
+  /** §6.4 — SPKI pin-set to bind (external HTTPS only). Omitted for exec. */
+  spki?: string[];
+}
+
+/** Assemble the §6.4 audience claim from a command's target site + transport. */
+function buildAudience(input: CreateCommandInput): CommandAudience {
+  const chan: CommandChannel = input.channel ?? "exec";
+  const aud: CommandAudience = { site: input.siteId, chan };
+  // Only https carries an SPKI binding, and only when a pin is actually set.
+  if (chan === "https" && input.spki && input.spki.length > 0) {
+    aud.spki = [...input.spki];
+  }
+  return aud;
 }
 
 export function commandMessage(envelope: CommandEnvelope): Uint8Array {
@@ -62,6 +84,7 @@ export function createSignedCommand(input: CreateCommandInput, keys: IwKeyPair):
     method: input.method,
     params: input.params,
     alg: [...COMMAND_ALGS],
+    aud: buildAudience(input),
   };
   return { envelope, sigs: dualSign(commandMessage(envelope), keys) };
 }

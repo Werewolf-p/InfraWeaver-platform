@@ -36,9 +36,12 @@ iwsl_assert(
 	'proof self-signature verifies against published WP-PK'
 );
 
-// --- TOFU: exactly one enrollment -----------------------------------------------
+// --- TOFU / anti-key-overwrite: exactly one enrollment ---------------------------
 $result = $enrollment->handle_bundle( iwsl_clone( $f->enrollment->signed ) );
 iwsl_assert_same( 'already-enrolled', $result['reason'], 'second bundle rejected (TOFU)' );
+// The rejected re-enroll must not have re-keyed the link (ManageWP
+// CONNECTION_PUBLIC_KEY_EXISTS class): the pinned IW-PK is byte-for-byte intact.
+iwsl_assert_same( $iw_keys, $store->get( 'iw_keys.1' ), 'rejected re-enroll did not overwrite the pinned IW-PK' );
 
 // --- activation: burn secret, retire proof endpoint ------------------------------
 $enrollment->activate();

@@ -60,10 +60,12 @@ export function uninstallConnectorScript(): string {
 /**
  * stdin: a signed command wire object (§6). The plugin's own verifier is the
  * enforcement point — this script only ferries bytes, so the exec transport
- * carries exactly what the REST /command endpoint would receive.
+ * carries exactly what the REST /command endpoint would receive. The `"exec"`
+ * argument is the ingress-channel tag the verifier matches against the signed
+ * §6.4 `aud.chan` binding (the REST route passes `"https"`).
  */
 export function signedCommandScript(): string {
-  return `wp --allow-root eval 'echo wp_json_encode( iwsl_plugin()->handle_command( json_decode( file_get_contents( "php://stdin" ) ) ) );'`;
+  return `wp --allow-root eval 'echo wp_json_encode( iwsl_plugin()->handle_command( json_decode( file_get_contents( "php://stdin" ) ), "exec" ) );'`;
 }
 
 /** Human-readable link status (§12.5) — raw `wp infraweaver status` output. */

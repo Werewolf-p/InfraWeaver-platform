@@ -137,3 +137,69 @@ $long_ttl = iwsl_clone( $f->commands->valid );
 $long_ttl->envelope->exp = $long_ttl->envelope->ts + IWSL_Verifier::MAX_CMD_TTL_MS + 1;
 $verdict = $verifier->verify_command( $long_ttl );
 iwsl_assert_same( 'schema-fail', $verdict['reason'], 'command TTL beyond ceiling rejected' );
+
+// --- §6.4 channel / audience binding ----------------------------------------------
+// The default `valid` fixture is bound to the exec channel.
+list( , $verifier ) = $fresh();
+$verdict = $verifier->verify_command( $f->commands->valid, 'https' );
+iwsl_assert_same( 'channel-mismatch', $verdict['reason'], 'exec-bound command rejected over https' );
+
+// An https-bound command: rejected over exec (and NO replay state committed, so
+// it stays deliverable), accepted over its own channel.
+list( $store, $verifier ) = $fresh();
+$verdict = $verifier->verify_command( $f->commands->httpsHealth, 'exec' );
+iwsl_assert_same( 'channel-mismatch', $verdict['reason'], 'https-bound command rejected over exec' );
+iwsl_assert_same( 0, $store->get( 'last_seq' ), 'channel-mismatch commits no replay state (verify-before-act)' );
+$verdict = $verifier->verify_command( $f->commands->httpsHealth, 'https' );
+iwsl_assert( $verdict['ok'], 'same command accepted on its bound (https) channel' );
+iwsl_assert_same( 19, $store->get( 'last_seq' ), 'accepted command commits its seq' );
+
+// aud is signed — relabeling chan to match the ingress breaks the signature
+// (a captured command can't be redirected onto another channel).
+list( , $verifier ) = $fresh();
+$relabel = iwsl_clone( $f->commands->httpsHealth );
+$relabel->envelope->aud->chan = 'exec';
+$verdict = $verifier->verify_command( $relabel, 'exec' );
+iwsl_assert_same( 'bad-sig-ed25519', $verdict['reason'], 'editing aud.chan breaks the signature' );
+
+// Malformed aud fails closed BEFORE the signature (structure gate).
+list( , $verifier ) = $fresh();
+$bad_aud = iwsl_clone( $f->commands->valid );
+$bad_aud->envelope->aud->chan = 'carrier-pigeon';
+iwsl_assert_same( 'schema-fail', $verifier->verify_command( $bad_aud )['reason'], 'unknown aud.chan value rejected structurally' );
+
+list( , $verifier ) = $fresh();
+$pad_aud = iwsl_clone( $f->commands->valid );
+$pad_aud->envelope->aud->extra = 'padding';
+iwsl_assert_same( 'schema-fail', $verifier->verify_command( $pad_aud )['reason'], 'unknown key in aud rejected (no signed padding)' );
+
+// Backward-compatible rollout: a command with NO aud is accepted on any channel.
+list( , $verifier ) = $fresh();
+$verdict = $verifier->verify_command( $f->commands->legacyNoAud, 'https' );
+iwsl_assert( $verdict['ok'], 'legacy command without aud accepted on any channel (rollout tolerance)' );
+
+// --- algorithm lock (§6.1 — no attacker-chosen / dynamic algorithm) ----------------
+// alg is a fixed pair in a fixed order; any deviation is a downgrade, and the
+// verifier NEVER picks its verification algorithm from the wire.
+list( , $verifier ) = $fresh();
+$reordered = iwsl_clone( $f->commands->valid );
+$reordered->envelope->alg = array( 'slh-dsa-192s', 'ed25519' );
+iwsl_assert_same( 'pq-required', $verifier->verify_command( $reordered )['reason'], 'reordered alg rejected (fixed order)' );
+
+$extra_alg = iwsl_clone( $f->commands->valid );
+$extra_alg->envelope->alg = array( 'ed25519', 'slh-dsa-192s', 'rsa2048' );
+iwsl_assert_same( 'pq-required', $verifier->verify_command( $extra_alg )['reason'], 'extra alg entry rejected' );
+
+// A bogus extra signature under an unlisted algorithm is ignored — the command
+// still verifies under the FIXED ed25519+slh-dsa pair (no dynamic-alg selection).
+$extra_sig = iwsl_clone( $f->commands->valid );
+$extra_sig->sigs->rsa2048 = 'Zm9v';
+iwsl_assert( $verifier->verify_command( $extra_sig )['ok'], 'unknown extra sig key ignored, fixed-pair verify still passes' );
+
+// --- verify-before-act: a rejected command mutates no replay state -------------------
+list( $store, $verifier ) = $fresh();
+$tampered = iwsl_clone( $f->commands->valid );
+$tampered->envelope->params->privilege = 'admin'; // breaks the signature
+$verifier->verify_command( $tampered );
+iwsl_assert_same( 0, $store->get( 'last_seq' ), 'tampered command commits no seq' );
+iwsl_assert_same( array(), $store->get( 'nonces' ), 'tampered command caches no nonce' );

@@ -5,7 +5,7 @@
  * explainable in the status panel:
  *   schema-fail | pq-required | site-mismatch | kid-retired | kid-unknown |
  *   bad-sig-ed25519 | bad-sig-pq | stale-ts | expired | seq-rollback |
- *   replayed-nonce | unknown-method
+ *   replayed-nonce | unknown-method | aud-mismatch | channel-mismatch
  *
  * Default posture everywhere: deny.
  */
@@ -13,6 +13,12 @@
 final class IWSL_Verifier {
 
 	const MAX_CLOCK_SKEW_MS = 300000; // ±300s (§6.3)
+
+	/** §6.4 — transports a command may be bound to; matched against ingress. */
+	const CHANNELS = array( 'exec', 'https' );
+
+	/** §6.4 — upper bound on SPKI pins in a bound aud (base64 SHA-256, ~44B each). */
+	const MAX_SPKI_PINS = 8;
 
 	/**
 	 * Pre-crypto input bounds (§6.3 hardening). Envelope string fields are tiny
@@ -46,10 +52,12 @@ final class IWSL_Verifier {
 	 * Verify a signed command wire object (decoded JSON, objects as stdClass).
 	 * On success, commits the replay state (last_seq, nonce cache).
 	 *
-	 * @param mixed $wire Expected: { envelope: {...}, sigs: {...} }.
+	 * @param mixed  $wire    Expected: { envelope: {...}, sigs: {...} }.
+	 * @param string $channel Ingress transport ('exec'|'https'). Matched against
+	 *                        the signed §6.4 aud.chan binding when present.
 	 * @return array ['ok' => bool, 'reason' => string|null, 'envelope' => stdClass|null]
 	 */
-	public function verify_command( $wire ): array {
+	public function verify_command( $wire, string $channel = 'exec' ): array {
 		if ( ! $wire instanceof stdClass || ! isset( $wire->envelope, $wire->sigs ) ) {
 			return $this->reject( 'schema-fail' );
 		}
@@ -81,6 +89,23 @@ final class IWSL_Verifier {
 		$sig_ok  = IWSL_Crypto::verify_dual( $message, $wire->sigs, $kid_check );
 		if ( ! $sig_ok['ok'] ) {
 			return $this->reject( $sig_ok['reason'] );
+		}
+
+		// §6.4 channel/audience binding. The claim is signed (its shape was
+		// validated in check_structure), so it can't be stripped or edited
+		// without breaking the signature just verified. An ABSENT aud is a
+		// pre-binding console — accepted for a backward-compatible rollout. A
+		// PRESENT aud is enforced: a command captured on one transport and
+		// replayed onto another (e.g. an exec-minted command POSTed to the
+		// public HTTPS endpoint) is rejected here, before any replay state is
+		// committed, so it stays re-deliverable on its intended channel.
+		if ( isset( $envelope->aud ) ) {
+			if ( $envelope->aud->site !== $envelope->site_id ) {
+				return $this->reject( 'aud-mismatch' );
+			}
+			if ( $envelope->aud->chan !== $channel ) {
+				return $this->reject( 'channel-mismatch' );
+			}
 		}
 
 		// Signature is authentic from here — now freshness and replay (§6.3).
@@ -174,6 +199,52 @@ final class IWSL_Verifier {
 			array( IWSL_Crypto::ALG_ED25519, IWSL_Crypto::ALG_SLHDSA ) !== $envelope->alg
 		) {
 			return 'pq-required';
+		}
+		// §6.4 audience binding is optional on the wire (rollout), but a PRESENT
+		// aud must be well-formed — validated pre-signature so a malformed claim
+		// fails closed as schema-fail rather than reaching the match below.
+		if ( isset( $envelope->aud ) && null !== self::check_audience_shape( $envelope->aud ) ) {
+			return 'schema-fail';
+		}
+		return null;
+	}
+
+	/**
+	 * Structural check for the §6.4 aud claim: { site, chan, spki? }. Returns a
+	 * reason string when malformed, null when shape-valid. The site↔site_id and
+	 * chan↔ingress MATCH checks run post-signature in verify_command; this only
+	 * bounds the shape so canonicalization/enforcement never touches junk.
+	 *
+	 * @param mixed $aud
+	 */
+	private static function check_audience_shape( $aud ): ?string {
+		if (
+			! $aud instanceof stdClass ||
+			! isset( $aud->site, $aud->chan ) ||
+			! is_string( $aud->site ) || '' === $aud->site || strlen( $aud->site ) > self::MAX_STRING_LEN ||
+			! is_string( $aud->chan ) || ! in_array( $aud->chan, self::CHANNELS, true )
+		) {
+			return 'schema-fail';
+		}
+		// Optional SPKI provenance (external HTTPS): a bounded list of short
+		// base64 strings. Capped so a valid signer can't pad the canonical
+		// message with an oversized aud (mirrors the response verifier's guard).
+		if ( isset( $aud->spki ) ) {
+			if ( ! is_array( $aud->spki ) || count( $aud->spki ) > self::MAX_SPKI_PINS ) {
+				return 'schema-fail';
+			}
+			foreach ( $aud->spki as $pin ) {
+				if ( ! is_string( $pin ) || '' === $pin || strlen( $pin ) > self::MAX_STRING_LEN ) {
+					return 'schema-fail';
+				}
+			}
+		}
+		// No key outside the aud schema — an unknown field would be signed-but-
+		// ignored padding otherwise.
+		foreach ( get_object_vars( $aud ) as $key => $ignored ) {
+			if ( 'site' !== $key && 'chan' !== $key && 'spki' !== $key ) {
+				return 'schema-fail';
+			}
 		}
 		return null;
 	}

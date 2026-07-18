@@ -25,6 +25,25 @@ export const DEFAULT_COMMAND_TTL_MS = 120_000; // §6.3 exp default
 export const DEFAULT_ENROLL_TTL_MS = 15 * 60_000; // §5 bundle TTL
 export const DEFAULT_MAX_RESULT_BYTES = 262_144; // §6.2 byte ceiling
 
+/** Transport a signed command is minted for (§6.4 channel binding). */
+export type CommandChannel = "exec" | "https";
+
+/**
+ * Audience/channel binding (§6.4). Commits a command to the site it names AND
+ * the transport it is meant to travel, so a captured-but-valid command can't be
+ * redirected to a different channel (e.g. an exec-minted command replayed to the
+ * public HTTPS endpoint) or a different site. `site` cross-checks `site_id`;
+ * `chan` is enforced by the plugin against its own ingress; `spki` (external
+ * HTTPS only) records the SPKI pin-set the console bound at send time — cert
+ * enforcement itself is at the console TLS layer (the plugin can't observe its
+ * own served cert), so `spki` is signed provenance layered on that pinning.
+ */
+export interface CommandAudience {
+  site: string;
+  chan: CommandChannel;
+  spki?: string[];
+}
+
 export interface CommandEnvelope {
   v: number;
   typ: "cmd";
@@ -37,6 +56,13 @@ export interface CommandEnvelope {
   method: string;
   params: Record<string, unknown>;
   alg: string[];
+  /**
+   * §6.4 channel/audience binding. Optional on the wire for a backward-compatible
+   * rollout: a Connector that predates the binding verifies the (signed) field
+   * but ignores it, and the field can't be stripped without breaking the
+   * signature. Populated on every command a current console mints.
+   */
+  aud?: CommandAudience;
 }
 
 export interface ResponseEnvelope {

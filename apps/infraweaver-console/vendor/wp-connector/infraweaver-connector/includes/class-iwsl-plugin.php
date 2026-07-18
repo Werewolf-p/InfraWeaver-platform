@@ -167,14 +167,18 @@ final class IWSL_Plugin {
 	/**
 	 * Handle a signed command wire object (decoded JSON, stdClass mode).
 	 *
+	 * @param mixed  $wire    The decoded { envelope, sigs } command.
+	 * @param string $channel Ingress transport ('exec' via wp-cli eval, 'https'
+	 *                        via the REST /command route). Matched against the
+	 *                        signed §6.4 aud.chan binding. Defaults to 'exec'.
 	 * @return array ['status' => int, 'body' => array]
 	 */
-	public function handle_command( $wire ): array {
+	public function handle_command( $wire, string $channel = 'exec' ): array {
 		$state = $this->store->get( 'state', 'unenrolled' );
 		if ( 'pending' !== $state && 'active' !== $state ) {
 			return array( 'status' => 403, 'body' => array( 'ok' => false, 'reason' => 'not-enrolled' ) );
 		}
-		$verdict = $this->verifier->verify_command( $wire );
+		$verdict = $this->verifier->verify_command( $wire, $channel );
 		if ( ! $verdict['ok'] ) {
 			return array( 'status' => 403, 'body' => array( 'ok' => false, 'reason' => $verdict['reason'] ) );
 		}

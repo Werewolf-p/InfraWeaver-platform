@@ -15,6 +15,16 @@ iwsl_assert_same( 'not-enrolled', $refused['body']['reason'], 'reason: not-enrol
 $enrolled = $plugin->enrollment()->handle_bundle( iwsl_clone( $f->enrollment->signed ) );
 iwsl_assert( $enrolled['ok'], 'bundle enrolls plugin' );
 
+// Verify-before-act through the full stack: a tampered command must NOT run its
+// handler or mutate state — enrollment stays pending until a genuinely verified
+// command activates it.
+$tampered = iwsl_clone( $f->commands->valid );
+$tampered->envelope->params->x = 1; // breaks the signature
+$rejected = $plugin->handle_command( $tampered );
+iwsl_assert_same( 403, $rejected['status'], 'tampered command rejected (verify-before-act)' );
+iwsl_assert_same( 'pending', $store->get( 'state' ), 'rejected command did not activate the link' );
+iwsl_assert_same( 0, (int) $store->get( 'last_seq', 0 ), 'rejected command committed no seq' );
+
 // First verified command flips pending → active and answers signed.
 $handled = $plugin->handle_command( iwsl_clone( $f->commands->valid ) );
 iwsl_assert_same( 200, $handled['status'], 'valid command executes' );
@@ -86,6 +96,13 @@ iwsl_assert_same(
 	'debug.status fingerprint matches the active WP-PK'
 );
 iwsl_assert( ! isset( $debug['wp_sk'] ) && ! isset( $debug['sk'] ), 'debug.status leaks no key material' );
+
+// §6.4 channel binding end-to-end: an HTTPS-bound command arriving over the exec
+// ingress is refused before it can act; the reason surfaces for §12.5. Rejected
+// pre-commit, so the exec channel's seq is untouched.
+$wrong_channel = $plugin->handle_command( iwsl_clone( $f->commands->httpsHealth ), 'exec' );
+iwsl_assert_same( 403, $wrong_channel['status'], 'https-bound command refused over exec channel' );
+iwsl_assert_same( 'channel-mismatch', $wrong_channel['body']['reason'], 'reason: channel-mismatch (§6.4)' );
 
 // Kill switch: respond, then forget everything (§8).
 $deactivated = $plugin->handle_command( iwsl_clone( $f->commands->deactivate ) );

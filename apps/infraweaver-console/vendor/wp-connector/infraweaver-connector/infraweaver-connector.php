@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.3.0
+ * Version: 0.4.0
  * Requires PHP: 7.4
  * License: AGPL-3.0-only
  *
@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.3.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.4.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -97,7 +97,9 @@ add_action(
 						return new WP_REST_Response( array( 'ok' => false, 'reason' => 'too-large' ), 413 );
 					}
 					$decoded = json_decode( $request->get_body() );
-					$result  = iwsl_plugin()->handle_command( $decoded );
+					// Public REST ingress → §6.4 channel tag 'https'; the verifier
+					// rejects a command whose signed aud.chan says 'exec'.
+					$result  = iwsl_plugin()->handle_command( $decoded, 'https' );
 					return new WP_REST_Response( $result['body'], $result['status'] );
 				},
 			)

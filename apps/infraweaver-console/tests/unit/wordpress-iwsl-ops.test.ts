@@ -16,6 +16,9 @@ describe("iwsl ops command builders", () => {
     expect(script).toContain('file_get_contents( "php://stdin" )');
     expect(script).toContain("handle_command");
     expect(script).toContain("wp_json_encode");
+    // §6.4: the exec ingress is tagged "exec" so the plugin can match it against
+    // the signed aud.chan binding (the REST route tags "https").
+    expect(script).toContain('), "exec" )');
     // Fixed string: nothing user-controlled may be interpolated.
     expect(script).toBe(signedCommandScript());
   });

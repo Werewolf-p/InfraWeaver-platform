@@ -162,6 +162,16 @@ export async function issueBundle(siteId: string, now = Date.now()): Promise<Iss
   if (site.state === "active") {
     throw new AddonHttpError("Site is already enrolled — deactivate it before re-enrolling", 409);
   }
+  // Anti-key-overwrite (ManageWP CONNECTION_PUBLIC_KEY_EXISTS class): a link that
+  // already pinned a WP-PK (e.g. a quarantined one) must be explicitly deleted
+  // before it can be re-enrolled — never silently re-keyed. Re-issuing a bundle
+  // is the first step of a re-enroll, so it's gated here too.
+  if (site.wpPk) {
+    throw new AddonHttpError(
+      "This link already has a pinned key — delete it before re-enrolling",
+      409,
+    );
+  }
   const { keys, kid } = await loadOrCreateIwKeys();
   const { signed, enrollSecret } = createEnrollmentBundle(
     { siteId: site.siteId, callbackOrigin: site.url, now, iwKid: kid },
@@ -171,6 +181,15 @@ export async function issueBundle(siteId: string, now = Date.now()): Promise<Iss
   await mutateExternalSites((sites) => {
     const target = sites.find((s) => s.siteId === siteId);
     if (!target) throw new AddonHttpError("External site not found", 404);
+    // Atomic anti-key-overwrite (mirrors verifyExternalSite): re-issuing a bundle
+    // is the first step of a re-enroll, so refuse it under the write too if the
+    // link picked up a pinned key since the top-of-function snapshot.
+    if (target.wpPk) {
+      throw new AddonHttpError(
+        "This link already has a pinned key — delete it before re-enrolling",
+        409,
+      );
+    }
     target.bundleIssuedAt = new Date(now).toISOString();
     target.bundleExpiresAt = new Date(signed.bundle.expires_ts).toISOString();
     target.iwKid = kid;
@@ -201,6 +220,15 @@ export async function verifyExternalSite(
   const site = await getExternalSite(siteId);
   if (!site) throw new AddonHttpError("External site not found", 404);
   if (site.state === "active") throw new AddonHttpError("Site is already enrolled", 409);
+  // Anti-key-overwrite: the verify-pull PINS wp_pk. A record that already holds
+  // one (e.g. quarantined) must be deleted before re-enrolling — this refusal is
+  // what stops a re-verify from silently rebinding the link to a new key.
+  if (site.wpPk) {
+    throw new AddonHttpError(
+      "This link already has a pinned key — delete it before re-enrolling",
+      409,
+    );
+  }
   const secretB64u = await getEnrollSecret(siteId);
   if (!secretB64u || !site.bundleExpiresAt) {
     throw new AddonHttpError("No outstanding enrollment bundle — download one first", 409);
@@ -275,6 +303,17 @@ export async function verifyExternalSite(
   const updated = await mutateExternalSites((sites) => {
     const target = sites.find((s) => s.siteId === siteId);
     if (!target) throw new AddonHttpError("External site not found", 404);
+    // Atomic anti-key-overwrite: the top-of-function guard read a pre-network
+    // snapshot, so a second verify racing this one could have pinned a key in
+    // between. Re-check UNDER the optimistic-concurrency write (mutateExternalSites
+    // re-reads and re-runs this on a 409) — a racing winner makes this call the
+    // loser, rejected here instead of silently rebinding wpPk.
+    if (target.wpPk) {
+      throw new AddonHttpError(
+        "This link already has a pinned key — delete it before re-enrolling",
+        409,
+      );
+    }
     target.state = "active";
     target.wpPk = wpPk;
     target.kid = 1;

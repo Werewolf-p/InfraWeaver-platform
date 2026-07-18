@@ -163,3 +163,41 @@ describe("IWSL response verification (§6.2)", () => {
     expect(verdict).toEqual({ ok: false, reason: "bad-sig-ed25519" });
   });
 });
+
+describe("IWSL §6.4 channel/audience binding", () => {
+  const iwPub = fixtures.keys.iw_pub;
+
+  test("exec-bound command carries aud.chan=exec (no spki) and verifies", () => {
+    const { envelope, sigs } = fixtures.commands.valid;
+    expect(envelope.aud).toEqual({ site: fixtures.site_id, chan: "exec" });
+    expect(dualVerify(commandMessage(envelope), sigs, iwPub)).toEqual({ ok: true });
+  });
+
+  test("https-bound command carries aud.chan=https + spki and verifies", () => {
+    const { envelope, sigs } = fixtures.commands.httpsHealth;
+    expect(envelope.aud?.chan).toBe("https");
+    expect(Array.isArray(envelope.aud?.spki)).toBe(true);
+    expect((envelope.aud?.spki ?? []).length).toBeGreaterThan(0);
+    expect(dualVerify(commandMessage(envelope), sigs, iwPub)).toEqual({ ok: true });
+  });
+
+  test("editing the bound channel breaks the signature — a captured command is non-redirectable", () => {
+    const tampered = clone(fixtures.commands.httpsHealth);
+    tampered.envelope.aud!.chan = "exec";
+    expect(dualVerify(commandMessage(tampered.envelope), tampered.sigs, iwPub).ok).toBe(false);
+  });
+
+  test("a legacy command carries no aud claim (backward-compatible rollout)", () => {
+    expect(fixtures.commands.legacyNoAud.envelope.aud).toBeUndefined();
+  });
+});
+
+describe("IWSL algorithm lock (no dynamic/attacker-chosen alg)", () => {
+  const iwPub = fixtures.keys.iw_pub;
+
+  test("verification uses the fixed ed25519+SLH-DSA pair, ignoring an extra unlisted signature", () => {
+    const padded = clone(fixtures.commands.valid);
+    (padded.sigs as Record<string, string>).rsa2048 = "Zm9v";
+    expect(dualVerify(commandMessage(padded.envelope), padded.sigs, iwPub)).toEqual({ ok: true });
+  });
+});
