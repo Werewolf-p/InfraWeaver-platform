@@ -78,16 +78,24 @@ final class IWSL_Plugin {
 			new IWSL_Command_Handler(
 				'health.check',
 				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
-					return array(
-						true,
-						array(
-							'status' => 'ok',
-							'php'    => PHP_VERSION,
-							'plugin' => defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : 'dev',
-							'kid'    => $plugin->rotation->signing_kid(),
-							'seq'    => (int) $plugin->store->get( 'last_seq', 0 ),
-						),
+					$result = array(
+						'status' => 'ok',
+						'php'    => PHP_VERSION,
+						'plugin' => defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : 'dev',
+						'kid'    => $plugin->rotation->signing_kid(),
+						'seq'    => (int) $plugin->store->get( 'last_seq', 0 ),
 					);
+					// §5 clone/identity-crisis self-report: the site's OWN live
+					// canonical URL, carried inside this Ed25519-signed response so
+					// the console reads it only after verifying the signature. A
+					// clone (DB + keys copied to another domain) still answers a
+					// valid signature but reports ITS url — the one thing it can't
+					// fake. Omitted when WP can't resolve a URL (never a false crisis).
+					$site_url = self::canonical_site_url();
+					if ( null !== $site_url ) {
+						$result['site_url'] = $site_url;
+					}
+					return array( true, $result );
 				}
 			),
 			new IWSL_Command_Handler(
@@ -228,6 +236,9 @@ final class IWSL_Plugin {
 			'state'          => (string) $this->store->get( 'state', 'unenrolled' ),
 			'plugin'         => defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : 'dev',
 			'php'            => PHP_VERSION,
+			// §5 clone/identity-crisis self-report — same live canonical URL the
+			// signed health.check carries, exposed in deep diagnostics too.
+			'site_url'       => self::canonical_site_url(),
 			'wp'             => function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'version' ) : null,
 			'time_ms'        => (int) round( microtime( true ) * 1000 ),
 			'sodium'         => function_exists( 'sodium_crypto_sign_verify_detached' ),
@@ -248,6 +259,35 @@ final class IWSL_Plugin {
 				? array( 'reason' => (string) $reject['reason'], 'ts' => (int) $reject['ts'] )
 				: null,
 		);
+	}
+
+	/**
+	 * The site's own canonical URL (§5 identity binding), read LIVE from WordPress
+	 * on every call — never cached in IWSL state. That liveness is the whole point:
+	 * a clone of the database (site_id + keys and all) reports the URL of whatever
+	 * domain it is actually served from, so the console can catch the mismatch.
+	 * Prefers the Site Address (`home`) over the WP Address (`siteurl`). Returns
+	 * null when no WordPress URL is resolvable (e.g. a bare CLI/test context) so
+	 * the console degrades to "no signal" rather than a false identity crisis.
+	 */
+	private static function canonical_site_url(): ?string {
+		$url = null;
+		if ( function_exists( 'home_url' ) ) {
+			$url = home_url();
+		} elseif ( function_exists( 'get_option' ) ) {
+			$url = get_option( 'home' );
+			if ( ! is_string( $url ) || '' === $url ) {
+				$url = get_option( 'siteurl' );
+			}
+		}
+		if ( ! is_string( $url ) || '' === $url ) {
+			return null;
+		}
+		// Cap to the console's MAX_URL_LEN. An oversized `home` (needs wp-admin/DB
+		// write access) would otherwise bloat the signed result toward the §6.2
+		// byte ceiling and get the whole response rejected as `result-too-large`
+		// — a self-inflicted quarantine. Degrade to "no signal" instead.
+		return strlen( $url ) <= 2048 ? $url : null;
 	}
 
 	/** §8 kill switch: wipe WP-SK, pinned IW-PK, and all local IWSL state. */

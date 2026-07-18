@@ -12,6 +12,16 @@ declare(strict_types=1);
 error_reporting( E_ALL );
 ini_set( 'display_errors', '1' );
 
+// Stub the one WordPress function the Connector self-report reads (§5 identity
+// binding). Defined before any suite so IWSL_Plugin::canonical_site_url()
+// resolves a deterministic URL the plugin test can assert against.
+if ( ! function_exists( 'home_url' ) ) {
+	function home_url( string $path = '' ): string {
+		return 'https://fixture-site.test' . $path;
+	}
+}
+define( 'IWSL_FIXTURE_SITE_URL', 'https://fixture-site.test' );
+
 require __DIR__ . '/../includes/class-iwsl-jcs.php';
 require __DIR__ . '/../includes/class-iwsl-slhdsa.php';
 require __DIR__ . '/../includes/class-iwsl-crypto.php';

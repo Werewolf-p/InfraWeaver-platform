@@ -32,6 +32,9 @@ iwsl_assert_same( 'active', $store->get( 'state' ), 'first verified command acti
 $envelope = $handled['body']['envelope'];
 iwsl_assert_same( 'fixture-nonce-valid-1', $envelope['in_reply_to'], 'response bound to command nonce' );
 iwsl_assert_same( array( 'ed25519' ), $envelope['alg'], 'response is Ed25519-only (v1.2)' );
+// §5 clone/identity-crisis self-report: health.check carries the site's own live
+// canonical URL inside the signed response.
+iwsl_assert_same( IWSL_FIXTURE_SITE_URL, $envelope['result']['site_url'], 'health.check self-reports canonical site_url (§5)' );
 
 $wp_pair = $store->get( 'wp_keys.1' );
 $message = IWSL_Crypto::domain_message( IWSL_Crypto::DOMAIN_RESP, IWSL_JCS::canonicalize( $envelope ) );
@@ -89,6 +92,7 @@ iwsl_assert_same( 'active', $debug['state'], 'debug.status reports link state' )
 iwsl_assert_same( 2, $debug['wp_kid'], 'debug.status reports the rotated WP epoch' );
 iwsl_assert_same( 18, $debug['last_seq'], 'debug.status reports last_seq' );
 iwsl_assert( is_string( $debug['plugin'] ) && '' !== $debug['plugin'], 'debug.status reports plugin version' );
+iwsl_assert_same( IWSL_FIXTURE_SITE_URL, $debug['site_url'], 'debug.status self-reports canonical site_url (§5)' );
 $wp_pair2 = $store->get( 'wp_keys.2' );
 iwsl_assert_same(
 	IWSL_Crypto::fingerprint( $wp_pair2['pk'] ),
