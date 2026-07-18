@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ElementType } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,6 +23,10 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select } from "@/components/ui/select";
 import { isValidSiteName } from "../lib/naming";
 import { ExternalSitesPanel } from "./external-sites-panel";
+import { FLEET_DEMO_TABS, FleetDemoArea, type FleetTabId } from "./demo/fleet-tabs";
+
+/** Top-level dashboard tabs: the real "Sites" surface plus the demo fleet views. */
+type DashTab = "sites" | FleetTabId;
 
 interface SiteSummary {
   site: string;
@@ -237,6 +241,12 @@ export function WordpressDashboard() {
   const canSubmit =
     !configLoading && hasDomains && Boolean(selectedDomain) && subdomainValid && !createMutation.isPending;
 
+  const [tab, setTab] = useState<DashTab>("sites");
+  const dashTabs: ReadonlyArray<{ id: DashTab; label: string; icon: ElementType; demo: boolean }> = [
+    { id: "sites", label: "Sites", icon: Globe, demo: false },
+    ...FLEET_DEMO_TABS.map((entry) => ({ id: entry.id, label: entry.label, icon: entry.icon, demo: true })),
+  ];
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -266,7 +276,10 @@ export function WordpressDashboard() {
           </button>
           <button
             type="button"
-            onClick={() => setCreating((open) => !open)}
+            onClick={() => {
+              setTab("sites");
+              setCreating((open) => !open);
+            }}
             className="inline-flex items-center gap-2 rounded-lg bg-sky-500 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-sky-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
           >
             <Plus className="h-4 w-4" aria-hidden /> New site
@@ -274,6 +287,37 @@ export function WordpressDashboard() {
         </div>
       </header>
 
+      <nav aria-label="WordPress views" className="mt-6 flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
+        {dashTabs.map((entry) => {
+          const on = entry.id === tab;
+          const Icon = entry.icon;
+          return (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => setTab(entry.id)}
+              aria-current={on ? "page" : undefined}
+              className={cn(
+                "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400",
+                on
+                  ? "border-sky-500 font-medium text-zinc-900 dark:text-zinc-100"
+                  : "border-transparent text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+              )}
+            >
+              <Icon className="h-4 w-4" aria-hidden />
+              {entry.label}
+              {entry.demo && (
+                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                  Demo
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {tab === "sites" && (
+        <>
       <AnimatePresence initial={false}>
         {creating && (
           <motion.form
@@ -564,6 +608,14 @@ export function WordpressDashboard() {
       </section>
 
       <ExternalSitesPanel />
+        </>
+      )}
+
+      {tab !== "sites" && (
+        <div className="mt-6">
+          <FleetDemoArea tab={tab} />
+        </div>
+      )}
 
       <ConfirmDialog
         open={toDelete !== null}

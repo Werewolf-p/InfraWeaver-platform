@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { SiteRuntimeCard } from "./site-runtime-card";
 import { SiteTabs } from "./site-tabs";
+import { SiteDemoInsights } from "./demo/site-insights";
 
 type AuthMode = "none" | "login" | "admin" | "full";
 
@@ -321,6 +322,9 @@ export function SiteDetailView({ site }: { site: string }) {
 
       {/* The site as an app: its pods (WordPress + MariaDB) and their firewall */}
       <SiteRuntimeCard site={site} />
+
+      {/* Illustrative demo analytics — clearly labelled dummy data, no real calls. */}
+      <SiteDemoInsights site={site} />
 
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
         <div className="flex items-center justify-between gap-3">
