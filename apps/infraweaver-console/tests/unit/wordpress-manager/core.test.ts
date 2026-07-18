@@ -7,7 +7,12 @@ import { redirectUri, buildOidcSettings, OIDC_SETTINGS_OPTION, optionUpdateFromS
 import { shellQuote, isInstalledScript, coreInstallScript } from "@/addons/wordpress-manager/lib/core-install";
 import type { OidcCredentials } from "@/lib/sso/types";
 import { getScopedWordpressSites, wordpressScope, hasWordpressPermission } from "@/addons/wordpress-manager/lib/wordpress-rbac";
-import { isK8sNotFound, k8sErrorStatus } from "@/addons/wordpress-manager/lib/k8s-errors";
+import {
+  isK8sNotFound,
+  isTransientApiError,
+  k8sErrorStatus,
+  retryOnTransientApiError,
+} from "@/addons/wordpress-manager/lib/k8s-errors";
 import { AddonHttpError, SiteNotFoundError, ServiceUnavailableError } from "@/addons/wordpress-manager/lib/errors";
 import { BUILT_IN_ROLES, resolveRoleDefinition, type RoleAssignment } from "@/lib/rbac";
 import { listZones } from "@/lib/cloudflare";
@@ -493,6 +498,56 @@ describe("k8s error helpers", () => {
     expect(k8sErrorStatus({ code: 500 })).toBe(500);
     expect(k8sErrorStatus({ body: { code: 422 } })).toBe(422);
     expect(k8sErrorStatus({})).toBeNull();
+  });
+
+  test.each([
+    [new Error("socket hang up"), true],
+    [{ code: "ECONNRESET" }, true],
+    [{ code: "UND_ERR_SOCKET" }, true],
+    [new Error("Client network socket disconnected before secure TLS connection was established"), true],
+    // wrapped fetch failure — must walk the cause chain
+    [Object.assign(new Error("fetch failed"), { cause: { code: "ECONNRESET" } }), true],
+    [{ code: 404 }, false],
+    [{ statusCode: 409 }, false],
+    [new Error("plain application error"), false],
+    [null, false],
+  ])("isTransientApiError(%p) === %p", (err, expected) => {
+    expect(isTransientApiError(err)).toBe(expected);
+  });
+});
+
+describe("retryOnTransientApiError", () => {
+  test("returns the value on first success without retrying", async () => {
+    const fn = jest.fn(async () => "ok");
+    await expect(retryOnTransientApiError(fn)).resolves.toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  test("retries a transient socket-hang-up read and succeeds", async () => {
+    const fn = jest
+      .fn<Promise<string>, []>()
+      .mockRejectedValueOnce(new Error("socket hang up"))
+      .mockResolvedValueOnce("recovered");
+    await expect(retryOnTransientApiError(fn, { baseMs: 0 })).resolves.toBe("recovered");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  test("gives up after the attempt budget and rethrows the last transient error", async () => {
+    const fn = jest.fn(async () => {
+      throw new Error("socket hang up");
+    });
+    await expect(retryOnTransientApiError(fn, { attempts: 3, baseMs: 0 })).rejects.toThrow(
+      "socket hang up",
+    );
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  test("does not retry a non-transient error (e.g. 404) — fails fast", async () => {
+    const fn = jest.fn(async () => {
+      throw Object.assign(new Error("not found"), { code: 404 });
+    });
+    await expect(retryOnTransientApiError(fn, { baseMs: 0 })).rejects.toThrow("not found");
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });
 

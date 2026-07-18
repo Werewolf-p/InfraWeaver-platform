@@ -1,6 +1,6 @@
 import "server-only";
 import { makeCoreApi } from "@/lib/kube-client";
-import { isK8sNotFound } from "./k8s-errors";
+import { isK8sNotFound, isTransientApiError } from "./k8s-errors";
 
 /**
  * Persistence for IWSL external-site link records (design §5, §12.5).
@@ -211,48 +211,6 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 function backoffDelayMs(retry: number): number {
   const ceiling = MUTATE_BACKOFF_BASE_MS * 2 ** retry;
   return Math.floor(Math.random() * ceiling);
-}
-
-/** node-fetch/undici error codes for a dropped or refused kube-apiserver connection. */
-const TRANSIENT_API_ERROR_CODES = new Set([
-  "ECONNRESET",
-  "ECONNREFUSED",
-  "ETIMEDOUT",
-  "EPIPE",
-  "EAI_AGAIN",
-  "UND_ERR_SOCKET",
-  "UND_ERR_CONNECT_TIMEOUT",
-]);
-
-/**
- * True for a transient kube-apiserver connection failure — surfaced by the k8s
- * client as a node-fetch/undici NETWORK error with no HTTP status, e.g. "socket
- * hang up" or "Client network socket disconnected before secure TLS connection
- * was established". Under the concurrent fleet health sweep these spike as the
- * ~5 simultaneous CM reads+writes contend for connections. Re-reading and
- * retrying is safe: the write is idempotent under optimistic concurrency (a
- * landed-but-lost write advances resourceVersion, so the retry re-reads it and
- * re-applies), and the append mutators dedupe by url/siteName. Distinct from a
- * 409 Conflict, which carries an HTTP status and is handled by isWriteConflict.
- */
-function isTransientApiError(err: unknown): boolean {
-  let cur: unknown = err;
-  for (let depth = 0; cur != null && depth < 4; depth += 1) {
-    if (typeof cur === "object") {
-      const code = (cur as { code?: unknown }).code;
-      if (typeof code === "string" && TRANSIENT_API_ERROR_CODES.has(code)) return true;
-    }
-    const message = cur instanceof Error ? cur.message : String(cur);
-    if (
-      /socket hang up|socket disconnected|network socket disconnected|secure TLS connection|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed/i.test(
-        message,
-      )
-    ) {
-      return true;
-    }
-    cur = (cur as { cause?: unknown } | null)?.cause;
-  }
-  return false;
 }
 
 /** A mutate failure worth another attempt: an optimistic-lock 409 or a transient API drop. */

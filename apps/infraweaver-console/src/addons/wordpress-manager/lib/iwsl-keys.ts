@@ -6,7 +6,7 @@ import {
   type IwKeyPair,
   type IwPublicKeys,
 } from "@/lib/iwsl";
-import { isK8sNotFound } from "./k8s-errors";
+import { isK8sNotFound, retryOnTransientApiError } from "./k8s-errors";
 
 /**
  * IW signing-key custody (design §9 / §13 phase 3).
@@ -60,10 +60,16 @@ function parseSecret(secret: IwKeysSecret): LoadedIwKeys {
 async function readKeysSecret(): Promise<LoadedIwKeys | null> {
   const core = makeCoreApi();
   try {
-    const secret = (await core.readNamespacedSecret({
-      name: SECRET_NAME,
-      namespace: CONSOLE_NAMESPACE,
-    })) as IwKeysSecret;
+    // Retry a transient apiserver socket drop, same as mutateExternalSites: the
+    // concurrent update-sweep signs every fleet site in near-lockstep, so this
+    // shared-key read contends for connections and otherwise fails one random
+    // site/run on a "socket hang up". The read is idempotent, so re-issuing is safe.
+    const secret = (await retryOnTransientApiError(() =>
+      core.readNamespacedSecret({
+        name: SECRET_NAME,
+        namespace: CONSOLE_NAMESPACE,
+      }),
+    )) as IwKeysSecret;
     return parseSecret(secret);
   } catch (err) {
     if (isK8sNotFound(err)) return null;
