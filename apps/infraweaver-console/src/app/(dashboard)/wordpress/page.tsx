@@ -1,8 +1,10 @@
-import { redirect } from "next/navigation";
+import { WordpressView } from "./view";
 
-// Consolidated into the Workloads hub — WordPress is now the addon-gated
-// "wordpress" tab (renders the WordpressDashboard). Old URLs and bookmarks keep
-// working. Detail routes (/wordpress/[site]) are unchanged.
-export default function WordpressRedirect() {
-  redirect("/workloads?tab=wordpress");
+// The WordPress addon nav entry lands here directly. Rendering the dashboard in
+// place (instead of redirecting to /workloads?tab=wordpress) avoids the visible
+// flash where the Workloads hub painted its default "Apps" tab for a beat before
+// the ?tab=wordpress query resolved. The Workloads hub still hosts a WordPress
+// tab; detail routes (/wordpress/[site]) are unchanged.
+export default function WordpressPage() {
+  return <WordpressView />;
 }

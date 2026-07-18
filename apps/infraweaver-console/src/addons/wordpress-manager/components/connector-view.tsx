@@ -489,17 +489,34 @@ export function ConnectorView({ site }: { site: string }) {
                 <MetaRow label="Rotation in flight" value={`kid ${link.pendingRotation.newKid} (${link.pendingRotation.phase})`} />
               )}
               {link.lastReroll && (
-                <MetaRow
-                  label="Last reroll"
-                  value={`${
-                    link.lastReroll.outcome === "confirmed"
-                      ? "success"
-                      : link.lastReroll.outcome === "aborted"
-                        ? "failed"
-                        : "in progress"
-                  } · ${new Date(link.lastReroll.at).toLocaleString()}`}
-                  tone={link.lastReroll.outcome === "aborted" ? "danger" : undefined}
-                />
+                <div className="flex items-baseline justify-between gap-3 text-xs">
+                  <span className="shrink-0 text-zinc-500">Last reroll</span>
+                  <span className="inline-flex items-center gap-1.5 truncate text-right font-mono">
+                    {link.lastReroll.outcome === "confirmed" ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" aria-label="success" />
+                    ) : link.lastReroll.outcome === "aborted" ? (
+                      <XCircle className="h-3.5 w-3.5 shrink-0 text-red-400" aria-label="failed" />
+                    ) : (
+                      <CircleDashed className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-400" aria-label="in progress" />
+                    )}
+                    <span
+                      className={cn(
+                        link.lastReroll.outcome === "confirmed"
+                          ? "text-emerald-300"
+                          : link.lastReroll.outcome === "aborted"
+                            ? "text-red-300"
+                            : "text-amber-300",
+                      )}
+                    >
+                      {link.lastReroll.outcome === "confirmed"
+                        ? "success"
+                        : link.lastReroll.outcome === "aborted"
+                          ? "failed"
+                          : "in progress"}
+                    </span>
+                    <span className="text-zinc-500">· {new Date(link.lastReroll.at).toLocaleString()}</span>
+                  </span>
+                </div>
               )}
             </div>
             <div className="mt-4 flex justify-end">
