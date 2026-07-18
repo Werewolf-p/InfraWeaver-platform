@@ -45,6 +45,29 @@ export async function getManagedLink(site: string): Promise<ExternalSiteView | n
   return views.find((v) => v.managed && v.siteName === site) ?? null;
 }
 
+/**
+ * §5 — bind the link's canonical identity the instant enrollment completes by
+ * firing one signed health.check, rather than leaving `canonicalUrl` null until
+ * the first health sweep folds the self-reported URL into the record. Best-effort
+ * by design: the link is already active and confirmed, so a transient failure
+ * here only defers the identity bind to the next sweep — it must never fail the
+ * enrollment that just succeeded. The import is dynamic on purpose: iwsl-managed-ops
+ * statically imports `unlinkManagedSite` from this module, so a static import back
+ * would close an import cycle (this mirrors provision.ts importing this module
+ * dynamically for the same reason).
+ */
+async function bindIdentityViaHealthCheck(site: string): Promise<void> {
+  try {
+    const { connectorHealthCheck } = await import("./iwsl-managed-ops");
+    await connectorHealthCheck(site);
+  } catch (err) {
+    console.warn(
+      `[wordpress:iwsl] post-enroll health.check for ${site} failed; canonical URL binds on the next sweep:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
 export async function enrollManagedSite(site: string, actor: string): Promise<ExternalSiteView> {
   const summary = (await listSites()).find((s) => s.site === site);
   if (!summary) throw new AddonHttpError("Site not found", 404);
@@ -76,7 +99,9 @@ export async function enrollManagedSite(site: string, actor: string): Promise<Ex
     if (!outcome.ok) {
       throw new AddonHttpError(`Enrollment verification failed: ${outcome.reason}`, 502);
     }
-    return await confirmFingerprint(record.siteId);
+    const view = await confirmFingerprint(record.siteId);
+    await bindIdentityViaHealthCheck(site);
+    return view;
   } catch (err) {
     // Roll the record back so a retry starts clean instead of hitting the
     // duplicate guard; the enroll secret is burned with it.

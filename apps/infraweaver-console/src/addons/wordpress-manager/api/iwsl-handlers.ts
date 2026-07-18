@@ -192,7 +192,19 @@ export async function confirmFingerprintHandler(siteId: string): Promise<NextRes
   if (!gate.ok) return gate.error;
   const limited = rateLimited("confirm", gate.ctx.username, 20);
   if (limited) return limited;
-  return guard(async () => json({ site: await confirmFingerprint(siteId) }));
+  return guard(async () => {
+    const site = await confirmFingerprint(siteId);
+    // §5 — bind the canonical identity now instead of on the first sweep: one
+    // signed health.check folds the self-reported URL into the link. Best-effort;
+    // the link is already active, so a transient failure just defers the bind.
+    await externalConnectorHealthCheck(siteId).catch((err) => {
+      console.warn(
+        `[wordpress:iwsl] post-confirm health.check for ${siteId} failed; canonical URL binds on the next sweep:`,
+        err instanceof Error ? err.message : err,
+      );
+    });
+    return json({ site });
+  });
 }
 
 /**
