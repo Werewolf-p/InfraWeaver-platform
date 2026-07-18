@@ -195,8 +195,15 @@ export async function getExternalSite(siteId: string): Promise<ExternalSiteRecor
   return (await readSites()).sites.find((s) => s.siteId === siteId) ?? null;
 }
 
-/** How many times a conflicting read-modify-write is retried before giving up. */
-const MUTATE_MAX_ATTEMPTS = 3;
+/**
+ * How many times a conflicting read-modify-write is retried before giving up.
+ * Sized for the connector update sweep's worst case: up to SWEEP_CONCURRENCY (4)
+ * lanes each do multiple writes (allocateSeq + version persist) to this one
+ * ConfigMap in near-lockstep, so a loser can be bounced several times. 3 attempts
+ * left ~1 site/run losing every retry and failing on a 409; 6 attempts, spread by
+ * the full-jitter backoff (ceilings 25..400ms), reliably resolve that contention.
+ */
+const MUTATE_MAX_ATTEMPTS = 6;
 /** Base for the exponential backoff (ms); actual wait is full-jittered below. */
 const MUTATE_BACKOFF_BASE_MS = 25;
 

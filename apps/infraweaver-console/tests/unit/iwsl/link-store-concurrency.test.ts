@@ -194,9 +194,10 @@ describe("mutateExternalSites — optimistic concurrency", () => {
       mutateExternalSites((sites) => sites.push(rec("ours"))),
     ).rejects.toThrow(/409|conflict/i);
 
-    // 3 attempts total (initial + 2 retries).
-    expect(mockState.replaces).toBe(3);
-    expect(mockState.reads).toBe(3);
+    // MUTATE_MAX_ATTEMPTS total (initial + retries): 6, sized for the update
+    // sweep's 4-way lockstep on the one ConfigMap.
+    expect(mockState.replaces).toBe(6);
+    expect(mockState.reads).toBe(6);
   });
 
   test("retries a transient socket hangup on the WRITE and then succeeds", async () => {
