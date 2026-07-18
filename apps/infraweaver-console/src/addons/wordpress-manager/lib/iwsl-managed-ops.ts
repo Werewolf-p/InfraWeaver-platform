@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import {
+  ALG_SLHDSA,
   createSignedCommand,
   runScheduledRotation,
   verifySignedResponse,
@@ -253,6 +254,11 @@ async function dispatchSignedCommand(
       spki: channel === "https" ? record.pinnedSpki : undefined,
     },
     keys,
+    // Sign with the SLH-DSA set this link pinned at enrollment (per-link
+    // migration). A missing iwAlg is a legacy 192s link; a 192f link fails loud
+    // here if the 192f key isn't projected yet, rather than sending a sig the
+    // plugin can't verify.
+    record.iwAlg ?? ALG_SLHDSA,
   );
 
   const body = await deliver(JSON.stringify(signed));

@@ -27,6 +27,7 @@ function iwsl_body_within_limit( WP_REST_Request $request ): bool {
 
 require_once __DIR__ . '/includes/class-iwsl-jcs.php';
 require_once __DIR__ . '/includes/class-iwsl-slhdsa.php';
+require_once __DIR__ . '/includes/class-iwsl-slhdsa-192f.php';
 require_once __DIR__ . '/includes/class-iwsl-crypto.php';
 require_once __DIR__ . '/includes/class-iwsl-store.php';
 require_once __DIR__ . '/includes/class-iwsl-wp-store.php';

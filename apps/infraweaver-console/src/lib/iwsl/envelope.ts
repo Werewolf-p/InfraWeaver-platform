@@ -14,7 +14,7 @@ import {
 import { canonicalize } from "./jcs";
 import {
   ALG_ED25519,
-  COMMAND_ALGS,
+  ALG_SLHDSA,
   DEFAULT_COMMAND_TTL_MS,
   DEFAULT_MAX_RESULT_BYTES,
   DOMAIN_CMD,
@@ -28,6 +28,7 @@ import {
   type ResponseEnvelope,
   type SignedCommand,
   type SignedResponse,
+  type SlhdsaAlg,
   type VerifyResult,
   type WpKeyPair,
 } from "./types";
@@ -71,7 +72,11 @@ export function responseMessage(envelope: ResponseEnvelope): Uint8Array {
   return domainMessage(DOMAIN_RESP, canonicalize(envelope));
 }
 
-export function createSignedCommand(input: CreateCommandInput, keys: IwKeyPair): SignedCommand {
+export function createSignedCommand(
+  input: CreateCommandInput,
+  keys: IwKeyPair,
+  alg: SlhdsaAlg = ALG_SLHDSA,
+): SignedCommand {
   const envelope: CommandEnvelope = {
     v: IWSL_VERSION,
     typ: "cmd",
@@ -83,10 +88,10 @@ export function createSignedCommand(input: CreateCommandInput, keys: IwKeyPair):
     exp: input.ts + (input.ttlMs ?? DEFAULT_COMMAND_TTL_MS),
     method: input.method,
     params: input.params,
-    alg: [...COMMAND_ALGS],
+    alg: [ALG_ED25519, alg],
     aud: buildAudience(input),
   };
-  return { envelope, sigs: dualSign(commandMessage(envelope), keys) };
+  return { envelope, sigs: dualSign(commandMessage(envelope), keys, alg) };
 }
 
 export interface CreateResponseInput {

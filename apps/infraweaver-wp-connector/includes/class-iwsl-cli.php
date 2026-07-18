@@ -58,11 +58,11 @@ final class IWSL_CLI {
 
 		WP_CLI::log( 'State:            ' . $state );
 		WP_CLI::log( 'Site ID:          ' . ( $store->get( 'site_id' ) ?? '-' ) );
-		WP_CLI::log( 'IW-PK pinned:     ' . ( is_array( $iw_keys ) ? self::fingerprint( $iw_keys[ IWSL_Crypto::ALG_ED25519 ] . $iw_keys[ IWSL_Crypto::ALG_SLHDSA ] ) : '-' ) );
+		WP_CLI::log( 'IW-PK pinned:     ' . ( is_array( $iw_keys ) ? ( IWSL_Crypto::iw_fingerprint( $iw_keys ) ?? '-' ) : '-' ) );
 		WP_CLI::log( 'WP-PK:            ' . ( is_array( $wp_pair ) ? self::fingerprint( $wp_pair['pk'] ) : '-' ) );
 		WP_CLI::log( 'kid (IW/WP):      ' . $iw_kid . '/' . $wp_kid );
 		WP_CLI::log( 'last_seq:         ' . (int) $store->get( 'last_seq', 0 ) );
-		WP_CLI::log( 'PQ algorithm:     ' . IWSL_Crypto::ALG_SLHDSA );
+		WP_CLI::log( 'PQ algorithm:     ' . ( is_array( $iw_keys ) ? ( IWSL_Crypto::pinned_slhdsa_alg( $iw_keys ) ?? IWSL_Crypto::ALG_SLHDSA ) : IWSL_Crypto::ALG_SLHDSA ) );
 		WP_CLI::log( 'Rotation phase:   ' . ( is_array( $pending ) ? 'prepare/verify (kid ' . $pending['new_kid'] . ')' : 'idle' ) );
 		WP_CLI::log( 'Last rejection:   ' . ( is_array( $reject ) ? $reject['reason'] . ' @ ' . $reject['ts'] : '-' ) );
 	}

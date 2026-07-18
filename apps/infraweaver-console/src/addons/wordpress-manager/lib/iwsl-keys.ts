@@ -46,6 +46,10 @@ function b64ToBytes(value: string | undefined, field: string): Uint8Array {
 function parseSecret(secret: IwKeysSecret): LoadedIwKeys {
   const kidRaw = secret.data?.kid ? Buffer.from(secret.data.kid, "base64").toString("utf8") : `${INITIAL_IW_KID}`;
   const kid = Number.parseInt(kidRaw, 10);
+  // 192f keypair is projected alongside 192s once OpenBao seeds it (the fast-sign
+  // migration). Absent on a pre-migration Secret — optional, so enrollment/signing
+  // transparently falls back to 192s until the key is present.
+  const has192f = Boolean(secret.data?.slhdsa192fSk && secret.data?.slhdsa192fPk);
   return {
     kid: Number.isFinite(kid) && kid >= 1 ? kid : INITIAL_IW_KID,
     keys: {
@@ -53,6 +57,8 @@ function parseSecret(secret: IwKeysSecret): LoadedIwKeys {
       ed25519PublicKey: b64ToBytes(secret.data?.ed25519Pk, "ed25519Pk"),
       slhdsaSecretKey: b64ToBytes(secret.data?.slhdsaSk, "slhdsaSk"),
       slhdsaPublicKey: b64ToBytes(secret.data?.slhdsaPk, "slhdsaPk"),
+      slhdsa192fSecretKey: has192f ? b64ToBytes(secret.data?.slhdsa192fSk, "slhdsa192fSk") : undefined,
+      slhdsa192fPublicKey: has192f ? b64ToBytes(secret.data?.slhdsa192fPk, "slhdsa192fPk") : undefined,
     },
   };
 }

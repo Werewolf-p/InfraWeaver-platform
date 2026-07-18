@@ -1,5 +1,6 @@
 import "server-only";
 import { makeCoreApi } from "@/lib/kube-client";
+import type { SlhdsaAlg } from "@/lib/iwsl";
 import { isK8sNotFound, isTransientApiError } from "./k8s-errors";
 
 /**
@@ -45,6 +46,14 @@ export interface ExternalSiteRecord {
   epochFloor: number;
   /** IW key epoch the site pinned from its bundle. */
   iwKid: number;
+  /**
+   * SLH-DSA parameter set the site pinned at enrollment, i.e. the set the
+   * console must sign this link's commands with. Absent means the historical
+   * default "slh-dsa-192s" (the ~47s-sign set); "slh-dsa-192f" is the fast-sign
+   * set a re-enrolled/new link pins. Per-link so the fleet migrates one link at
+   * a time with no flag-day.
+   */
+  iwAlg?: SlhdsaAlg;
   /** §12.5 — last verify-pull attempt and its outcome. */
   lastVerify?: { at: string; ok: boolean; reason?: string };
   /** §12.5 — verify/enrollment rejections seen for this site. */

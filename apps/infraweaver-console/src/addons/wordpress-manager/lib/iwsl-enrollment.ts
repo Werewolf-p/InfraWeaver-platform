@@ -1,6 +1,8 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import {
+  ALG_SLHDSA,
+  ALG_SLHDSA_192F,
   createEnrollmentBundle,
   fromB64u,
   iwKeysFingerprint,
@@ -10,6 +12,7 @@ import {
   toB64u,
   verifyEnrollProof,
   wpKeyFingerprint,
+  type SlhdsaAlg,
 } from "@/lib/iwsl";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
 import { AddonHttpError } from "./errors";
@@ -173,9 +176,14 @@ export async function issueBundle(siteId: string, now = Date.now()): Promise<Iss
     );
   }
   const { keys, kid } = await loadOrCreateIwKeys();
+  // Pin the fast-sign 192f set on every new/re-enroll once OpenBao projects the
+  // 192f key; otherwise stay on 192s. This is the migration lever — a link is
+  // moved off the ~47s-sign path simply by re-enrolling it.
+  const iwAlg: SlhdsaAlg = keys.slhdsa192fPublicKey ? ALG_SLHDSA_192F : ALG_SLHDSA;
   const { signed, enrollSecret } = createEnrollmentBundle(
     { siteId: site.siteId, callbackOrigin: site.url, now, iwKid: kid },
     keys,
+    iwAlg,
   );
   await putEnrollSecret(site.siteId, toB64u(enrollSecret));
   await mutateExternalSites((sites) => {
@@ -193,6 +201,7 @@ export async function issueBundle(siteId: string, now = Date.now()): Promise<Iss
     target.bundleIssuedAt = new Date(now).toISOString();
     target.bundleExpiresAt = new Date(signed.bundle.expires_ts).toISOString();
     target.iwKid = kid;
+    target.iwAlg = iwAlg;
   });
   return {
     filename: `infraweaver-enroll-${site.siteId}.iwenroll`,

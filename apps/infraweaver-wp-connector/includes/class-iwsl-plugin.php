@@ -254,9 +254,8 @@ final class IWSL_Plugin {
 			'wp_epoch_floor' => (int) $this->store->get( 'wp_epoch_floor', 0 ),
 			'iw_epoch_floor' => (int) $this->store->get( 'iw_epoch_floor', 0 ),
 			'wp_fingerprint' => is_array( $wp_pair ) ? IWSL_Crypto::fingerprint( $wp_pair['pk'] ) : null,
-			'iw_fingerprint' => is_array( $iw_keys )
-				? IWSL_Crypto::fingerprint( $iw_keys[ IWSL_Crypto::ALG_ED25519 ] . $iw_keys[ IWSL_Crypto::ALG_SLHDSA ] )
-				: null,
+			'iw_fingerprint' => is_array( $iw_keys ) ? IWSL_Crypto::iw_fingerprint( $iw_keys ) : null,
+			'iw_pq_alg'      => is_array( $iw_keys ) ? IWSL_Crypto::pinned_slhdsa_alg( $iw_keys ) : null,
 			'last_seq'       => (int) $this->store->get( 'last_seq', 0 ),
 			'nonce_cache'    => is_array( $nonces ) ? count( $nonces ) : 0,
 			'rotation'       => is_array( $pending )

@@ -20,6 +20,7 @@ export {
   generateIwKeyPair,
   generateWpKeyPair,
   iwPublicKeys,
+  pinnedSlhdsaAlg,
   randomBytes,
   toB64u,
 } from "./crypto";

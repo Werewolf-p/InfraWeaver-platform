@@ -196,28 +196,41 @@ final class IWSL_Enrollment {
 		@unlink( $path );
 	}
 
-	/** @return array|null ['ed25519' => raw 32B, 'slh-dsa-192s' => raw 48B] */
+	/**
+	 * @return array|null ['ed25519' => raw 32B, ('slh-dsa-192s'|'slh-dsa-192f') => raw 48B].
+	 * The PQ alg key name is PRESERVED so the pinned `iw_keys.{kid}` records which
+	 * parameter set this link verifies under (192f arrives via re-enroll).
+	 */
 	private function decode_iw_pks( stdClass $iw_pk ): ?array {
 		$vars = get_object_vars( $iw_pk );
-		if ( ! isset( $vars[ IWSL_Crypto::ALG_ED25519 ], $vars[ IWSL_Crypto::ALG_SLHDSA ] ) ) {
+		if ( ! isset( $vars[ IWSL_Crypto::ALG_ED25519 ] ) || ! is_string( $vars[ IWSL_Crypto::ALG_ED25519 ] ) ) {
 			return null;
 		}
+		// Exactly one SLH-DSA alg must be pinned. Presenting both is ambiguous
+		// (which one does the link verify under?) — fail closed.
+		$has_s = isset( $vars[ IWSL_Crypto::ALG_SLHDSA_192S ] );
+		$has_f = isset( $vars[ IWSL_Crypto::ALG_SLHDSA_192F ] );
+		if ( $has_s === $has_f ) {
+			return null; // neither, or both
+		}
+		$pq_alg = $has_f ? IWSL_Crypto::ALG_SLHDSA_192F : IWSL_Crypto::ALG_SLHDSA_192S;
 		// Sub-properties are attacker-controlled; a non-string (e.g. a nested
 		// object) would fatal on the (string) cast below rather than fail closed.
-		if ( ! is_string( $vars[ IWSL_Crypto::ALG_ED25519 ] ) || ! is_string( $vars[ IWSL_Crypto::ALG_SLHDSA ] ) ) {
+		if ( ! is_string( $vars[ $pq_alg ] ) ) {
 			return null;
 		}
 		$ed = IWSL_Crypto::b64u_decode( $vars[ IWSL_Crypto::ALG_ED25519 ] );
-		$pq = IWSL_Crypto::b64u_decode( $vars[ IWSL_Crypto::ALG_SLHDSA ] );
+		$pq = IWSL_Crypto::b64u_decode( $vars[ $pq_alg ] );
 		if ( null === $ed || SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES !== strlen( $ed ) ) {
 			return null;
 		}
+		// PK_BYTES (48) is identical for 192s and 192f.
 		if ( null === $pq || IWSL_SLHDSA::PK_BYTES !== strlen( $pq ) ) {
 			return null;
 		}
 		return array(
 			IWSL_Crypto::ALG_ED25519 => $ed,
-			IWSL_Crypto::ALG_SLHDSA  => $pq,
+			$pq_alg                  => $pq,
 		);
 	}
 }

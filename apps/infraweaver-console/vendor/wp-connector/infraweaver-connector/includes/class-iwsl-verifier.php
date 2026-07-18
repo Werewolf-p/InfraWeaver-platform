@@ -192,11 +192,13 @@ final class IWSL_Verifier {
 		if ( ! isset( $envelope->params ) || ! $envelope->params instanceof stdClass ) {
 			return 'schema-fail';
 		}
-		// Downgrade defense (§6.3): alg must list exactly both command algorithms.
+		// Downgrade defense (§6.3): alg must list ed25519 + exactly one SLH-DSA set
+		// (192s or 192f). Dropping the PQ leg is still rejected; the pinned key
+		// (resolve_iw_keys) + verify_dual enforce the actual set this link uses.
 		if (
 			! isset( $envelope->alg ) ||
 			! is_array( $envelope->alg ) ||
-			array( IWSL_Crypto::ALG_ED25519, IWSL_Crypto::ALG_SLHDSA ) !== $envelope->alg
+			! IWSL_Crypto::is_command_alg( $envelope->alg )
 		) {
 			return 'pq-required';
 		}
@@ -255,7 +257,7 @@ final class IWSL_Verifier {
 			return 'kid-retired';
 		}
 		$keys = $this->store->get( 'iw_keys.' . $kid );
-		if ( ! is_array( $keys ) || ! isset( $keys[ IWSL_Crypto::ALG_ED25519 ], $keys[ IWSL_Crypto::ALG_SLHDSA ] ) ) {
+		if ( ! is_array( $keys ) || ! isset( $keys[ IWSL_Crypto::ALG_ED25519 ] ) || null === IWSL_Crypto::pinned_slhdsa_alg( $keys ) ) {
 			return 'kid-unknown';
 		}
 		return $keys;

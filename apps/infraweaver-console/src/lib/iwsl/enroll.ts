@@ -19,6 +19,7 @@ import {
 import { canonicalize } from "./jcs";
 import {
   ALG_ED25519,
+  ALG_SLHDSA,
   DEFAULT_ENROLL_TTL_MS,
   DOMAIN_ENROLL_BUNDLE,
   DOMAIN_ENROLL_PROOF,
@@ -27,6 +28,7 @@ import {
   type IwKeyPair,
   type SignedEnrollProof,
   type SignedEnrollmentBundle,
+  type SlhdsaAlg,
 } from "./types";
 
 export interface CreateBundleInput {
@@ -49,6 +51,7 @@ export interface CreatedEnrollment {
 export function createEnrollmentBundle(
   input: CreateBundleInput,
   keys: IwKeyPair,
+  alg: SlhdsaAlg = ALG_SLHDSA,
 ): CreatedEnrollment {
   const enrollSecret = input.enrollSecret ?? randomBytes(32);
   const bundle: EnrollmentBundle = {
@@ -56,14 +59,15 @@ export function createEnrollmentBundle(
     typ: "enroll-bundle",
     site_id: input.siteId,
     iw_kid: input.iwKid ?? 1,
-    iw_pk: iwPublicKeys(keys),
+    // Pins exactly the SLH-DSA set the plugin will verify this link under.
+    iw_pk: iwPublicKeys(keys, alg),
     enroll_secret: toB64u(enrollSecret),
     created_ts: input.now,
     expires_ts: input.now + (input.ttlMs ?? DEFAULT_ENROLL_TTL_MS),
     callback_origin: input.callbackOrigin,
     policy: "strict-pq",
   };
-  const sigs = dualSign(domainMessage(DOMAIN_ENROLL_BUNDLE, canonicalize(bundle)), keys);
+  const sigs = dualSign(domainMessage(DOMAIN_ENROLL_BUNDLE, canonicalize(bundle)), keys, alg);
   return { signed: { bundle, sigs }, enrollSecret };
 }
 

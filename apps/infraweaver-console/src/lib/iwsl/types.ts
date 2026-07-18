@@ -7,7 +7,13 @@
 export const IWSL_VERSION = 1;
 
 export const ALG_ED25519 = "ed25519";
-export const ALG_SLHDSA = "slh-dsa-192s";
+export const ALG_SLHDSA_192S = "slh-dsa-192s";
+export const ALG_SLHDSA_192F = "slh-dsa-192f";
+/** Back-compat alias — the pre-migration default PQ set (small, ~47s sign). */
+export const ALG_SLHDSA = ALG_SLHDSA_192S;
+
+/** SLH-DSA parameter set a link is signed/pinned under. 192f signs ~30× faster. */
+export type SlhdsaAlg = typeof ALG_SLHDSA_192S | typeof ALG_SLHDSA_192F;
 
 export const COMMAND_ALGS: readonly string[] = [ALG_ED25519, ALG_SLHDSA];
 export const RESPONSE_ALGS: readonly string[] = [ALG_ED25519];
@@ -92,18 +98,28 @@ export interface SignedResponse {
   sigs: SignatureSet;
 }
 
-/** IW cluster keypair — Ed25519 + SLH-DSA-192s (§4). */
+/**
+ * IW cluster keypair — Ed25519 + SLH-DSA (§4). The 192s pair is the historical
+ * default; the optional 192f pair is projected alongside it once OpenBao seeds
+ * it, and a link signs with whichever set it currently pins (per-link migration).
+ */
 export interface IwKeyPair {
   ed25519SecretKey: Uint8Array;
   ed25519PublicKey: Uint8Array;
-  slhdsaSecretKey: Uint8Array;
-  slhdsaPublicKey: Uint8Array;
+  slhdsaSecretKey: Uint8Array; // 192s
+  slhdsaPublicKey: Uint8Array; // 192s
+  slhdsa192fSecretKey?: Uint8Array;
+  slhdsa192fPublicKey?: Uint8Array;
 }
 
-/** IW public keys as pinned by the plugin (base64url). */
+/**
+ * IW public keys as pinned by the plugin (base64url). Exactly one SLH-DSA set is
+ * present per pin — 192s for legacy links, 192f for migrated/new links.
+ */
 export interface IwPublicKeys {
   ed25519: string;
-  "slh-dsa-192s": string;
+  "slh-dsa-192s"?: string;
+  "slh-dsa-192f"?: string;
 }
 
 /** Per-site WP keypair — Ed25519 only (v1.2, responses are classical-only). */

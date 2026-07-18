@@ -8,8 +8,8 @@
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import { fromB64u } from "./crypto";
-import { ALG_ED25519, ALG_SLHDSA, type IwPublicKeys } from "./types";
+import { fromB64u, pinnedSlhdsaAlg } from "./crypto";
+import { ALG_ED25519, type IwPublicKeys } from "./types";
 
 const utf8 = new TextEncoder();
 
@@ -26,8 +26,14 @@ export function fingerprintKeyMaterial(material: Uint8Array | string): string {
 
 /** IW-PK fingerprint as the plugin shows it: over `raw_ed25519 || raw_slhdsa`. */
 export function iwKeysFingerprint(pks: IwPublicKeys): string {
+  const pqAlg = pinnedSlhdsaAlg(pks);
+  if (pqAlg === null) {
+    throw new Error("IWSL: iw public keys pin no SLH-DSA algorithm");
+  }
   const ed = fromB64u(pks[ALG_ED25519]);
-  const pq = fromB64u(pks[ALG_SLHDSA]);
+  // The pinned SLH-DSA set (192s or 192f); the plugin fingerprints the same
+  // ed || pq bytes for the matching set, so both planes stay byte-identical.
+  const pq = fromB64u(pks[pqAlg] as string);
   const material = new Uint8Array(ed.length + pq.length);
   material.set(ed, 0);
   material.set(pq, ed.length);
