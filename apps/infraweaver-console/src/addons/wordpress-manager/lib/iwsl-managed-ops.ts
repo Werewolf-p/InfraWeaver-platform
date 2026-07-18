@@ -19,6 +19,7 @@ import { findWpPodName } from "./provision";
 import { buildConnectorPackage } from "./connector-package";
 import { loadOrCreateIwKeys } from "./iwsl-keys";
 import { listExternalSites, mutateExternalSites, type ExternalSiteRecord } from "./iwsl-link-store";
+import { confirmIdentity, evaluateIdentity, isIdentitySuspended } from "./iwsl-identity";
 import { unlinkManagedSite } from "./iwsl-managed";
 import { PLAIN_PERMALINKS_HINT, isPlainPermalinkSymptom } from "./iwsl-rest-hint";
 import {
@@ -149,6 +150,46 @@ function requireCommandable(record: ExternalSiteRecord): void {
   }
   if (record.state !== "active" || !record.fingerprintConfirmed || !record.wpPk) {
     throw new AddonHttpError("Link is not active yet — enrollment has not completed", 409);
+  }
+}
+
+/**
+ * Clone/identity-crisis safe mode (§5, §12.5). Gates the STATE-CHANGING ops
+ * (key rotation, plugin update) when the link self-reported a canonical URL
+ * that differs from what it was bound to — the site may be a clone or a
+ * mid-migration install. Read-only diagnostics (health.check, debug.status) and
+ * the destructive escape hatches (quarantine, deactivate/kill) are deliberately
+ * NOT gated: the operator needs those to investigate and to shut a clone down.
+ * This is a defense-in-depth policy gate — the signature/pinned-key checks are
+ * the real trust boundary — so a snapshot read is sufficient.
+ */
+function requireIdentityConfirmed(record: ExternalSiteRecord): void {
+  if (isIdentitySuspended(record)) {
+    throw new AddonHttpError(
+      "This link is in identity safe mode — the site reported a changed canonical URL. Re-confirm its identity (or quarantine it) before changing state.",
+      409,
+    );
+  }
+}
+
+/**
+ * Fold a signature-verified self-reported canonical URL into a link's identity
+ * fields. Mutates `target` in place inside a mutateExternalSites callback: a
+ * mismatch flips safe mode, the first report binds the identity, and an
+ * unparseable/absent report is a no-op (a Connector too old to self-report never
+ * trips it). A fresh mismatch is logged so a clone/migration leaves an audit line.
+ */
+function applyIdentityObservation(target: ExternalSiteRecord, observedRaw: unknown, atIso: string): void {
+  const decision = evaluateIdentity(target, observedRaw, atIso);
+  if (decision.kind === "no-signal") return;
+  const wasSuspended = target.identitySuspended === true;
+  target.canonicalUrl = decision.next.canonicalUrl;
+  target.identitySuspended = decision.next.identitySuspended;
+  target.identityAlert = decision.next.identityAlert;
+  if (decision.kind === "mismatch" && !wasSuspended) {
+    console.warn(
+      `[wordpress:iwsl] identity crisis for ${target.siteId}: self-reported ${decision.next.identityAlert?.observedUrl} != bound ${decision.next.identityAlert?.boundUrl} — safe mode engaged`,
+    );
   }
 }
 
@@ -298,6 +339,11 @@ export interface ConnectorHealth {
  */
 async function persistHealthResult(record: ExternalSiteRecord, reply: CommandReply): Promise<void> {
   const version = typeof reply.result.plugin === "string" ? reply.result.plugin : null;
+  // The self-reported canonical URL rode inside the response `dispatchSignedCommand`
+  // already signature-verified (a bad signature quarantines and throws before we
+  // reach here), so it's as trustworthy as the version above — a MITM can't
+  // forge it. §5 clone/identity-crisis detection.
+  const observedUrl = reply.result.site_url;
   await mutateExternalSites((sites) => {
     const target = sites.find((s) => s.siteId === record.siteId);
     if (!target) return;
@@ -308,6 +354,7 @@ async function persistHealthResult(record: ExternalSiteRecord, reply: CommandRep
       ...(reply.rejectedReason ? { reason: reply.rejectedReason } : {}),
     };
     if (version) target.connectorVersion = version;
+    applyIdentityObservation(target, observedUrl, new Date().toISOString());
   });
 }
 
@@ -387,6 +434,16 @@ export async function connectorDebug(site: string): Promise<ConnectorDebug> {
     debugUnavailable = "Signed diagnostics need an active, fingerprint-confirmed link.";
   }
 
+  // debug.status carries the same signature-verified self-reported canonical URL
+  // as health.check, so evaluate it here too — deep diagnostics are a second
+  // detector for a clone/migration (§5).
+  if (debug && typeof debug.site_url === "string") {
+    await mutateExternalSites((sites) => {
+      const target = sites.find((s) => s.siteId === record.siteId);
+      if (target) applyIdentityObservation(target, debug.site_url, new Date().toISOString());
+    });
+  }
+
   return {
     statusText: statusOut.stdout.trim(),
     selftestText: selftestOut.stdout.trim(),
@@ -412,6 +469,7 @@ export interface RotationResult {
 export async function rotateConnectorKey(site: string): Promise<RotationResult> {
   const record = await requireManagedRecord(site);
   requireCommandable(record);
+  requireIdentityConfirmed(record);
   const pod = await requireRunningPod(site);
 
   // A prepared-but-unconfirmed key from a resumed rotation is a legitimate
@@ -481,6 +539,43 @@ export async function setConnectorQuarantine(site: string, quarantined: boolean)
 }
 
 /**
+ * Operator re-confirm of a link's identity (§5 clone/identity-crisis). Accepts
+ * the observed canonical URL that tripped safe mode as the new binding and clears
+ * the suspension — the "yes, this site legitimately moved" path. Rejecting a
+ * suspected clone is quarantine or the kill switch, NOT this. Works by siteId so
+ * it serves both managed and external links. Returns the newly bound URL for the
+ * confirmation toast. Idempotent-ish: refuses when there is no pending alert.
+ */
+export async function confirmSiteIdentity(
+  siteId: string,
+  expectedAlertAt: string,
+): Promise<{ canonicalUrl?: string }> {
+  return mutateExternalSites((sites) => {
+    const target = sites.find((s) => s.siteId === siteId);
+    if (!target) throw new AddonHttpError("Connector link not found", 404);
+    if (!isIdentitySuspended(target) || !target.identityAlert) {
+      throw new AddonHttpError("This link has no pending identity alert to confirm", 409);
+    }
+    // Anti-TOCTOU: bind ONLY the exact alert the operator reviewed. The hourly
+    // sweep or a concurrent health-check can supersede `identityAlert` between
+    // page load and confirm — with a fresh (possibly attacker-chosen) URL — so
+    // confirm the alert's `at` token matches what the client displayed and fail
+    // closed otherwise, mirroring the anti-key-overwrite re-checks elsewhere.
+    if (target.identityAlert.at !== expectedAlertAt) {
+      throw new AddonHttpError(
+        "The identity alert changed since you reviewed it — re-review before confirming",
+        409,
+      );
+    }
+    const next = confirmIdentity(target);
+    target.canonicalUrl = next.canonicalUrl;
+    target.identitySuspended = next.identitySuspended;
+    target.identityAlert = next.identityAlert;
+    return { canonicalUrl: target.canonicalUrl };
+  });
+}
+
+/**
  * §8 kill switch: tell the plugin to wipe its keys and state (signed
  * site.deactivate), then remove the link record and uninstall the plugin.
  * On a quarantined link the signed send is skipped — we no longer trust the
@@ -514,6 +609,10 @@ export async function deactivateConnector(site: string): Promise<{ wiped: boolea
  */
 export async function updateConnectorPlugin(site: string): Promise<{ version: string | null }> {
   const record = await requireManagedRecord(site);
+  // Pushing plugin code into the pod is state-changing — refuse it while the
+  // link is in identity safe mode (§5); the remedy for a suspected clone is
+  // quarantine/kill, not a reinstall.
+  requireIdentityConfirmed(record);
   const pod = await requireRunningPod(site);
   const pkg = await buildConnectorPackage();
   await execInWpPod(pod, installConnectorScript(), {

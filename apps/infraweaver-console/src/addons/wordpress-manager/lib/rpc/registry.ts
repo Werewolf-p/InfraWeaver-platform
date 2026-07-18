@@ -41,7 +41,15 @@ export interface RpcParams {
  * trusting a field.
  */
 export interface RpcResult {
-  "health.check": { status: string; php: string; plugin: string; kid: number; seq: number };
+  "health.check": {
+    status: string;
+    php: string;
+    plugin: string;
+    kid: number;
+    seq: number;
+    /** §5 — the site's own live canonical URL, for clone/identity-crisis detection. */
+    site_url?: string;
+  };
   "debug.status": Record<string, unknown>;
   "key.rotate.self": { new_wp_pk: string } | { reason: string };
   "key.rotate.confirm": Record<string, never> | { reason: string };

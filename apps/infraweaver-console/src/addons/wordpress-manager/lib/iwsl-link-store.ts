@@ -89,6 +89,27 @@ export interface ExternalSiteRecord {
   pinnedSpki?: string[];
   /** When `pinnedSpki` was last observed/updated from a verified exchange. */
   spkiObservedAt?: string;
+  /**
+   * Clone / identity-crisis binding (§5, §12.5). The link's identity is
+   * `siteId` + the site's own canonical URL. `canonicalUrl` is anchored from the
+   * FIRST signature-verified self-report (the plugin's live `home_url()` inside a
+   * verified health.check/debug.status) and rebound only on operator re-confirm —
+   * a MITM can't forge it, and a clone carrying valid keys still reports its own
+   * (different) URL. When a valid-key link later self-reports a URL that differs
+   * from `canonicalUrl`, `identitySuspended` flips true: a soft safe mode that
+   * blocks state-changing ops (key rotation, plugin update) while leaving the
+   * read-only health/debug diagnostics live, until an operator re-confirms the
+   * identity (or quarantines/kills a suspected clone). Distinct from
+   * `quarantined`, which cuts the signing path entirely.
+   */
+  canonicalUrl?: string;
+  identitySuspended?: boolean;
+  identityAlert?: {
+    reason: "url-changed" | "stopped-reporting";
+    observedUrl: string;
+    boundUrl: string;
+    at: string;
+  };
 }
 
 interface SitesConfigMap {
