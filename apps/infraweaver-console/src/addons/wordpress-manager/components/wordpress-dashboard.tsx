@@ -61,6 +61,8 @@ interface ConnectorUpdateSummary {
   total: number;
   updated: number;
   failed: number;
+  /** Enrolled links left for a later run because the per-run cap was hit. */
+  deferred: number;
 }
 
 const AUTH_MODES: ReadonlyArray<{ value: AuthMode; label: string; helper: string }> = [
@@ -215,12 +217,13 @@ export function WordpressDashboard() {
       return ((await res.json()) as { summary: ConnectorUpdateSummary }).summary;
     },
     onSuccess: (summary) => {
+      const deferredTail = summary.deferred > 0 ? ` — ${summary.deferred} deferred, run again to continue` : "";
       if (summary.total === 0) {
         toast.success("No enrolled connectors to update");
       } else if (summary.failed === 0) {
-        toast.success(`Updated ${summary.updated} connector${summary.updated === 1 ? "" : "s"} to ${summary.targetVersion}`);
+        toast.success(`Updated ${summary.updated} connector${summary.updated === 1 ? "" : "s"} to ${summary.targetVersion}${deferredTail}`);
       } else {
-        toast.error(`${summary.updated}/${summary.total} connectors updated — ${summary.failed} failed (check each site's connector tab)`);
+        toast.error(`${summary.updated}/${summary.total} connectors updated — ${summary.failed} failed (check each site's connector tab)${deferredTail}`);
       }
     },
     onError: (error: Error) => toast.error(error.message),

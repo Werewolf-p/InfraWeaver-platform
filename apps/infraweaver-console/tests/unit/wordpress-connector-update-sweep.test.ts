@@ -75,6 +75,7 @@ describe("runConnectorUpdateSweep", () => {
     expect(summary.total).toBe(2);
     expect(summary.updated).toBe(2);
     expect(summary.failed).toBe(0);
+    expect(summary.deferred).toBe(0); // fleet under the cap — nothing left over
     expect(summary.targetVersion).toBe("1.4.0");
   });
 
@@ -113,7 +114,80 @@ describe("runConnectorUpdateSweep", () => {
     const summary = await runConnectorUpdateSweep();
 
     expect(updateMock).not.toHaveBeenCalled();
-    expect(summary).toMatchObject({ total: 0, updated: 0, failed: 0, targetVersion: "1.4.0" });
+    expect(summary).toMatchObject({ total: 0, updated: 0, failed: 0, deferred: 0, targetVersion: "1.4.0" });
     expect(summary.results).toEqual([]);
+  });
+
+  test("caps a run at maxPerRun and defers the rest (blast radius)", async () => {
+    listMock.mockResolvedValue([
+      link({ siteName: "a" }),
+      link({ siteName: "b" }),
+      link({ siteName: "c" }),
+      link({ siteName: "d" }),
+      link({ siteName: "e" }),
+    ]);
+
+    const summary = await runConnectorUpdateSweep({ maxPerRun: 2 });
+
+    expect(updateMock).toHaveBeenCalledTimes(2);
+    expect(summary.total).toBe(2); // only the attempted count, not the fleet size
+    expect(summary.updated).toBe(2);
+    expect(summary.deferred).toBe(3); // 5 enrolled − 2 attempted
+    expect(summary.results).toHaveLength(2);
+  });
+
+  test("deferred counts only ENROLLED links — pending/external never inflate it", async () => {
+    listMock.mockResolvedValue([
+      link({ siteName: "a" }),
+      link({ siteName: "b" }),
+      link({ siteName: "c" }),
+      link({ siteName: "pending", state: "pending" }), // not enrolled — never a target
+      link({ siteName: "external", managed: false }), // no exec channel — never a target
+    ]);
+
+    const summary = await runConnectorUpdateSweep({ maxPerRun: 2 });
+
+    expect(summary.total).toBe(2);
+    expect(summary.deferred).toBe(1); // 3 enrolled − 2 attempted; pending/external excluded
+  });
+
+  test("bounds concurrency — the CM write burst never exceeds the pool width", async () => {
+    // The 409 race is a lockstep write burst on the one IWSL ConfigMap. Prove the
+    // sweep never runs more than its pool width of per-site updates at once, no
+    // matter how large the fleet. Each update parks on a gate we release one at a
+    // time, so the peak in-flight count is observable.
+    const links = Array.from({ length: 12 }, (_, i) => link({ siteName: `s${i}` }));
+    listMock.mockResolvedValue(links);
+
+    let inFlight = 0;
+    let peak = 0;
+    const gates: Array<() => void> = [];
+    updateMock.mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise<void>((resolve) => gates.push(resolve));
+      inFlight -= 1;
+      return { version: "1.4.0" };
+    });
+
+    const summaryPromise = runConnectorUpdateSweep();
+
+    // Release exactly one parked update per iteration; after each release the
+    // freed lane enqueues the next site, so draining all 12 completes the sweep.
+    for (let released = 0; released < links.length; released += 1) {
+      let guard = 0;
+      while (gates.length === 0) {
+        if (guard++ > 1000) throw new Error("sweep stalled — no update in flight to release");
+        await Promise.resolve();
+      }
+      gates.shift()?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    const summary = await summaryPromise;
+    expect(summary.updated).toBe(12);
+    expect(peak).toBeLessThanOrEqual(4); // SWEEP_CONCURRENCY
+    expect(peak).toBeGreaterThan(1); // ...but not serialised
   });
 });

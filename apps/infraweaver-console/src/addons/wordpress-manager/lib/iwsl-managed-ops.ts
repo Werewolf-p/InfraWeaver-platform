@@ -671,10 +671,26 @@ export async function updateConnectorPlugin(site: string): Promise<{ version: st
   if (version) {
     // Persist the freshly-installed version (verified round-trip) so the update
     // badge clears the moment the reinstall lands, without waiting for a sweep.
-    await mutateExternalSites((sites) => {
-      const target = sites.find((s) => s.siteId === record.siteId);
-      if (target) target.connectorVersion = version;
-    });
+    // This already rides mutateExternalSites' retry-on-409/transient path, but
+    // under a fleet update sweep several sites persist in near-lockstep and can
+    // still exhaust that retry budget. A lost persist race must NOT fail an
+    // update whose plugin install AND signature-verified health.check already
+    // succeeded: the plugin is on-disk and running the new version — only the
+    // cached badge lags, and the next health sweep reconciles connectorVersion
+    // from the plugin's own signed report. So swallow a persist failure with a
+    // warning and still return the verified version (fixes the fleet-sweep 409
+    // race that marked good installs as failed).
+    try {
+      await mutateExternalSites((sites) => {
+        const target = sites.find((s) => s.siteId === record.siteId);
+        if (target) target.connectorVersion = version;
+      });
+    } catch (err) {
+      console.warn(
+        `[wordpress:iwsl] connector-version badge persist for ${site} raced (install OK, reconciles on next health sweep):`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
   return { version };
 }
