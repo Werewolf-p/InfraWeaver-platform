@@ -23,6 +23,7 @@ import {
 import { buildConnectorPackage } from "../lib/connector-package";
 import { enrollManagedSite, getManagedLink, unlinkManagedSite } from "../lib/iwsl-managed";
 import {
+  confirmSiteIdentity,
   connectorDebug,
   connectorHealthCheck,
   deactivateConnector,
@@ -224,6 +225,24 @@ export async function externalHealthCheckHandler(siteId: string): Promise<NextRe
   return guard(async () => json({ health: await externalConnectorHealthCheck(siteId) }));
 }
 
+/**
+ * POST — operator re-confirm of an external link's identity after a §5
+ * clone/identity-crisis alert. Admin: accepting a changed site URL re-opens the
+ * state-changing ops, so it's a trust decision, not a read.
+ */
+const confirmIdentitySchema = z.object({ expectedAt: z.string().min(1).max(64) }).strict();
+
+export async function confirmExternalIdentityHandler(req: NextRequest, siteId: string): Promise<NextResponse> {
+  if (!SITE_ID_RE.test(siteId)) return fail("Invalid site id", 400);
+  const gate = await authorize("wordpress:admin");
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("confirm-identity", gate.ctx.username, 10);
+  if (limited) return limited;
+  const parsed = confirmIdentitySchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return fail("expectedAt (the reviewed alert timestamp) is required", 400);
+  return guard(async () => json({ site: await confirmSiteIdentity(siteId, parsed.data.expectedAt) }));
+}
+
 export async function deleteExternalSiteHandler(siteId: string): Promise<NextResponse> {
   if (!SITE_ID_RE.test(siteId)) return fail("Invalid site id", 400);
   const gate = await authorize("wordpress:admin");
@@ -294,10 +313,17 @@ export async function enrollManagedSiteHandler(site: string): Promise<NextRespon
   return guard(async () => json({ link: await enrollManagedSite(site, gate.ctx.username) }, 201));
 }
 
-const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin"] as const;
+const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin", "confirm-identity"] as const;
 type OpsAction = (typeof OPS_ACTIONS)[number];
 
-const opsSchema = z.object({ action: z.enum(OPS_ACTIONS) }).strict();
+const opsSchema = z
+  .object({
+    action: z.enum(OPS_ACTIONS),
+    // Anti-TOCTOU token for confirm-identity: the `identityAlert.at` the operator
+    // reviewed. Ignored by other actions; required (and matched) for confirm.
+    expectedIdentityAt: z.string().max(64).optional(),
+  })
+  .strict();
 
 /** Diagnostics mutate only link bookkeeping; the rest change the trust state. */
 const OPS_POLICY: Record<OpsAction, { permission: WordpressPermission; ratePerMin: number }> = {
@@ -308,6 +334,8 @@ const OPS_POLICY: Record<OpsAction, { permission: WordpressPermission; ratePerMi
   release: { permission: "wordpress:admin", ratePerMin: 10 },
   deactivate: { permission: "wordpress:admin", ratePerMin: 5 },
   "update-plugin": { permission: "wordpress:admin", ratePerMin: 5 },
+  // Accepting a changed site identity re-opens the state-changing ops — admin.
+  "confirm-identity": { permission: "wordpress:admin", ratePerMin: 10 },
 };
 
 /**
@@ -343,6 +371,11 @@ export async function managedOpsHandler(req: NextRequest, site: string): Promise
         return json(await deactivateConnector(site));
       case "update-plugin":
         return json(await updateConnectorPlugin(site));
+      case "confirm-identity": {
+        const link = await getManagedLink(site);
+        if (!link) return fail("This site has no connector link", 404);
+        return json(await confirmSiteIdentity(link.siteId, parsed.data.expectedIdentityAt ?? ""));
+      }
     }
   });
 }
