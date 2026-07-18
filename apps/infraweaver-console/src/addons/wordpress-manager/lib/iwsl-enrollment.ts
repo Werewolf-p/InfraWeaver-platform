@@ -12,6 +12,7 @@ import {
   toB64u,
   verifyEnrollProof,
   wpKeyFingerprint,
+  type IwKeyPair,
   type SlhdsaAlg,
 } from "@/lib/iwsl";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
@@ -47,11 +48,28 @@ export interface ExternalSiteView extends Omit<ExternalSiteRecord, "wpPk"> {
   bundleValid: boolean;
 }
 
-function toView(record: ExternalSiteRecord, iwFingerprint: string, now: number): ExternalSiteView {
+/**
+ * Fingerprint of the SLH-DSA set THIS link pinned at enrollment (§ dual-accept),
+ * not the console's default set. A link migrated to 192f must render its 192f
+ * fingerprint so the operator's §5 by-eye comparison matches what the plugin
+ * actually pinned — computing it from the console default (192s) makes every 192f
+ * link show a stale 192s fingerprint. Falls back to the default set for a legacy
+ * link that pinned no alg, or if the pinned set's key isn't projected on this
+ * console keypair.
+ */
+function iwFingerprintForRecord(record: ExternalSiteRecord, keys: IwKeyPair): string {
+  const pinned = record.iwAlg ?? ALG_SLHDSA;
+  const hasPinned = pinned === ALG_SLHDSA_192F
+    ? Boolean(keys.slhdsa192fPublicKey)
+    : Boolean(keys.slhdsaPublicKey);
+  return iwKeysFingerprint(iwPublicKeys(keys, hasPinned ? pinned : ALG_SLHDSA));
+}
+
+function toView(record: ExternalSiteRecord, keys: IwKeyPair, now: number): ExternalSiteView {
   const { wpPk, ...rest } = record;
   return {
     ...rest,
-    iwFingerprint,
+    iwFingerprint: iwFingerprintForRecord(record, keys),
     wpFingerprint: wpPk ? wpKeyFingerprint(wpPk) : null,
     bundleValid: record.state === "pending"
       && typeof record.bundleExpiresAt === "string"
@@ -61,8 +79,7 @@ function toView(record: ExternalSiteRecord, iwFingerprint: string, now: number):
 
 export async function listExternalSiteViews(now = Date.now()): Promise<ExternalSiteView[]> {
   const [sites, { keys }] = await Promise.all([listExternalSites(), loadOrCreateIwKeys()]);
-  const iwFp = iwKeysFingerprint(iwPublicKeys(keys));
-  return sites.map((site) => toView(site, iwFp, now));
+  return sites.map((site) => toView(site, keys, now));
 }
 
 export interface CreateExternalSiteInput {
@@ -82,7 +99,6 @@ export async function createExternalSite(
   }
   const origin = url.origin;
   const { keys } = await loadOrCreateIwKeys();
-  const iwFp = iwKeysFingerprint(iwPublicKeys(keys));
   const record = await mutateExternalSites((sites) => {
     if (sites.some((s) => s.url === origin)) {
       throw new AddonHttpError("An external site with this URL is already registered", 409);
@@ -103,7 +119,7 @@ export async function createExternalSite(
     sites.push(created);
     return created;
   });
-  return toView(record, iwFp, now);
+  return toView(record, keys, now);
 }
 
 /**
@@ -119,7 +135,6 @@ export async function createManagedSiteRecord(
   now = Date.now(),
 ): Promise<ExternalSiteView> {
   const { keys } = await loadOrCreateIwKeys();
-  const iwFp = iwKeysFingerprint(iwPublicKeys(keys));
   const record = await mutateExternalSites((sites) => {
     if (sites.some((s) => s.managed && s.siteName === input.siteName)) {
       throw new AddonHttpError("This site already has a connector link — unlink it first", 409);
@@ -145,7 +160,7 @@ export async function createManagedSiteRecord(
     sites.push(created);
     return created;
   });
-  return toView(record, iwFp, now);
+  return toView(record, keys, now);
 }
 
 export interface IssuedBundle {
@@ -246,7 +261,6 @@ export async function verifyExternalSite(
 
   const failed = async (reason: string): Promise<VerifyOutcome> => {
     const { keys } = await loadOrCreateIwKeys();
-    const iwFp = iwKeysFingerprint(iwPublicKeys(keys));
     const updated = await mutateExternalSites((sites) => {
       const target = sites.find((s) => s.siteId === siteId);
       if (!target) return null;
@@ -254,7 +268,7 @@ export async function verifyExternalSite(
       target.lastVerify = { at: new Date(now).toISOString(), ok: false, reason };
       return { ...target };
     });
-    return { ok: false, reason, site: updated ? toView(updated, iwFp, now) : null };
+    return { ok: false, reason, site: updated ? toView(updated, keys, now) : null };
   };
 
   // verifyEnrollProof enforces the TTL too; checking here first skips the
@@ -308,7 +322,6 @@ export async function verifyExternalSite(
   // plugin retires its proof endpoint on first verified command).
   const wpPk = result.wpPk;
   const { keys } = await loadOrCreateIwKeys();
-  const iwFp = iwKeysFingerprint(iwPublicKeys(keys));
   const updated = await mutateExternalSites((sites) => {
     const target = sites.find((s) => s.siteId === siteId);
     if (!target) throw new AddonHttpError("External site not found", 404);
@@ -339,13 +352,12 @@ export async function verifyExternalSite(
     return { ...target };
   });
   await deleteEnrollSecret(siteId);
-  return { ok: true, site: toView(updated, iwFp, now) };
+  return { ok: true, site: toView(updated, keys, now) };
 }
 
 /** Operator confirmed the §5 step-3 visual fingerprint comparison. */
 export async function confirmFingerprint(siteId: string, now = Date.now()): Promise<ExternalSiteView> {
   const { keys } = await loadOrCreateIwKeys();
-  const iwFp = iwKeysFingerprint(iwPublicKeys(keys));
   const updated = await mutateExternalSites((sites) => {
     const target = sites.find((s) => s.siteId === siteId);
     if (!target) throw new AddonHttpError("External site not found", 404);
@@ -355,7 +367,7 @@ export async function confirmFingerprint(siteId: string, now = Date.now()): Prom
     target.fingerprintConfirmed = true;
     return { ...target };
   });
-  return toView(updated, iwFp, now);
+  return toView(updated, keys, now);
 }
 
 /** Remove the record and burn any outstanding enroll secret. */
