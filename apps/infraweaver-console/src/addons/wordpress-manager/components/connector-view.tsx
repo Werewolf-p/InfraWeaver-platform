@@ -15,6 +15,7 @@ import {
   KeyRound,
   Link2,
   Loader2,
+  ShieldAlert,
   ShieldBan,
   ShieldCheck,
   Unlink,
@@ -43,6 +44,16 @@ interface ManagedLink {
   /** Running plugin version from the last verified health.check (§5.1 update signal). */
   connectorVersion?: string;
   pendingRotation?: { newKid: number; phase: string } | null;
+  /** §5 identity binding — the site's confirmed canonical URL. */
+  canonicalUrl?: string;
+  /** §5 safe mode: state-changing ops suspended after a self-reported URL change. */
+  identitySuspended?: boolean;
+  identityAlert?: {
+    reason: "url-changed" | "stopped-reporting";
+    observedUrl: string;
+    boundUrl: string;
+    at: string;
+  };
 }
 
 interface ManagedLinkResponse {
@@ -278,8 +289,30 @@ export function ConnectorView({ site }: { site: string }) {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const confirmIdentityMutation = useMutation({
+    // Send the exact alert timestamp the operator is looking at so the server
+    // binds THIS alert, not one a concurrent sweep may have superseded it with.
+    mutationFn: async (expectedIdentityAt: string) => {
+      const res = await fetch(`/api/wordpress/sites/${site}/iwsl/ops`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "confirm-identity", expectedIdentityAt }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to confirm identity");
+      return res.json() as Promise<{ canonicalUrl?: string }>;
+    },
+    onSuccess: ({ canonicalUrl }) => {
+      toast.success(canonicalUrl ? `Identity re-confirmed — bound to ${canonicalUrl}` : "Identity re-confirmed");
+      refetchLink();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const linked = Boolean(link);
   const commandable = link?.state === "active" && link.fingerprintConfirmed;
+  // §5 safe mode: the site self-reported a changed canonical URL. Read-only
+  // health/debug stay available; key rotation and plugin update are blocked.
+  const identitySuspended = link?.identitySuspended === true;
   const updateAvailable = isConnectorOutdated(link?.connectorVersion, bundledConnectorVersion);
   const health = healthMutation.data?.health;
   const debug = debugMutation.data?.debug;
@@ -312,6 +345,54 @@ export function ConnectorView({ site }: { site: string }) {
 
       <SiteTabs site={site} active="connector" />
 
+      {/* §5 clone/identity-crisis — safe-mode banner */}
+      {identitySuspended && link?.identityAlert && (
+        <section className="mt-6 rounded-xl border border-amber-500/40 bg-amber-500/10 p-5">
+          <div className="flex items-center gap-2 text-amber-200">
+            <ShieldAlert className="h-5 w-5" aria-hidden />
+            <h2 className="text-lg font-medium">Identity changed — safe mode</h2>
+          </div>
+          <p className="mt-1 max-w-prose text-sm text-amber-100/80">
+            {link.identityAlert.reason === "stopped-reporting"
+              ? "This site stopped reporting its canonical URL, after previously reporting one. It still holds valid signing keys — this can be a plugin downgrade, or an attempt to slip past the identity check. Key rotation and plugin updates are suspended until you confirm."
+              : "This site now reports a different canonical URL than the one it was linked under. It still holds valid signing keys, so this is either a legitimate migration or a clone of the site’s database. Key rotation and plugin updates are suspended until you confirm."}
+          </p>
+          <p className="mt-1 text-xs text-amber-100/60">
+            Note: the reported URL is best-effort — a deliberate clone can spoof it. Trust the key fingerprint below over the URL.
+          </p>
+          <div className="mt-3 grid gap-1.5 rounded-lg border border-amber-500/20 bg-zinc-950/40 p-3 font-mono text-xs">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="shrink-0 text-zinc-500">Linked as</span>
+              <span className="truncate text-right text-zinc-300">{link.identityAlert.boundUrl}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="shrink-0 text-zinc-500">Now reports</span>
+              <span className="truncate text-right text-amber-300">
+                {link.identityAlert.reason === "stopped-reporting" ? "(no URL reported)" : link.identityAlert.observedUrl}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="shrink-0 text-zinc-500">Detected</span>
+              <span className="text-right text-zinc-400">{timeAgo(link.identityAlert.at)}</span>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+            <span className="mr-auto text-xs text-amber-100/70">
+              If you didn&rsquo;t expect this, quarantine or deactivate the link below instead of confirming.
+            </span>
+            <button
+              type="button"
+              disabled={confirmIdentityMutation.isPending}
+              onClick={() => confirmIdentityMutation.mutate(link.identityAlert!.at)}
+              className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-3.5 py-2 text-sm font-medium text-zinc-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {confirmIdentityMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ShieldCheck className="h-4 w-4" aria-hidden />}
+              Confirm new identity
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* Link state — the §12.5 status panel for this managed link */}
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
         <div className="flex items-center gap-2 text-zinc-200">
@@ -335,6 +416,9 @@ export function ConnectorView({ site }: { site: string }) {
               <MetaRow label="Key epoch (kid / floor)" value={`${link.kid} / ${link.epochFloor}`} />
               <MetaRow label="Command seq" value={`${link.lastSeq ?? 0}`} />
               {link.activatedAt && <MetaRow label="Linked since" value={new Date(link.activatedAt).toLocaleString()} />}
+              {link.canonicalUrl && (
+                <MetaRow label="Site identity (URL)" value={link.canonicalUrl} tone={identitySuspended ? "danger" : undefined} />
+              )}
               {(commandable || link.lastHealth) && <HealthRow lastHealth={link.lastHealth} />}
               {link.connectorVersion && (
                 <div className="flex items-center justify-between gap-3 text-xs">
@@ -406,7 +490,8 @@ export function ConnectorView({ site }: { site: string }) {
             </div>
             <button
               type="button"
-              disabled={!commandable || rotateMutation.isPending}
+              disabled={!commandable || rotateMutation.isPending || identitySuspended}
+              title={identitySuspended ? "Suspended — confirm the site's identity first" : undefined}
               onClick={() => rotateMutation.mutate()}
               className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-emerald-500 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -569,7 +654,8 @@ export function ConnectorView({ site }: { site: string }) {
           </div>
           <button
             type="button"
-            disabled={!linked || updateMutation.isPending}
+            disabled={!linked || updateMutation.isPending || identitySuspended}
+            title={identitySuspended ? "Suspended — confirm the site's identity first" : undefined}
             onClick={() => updateMutation.mutate()}
             className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-zinc-700 px-3.5 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
           >

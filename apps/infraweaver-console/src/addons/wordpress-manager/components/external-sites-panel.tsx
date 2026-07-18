@@ -15,6 +15,7 @@ import {
   Loader2,
   Plus,
   RadioTower,
+  ShieldAlert,
   ShieldCheck,
   Trash2,
   XCircle,
@@ -59,6 +60,15 @@ interface ExternalSite {
   /** §5.1 managed links belong to a provisioned site's own settings card. */
   managed?: boolean;
   siteName?: string;
+  /** §5 identity binding + clone/identity-crisis safe mode. */
+  canonicalUrl?: string;
+  identitySuspended?: boolean;
+  identityAlert?: {
+    reason: "url-changed" | "stopped-reporting";
+    observedUrl: string;
+    boundUrl: string;
+    at: string;
+  };
 }
 
 interface ExternalSitesResponse {
@@ -259,6 +269,25 @@ export function ExternalSitesPanel() {
     onError: (err) => toast.error(err instanceof Error ? err.message : "Health check failed"),
   });
 
+  const confirmIdentityMutation = useMutation({
+    // Send the exact alert timestamp the operator reviewed so a concurrent sweep
+    // can't swap the alert out from under the confirm (anti-TOCTOU).
+    mutationFn: async ({ siteId, expectedAt }: { siteId: string; expectedAt: string }) => {
+      const res = await fetch(`/api/wordpress/external-sites/${siteId}/confirm-identity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedAt }),
+      });
+      if (!res.ok) throw new Error(await readError(res, "Failed to confirm identity"));
+      return ((await res.json()) as { site: { canonicalUrl?: string } }).site;
+    },
+    onSuccess: (site) => {
+      toast.success(site.canonicalUrl ? `Identity re-confirmed — bound to ${site.canonicalUrl}` : "Identity re-confirmed");
+      invalidate();
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to confirm identity"),
+  });
+
   const bundleMutation = useMutation({
     // POST (not a plain <a href> GET): issuing a bundle mints a fresh
     // single-use secret, so it must be CSRF-safe; the download is saved from
@@ -430,6 +459,9 @@ export function ExternalSitesPanel() {
                     }
                   />
                   <HealthField lastHealth={site.lastHealth} />
+                  {site.canonicalUrl && (
+                    <LinkField label="Site identity" value={site.canonicalUrl} mono />
+                  )}
                   {site.connectorVersion && (
                     <div className="flex items-center justify-between gap-3 text-xs">
                       <span className="shrink-0 text-zinc-500">Connector version</span>
@@ -451,6 +483,49 @@ export function ExternalSitesPanel() {
                     />
                   )}
                 </div>
+
+                {site.identitySuspended && site.identityAlert && (
+                  <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-amber-200">
+                      <ShieldAlert className="h-3.5 w-3.5" aria-hidden /> Identity changed — safe mode
+                    </p>
+                    <p className="text-xs text-amber-100/80">
+                      {site.identityAlert.reason === "stopped-reporting"
+                        ? "Valid keys, but this site stopped reporting its canonical URL after previously reporting one. Confirm if expected (e.g. a downgrade), or remove the link."
+                        : "Valid keys, but this site now reports a different canonical URL — a migration or a clone. Confirm to re-bind, or remove the link if it’s unexpected."}
+                    </p>
+                    <p className="text-[11px] text-amber-100/60">
+                      Reported URL is best-effort — a deliberate clone can spoof it; trust the key fingerprint.
+                    </p>
+                    <div className="grid gap-1 font-mono text-[11px]">
+                      <div className="flex justify-between gap-2">
+                        <span className="shrink-0 text-amber-200/60">was</span>
+                        <span className="truncate text-amber-100/90">{site.identityAlert.boundUrl}</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="shrink-0 text-amber-200/60">now</span>
+                        <span className="truncate text-amber-300">
+                          {site.identityAlert.reason === "stopped-reporting" ? "(no URL reported)" : site.identityAlert.observedUrl}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        disabled={confirmIdentityMutation.isPending}
+                        onClick={() => confirmIdentityMutation.mutate({ siteId: site.siteId, expectedAt: site.identityAlert!.at })}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-medium text-zinc-950 hover:bg-amber-400 disabled:opacity-50"
+                      >
+                        {confirmIdentityMutation.isPending ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                        ) : (
+                          <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+                        )}
+                        Confirm identity
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {pasteFor === site.siteId && (
                   <div className="space-y-2">
