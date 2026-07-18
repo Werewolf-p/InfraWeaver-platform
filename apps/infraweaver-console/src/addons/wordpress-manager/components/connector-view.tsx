@@ -46,6 +46,8 @@ interface ManagedLink {
   pendingRotation?: { newKid: number; phase: string } | null;
   /** §8 — last signing-key reroll outcome (from rotation run or plugin's signed report). */
   lastReroll?: { at: string; outcome: "confirmed" | "aborted" | "pending"; kid: number; reason?: string };
+  /** §8 — per-site auto-rotation schedule override (absent ⇒ fleet default). */
+  rotationPolicy?: { autoRotate: boolean; intervalMs?: number; updatedAt?: string; updatedBy?: string };
   /** §5 identity binding — the site's confirmed canonical URL. */
   canonicalUrl?: string;
   /** §5 safe mode: state-changing ops suspended after a self-reported URL change. */
@@ -91,14 +93,24 @@ async function fetchManagedLink(site: string): Promise<ManagedLinkResponse> {
   return { link: body.link ?? null, bundledConnectorVersion: body.bundledConnectorVersion ?? null };
 }
 
-async function postOp<T>(site: string, action: string): Promise<T> {
+async function postOp<T>(site: string, action: string, extra?: Record<string, unknown>): Promise<T> {
   const res = await fetch(`/api/wordpress/sites/${site}/iwsl/ops`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action }),
+    body: JSON.stringify({ action, ...extra }),
   });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Operation failed");
   return res.json() as Promise<T>;
+}
+
+const MS_PER_HOUR = 3_600_000;
+const MS_PER_DAY = 86_400_000;
+
+/** Split a stored interval (ms) into the friendliest whole {value, unit} for editing. */
+function intervalToParts(intervalMs: number | undefined, fallbackDays: number): { value: number; unit: "hours" | "days" } {
+  const ms = typeof intervalMs === "number" && intervalMs > 0 ? intervalMs : fallbackDays * MS_PER_DAY;
+  if (ms % MS_PER_DAY === 0) return { value: ms / MS_PER_DAY, unit: "days" };
+  return { value: Math.max(1, Math.round(ms / MS_PER_HOUR)), unit: "hours" };
 }
 
 function StateBadge({ link }: { link: ManagedLink | null }) {
@@ -195,6 +207,11 @@ const ROTATION_TOAST: Record<RotationResult["outcome"], string> = {
 export function ConnectorView({ site }: { site: string }) {
   const queryClient = useQueryClient();
   const [killArmed, setKillArmed] = useState(false);
+  // Auto-rotation schedule form (seeded from the link's saved policy below).
+  const [rotAuto, setRotAuto] = useState(true);
+  const [rotValue, setRotValue] = useState(30);
+  const [rotUnit, setRotUnit] = useState<"hours" | "days">("days");
+  const rotSeededKey = useRef<string>("");
 
   const { data: linkData, isLoading: linkLoading } = useQuery({
     queryKey: ["wordpress-iwsl-link", site],
@@ -204,6 +221,19 @@ export function ConnectorView({ site }: { site: string }) {
   const bundledConnectorVersion = linkData?.bundledConnectorVersion ?? null;
 
   const refetchLink = () => void queryClient.invalidateQueries({ queryKey: ["wordpress-iwsl-link", site] });
+
+  // Seed the schedule form from the saved policy once per site + policy version,
+  // so ordinary link refetches (health, version, etc.) don't clobber an in-flight edit.
+  useEffect(() => {
+    if (!link) return;
+    const key = `${link.siteId}:${link.rotationPolicy?.updatedAt ?? ""}`;
+    if (rotSeededKey.current === key) return;
+    rotSeededKey.current = key;
+    setRotAuto(link.rotationPolicy?.autoRotate ?? true);
+    const parts = intervalToParts(link.rotationPolicy?.intervalMs, 30);
+    setRotValue(parts.value);
+    setRotUnit(parts.unit);
+  }, [link]);
 
   const enrollMutation = useMutation({
     mutationFn: async () => {
@@ -260,6 +290,22 @@ export function ConnectorView({ site }: { site: string }) {
       toast.error(error.message);
       refetchLink();
     },
+  });
+
+  const policyMutation = useMutation({
+    mutationFn: (payload: { autoRotate: boolean; intervalMs?: number }) =>
+      postOp<{ rotationPolicy: { autoRotate: boolean; intervalMs?: number } }>(site, "set-rotation-policy", {
+        rotationPolicy: payload,
+      }),
+    onSuccess: ({ rotationPolicy }) => {
+      toast.success(
+        rotationPolicy.autoRotate
+          ? "Auto-rotation schedule saved"
+          : "Auto-rotation disabled — manual reroll still available",
+      );
+      refetchLink();
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const quarantineMutation = useMutation({
@@ -513,6 +559,77 @@ export function ConnectorView({ site }: { site: string }) {
               {rotateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <KeyRound className="h-4 w-4" aria-hidden />}
               {rotateMutation.isPending ? "Rotating…" : "Reroll key"}
             </button>
+          </div>
+
+          {/* §8 — per-site automatic key-rotation schedule (operator-tunable age gate). */}
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zinc-100">Automatic key rotation</p>
+                <p className="mt-0.5 text-xs text-zinc-400">
+                  How old this site&rsquo;s signing key may get before the scheduled sweep rerolls it. Per site,
+                  independent of the fleet default. Manual <span className="font-medium text-zinc-300">Reroll key</span> above
+                  always works regardless of this setting.
+                </p>
+              </div>
+              <label className="inline-flex shrink-0 items-center gap-2 text-sm text-zinc-200">
+                <input
+                  type="checkbox"
+                  checked={rotAuto}
+                  onChange={(e) => setRotAuto(e.target.checked)}
+                  className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 accent-emerald-500"
+                />
+                Auto-rotate
+              </label>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label className="text-xs text-zinc-400" htmlFor={`rot-interval-${site}`}>
+                Rotate every
+              </label>
+              <input
+                id={`rot-interval-${site}`}
+                type="number"
+                min={1}
+                max={rotUnit === "days" ? 365 : 8760}
+                value={rotValue}
+                disabled={!rotAuto || policyMutation.isPending}
+                onChange={(e) => setRotValue(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                className="w-20 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 disabled:opacity-50"
+              />
+              <select
+                value={rotUnit}
+                disabled={!rotAuto || policyMutation.isPending}
+                onChange={(e) => setRotUnit(e.target.value === "hours" ? "hours" : "days")}
+                className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 disabled:opacity-50"
+              >
+                <option value="hours">hours</option>
+                <option value="days">days</option>
+              </select>
+              <button
+                type="button"
+                disabled={!link || policyMutation.isPending}
+                onClick={() =>
+                  policyMutation.mutate({
+                    autoRotate: rotAuto,
+                    ...(rotAuto
+                      ? { intervalMs: rotValue * (rotUnit === "days" ? MS_PER_DAY : MS_PER_HOUR) }
+                      : {}),
+                  })
+                }
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {policyMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                Save schedule
+              </button>
+              <span className="text-xs text-zinc-500">
+                {rotAuto
+                  ? link?.rotationPolicy?.intervalMs
+                    ? "Custom schedule active"
+                    : "Using fleet default (30 days)"
+                  : "Scheduled rotation off"}
+              </span>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">

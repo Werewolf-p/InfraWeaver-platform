@@ -84,6 +84,23 @@ export interface ExternalSiteRecord {
     kid: number;
     reason?: string;
   };
+  /**
+   * §8 per-site auto-rotation override. Absent ⇒ the link uses the fleet default
+   * (`IWSL_ROTATION_MAX_AGE_DAYS`). This ONLY tunes the age gate that makes the
+   * scheduled sweep pick this link; it can never widen the per-run blast-radius
+   * cap (`HARD_MAX_PER_RUN`) nor bypass the state/identity/fingerprint guards,
+   * and an in-flight `pendingRotation` is always resumed regardless. `intervalMs`
+   * is the canonical unit (bounds-clamped on write in `rotation-policy.ts`); the
+   * UI edits it as days or hours. `autoRotate:false` disables scheduled rotation
+   * for this link — manual/force reroll still works.
+   */
+  rotationPolicy?: {
+    autoRotate: boolean;
+    intervalMs?: number;
+    /** Audit trail for the last policy change. */
+    updatedAt?: string;
+    updatedBy?: string;
+  };
   /** Last signed health.check outcome (§12.5 diagnostics). */
   lastHealth?: { at: string; ok: boolean; roundtripMs?: number; reason?: string };
   /**

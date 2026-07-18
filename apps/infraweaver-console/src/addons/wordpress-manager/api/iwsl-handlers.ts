@@ -31,8 +31,10 @@ import {
   externalConnectorHealthCheck,
   rotateConnectorKey,
   setConnectorQuarantine,
+  setRotationPolicy,
   updateConnectorPlugin,
 } from "../lib/iwsl-managed-ops";
+import { MAX_SITE_INTERVAL_MS } from "../lib/rotation-policy";
 import { isValidSiteId } from "../lib/naming";
 
 /**
@@ -314,7 +316,7 @@ export async function enrollManagedSiteHandler(site: string): Promise<NextRespon
   return guard(async () => json({ link: await enrollManagedSite(site, gate.ctx.username) }, 201));
 }
 
-const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin", "confirm-identity"] as const;
+const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin", "confirm-identity", "set-rotation-policy"] as const;
 type OpsAction = (typeof OPS_ACTIONS)[number];
 
 const opsSchema = z
@@ -323,6 +325,16 @@ const opsSchema = z
     // Anti-TOCTOU token for confirm-identity: the `identityAlert.at` the operator
     // reviewed. Ignored by other actions; required (and matched) for confirm.
     expectedIdentityAt: z.string().max(64).optional(),
+    // Payload for set-rotation-policy. `intervalMs` is the age gate for this
+    // link's scheduled reroll; schema-bounded to the safe ceiling here and
+    // floor-clamped server-side. Omit it to auto-rotate on the fleet default.
+    rotationPolicy: z
+      .object({
+        autoRotate: z.boolean(),
+        intervalMs: z.number().int().positive().max(MAX_SITE_INTERVAL_MS).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -337,6 +349,8 @@ const OPS_POLICY: Record<OpsAction, { permission: WordpressPermission; ratePerMi
   "update-plugin": { permission: "wordpress:admin", ratePerMin: 5 },
   // Accepting a changed site identity re-opens the state-changing ops — admin.
   "confirm-identity": { permission: "wordpress:admin", ratePerMin: 10 },
+  // Tuning key-rotation cadence is a security control — admin, same as rotate.
+  "set-rotation-policy": { permission: "wordpress:admin", ratePerMin: 10 },
 };
 
 /**
@@ -376,6 +390,11 @@ export async function managedOpsHandler(req: NextRequest, site: string): Promise
         const link = await getManagedLink(site);
         if (!link) return fail("This site has no connector link", 404);
         return json(await confirmSiteIdentity(link.siteId, parsed.data.expectedIdentityAt ?? ""));
+      }
+      case "set-rotation-policy": {
+        if (!parsed.data.rotationPolicy) return fail("rotationPolicy payload is required", 400);
+        const saved = await setRotationPolicy(site, parsed.data.rotationPolicy, gate.ctx.username);
+        return json({ rotationPolicy: saved });
       }
     }
   });

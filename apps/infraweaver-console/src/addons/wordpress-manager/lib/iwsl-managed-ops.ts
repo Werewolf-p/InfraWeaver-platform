@@ -15,6 +15,7 @@ import {
 } from "@/lib/iwsl";
 import { requestSafeExternalUrl } from "@/lib/outbound-url";
 import { AddonHttpError } from "./errors";
+import { clampRotationIntervalMs } from "./rotation-policy";
 import { execInWpPod } from "./k8s-exec";
 import { findWpPodName } from "./provision";
 import { buildConnectorPackage } from "./connector-package";
@@ -562,6 +563,43 @@ export async function rotateConnectorKey(site: string): Promise<RotationResult> 
     kid: run.state.kid,
     wpFingerprint: run.state.wpPk ? wpKeyFingerprint(run.state.wpPk) : null,
   };
+}
+
+export interface SetRotationPolicyInput {
+  autoRotate: boolean;
+  intervalMs?: number;
+}
+
+/**
+ * §8 — set this managed link's auto-rotation policy (operator-tunable age gate,
+ * in days/hours from the UI). This is bookkeeping only: changing the cadence
+ * NEVER rotates a key by itself — it just decides when the scheduled sweep next
+ * will. `intervalMs` is clamped to the safe range here (single source of truth
+ * in `rotation-policy.ts`), so an out-of-range value from any caller is bounded
+ * before it touches persistence. Guards on a real managed record so an unknown
+ * or non-managed site can't seed a policy. Returns the persisted policy for the
+ * UI to echo. Force-now rotation is the separate `rotate` op, unaffected.
+ */
+export async function setRotationPolicy(
+  site: string,
+  input: SetRotationPolicyInput,
+  actor: string,
+): Promise<{ autoRotate: boolean; intervalMs?: number; updatedAt: string; updatedBy: string }> {
+  const record = await requireManagedRecord(site);
+  const intervalMs =
+    typeof input.intervalMs === "number" ? clampRotationIntervalMs(input.intervalMs) : undefined;
+  const nextPolicy = {
+    autoRotate: input.autoRotate,
+    ...(intervalMs !== undefined ? { intervalMs } : {}),
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor,
+  };
+  await mutateExternalSites((sites) => {
+    const target = sites.find((s) => s.siteId === record.siteId);
+    if (!target) throw new AddonHttpError("Connector link vanished", 409);
+    target.rotationPolicy = nextPolicy;
+  });
+  return nextPolicy;
 }
 
 /**

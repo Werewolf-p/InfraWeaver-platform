@@ -1,6 +1,7 @@
 import "server-only";
 import { listExternalSites, type ExternalSiteRecord } from "./iwsl-link-store";
 import { rotateConnectorKey } from "./iwsl-managed-ops";
+import { clampRotationIntervalMs } from "./rotation-policy";
 
 /**
  * §8 automated key reroll (server-driven, daily CronJob).
@@ -63,6 +64,21 @@ export function keyAgeMs(site: ExternalSiteRecord, now: number): number {
   return Math.max(0, now - anchoredTs);
 }
 
+/**
+ * The age threshold that makes THIS link rotation-eligible: its per-site
+ * override when set (and clamped to the safe range defensively, so a
+ * hand-edited record can't drive the sweep out of bounds), else the fleet
+ * default. Independent of the `autoRotate` on/off gate, which is checked by the
+ * caller — a disabled link is excluded before this is consulted.
+ */
+export function effectiveMaxAgeMs(site: ExternalSiteRecord, defaultMaxAgeMs: number): number {
+  const intervalMs = site.rotationPolicy?.intervalMs;
+  if (typeof intervalMs === "number" && Number.isFinite(intervalMs)) {
+    return clampRotationIntervalMs(intervalMs);
+  }
+  return defaultMaxAgeMs;
+}
+
 export interface RotationCandidate {
   siteId: string;
   siteName: string;
@@ -86,8 +102,13 @@ export function selectRotationCandidates(
       s.state === "active" &&
       s.fingerprintConfirmed &&
       !s.identitySuspended &&
-      // A rotation in flight is always worth resuming; otherwise gate on age.
-      (Boolean(s.pendingRotation) || keyAgeMs(s, opts.now) >= opts.maxAgeMs),
+      // A rotation in flight is always resumed (finish what was started), even
+      // if the operator has since disabled auto-rotation for this link.
+      // Otherwise gate on age against this link's own interval — and skip links
+      // whose owner turned scheduled rotation off (autoRotate === false).
+      (Boolean(s.pendingRotation) ||
+        (s.rotationPolicy?.autoRotate !== false &&
+          keyAgeMs(s, opts.now) >= effectiveMaxAgeMs(s, opts.maxAgeMs))),
   );
 
   return eligible

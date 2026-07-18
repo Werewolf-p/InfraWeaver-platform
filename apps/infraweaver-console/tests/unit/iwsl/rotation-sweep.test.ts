@@ -21,6 +21,7 @@ import {
   keyAgeMs,
   selectRotationCandidates,
   runRotationSweep,
+  effectiveMaxAgeMs,
 } from "@/addons/wordpress-manager/lib/rotation-sweep";
 import type { ExternalSiteRecord } from "@/addons/wordpress-manager/lib/iwsl-link-store";
 
@@ -172,5 +173,56 @@ describe("runRotationSweep", () => {
     expect(summary.attempted).toBe(1);
     expect(summary.rotated).toBe(0);
     expect(summary.results[0]).toMatchObject({ site: "old40", outcome: "error", error: "pod not running" });
+  });
+});
+
+describe("per-site rotation policy (effectiveMaxAgeMs + selection)", () => {
+  const DEFAULT = 30 * DAY;
+  const HOUR = 3_600_000;
+
+  test("effectiveMaxAgeMs falls back to the fleet default when no policy is set", () => {
+    expect(effectiveMaxAgeMs(rec({ siteId: "a" }), DEFAULT)).toBe(DEFAULT);
+  });
+
+  test("effectiveMaxAgeMs uses the per-site interval when present", () => {
+    const s = rec({ siteId: "a", rotationPolicy: { autoRotate: true, intervalMs: 7 * DAY } });
+    expect(effectiveMaxAgeMs(s, DEFAULT)).toBe(7 * DAY);
+  });
+
+  test("effectiveMaxAgeMs clamps an out-of-range per-site interval (floor 1h, ceil 1y)", () => {
+    expect(effectiveMaxAgeMs(rec({ siteId: "a", rotationPolicy: { autoRotate: true, intervalMs: 1000 } }), DEFAULT)).toBe(HOUR);
+    expect(effectiveMaxAgeMs(rec({ siteId: "a", rotationPolicy: { autoRotate: true, intervalMs: 10 * 365 * DAY } }), DEFAULT)).toBe(365 * DAY);
+  });
+
+  test("a shorter per-site interval makes a key that is younger than the default eligible", () => {
+    // 10-day-old key: not eligible under the 30d default, eligible under a 7d override.
+    const site = rec({ siteId: "custom", activatedAt: daysAgo(10), rotationPolicy: { autoRotate: true, intervalMs: 7 * DAY } });
+    const picked = selectRotationCandidates([site], { now: NOW, maxAgeMs: DEFAULT, maxPerRun: 5 });
+    expect(names(picked)).toEqual(["custom"]);
+  });
+
+  test("a longer per-site interval keeps an otherwise-overdue key ineligible", () => {
+    // 40-day-old key would roll under the 30d default; a 90d override holds it.
+    const site = rec({ siteId: "slow", activatedAt: daysAgo(40), rotationPolicy: { autoRotate: true, intervalMs: 90 * DAY } });
+    const picked = selectRotationCandidates([site], { now: NOW, maxAgeMs: DEFAULT, maxPerRun: 5 });
+    expect(picked).toHaveLength(0);
+  });
+
+  test("autoRotate:false excludes an overdue key from scheduled rotation", () => {
+    const site = rec({ siteId: "manual", activatedAt: daysAgo(365), rotationPolicy: { autoRotate: false } });
+    const picked = selectRotationCandidates([site], { now: NOW, maxAgeMs: DEFAULT, maxPerRun: 5 });
+    expect(picked).toHaveLength(0);
+  });
+
+  test("autoRotate:false still RESUMES an in-flight rotation (safety: finish what was started)", () => {
+    const site = rec({
+      siteId: "resume",
+      activatedAt: daysAgo(1),
+      rotationPolicy: { autoRotate: false },
+      pendingRotation: { rotationId: "r1", newKid: 2, newWpPk: null, phase: "verify", startedTs: NOW, deadlineTs: NOW + DAY },
+    });
+    const picked = selectRotationCandidates([site], { now: NOW, maxAgeMs: DEFAULT, maxPerRun: 5 });
+    expect(names(picked)).toEqual(["resume"]);
+    expect(picked[0].resuming).toBe(true);
   });
 });
