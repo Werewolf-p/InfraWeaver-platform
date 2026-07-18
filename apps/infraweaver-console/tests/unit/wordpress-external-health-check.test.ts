@@ -124,6 +124,23 @@ describe("externalConnectorHealthCheck", () => {
     expect(verifyMock).not.toHaveBeenCalled();
   });
 
+  test("M1: an unsigned rejection does NOT trip identity safe-mode on a URL-bound link", async () => {
+    // A bound link that gets an unsigned rejection (e.g. stale-ts from clock skew)
+    // carries no site_url. That absence must NOT be read as "stopped reporting" —
+    // doing so would flip identitySuspended and silently block both auto and
+    // manual key reroll for the site (SECURITY-SCAN-2026-07-18 M1).
+    const store = [externalLink({ canonicalUrl: "https://blog.example.com", identitySuspended: false })];
+    withStore(store);
+    fetchMock.mockResolvedValue(httpBody({ ok: false, reason: "stale-ts" }));
+
+    const health = await externalConnectorHealthCheck(store[0].siteId);
+
+    expect(health.rejectedReason).toBe("stale-ts");
+    expect(store[0].identitySuspended).toBeFalsy();
+    expect(store[0].identityAlert).toBeUndefined();
+    expect(store[0].lastHealth?.ok).toBe(false); // the failure is still recorded
+  });
+
   test("refuses a link that has not finished enrollment", async () => {
     const store = [externalLink({ fingerprintConfirmed: false })];
     withStore(store);

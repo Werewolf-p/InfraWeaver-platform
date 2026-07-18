@@ -337,6 +337,9 @@ export interface ConnectorHealth {
  * signature (a bad signature quarantines and throws before we get here), so a
  * MITM can't feed us a lower version to mask an out-of-date connector.
  */
+/** A plugin `last_reroll.at` more than this far in the future is rejected (clock skew / clone). */
+const REROLL_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Parse the plugin's own signed `last_reroll` (§8) into the record's shape. The
  * plugin reports unix seconds + an ok flag; map ok→outcome. Returns null for any
@@ -374,14 +377,24 @@ async function persistHealthResult(record: ExternalSiteRecord, reply: CommandRep
     // §8: reconcile the reroll outcome from the plugin's own signed report. It's
     // authoritative (signature-verified above); prefer it over a stale local
     // stamp, and always let a terminal outcome replace an in-flight "pending".
+    // Reject a future-dated `at` (clock-skewed/clone plugin): it must not mask a
+    // fresher local `aborted` nor drive `keyAgeMs` negative to dodge rotation.
     const pluginReroll = parsePluginReroll(reply.result.last_reroll);
-    if (pluginReroll) {
+    if (pluginReroll && Date.parse(pluginReroll.at) <= Date.now() + REROLL_FUTURE_SKEW_MS) {
       const cur = target.lastReroll;
       if (!cur || cur.outcome === "pending" || Date.parse(pluginReroll.at) >= Date.parse(cur.at)) {
         target.lastReroll = pluginReroll;
       }
     }
-    applyIdentityObservation(target, observedUrl, new Date().toISOString());
+    // Identity observation must run ONLY on a signature-verified reply. An
+    // unsigned rejection (e.g. stale-ts from clock skew, unknown-method) carries
+    // no site_url; feeding that absence to the evaluator would misread it as
+    // "stopped reporting" and wrongly trip identitySuspended — which then blocks
+    // both auto and manual reroll for the site. A verified reply that genuinely
+    // omits site_url still flows through (a real old-connector/broken-home signal).
+    if (!reply.rejectedReason) {
+      applyIdentityObservation(target, observedUrl, new Date().toISOString());
+    }
   });
 }
 

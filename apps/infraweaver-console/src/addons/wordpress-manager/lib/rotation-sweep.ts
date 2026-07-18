@@ -23,6 +23,15 @@ import { rotateConnectorKey } from "./iwsl-managed-ops";
 
 const DEFAULT_MAX_AGE_DAYS = 30;
 const DEFAULT_MAX_PER_RUN = 2;
+/**
+ * Hard ceiling on how many links can roll in one run, independent of config.
+ * The env var TUNES the cap; it must not be able to NULLIFY it — a safety
+ * control gating live-key rotation can't be defeated by the same knob meant to
+ * adjust it. A run needing more than this just spreads across more runs.
+ */
+const HARD_MAX_PER_RUN = 10;
+/** Floor on the age threshold so a tiny/zero env can't turn the sweep into rotate-everything. */
+const MIN_AGE_DAYS = 1;
 const MS_PER_DAY = 86_400_000;
 
 function positiveEnvNumber(raw: string | undefined, fallback: number): number {
@@ -31,11 +40,12 @@ function positiveEnvNumber(raw: string | undefined, fallback: number): number {
 }
 
 function rotationMaxAgeMs(): number {
-  return positiveEnvNumber(process.env.IWSL_ROTATION_MAX_AGE_DAYS, DEFAULT_MAX_AGE_DAYS) * MS_PER_DAY;
+  const days = Math.max(MIN_AGE_DAYS, positiveEnvNumber(process.env.IWSL_ROTATION_MAX_AGE_DAYS, DEFAULT_MAX_AGE_DAYS));
+  return days * MS_PER_DAY;
 }
 
 function rotationMaxPerRun(): number {
-  return Math.floor(positiveEnvNumber(process.env.IWSL_ROTATION_MAX_PER_RUN, DEFAULT_MAX_PER_RUN));
+  return Math.min(HARD_MAX_PER_RUN, Math.floor(positiveEnvNumber(process.env.IWSL_ROTATION_MAX_PER_RUN, DEFAULT_MAX_PER_RUN)));
 }
 
 /**
@@ -47,7 +57,10 @@ export function keyAgeMs(site: ExternalSiteRecord, now: number): number {
   const anchorIso = site.lastReroll?.at ?? site.activatedAt;
   if (!anchorIso) return Number.POSITIVE_INFINITY;
   const anchoredTs = Date.parse(anchorIso);
-  return Number.isNaN(anchoredTs) ? Number.POSITIVE_INFINITY : now - anchoredTs;
+  if (Number.isNaN(anchoredTs)) return Number.POSITIVE_INFINITY;
+  // Clamp at 0: a future-dated anchor (clock skew / clone) must not yield a
+  // negative age that would exclude the site from rotation forever.
+  return Math.max(0, now - anchoredTs);
 }
 
 export interface RotationCandidate {

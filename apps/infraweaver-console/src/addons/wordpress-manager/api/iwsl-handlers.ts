@@ -401,8 +401,7 @@ export async function unlinkManagedSiteHandler(site: string): Promise<NextRespon
  * shared secret is unset/empty (fail-closed — an unconfigured deployment can't
  * be driven by the header path) or the header is missing/mismatched.
  */
-function cronTokenValid(req: NextRequest): boolean {
-  const expected = process.env.WORDPRESS_HEALTH_CRON_TOKEN;
+function cronTokenValid(req: NextRequest, expected = process.env.WORDPRESS_HEALTH_CRON_TOKEN): boolean {
   if (!expected) return false;
   const provided = req.headers.get("x-internal-cron-token");
   if (!provided) return false;
@@ -438,7 +437,9 @@ export async function healthSweepHandler(req: NextRequest): Promise<NextResponse
  * `write`) and the rate limit is tighter. Fail-closed on both.
  */
 export async function rotationSweepHandler(req: NextRequest): Promise<NextResponse> {
-  if (!cronTokenValid(req)) {
+  // Dedicated token — fleet key-rotation must not accept the read-only health
+  // token (SECURITY-SCAN-2026-07-18 M2).
+  if (!cronTokenValid(req, process.env.WORDPRESS_ROTATION_CRON_TOKEN)) {
     const gate = await authorize("wordpress:admin");
     if (!gate.ok) return gate.error;
     const limited = rateLimited("rotation-sweep", gate.ctx.username, 3);

@@ -149,6 +149,20 @@ describe("runRotationSweep", () => {
     expect(summary.results.every((r) => r.outcome === "confirmed")).toBe(true);
   });
 
+  test("L1: a huge maxPerRun env cannot exceed the hard ceiling", async () => {
+    process.env.IWSL_ROTATION_MAX_PER_RUN = "100000";
+    mockListExternalSites.mockResolvedValue(
+      Array.from({ length: 25 }, (_, i) => rec({ siteId: `old${i}`, activatedAt: daysAgo(40) })),
+    );
+    mockRotate.mockResolvedValue({ outcome: "confirmed", kid: 2, wpFingerprint: "x" });
+
+    const summary = await runRotationSweep(NOW);
+
+    // HARD_MAX_PER_RUN caps the blast radius regardless of the env override.
+    expect(summary.attempted).toBe(10);
+    expect(mockRotate).toHaveBeenCalledTimes(10);
+  });
+
   test("a rotation that throws is captured as an error result, not a rejection", async () => {
     mockListExternalSites.mockResolvedValue([rec({ siteId: "old40", activatedAt: daysAgo(40) })]);
     mockRotate.mockRejectedValue(new Error("pod not running"));

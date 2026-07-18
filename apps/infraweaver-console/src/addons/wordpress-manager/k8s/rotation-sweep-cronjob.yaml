@@ -64,7 +64,7 @@ spec:
                   valueFrom:
                     secretKeyRef:
                       name: infraweaver-console-secret
-                      key: wordpress-health-cron-token
+                      key: wordpress-rotation-cron-token
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
