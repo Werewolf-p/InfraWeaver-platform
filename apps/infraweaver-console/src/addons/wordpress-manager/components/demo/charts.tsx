@@ -26,7 +26,7 @@ import type {
   TrafficPoint,
   UpdatesPoint,
   WafPoint,
-} from "./dummy-data";
+} from "./primitives";
 
 // Colours chosen to read on BOTH light and dark backgrounds.
 const AXIS = "#71717a"; // zinc-500

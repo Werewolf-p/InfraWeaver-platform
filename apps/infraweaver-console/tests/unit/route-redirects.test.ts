@@ -12,7 +12,10 @@ import RbacRedirect from "@/app/(dashboard)/rbac/page";
 import AppsRedirect from "@/app/(dashboard)/apps/page";
 import AppGraphRedirect from "@/app/(dashboard)/app-graph/page";
 import GameHubRedirect from "@/app/(dashboard)/game-hub/page";
-import WordpressRedirect from "@/app/(dashboard)/wordpress/page";
+// NB: /wordpress deliberately renders <WordpressView/> in place instead of
+// redirecting to /workloads?tab=wordpress — a redirect hop flashed the hub's
+// default Apps tab before ?tab resolved. See wordpress/page.tsx. So it is not a
+// member of this redirect map.
 import GameServersRedirect from "@/app/(dashboard)/gameservers/page";
 import RoutesRedirect from "@/app/(dashboard)/routes/page";
 import DnsRedirect from "@/app/(dashboard)/dns/page";
@@ -27,7 +30,6 @@ describe("legacy route → hub redirect map", () => {
     ["/apps", AppsRedirect, "/workloads"],
     ["/app-graph", AppGraphRedirect, "/workloads?tab=graph"],
     ["/game-hub", GameHubRedirect, "/workloads?tab=game"],
-    ["/wordpress", WordpressRedirect, "/workloads?tab=wordpress"],
     ["/gameservers", GameServersRedirect, "/workloads?tab=routing"],
     ["/routes", RoutesRedirect, "/workloads?tab=routing"],
     ["/dns", DnsRedirect, "/workloads?tab=routing"],

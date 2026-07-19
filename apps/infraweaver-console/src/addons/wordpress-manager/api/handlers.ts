@@ -19,6 +19,11 @@ import { createSite, deleteSite, listSites, listSitePods, listInstalledPlugins, 
 import { ensureSiteAccess, listSiteAccessUsers, siteAccessGroupName } from "../lib/access";
 import { computeSiteWordpressUsers } from "../lib/access-policy";
 import { loadUsersConfig } from "@/lib/users-config";
+import { getCachedManageOverview } from "../lib/manage/overview";
+import { getCachedManagePanel } from "../lib/manage/panel-data";
+import { getCachedFleet } from "../lib/fleet/aggregate";
+import { isManagePanelId } from "../lib/manage/capabilities";
+import { actionPermission, manageActionSchema, runManageAction } from "../lib/manage/actions";
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
@@ -73,6 +78,7 @@ async function guard(action: () => Promise<NextResponse>): Promise<NextResponse>
     return await action();
   } catch (err) {
     console.error("[wordpress] handler error:", err instanceof Error ? err.message : err);
+
     // Typed domain errors carry a safe message + status (404 missing site, 503
     // pod/vault not ready); everything else is generic so internals aren't leaked.
     if (err instanceof AddonHttpError) return fail(err.message, err.status);
@@ -353,6 +359,71 @@ export async function syncAccessHandler(site: string): Promise<NextResponse> {
     }
     return json({ group: siteAccessGroupName(site), ...result, wordpressUsers });
   });
+}
+
+/**
+ * GET — the Manage console overview: capability detection (which optional panels
+ * are available) plus the header summary, all from the site's own runtime over
+ * the secure in-pod path. Read access to the site is enough.
+ */
+export async function getManageOverviewHandler(site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:read", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("manage-overview", gate.ctx.username, 60);
+  if (limited) return limited;
+  return guard(async () => {
+    const cached = await getCachedManageOverview(site);
+    return json({ ...cached.value, cachedAt: cached.cachedAt, stale: cached.stale });
+  });
+}
+
+/** GET — one Manage panel's live data. The capability gate is re-enforced server-side. */
+/**
+ * GET — the live fleet roll-up (real, secure sources only). Namespace-wide
+ * `wordpress:read`: a fleet view spans every managed site, so it uses the
+ * namespace grant rather than a per-site scope (mirrors the metrics exporter's
+ * fleet read). Served through the SWR cache with a `cachedAt`/`stale` marker.
+ */
+export async function getFleetHandler(): Promise<NextResponse> {
+  const gate = await authorize("wordpress:read");
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("fleet", gate.ctx.username, 60);
+  if (limited) return limited;
+  return guard(async () => {
+    const cached = await getCachedFleet();
+    return json({ ...cached.value, cachedAt: cached.cachedAt, stale: cached.stale });
+  });
+}
+
+export async function getManagePanelHandler(site: string, panel: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  if (!isManagePanelId(panel)) return fail("Unknown panel", 404);
+  const gate = await authorize("wordpress:read", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("manage-panel", gate.ctx.username, 120);
+  if (limited) return limited;
+  return guard(async () => {
+    const cached = await getCachedManagePanel(site, panel);
+    return json({ panel, data: cached.value, cachedAt: cached.cachedAt, stale: cached.stale });
+  });
+}
+
+/**
+ * POST — run one allow-listed Manage write action (plugin/theme/core update, DB
+ * optimize, cache flush, account sync). The required RBAC permission is derived
+ * from the action itself, so an account-mutating sync needs admin while a cache
+ * flush needs only write.
+ */
+export async function runManageActionHandler(req: NextRequest, site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const parsed = manageActionSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid action", 400);
+  const gate = await authorize(actionPermission(parsed.data), site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("manage-action", gate.ctx.username, 30);
+  if (limited) return limited;
+  return guard(async () => json(await runManageAction(site, parsed.data)));
 }
 
 /**

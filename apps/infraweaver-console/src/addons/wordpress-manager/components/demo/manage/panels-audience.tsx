@@ -1,25 +1,24 @@
 "use client";
 
-// Traffic & SEO — audience-facing metrics for the per-site "Manage" console (demo).
+// Traffic & SEO panel — on-page SEO coverage computed live from wp-cli, plus an
+// honest analytics posture. There is no fabricated visitor traffic: live figures
+// require an external analytics provider's API the read-only channel can't reach.
+// Read-only: no allow-listed mutation exists, so there are no actions.
+
 import type { ReactNode } from "react";
-import { FileText, Hash, Search, TrendingUp, Unlink } from "lucide-react";
+import { BarChart3, FileText, Hash, Info, Map as MapIcon, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "@/lib/notify";
-import type { SiteManageData } from "../site-manage-data";
-import { AnimatedNumber, DeltaPill, HealthGauge, SectionCard } from "../widgets";
-import { TrafficArea } from "../charts";
-import { DummyBadge } from "../DummyBadge";
+import type { AudienceData } from "../../../lib/manage/probes/audience";
+import { HealthGauge, SectionCard } from "../widgets";
+import { PanelState } from "./panel-shell";
+import { useManagePanel } from "./use-manage";
 
 const TILE = "rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950/40";
-const BTN =
-  "inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
-const DEMO_MSG = "Demo — no changes are made to the live site.";
 
-type PillTone = "good" | "warn" | "critical" | "neutral";
+type PillTone = "good" | "warn" | "neutral";
 const PILL_TONE: Readonly<Record<PillTone, string>> = {
   good: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   warn: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  critical: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
   neutral: "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300",
 };
 function Pill({ tone, children }: { tone: PillTone; children: ReactNode }) {
@@ -30,135 +29,111 @@ function Pill({ tone, children }: { tone: PillTone; children: ReactNode }) {
   );
 }
 
-function codeBadge(code: number): { tone: PillTone; label: string } {
-  if (code === 0) return { tone: "critical", label: "timeout" };
-  if (code === 301) return { tone: "warn", label: "301" };
-  return { tone: "critical", label: String(code) };
+function pct(value: number | null): string {
+  return value === null ? "—" : `${value}%`;
 }
 
-export function AudiencePanel({ data }: { data: SiteManageData; site: string }) {
-  const totalVisitors = data.trafficTrend.reduce((sum, day) => sum + day.visitors, 0);
+export function AudiencePanel({ site }: { site: string }) {
+  const state = useManagePanel<AudienceData>(site, "audience");
 
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
-      <SectionCard title="Traffic" description="Weekly visitor volume." icon={TrendingUp} action={<DummyBadge />} className="lg:col-span-2">
-        <div className="mb-3 flex items-baseline justify-between gap-2">
-          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Visitors this week</span>
-          <AnimatedNumber value={totalVisitors} className="text-2xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100" />
-        </div>
-        <TrafficArea data={data.trafficTrend} />
-      </SectionCard>
+    <PanelState state={state}>
+      {(data) => {
+        const { seo, analytics } = data;
+        const coverageScore =
+          seo.metadescCoverage !== null && seo.focusKwCoverage !== null
+            ? Math.round((seo.metadescCoverage + seo.focusKwCoverage) / 2)
+            : null;
+        return (
+          <div className="grid gap-5 lg:grid-cols-2">
+            <SectionCard
+              title="SEO coverage"
+              description={seo.plugin ? `On-page coverage via ${seo.plugin}.` : "No SEO plugin detected."}
+              icon={Search}
+            >
+              {seo.yoast && coverageScore !== null ? (
+                <div className="flex items-center gap-4">
+                  <HealthGauge score={coverageScore} size={92} strokeWidth={8} label="coverage" />
+                  <dl className="min-w-0 flex-1 space-y-2 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+                        <FileText className="h-3.5 w-3.5" aria-hidden /> Indexable posts
+                      </dt>
+                      <dd className="font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
+                        {seo.publishedPosts.toLocaleString("en-US")}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="text-zinc-600 dark:text-zinc-400">Meta description</dt>
+                      <dd className="font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{pct(seo.metadescCoverage)}</dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+                        <Hash className="h-3.5 w-3.5" aria-hidden /> Focus keyphrase
+                      </dt>
+                      <dd className="font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{pct(seo.focusKwCoverage)}</dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <dt className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+                        <MapIcon className="h-3.5 w-3.5" aria-hidden /> XML sitemap
+                      </dt>
+                      <dd>
+                        {seo.sitemapEnabled === null ? (
+                          <Pill tone="neutral">Unknown</Pill>
+                        ) : seo.sitemapEnabled ? (
+                          <Pill tone="good">Enabled</Pill>
+                        ) : (
+                          <Pill tone="warn">Disabled</Pill>
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className={cn("flex items-center justify-between gap-3", TILE)}>
+                    <span className="text-sm text-zinc-600 dark:text-zinc-400">Indexable posts</span>
+                    <span className="text-lg font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                      {seo.publishedPosts.toLocaleString("en-US")}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 text-sm text-zinc-700 dark:text-zinc-200">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" aria-hidden />
+                    <p>
+                      Detailed on-page coverage (meta description, focus keyphrase, sitemap) is computed from Yoast SEO
+                      metadata. {seo.plugin ? `${seo.plugin} is active, but its data model differs` : "No SEO plugin is active"} — connect
+                      Yoast to surface these metrics.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </SectionCard>
 
-      <SectionCard title="Top pages" description="Most-viewed URLs this week." icon={FileText} action={<DummyBadge />}>
-        <ol className="space-y-2">
-          {data.topPages.map((page, i) => (
-            <li key={page.path} className={cn(TILE, "flex items-center gap-3")}>
-              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-zinc-200 text-[11px] font-semibold tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                {i + 1}
-              </span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-700 dark:text-zinc-300">{page.path}</span>
-              <span className="shrink-0 text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
-                {page.views.toLocaleString("en-US")}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </SectionCard>
-
-      <SectionCard title="SEO health" description="Search visibility snapshot." icon={Search} action={<DummyBadge />}>
-        <div className="flex items-center gap-4">
-          <HealthGauge score={data.seo.score} size={92} strokeWidth={8} label="SEO score" />
-          <dl className="min-w-0 flex-1 space-y-2 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-zinc-600 dark:text-zinc-400">Indexed pages</dt>
-              <dd className="font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{data.seo.indexed.toLocaleString("en-US")}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-zinc-600 dark:text-zinc-400">Sitemap</dt>
-              <dd>{data.seo.sitemapOk ? <Pill tone="good">Submitted</Pill> : <Pill tone="warn">Missing</Pill>}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-zinc-600 dark:text-zinc-400">Meta coverage</dt>
-              <dd className="font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{data.seo.metaCoverage}%</dd>
-            </div>
-          </dl>
-        </div>
-        <div className="mt-4 flex justify-end">
-          <button type="button" className={BTN} onClick={() => toast.info(DEMO_MSG)}>
-            <Search className="h-4 w-4" aria-hidden /> Re-crawl
-          </button>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Keyword rankings" description="Organic positions and monthly search volume." icon={Hash} action={<DummyBadge />}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-500">
-                <th className="py-2 font-medium">Term</th>
-                <th className="py-2 font-medium">Position</th>
-                <th className="py-2 font-medium">Change</th>
-                <th className="py-2 text-right font-medium">Volume</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {data.keywords.map((k, i) => (
-                <tr key={`${k.term}-${i}`}>
-                  <td className="py-2 pr-2 text-zinc-900 dark:text-zinc-100">{k.term}</td>
-                  <td className="py-2 pr-2 tabular-nums text-zinc-700 dark:text-zinc-300">#{k.position}</td>
-                  <td className="py-2 pr-2">
-                    <DeltaPill value={k.delta} positiveIsGood={false} />
-                  </td>
-                  <td className="py-2 text-right tabular-nums text-zinc-700 dark:text-zinc-300">{k.volume.toLocaleString("en-US")}/mo</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Broken links" description="Dead links found in the latest crawl." icon={Unlink} action={<DummyBadge />} className="lg:col-span-2">
-        {data.brokenLinks.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
-            No broken links found in the last crawl.
+            <SectionCard
+              title="Analytics"
+              description="Live traffic comes from your analytics provider."
+              icon={BarChart3}
+            >
+              <div className={cn("flex items-center justify-between gap-3", TILE)}>
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">Detected plugin</span>
+                {analytics.plugin ? (
+                  <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{analytics.plugin}</span>
+                ) : (
+                  <Pill tone="neutral">None active</Pill>
+                )}
+              </div>
+              <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 text-sm text-zinc-700 dark:text-zinc-200">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" aria-hidden />
+                <p>
+                  {analytics.plugin
+                    ? `${analytics.plugin} is active on this site. Live visitor figures require connecting that provider's API — they aren't available over the read-only management channel, so no traffic numbers are shown here.`
+                    : "Activate an analytics plugin (Site Kit, Matomo, …) and connect its provider to report visitor traffic. The read-only management channel can't measure live visits on its own."}
+                </p>
+              </div>
+            </SectionCard>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-500">
-                  <th className="py-2 font-medium">URL</th>
-                  <th className="py-2 font-medium">Found on</th>
-                  <th className="py-2 font-medium">Code</th>
-                  <th className="py-2 text-right font-medium">When</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                {data.brokenLinks.map((link, i) => {
-                  const badge = codeBadge(link.code);
-                  return (
-                    <tr key={`${link.url}-${i}`}>
-                      <td className="min-w-0 py-2 pr-3">
-                        <span className="block max-w-[240px] truncate font-mono text-[11px] text-zinc-700 dark:text-zinc-300">{link.url}</span>
-                      </td>
-                      <td className="py-2 pr-3 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{link.foundOn}</td>
-                      <td className="py-2 pr-3">
-                        <Pill tone={badge.tone}>{badge.label}</Pill>
-                      </td>
-                      <td className="py-2 text-right text-zinc-500 dark:text-zinc-400">{link.when}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="mt-4 flex justify-end">
-          <button type="button" className={BTN} onClick={() => toast.info(DEMO_MSG)}>
-            <Unlink className="h-4 w-4" aria-hidden /> Re-scan links
-          </button>
-        </div>
-      </SectionCard>
-    </div>
+        );
+      }}
+    </PanelState>
   );
 }

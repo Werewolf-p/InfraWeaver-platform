@@ -20,6 +20,7 @@
 export type RpcMethod =
   | "health.check"
   | "debug.status"
+  | "metrics.snapshot"
   | "key.rotate.self"
   | "key.rotate.confirm"
   | "key.rotate.abort"
@@ -29,10 +30,43 @@ export type RpcMethod =
 export interface RpcParams {
   "health.check": Record<string, never>;
   "debug.status": Record<string, never>;
+  "metrics.snapshot": Record<string, never>;
   "key.rotate.self": { rotation_id: string; new_kid?: number };
   "key.rotate.confirm": { rotation_id: string };
   "key.rotate.abort": { rotation_id: string };
   "site.deactivate": Record<string, never>;
+}
+
+/**
+ * Numeric/scalar telemetry the plugin returns for `metrics.snapshot` — a
+ * gauge-shaped projection of link state (see IWSL_Plugin::metrics_snapshot).
+ * Best-effort typing; the exporter still narrows each field before rendering.
+ */
+export interface ConnectorMetricsResult {
+  /** Running Connector version (→ `iwsl_connector_info` label). */
+  plugin: string;
+  /** PHP version the site runs (→ info label). */
+  php: string;
+  /** WordPress core version, or null off a real WP context (→ info label). */
+  wp: string | null;
+  /** Plugin's own clock in unix ms — for scrape-side skew detection. */
+  time_ms: number;
+  /** libsodium available for signing/verification (0/1). */
+  sodium: 0 | 1;
+  wp_kid: number;
+  iw_kid: number;
+  wp_epoch_floor: number;
+  iw_epoch_floor: number;
+  /** Highest command seq the link has committed (§6.3 replay watermark). */
+  last_seq: number;
+  /** Live replay-nonce cache size. */
+  nonce_cache: number;
+  /** A key rotation is prepared-but-unconfirmed (0/1). */
+  rotation_pending: 0 | 1;
+  /** Unix seconds of the last signing-key reroll, 0 if never (§8). */
+  last_reroll_at: number;
+  /** Whether that last reroll confirmed (1) or aborted/failed (0). */
+  last_reroll_ok: 0 | 1;
 }
 
 /**
@@ -53,6 +87,7 @@ export interface RpcResult {
     last_reroll?: { at: number; kid: number; ok: boolean; reason?: string };
   };
   "debug.status": Record<string, unknown>;
+  "metrics.snapshot": ConnectorMetricsResult;
   "key.rotate.self": { new_wp_pk: string } | { reason: string };
   "key.rotate.confirm": Record<string, never> | { reason: string };
   "key.rotate.abort": Record<string, never>;
@@ -88,6 +123,7 @@ const rotationParams: RpcParamsValidator = (params) =>
 export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "health.check": { hasParams: false, validate: noParams },
   "debug.status": { hasParams: false, validate: noParams },
+  "metrics.snapshot": { hasParams: false, validate: noParams },
   "key.rotate.self": { hasParams: true, validate: rotationParams },
   "key.rotate.confirm": { hasParams: true, validate: rotationParams },
   "key.rotate.abort": { hasParams: true, validate: rotationParams },

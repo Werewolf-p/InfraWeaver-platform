@@ -323,7 +323,7 @@ export function SiteDetailView({ site }: { site: string }) {
       {/* The site as an app: its pods (WordPress + MariaDB) and their firewall */}
       <SiteRuntimeCard site={site} />
 
-      {/* Illustrative demo analytics — clearly labelled dummy data, no real calls. */}
+      {/* Per-site insights, sourced from the live signed-Connector fleet signals. */}
       <SiteDemoInsights site={site} />
 
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">

@@ -8,8 +8,8 @@
 // Date.now — so server and client always agree.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { mulberry32 } from "./dummy-data";
-import type { DayStatus } from "./dummy-data";
+import { mulberry32 } from "./primitives";
+import type { DayStatus } from "./primitives";
 import { siteSeed, type CheckState } from "./site-manage-data";
 
 function pick<T>(list: readonly T[], roll: number): T {

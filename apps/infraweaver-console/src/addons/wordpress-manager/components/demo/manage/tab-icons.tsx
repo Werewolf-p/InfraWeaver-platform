@@ -1,0 +1,55 @@
+import {
+  Accessibility,
+  Activity,
+  Archive,
+  BellRing,
+  Briefcase,
+  Cpu,
+  Database,
+  FileText,
+  Gauge,
+  GitBranch,
+  HeartPulse,
+  Image as ImageIcon,
+  Inbox,
+  LineChart,
+  Mail,
+  Puzzle,
+  RefreshCw,
+  ScrollText,
+  ShieldCheck,
+  ShoppingCart,
+  TrendingUp,
+  Users,
+  Wand2,
+} from "lucide-react";
+
+/** Resolve a panel-registry icon key to its lucide component (falls back to Wand2). */
+export const TAB_ICONS: Record<string, React.ElementType> = {
+  RefreshCw,
+  Puzzle,
+  FileText,
+  Image: ImageIcon,
+  ShoppingCart,
+  Inbox,
+  Archive,
+  GitBranch,
+  ShieldCheck,
+  Accessibility,
+  Gauge,
+  Cpu,
+  Activity,
+  TrendingUp,
+  Mail,
+  Users,
+  Briefcase,
+  BellRing,
+  ScrollText,
+  Database,
+  HeartPulse,
+  LineChart,
+};
+
+export function tabIcon(key: string): React.ElementType {
+  return TAB_ICONS[key] ?? Wand2;
+}

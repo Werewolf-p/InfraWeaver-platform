@@ -8,6 +8,7 @@ import { WpPodExecError } from "../lib/k8s-exec";
 import { runHealthSweep } from "../lib/health-sweep";
 import { runRotationSweep } from "../lib/rotation-sweep";
 import { runConnectorUpdateSweep } from "../lib/update-sweep";
+import { exportConnectorMetrics } from "../lib/manage/metrics";
 import {
   getWordpressAccessContext,
   hasWordpressPermission,
@@ -429,6 +430,58 @@ function cronTokenValid(req: NextRequest, expected = process.env.WORDPRESS_HEALT
   // timingSafeEqual throws on length mismatch — length itself is not secret.
   if (expectedBuf.length !== providedBuf.length) return false;
   return timingSafeEqual(expectedBuf, providedBuf);
+}
+
+/**
+ * Constant-time compare of a `Authorization: Bearer <token>` header against the
+ * metrics scrape token. Bearer is the Prometheus idiom (ServiceMonitor
+ * `bearerTokenSecret`), so the exporter accepts it rather than the internal
+ * cron header. Fail-closed: no configured token, or a missing/malformed/mismatched
+ * header, all return false so an unconfigured deployment can't be scraped anonymously.
+ */
+function bearerTokenValid(req: NextRequest, expected = process.env.WORDPRESS_METRICS_TOKEN): boolean {
+  if (!expected) return false;
+  const header = req.headers.get("authorization");
+  if (!header) return false;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  if (!match) return false;
+  const expectedBuf = Buffer.from(expected, "utf8");
+  const providedBuf = Buffer.from(match[1], "utf8");
+  // timingSafeEqual throws on length mismatch — length itself is not secret.
+  if (expectedBuf.length !== providedBuf.length) return false;
+  return timingSafeEqual(expectedBuf, providedBuf);
+}
+
+/**
+ * GET — Prometheus text exposition of the Connector fleet's signed telemetry
+ * (`iwsl_connector_*`). Every series is sourced from a signed, pinned-key-verified
+ * `metrics.snapshot`, so a scraped value is authenticated end-to-end — the scrape
+ * surface itself is the ONLY new thing exposed on the console, and it is
+ * token-gated. Authenticated by the Prometheus scrape token (`Authorization:
+ * Bearer`, how the ServiceMonitor calls in) OR an operator session with
+ * `wordpress:read`. Fail-closed on both. Served as text/plain, never cached.
+ */
+export async function connectorMetricsHandler(req: NextRequest): Promise<NextResponse | Response> {
+  if (!bearerTokenValid(req)) {
+    const gate = await authorize("wordpress:read");
+    if (!gate.ok) return gate.error;
+    const limited = rateLimited("metrics", gate.ctx.username, 30);
+    if (limited) return limited;
+  }
+  try {
+    const body = await exportConnectorMetrics();
+    return new Response(body, {
+      status: 200,
+      headers: {
+        // OpenMetrics/Prometheus text exposition content type.
+        "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (err) {
+    console.error("[wordpress:iwsl] metrics export error:", err instanceof Error ? err.message : err);
+    return fail("Metrics export failed — check the server logs for details", 500);
+  }
 }
 
 /**

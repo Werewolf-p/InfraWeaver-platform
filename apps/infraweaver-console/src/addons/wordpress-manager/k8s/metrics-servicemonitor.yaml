@@ -1,0 +1,90 @@
+# WordPress Connector fleet metrics — Prometheus scrape target.
+#
+# Prometheus scrapes the console's own /api/wordpress/metrics endpoint, which
+# renders one signed `metrics.snapshot` per commandable link into the text
+# exposition format (series `iwsl_connector_*`). The values are authenticated
+# end-to-end: each snapshot rides the same dual-signed, pinned-key-verified IWSL
+# command channel as health.check, so a tampered reply quarantines the link and
+# never reaches a gauge. The scrape endpoint is the only new surface, and it is
+# token-gated (Bearer).
+#
+# APPLY NOTES (operator):
+#   * The reference deployment runs the console as Service `infraweaver-console`
+#     on port 3000 in namespace `infraweaver-console` (pod label
+#     `app: infraweaver-console`). Adjust `namespace`, `selector`, and the
+#     endpoint `port`/`targetPort` if your install differs (some use the
+#     `infraweaver` namespace).
+#   * `endpoints[].port` names the SERVICE PORT (a string). If the console
+#     Service does not name its 3000 port `http`, either name it or swap to
+#     `targetPort: 3000` below.
+#   * The ServiceMonitor must carry whatever label your Prometheus CR's
+#     `serviceMonitorSelector` matches — commonly `release: <helm-release>`.
+#     The `release: kube-prometheus-stack` label below is the kube-prometheus-stack
+#     default; change it to match your cluster.
+#   * Auth uses the `wordpress-metrics-token` Secret (key `token`), which MUST
+#     hold the SAME value the console has as its `WORDPRESS_METRICS_TOKEN` env var
+#     (synced from OpenBao alongside the other console secrets) — otherwise the
+#     endpoint fails closed (401/403) and Prometheus scrapes nothing. No literal
+#     Secret is shipped here (it could never match that env): create it from the
+#     shared token, e.g.
+#       kubectl -n infraweaver-console create secret generic wordpress-metrics-token \
+#         --from-literal=token="$WORDPRESS_METRICS_TOKEN"
+#     then: kubectl apply -f k8s/metrics-servicemonitor.yaml
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: wordpress-connector-metrics
+  namespace: infraweaver-console
+  labels:
+    app.kubernetes.io/managed-by: infraweaver-console
+    infraweaver.io/component: iwsl
+    # Must match the Prometheus CR's serviceMonitorSelector (see apply notes).
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - infraweaver-console
+  selector:
+    matchLabels:
+      app: infraweaver-console
+  endpoints:
+    - port: http # the Service's 3000 port name; use targetPort: 3000 if unnamed
+      path: /api/wordpress/metrics
+      scheme: http
+      # Each signed round-trip is seconds (SLH-DSA dominates); the exporter serves
+      # a per-link SWR cache so a 60s scrape rarely blocks on a fresh round-trip.
+      interval: 60s
+      scrapeTimeout: 30s
+      bearerTokenSecret:
+        name: wordpress-metrics-token
+        key: token
+---
+# Ingress allow so Prometheus can reach the console pod on :3000. The console
+# namespace runs a default-deny-ingress (only the ingress controller is admitted
+# in the reference deployment), so the ServiceMonitor is not enough on its own —
+# the console must also admit the Prometheus pod inbound. k8s NetworkPolicy
+# ingress is additive, so this only ADDS Prometheus as an allowed source.
+#
+# APPLY NOTE: set the namespaceSelector to wherever Prometheus runs (commonly
+# `monitoring` or `observability`). If Prometheus carries a distinct pod label,
+# tighten `from` with a podSelector too.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-to-console-metrics
+  namespace: infraweaver-console
+spec:
+  podSelector:
+    matchLabels:
+      app: infraweaver-console
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 3000
+          protocol: TCP

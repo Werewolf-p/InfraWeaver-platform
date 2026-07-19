@@ -46,6 +46,12 @@ jest.mock("@/addons/wordpress-manager/lib/iwsl-managed-ops", () => ({
 }));
 
 // Heavy/unused modules the handler imports at load time — stubbed so the graph resolves.
+// metrics.ts (reached via the new metrics-export handler) imports iwsl-link-store,
+// which pulls the ESM-only @kubernetes/client-node through kube-client; stub it to
+// keep this suite off the k8s chain.
+jest.mock("@/addons/wordpress-manager/lib/iwsl-link-store", () => ({
+  listExternalSites: jest.fn(() => []),
+}));
 jest.mock("@/addons/wordpress-manager/lib/k8s-exec", () => ({ WpPodExecError: class WpPodExecError extends Error {} }));
 jest.mock("@/addons/wordpress-manager/lib/health-sweep", () => ({ runHealthSweep: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/update-sweep", () => ({ runConnectorUpdateSweep: jest.fn() }));

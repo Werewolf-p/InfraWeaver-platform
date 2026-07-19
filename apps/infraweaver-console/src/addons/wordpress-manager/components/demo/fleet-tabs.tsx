@@ -2,7 +2,6 @@
 
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { FileText, Gauge, LayoutDashboard, ShieldAlert, Waypoints } from "lucide-react";
-import { DemoBanner } from "./DummyBadge";
 import { EASE_OUT } from "./motion";
 import { FleetMonitoring } from "./fleet-monitoring";
 import { FleetOverview } from "./fleet-overview";
@@ -29,16 +28,16 @@ const PANELS: Readonly<Record<FleetTabId, () => React.ReactElement>> = {
 };
 
 /**
- * The demo fleet-insights surface. Renders the "this is dummy data" banner plus
- * the panel for the active tab. `reducedMotion="user"` makes every child honour
- * the viewer's prefers-reduced-motion setting (crossfade instead of movement).
+ * The fleet-insights surface. Renders the panel for the active tab — every tab
+ * is now backed by real, signed fleet signals (no dummy data).
+ * `reducedMotion="user"` makes every child honour the viewer's
+ * prefers-reduced-motion setting (crossfade instead of movement).
  */
 export function FleetDemoArea({ tab }: { tab: FleetTabId }) {
   const Panel = PANELS[tab];
   return (
     <MotionConfig reducedMotion="user">
       <div className="space-y-5">
-        <DemoBanner />
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={tab}

@@ -112,6 +112,17 @@ final class IWSL_Plugin {
 				}
 			),
 			new IWSL_Command_Handler(
+				'metrics.snapshot',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Read-only numeric telemetry over the SAME signed channel as
+					// health.check — the console verifies this response against the
+					// pinned WP-PK before it trusts a single gauge, so a scraped
+					// value can't be forged in transit. No params, no key material,
+					// no state change (never signs-with-current, never wipes).
+					return array( true, $plugin->metrics_snapshot() );
+				}
+			),
+			new IWSL_Command_Handler(
 				'key.rotate.self',
 				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
 					$params = get_object_vars( $envelope->params );
@@ -265,6 +276,41 @@ final class IWSL_Plugin {
 			'last_rejection' => is_array( $reject )
 				? array( 'reason' => (string) $reject['reason'], 'ts' => (int) $reject['ts'] )
 				: null,
+		);
+	}
+
+	/**
+	 * Numeric/scalar telemetry for the console's Prometheus exporter, carried over
+	 * the signed `metrics.snapshot` command. A curated, gauge-shaped projection of
+	 * the same state debug_status() exposes — no fingerprints, no key material, no
+	 * live URL (health.check owns §5 identity): just counters the console renders
+	 * as `iwsl_connector_*` series. Booleans are emitted as 0/1 and every count
+	 * defaults to 0 so a fresh/partial store yields a well-formed sample, never a
+	 * gap. `time_ms` is the plugin's own clock (skew detection); string versions
+	 * ride into the exporter's `_info` label gauge.
+	 */
+	private function metrics_snapshot(): array {
+		$nonces  = $this->store->get( 'nonces', array() );
+		$pending = $this->store->get( 'pending_rotation' );
+		$reroll  = $this->rotation->last_reroll();
+		return array(
+			'plugin'           => defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : 'dev',
+			'php'              => PHP_VERSION,
+			'wp'               => function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'version' ) : null,
+			'time_ms'          => (int) round( microtime( true ) * 1000 ),
+			'sodium'           => function_exists( 'sodium_crypto_sign_verify_detached' ) ? 1 : 0,
+			'wp_kid'           => (int) $this->store->get( 'wp_current_kid', 0 ),
+			'iw_kid'           => (int) $this->store->get( 'iw_current_kid', 0 ),
+			'wp_epoch_floor'   => (int) $this->store->get( 'wp_epoch_floor', 0 ),
+			'iw_epoch_floor'   => (int) $this->store->get( 'iw_epoch_floor', 0 ),
+			'last_seq'         => (int) $this->store->get( 'last_seq', 0 ),
+			'nonce_cache'      => is_array( $nonces ) ? count( $nonces ) : 0,
+			'rotation_pending' => is_array( $pending ) ? 1 : 0,
+			// Last signing-key reroll (§8): unix seconds + a 0/1 success flag, 0
+			// when the site has never rerolled. Lets the console alert on a reroll
+			// that aborted or a key that has gone too long without one.
+			'last_reroll_at'   => is_array( $reroll ) ? (int) $reroll['at'] : 0,
+			'last_reroll_ok'   => is_array( $reroll ) && ! empty( $reroll['ok'] ) ? 1 : 0,
 		);
 	}
 

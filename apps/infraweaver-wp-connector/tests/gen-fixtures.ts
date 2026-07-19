@@ -164,6 +164,17 @@ const commands = {
     ts: T0,
     nonce: "fixture-nonce-debug",
   }),
+  // Signed read-only telemetry (exec channel, no params) — same envelope shape
+  // as health.check/debug.status. seq 19 slots between debug.status (18) and
+  // site.deactivate (20) in the plugin flow; it shares seq 19 with httpsHealth
+  // harmlessly, since httpsHealth is rejected at the channel check before seq.
+  metricsSnapshot: command("metricsSnapshot", {
+    method: "metrics.snapshot",
+    params: {},
+    seq: 19,
+    ts: T0,
+    nonce: "fixture-nonce-metrics",
+  }),
   deactivate: command("deactivate", {
     method: "site.deactivate",
     params: {},

@@ -244,7 +244,7 @@ export function WordpressDashboard() {
   const [tab, setTab] = useState<DashTab>("sites");
   const dashTabs: ReadonlyArray<{ id: DashTab; label: string; icon: ElementType; demo: boolean }> = [
     { id: "sites", label: "Sites", icon: Globe, demo: false },
-    ...FLEET_DEMO_TABS.map((entry) => ({ id: entry.id, label: entry.label, icon: entry.icon, demo: true })),
+    ...FLEET_DEMO_TABS.map((entry) => ({ id: entry.id, label: entry.label, icon: entry.icon, demo: false })),
   ];
 
   return (
@@ -306,11 +306,6 @@ export function WordpressDashboard() {
             >
               <Icon className="h-4 w-4" aria-hidden />
               {entry.label}
-              {entry.demo && (
-                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                  Demo
-                </span>
-              )}
             </button>
           );
         })}
