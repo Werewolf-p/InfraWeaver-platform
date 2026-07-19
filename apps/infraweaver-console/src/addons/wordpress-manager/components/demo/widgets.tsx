@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { animate, motion, useInView, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { EASE_OUT } from "./motion";
-import type { DayStatus, HealthStatus, Severity } from "./dummy-data";
+import type { DayStatus, HealthStatus, Severity } from "./primitives";
 
 // ── Number formatting (locale-free → deterministic, no hydration drift) ───────
 function formatNumber(value: number, decimals: number): string {

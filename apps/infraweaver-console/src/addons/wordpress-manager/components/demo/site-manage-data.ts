@@ -10,7 +10,7 @@
 // and no two demo sites look identical.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { mulberry32 } from "./dummy-data";
+import { mulberry32 } from "./primitives";
 
 /** FNV-1a hash of the site name → a stable 32-bit seed. */
 export function siteSeed(site: string): number {

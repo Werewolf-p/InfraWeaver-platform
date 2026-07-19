@@ -58,9 +58,25 @@ Read needs `wordpress:read`; create needs `wordpress:write`; delete needs
 | `WORDPRESS_CERT_ISSUER` | Traefik certResolver for site TLS | — (Traefik default/wildcard) |
 | `WORDPRESS_VAULT_TIMEOUT_MS` | Vault request timeout | `10000` |
 | `AUTHENTIK_NAMESPACE` | Where blueprint ConfigMaps are written | `authentik` |
+| `WORDPRESS_METRICS_TOKEN` | Bearer token gating `GET /api/wordpress/metrics` (Prometheus scrape) | — (endpoint fails closed if unset) |
 
 DNS uses the console's existing Cloudflare helper (`CF_ZONE_ID` etc. already set
 for the platform).
+
+## Connector telemetry (Prometheus)
+
+`GET /api/wordpress/metrics` exports the IWSL Connector fleet as Prometheus text
+(`iwsl_connector_*` gauges: `up`, roundtrip, key epochs, `last_seq`, nonce-cache
+size, rotation-pending, last-reroll, `_info`). Every value is sourced from a
+signed `metrics.snapshot` command over the SAME dual-signed, pinned-key-verified
+channel as `health.check` — a tampered reply quarantines the link and never
+reaches a gauge, so the exporter is authenticated end-to-end and the scrape
+surface is the only new thing exposed. It is gated two ways: an `Authorization:
+Bearer <WORDPRESS_METRICS_TOKEN>` header (how the `ServiceMonitor` scrapes) or an
+operator session with `wordpress:read`. Per-link readings are SWR-cached so a 60s
+scrape does not block on a fresh ~seconds-long signed round-trip per site. Apply
+`k8s/metrics-servicemonitor.yaml` (see its notes) to wire Prometheus;
+`deploy.sh` provisions the token Secret from OpenBao (`SKIP_METRICS=1` to skip).
 
 ## Security notes (reviewed during build)
 

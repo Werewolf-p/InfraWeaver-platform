@@ -119,6 +119,13 @@ function withSecurityHeaders(response: NextResponse, nonce: string, requestId: s
   return response;
 }
 
+/** Extract the token from an `Authorization: Bearer <token>` header, or null. */
+function bearerTokenFrom(header: string | null): string | null {
+  if (!header) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match ? match[1] : null;
+}
+
 export default auth(async (req) => {
   const { nextUrl } = req;
   const pathname = nextUrl.pathname;
@@ -185,6 +192,21 @@ export default auth(async (req) => {
       pathname === "/api/security/roster-drift" &&
       req.method === "GET" &&
       internalCronTokenMatches(req.headers.get("x-internal-cron-token"), process.env.ROSTER_DRIFT_CRON_TOKEN)
+    ) {
+      return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
+    }
+
+    // Prometheus scrape: the ServiceMonitor GETs /api/wordpress/metrics with a
+    // Bearer token (bearerTokenSecret) instead of a session — the IWSL Connector
+    // fleet exporter. Read-only, so no CSRF concern — the session gate is the
+    // only wall to pass. Same fail-closed contract as the cron bypasses above: a
+    // missing/wrong token falls through to the auth wall and is rejected, and the
+    // route handler re-validates the SAME token (defence in depth). Kept ahead of
+    // the rate-limit/auth blocks so the sole authenticator is the token.
+    if (
+      pathname === "/api/wordpress/metrics" &&
+      req.method === "GET" &&
+      internalCronTokenMatches(bearerTokenFrom(req.headers.get("authorization")), process.env.WORDPRESS_METRICS_TOKEN)
     ) {
       return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
     }

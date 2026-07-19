@@ -440,6 +440,59 @@ export async function externalConnectorHealthCheck(siteId: string): Promise<Conn
   return toConnectorHealth(reply);
 }
 
+// ── Telemetry ────────────────────────────────────────────────────────────────
+
+export interface ConnectorMetrics {
+  ok: boolean;
+  roundtripMs: number;
+  /** Numeric snapshot (ConnectorMetricsResult) — trusted only post-verification. */
+  result: Record<string, unknown>;
+  /** Set when the plugin rejected the command unsigned (§12.5), e.g. unknown-method. */
+  rejectedReason?: string;
+}
+
+function toConnectorMetrics(reply: CommandReply): ConnectorMetrics {
+  return {
+    ok: reply.ok,
+    roundtripMs: reply.roundtripMs,
+    result: reply.result,
+    ...(reply.rejectedReason ? { rejectedReason: reply.rejectedReason } : {}),
+  };
+}
+
+/**
+ * Signed `metrics.snapshot` over exec (§5.1 managed link). Read-only numeric
+ * telemetry on the SAME dual-signed channel as health.check: the reply is
+ * verified against the pinned WP-PK inside `dispatchSignedCommand` (a bad
+ * signature quarantines and throws before we return), so every gauge the
+ * exporter renders is authenticated, not scraped in the clear. No state change,
+ * so nothing is persisted — this is a pure read the Prometheus exporter drives.
+ */
+export async function connectorMetrics(site: string): Promise<ConnectorMetrics> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  const pod = await requireRunningPod(site);
+  const reply = await callRpc(rpcTransport(record, execDelivery(pod), "exec"), "metrics.snapshot", {});
+  return toConnectorMetrics(reply);
+}
+
+/**
+ * Signed `metrics.snapshot` to an EXTERNAL (§5) site over the public HTTPS
+ * command channel. IW initiates the POST; the plugin answers inside the same
+ * exchange (§2 invariant intact). Same pinned-key verification as the exec path,
+ * so a MITM on the metrics scrape is caught exactly as a command tamper is.
+ */
+export async function externalConnectorMetrics(siteId: string): Promise<ConnectorMetrics> {
+  const record = await requireExternalRecord(siteId);
+  requireCommandable(record);
+  const reply = await callRpc(
+    rpcTransport(record, httpDelivery(record.url, record.pinnedSpki), "https"),
+    "metrics.snapshot",
+    {},
+  );
+  return toConnectorMetrics(reply);
+}
+
 export interface ConnectorDebug {
   /** Raw `wp infraweaver status` output. */
   statusText: string;

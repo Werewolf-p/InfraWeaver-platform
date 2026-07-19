@@ -1,15 +1,18 @@
 "use client";
 
-// Store tab for the per-site "Manage" demo — WooCommerce revenue, orders, products, stock.
-import { AlertTriangle, Euro, Package, Percent, Receipt, ShoppingCart, TrendingUp } from "lucide-react";
-import { cn } from "@/lib/utils";
-import type { SiteManageExt } from "../site-manage-ext-data";
-import { SectionCard, StatTile } from "../widgets";
-import { DummyBadge } from "../DummyBadge";
+// Store panel — live WooCommerce revenue, orders by status, products and low stock.
+// Read-only: WooCommerce has no allow-listed Manage mutation, so there are no actions.
 
-type PillTone = "good" | "info" | "warn" | "critical" | "neutral";
+import { AlertTriangle, Coins, Package, Receipt, ShoppingCart } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { StoreData } from "../../../lib/manage/probes/store";
+import { SectionCard, StatTile, healthTone } from "../widgets";
+import { PanelState } from "./panel-shell";
+import { useManagePanel } from "./use-manage";
+
 const PILL_BASE = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium";
-const PILL: Record<PillTone, string> = {
+type PillTone = "good" | "info" | "warn" | "critical" | "neutral";
+const PILL: Readonly<Record<PillTone, string>> = {
   good: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   info: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
   warn: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
@@ -18,152 +21,120 @@ const PILL: Record<PillTone, string> = {
 };
 const TILE = "rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950/40";
 
-const fmt = (n: number) => n.toLocaleString("en-US");
-
-const ORDER_TONE: Record<"completed" | "processing" | "pending" | "refunded", PillTone> = {
+const STATUS_TONE: Readonly<Record<string, PillTone>> = {
   completed: "good",
   processing: "info",
-  pending: "warn",
+  "on-hold": "warn",
+  pending: "neutral",
   refunded: "critical",
-};
-const ORDER_LABEL: Record<"completed" | "processing" | "pending" | "refunded", string> = {
-  completed: "Completed",
-  processing: "Processing",
-  pending: "Pending",
-  refunded: "Refunded",
+  cancelled: "critical",
+  failed: "critical",
 };
 
-export function StorePanel({ ext }: { ext: SiteManageExt; site: string }) {
-  const { store } = ext;
+const CURRENCY_SYMBOL: Readonly<Record<string, string>> = { EUR: "€", USD: "$", GBP: "£", JPY: "¥", AUD: "$", CAD: "$" };
 
-  if (!store.enabled) {
-    return (
-      <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
-        WooCommerce not detected — this site isn&apos;t a store.
-      </div>
-    );
-  }
+function currencyPrefix(code: string | null): string {
+  if (!code) return "";
+  return CURRENCY_SYMBOL[code] ?? `${code} `;
+}
 
-  const maxRevenue = Math.max(...store.revenueTrend.map((d) => d.amount), 1);
+function statusTone(status: string): PillTone {
+  return STATUS_TONE[status] ?? "neutral";
+}
+
+function statusLabel(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1).replace(/-/g, " ");
+}
+
+export function StorePanel({ site }: { site: string }) {
+  const state = useManagePanel<StoreData>(site, "store");
 
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
-      <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2 lg:grid-cols-4">
-        <StatTile label="Revenue 30d" value={store.revenue30d} prefix="€" icon={Euro} />
-        <StatTile label="Orders" value={store.orders30d} icon={ShoppingCart} />
-        <StatTile label="AOV" value={store.aov} prefix="€" icon={Receipt} />
-        <StatTile label="Conversion" value={store.conversion} decimals={2} suffix="%" icon={Percent} />
-      </div>
+    <PanelState state={state}>
+      {(data) => {
+        const symbol = currencyPrefix(data.currency);
+        return (
+          <div className="grid gap-5 lg:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2 lg:grid-cols-4">
+              <StatTile
+                label="Gross revenue"
+                value={data.grossRevenue ?? 0}
+                decimals={2}
+                prefix={symbol}
+                icon={Coins}
+                tone={healthTone(85)}
+              />
+              <StatTile label="Orders" value={data.totalOrders} icon={ShoppingCart} tone={healthTone(80)} />
+              <StatTile label="Products" value={data.productCount} icon={Package} tone={healthTone(80)} />
+              <StatTile
+                label="Low stock (≤2)"
+                value={data.lowStockCount}
+                icon={AlertTriangle}
+                tone={healthTone(data.lowStockCount === 0 ? 95 : data.lowStockCount < 5 ? 60 : 40)}
+              />
+            </div>
 
-      <SectionCard title="Revenue (7 days)" description="Daily takings for the past week." icon={TrendingUp} action={<DummyBadge />}>
-        <div className="flex h-32 items-end gap-2">
-          {store.revenueTrend.map((d) => (
-            <div
-              key={d.day}
-              className="w-full flex-1 rounded-t bg-sky-500/70"
-              style={{ height: `${(d.amount / maxRevenue) * 100}%` }}
-              title={`€${fmt(d.amount)}`}
-            />
-          ))}
-        </div>
-        <div className="mt-2 flex gap-2">
-          {store.revenueTrend.map((d) => (
-            <span key={d.day} className="flex-1 text-center text-[11px] text-zinc-500 dark:text-zinc-400">
-              {d.day}
-            </span>
-          ))}
-        </div>
-      </SectionCard>
+            <SectionCard
+              title="Orders by status"
+              description={`${data.totalOrders.toLocaleString("en-US")} orders in total${data.currency ? ` · ${data.currency}` : ""}.`}
+              icon={Receipt}
+            >
+              <ul className="space-y-2">
+                {data.ordersByStatus.map((bucket) => (
+                  <li key={bucket.status} className={cn("flex items-center justify-between gap-3", TILE)}>
+                    <span className={cn(PILL_BASE, PILL[statusTone(bucket.status)])}>{bucket.label}</span>
+                    <span className="text-lg font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                      {bucket.count.toLocaleString("en-US")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className={cn("mt-3 flex items-center justify-between gap-3", TILE)}>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Low stock</p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">Products at or below 2 units in stock.</p>
+                </div>
+                <span
+                  className={cn(PILL_BASE, PILL[data.lowStockCount === 0 ? "good" : data.lowStockCount < 5 ? "warn" : "critical"])}
+                >
+                  {data.lowStockCount} low
+                </span>
+              </div>
+            </SectionCard>
 
-      <SectionCard title="Top products" description="Best sellers over the last 30 days." icon={Package} action={<DummyBadge />}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-[11px] uppercase tracking-wide text-zinc-500">
-                <th className="py-2 pr-4 font-medium">Product</th>
-                <th className="py-2 pr-4 text-right font-medium">Sold</th>
-                <th className="py-2 pr-4 text-right font-medium">Revenue</th>
-                <th className="py-2 font-medium">Stock</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {store.topProducts.map((p) => (
-                <tr key={p.name} className="text-zinc-700 dark:text-zinc-300">
-                  <td className="py-2 pr-4 font-medium text-zinc-900 dark:text-zinc-100">{p.name}</td>
-                  <td className="py-2 pr-4 text-right tabular-nums">{fmt(p.sold)}</td>
-                  <td className="py-2 pr-4 text-right tabular-nums">€{fmt(p.revenue)}</td>
-                  <td className="py-2">
-                    {p.stock < 10 ? (
-                      <span className={cn(PILL_BASE, PILL.warn)}>{p.stock} left</span>
-                    ) : (
-                      <span className="tabular-nums text-zinc-500 dark:text-zinc-400">{fmt(p.stock)}</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Low stock" description="Products running low — restock soon." icon={AlertTriangle} action={<DummyBadge />}>
-        {store.lowStock.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
-            Everything is well stocked.
+            <SectionCard title="Recent orders" description="The latest orders placed on this store." icon={ShoppingCart}>
+              {data.recentOrders.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
+                  No orders yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="text-[11px] uppercase tracking-wide text-zinc-500">
+                        <th className="py-2 pr-4 font-medium">Order</th>
+                        <th className="py-2 pr-4 font-medium">Status</th>
+                        <th className="py-2 font-medium">Placed</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                      {data.recentOrders.map((order) => (
+                        <tr key={order.id} className="text-zinc-700 dark:text-zinc-300">
+                          <td className="py-2 pr-4 font-mono text-[11px]">#{order.id}</td>
+                          <td className="py-2 pr-4">
+                            <span className={cn(PILL_BASE, PILL[statusTone(order.status)])}>{statusLabel(order.status)}</span>
+                          </td>
+                          <td className="py-2 text-zinc-500 dark:text-zinc-400">{order.date ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
           </div>
-        ) : (
-          <ul className="space-y-2">
-            {store.lowStock.map((s, i) => (
-              <li key={`${s.name}-${i}`} className={cn("flex items-center gap-3", TILE)}>
-                <span className="min-w-0 flex-1 truncate font-medium text-zinc-900 dark:text-zinc-100">{s.name}</span>
-                <span className={cn(PILL_BASE, PILL[s.stock < 3 ? "critical" : "warn"])}>{s.stock} in stock</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className={cn("mt-3 flex items-center justify-between gap-3", TILE)}>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Abandoned carts</p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">Worth €{fmt(store.abandonedValue)} in recoverable revenue.</p>
-          </div>
-          <span className="text-2xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{fmt(store.abandonedCarts)}</span>
-        </div>
-      </SectionCard>
-
-      <SectionCard
-        className="lg:col-span-2"
-        title="Recent orders"
-        description="The latest orders placed on this store."
-        icon={ShoppingCart}
-        action={<DummyBadge />}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-[11px] uppercase tracking-wide text-zinc-500">
-                <th className="py-2 pr-4 font-medium">Order</th>
-                <th className="py-2 pr-4 font-medium">Customer</th>
-                <th className="py-2 pr-4 text-right font-medium">Total</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 font-medium">When</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {store.recentOrders.map((o, i) => (
-                <tr key={`${o.id}-${i}`} className="text-zinc-700 dark:text-zinc-300">
-                  <td className="py-2 pr-4 font-mono text-[11px]">{o.id}</td>
-                  <td className="py-2 pr-4">{o.customer}</td>
-                  <td className="py-2 pr-4 text-right tabular-nums">€{fmt(o.total)}</td>
-                  <td className="py-2 pr-4">
-                    <span className={cn(PILL_BASE, PILL[ORDER_TONE[o.status]])}>{ORDER_LABEL[o.status]}</span>
-                  </td>
-                  <td className="py-2 text-zinc-500 dark:text-zinc-400">{o.when}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </SectionCard>
-    </div>
+        );
+      }}
+    </PanelState>
   );
 }

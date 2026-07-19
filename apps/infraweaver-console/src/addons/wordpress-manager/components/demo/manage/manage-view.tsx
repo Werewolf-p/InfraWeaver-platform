@@ -2,125 +2,111 @@
 
 import { useMemo, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import {
-  Accessibility,
-  Activity,
-  Archive,
-  BellRing,
-  Briefcase,
-  Cpu,
-  Database,
-  FileText,
-  Gauge,
-  GitBranch,
-  HeartPulse,
-  Image as ImageIcon,
-  Inbox,
-  Mail,
-  Puzzle,
-  RefreshCw,
-  ScrollText,
-  ShieldCheck,
-  ShoppingCart,
-  TrendingUp,
-  Users,
-  Wand2,
-} from "lucide-react";
+import { Cpu, Database, Gauge, Puzzle, RefreshCw, SlidersHorizontal, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DemoBanner, DummyBadge } from "../DummyBadge";
 import { EASE_OUT } from "../motion";
 import { HealthGauge, StatTile, healthTone } from "../widgets";
-import { getSiteManageData } from "../site-manage-data";
-import { getSiteManageExt } from "../site-manage-ext-data";
+import { MANAGE_PANELS, type ManagePanelId } from "../../../lib/manage/capabilities";
+import { PanelError, PanelSkeleton } from "./panel-shell";
+import { OptionalDisabledPanel } from "./panel-optional";
+import { tabIcon } from "./tab-icons";
+import { useManageOverview } from "./use-manage";
 import { UpdatesPanel } from "./panels-updates";
 import { InventoryPanel } from "./panels-inventory";
-import { BackupsPanel } from "./panels-backups";
-import { SecurityPanel } from "./panels-security";
-import { PerformancePanel } from "./panels-performance";
-import { AudiencePanel } from "./panels-audience";
-import { PeoplePanel } from "./panels-people";
-import { DataPanel } from "./panels-data";
-import { HealthPanel } from "./panels-health";
 import { ContentPanel } from "./panels-content";
 import { MediaPanel } from "./panels-media";
 import { StorePanel } from "./panels-store";
 import { FormsPanel } from "./panels-forms";
+import { BackupsPanel } from "./panels-backups";
 import { StagingPanel } from "./panels-staging";
+import { SecurityPanel } from "./panels-security";
 import { AuditPanel } from "./panels-audit";
+import { PerformancePanel } from "./panels-performance";
 import { ResourcesPanel } from "./panels-resources";
 import { UptimePanel } from "./panels-uptime";
+import { MetricsPanel } from "./panels-metrics";
+import { AudiencePanel } from "./panels-audience";
 import { EmailPanel } from "./panels-email";
+import { PeoplePanel } from "./panels-people";
 import { ClientsPanel } from "./panels-clients";
 import { AlertsPanel } from "./panels-alerts";
 import { LogsPanel } from "./panels-logs";
+import { DataPanel } from "./panels-data";
+import { HealthPanel } from "./panels-health";
 
-type ManageTab =
-  | "updates"
-  | "inventory"
-  | "content"
-  | "media"
-  | "store"
-  | "forms"
-  | "backups"
-  | "staging"
-  | "security"
-  | "audit"
-  | "performance"
-  | "resources"
-  | "uptime"
-  | "audience"
-  | "email"
-  | "people"
-  | "clients"
-  | "alerts"
-  | "logs"
-  | "data"
-  | "health";
+/** Special tab id for the "Optional (Disabled)" surface — never a real panel. */
+const OPTIONAL_TAB = "__optional__";
+type ActiveTab = ManagePanelId | typeof OPTIONAL_TAB;
 
-const TABS: ReadonlyArray<{ id: ManageTab; label: string; icon: React.ElementType }> = [
-  { id: "updates", label: "Updates", icon: RefreshCw },
-  { id: "inventory", label: "Plugins & Themes", icon: Puzzle },
-  { id: "content", label: "Content", icon: FileText },
-  { id: "media", label: "Media", icon: ImageIcon },
-  { id: "store", label: "Store", icon: ShoppingCart },
-  { id: "forms", label: "Forms & Leads", icon: Inbox },
-  { id: "backups", label: "Backups", icon: Archive },
-  { id: "staging", label: "Staging & Deploys", icon: GitBranch },
-  { id: "security", label: "Security", icon: ShieldCheck },
-  { id: "audit", label: "A11y & SEO Audit", icon: Accessibility },
-  { id: "performance", label: "Performance", icon: Gauge },
-  { id: "resources", label: "Server Resources", icon: Cpu },
-  { id: "uptime", label: "Uptime & Incidents", icon: Activity },
-  { id: "audience", label: "Traffic & SEO", icon: TrendingUp },
-  { id: "email", label: "Email", icon: Mail },
-  { id: "people", label: "Users", icon: Users },
-  { id: "clients", label: "Clients & Care", icon: Briefcase },
-  { id: "alerts", label: "Alerts", icon: BellRing },
-  { id: "logs", label: "Logs", icon: ScrollText },
-  { id: "data", label: "Database", icon: Database },
-  { id: "health", label: "Health", icon: HeartPulse },
-];
+/** Map a panel id to its self-fetching component. */
+const PANEL_COMPONENTS: Record<ManagePanelId, (props: { site: string }) => React.ReactNode> = {
+  updates: UpdatesPanel,
+  inventory: InventoryPanel,
+  content: ContentPanel,
+  media: MediaPanel,
+  store: StorePanel,
+  forms: FormsPanel,
+  backups: BackupsPanel,
+  staging: StagingPanel,
+  security: SecurityPanel,
+  audit: AuditPanel,
+  performance: PerformancePanel,
+  resources: ResourcesPanel,
+  uptime: UptimePanel,
+  metrics: MetricsPanel,
+  audience: AudiencePanel,
+  email: EmailPanel,
+  people: PeoplePanel,
+  clients: ClientsPanel,
+  alerts: AlertsPanel,
+  logs: LogsPanel,
+  data: DataPanel,
+  health: HealthPanel,
+};
 
 /**
- * The per-site "Manage" console preview. Everything here is fake demo data (see
- * site-manage-data.ts + site-manage-ext-data.ts) — it exists to show what a full
- * WordPress-manager surface (à la ManageWP / MainWP / WP Umbrella / GridPane)
- * could look like layered onto InfraWeaver, without touching any real site.
- * Deterministic per site name, SSR-safe.
+ * The per-site "Manage" console. Every value is read live from the site over the
+ * addon's secure in-pod wp-cli path or the signed IWSL Connector channel — the
+ * overview here detects which optional capabilities are present, so the tab strip
+ * only shows panels the site can actually answer for and the rest move to the
+ * "Optional (Disabled)" tab.
  */
 export function ManageView({ site }: { site: string }) {
-  const [tab, setTab] = useState<ManageTab>("updates");
-  const data = useMemo(() => getSiteManageData(site), [site]);
-  const ext = useMemo(() => getSiteManageExt(site), [site]);
+  const overviewState = useManageOverview(site);
+  const overview = overviewState.data;
 
-  const pendingUpdates =
-    data.plugins.filter((p) => p.updateType).length +
-    data.themes.filter((t) => t.updateAvailable).length +
-    (data.core.upToDate ? 0 : 1);
-  const securityIssues =
-    data.plugins.filter((p) => p.updateType === "security").length +
-    data.malware.flagged +
-    data.plugins.filter((p) => p.vulnerable).length;
+  const visiblePanels = useMemo(() => {
+    if (!overview) return [];
+    const availableById = new Map(overview.panels.map((p) => [p.id, p.available]));
+    return MANAGE_PANELS.filter((panel) => availableById.get(panel.id) !== false);
+  }, [overview]);
+
+  const disabledCount = useMemo(() => {
+    if (!overview) return 0;
+    return overview.panels.filter((p) => !p.available).length;
+  }, [overview]);
+
+  const [tab, setTab] = useState<ActiveTab>("updates");
+
+  // Derive the effective tab during render (no effect): clamp the user's choice
+  // to a still-visible panel as capabilities resolve or change (e.g. after
+  // enabling one), so a tab that disappears falls back to the first available.
+  const activeTab: ActiveTab =
+    tab === OPTIONAL_TAB
+      ? OPTIONAL_TAB
+      : visiblePanels.some((p) => p.id === tab)
+        ? tab
+        : visiblePanels[0]?.id ?? tab;
+
+  if (overviewState.error) {
+    return (
+      <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60">
+        <PanelError message={overviewState.error} onRetry={overviewState.reload} />
+      </section>
+    );
+  }
+
+  const ActivePanel = activeTab !== OPTIONAL_TAB ? PANEL_COMPONENTS[activeTab] : null;
 
   return (
     <MotionConfig reducedMotion="user">
@@ -129,111 +115,143 @@ export function ManageView({ site }: { site: string }) {
           <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100">
             <Wand2 className="h-5 w-5 text-sky-500" aria-hidden />
             <h2 className="text-lg font-medium">Manage</h2>
-            <DummyBadge />
           </div>
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">
-            Concept preview · {data.plugins.length} plugins · {data.themes.length} themes
-          </span>
+          <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <span>
+              {overview
+                ? `${overview.activePlugins} active plugins · ${visiblePanels.length} panels`
+                : "Reading site…"}
+            </span>
+            <button
+              type="button"
+              onClick={overviewState.reload}
+              disabled={overviewState.loading}
+              className="inline-flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              title="Refresh from the site"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", overviewState.loading && "animate-spin")} aria-hidden />
+              Refresh
+            </button>
+          </div>
         </div>
 
         <p className="mt-1 max-w-prose text-sm text-zinc-600 dark:text-zinc-400">
-          A single console for everything a WordPress-management platform does to a site — updates,
-          content, commerce, backups, staging, security, performance, uptime, email, users, database
-          and health. All values below are illustrative.
+          Everything InfraWeaver manages on this WordPress site — updates, content, backups, security, performance,
+          users, database and health — read live from the site over the secure Connector path.
         </p>
-
-        <DemoBanner className="mt-4" />
 
         {/* At-a-glance summary */}
         <div className="mt-4 grid gap-4 md:grid-cols-[auto_1fr]">
           <div className="flex items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
-            <HealthGauge score={data.health} size={112} strokeWidth={10} label="site health" />
+            <HealthGauge score={overview?.health ?? 0} size={112} strokeWidth={10} label="site health" />
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Pending updates"
-              value={pendingUpdates}
+              value={overview?.pendingUpdates ?? 0}
               icon={RefreshCw}
-              tone={healthTone(pendingUpdates === 0 ? 96 : pendingUpdates < 4 ? 74 : 46)}
+              tone={healthTone(
+                (overview?.pendingUpdates ?? 0) === 0 ? 96 : (overview?.pendingUpdates ?? 0) < 4 ? 74 : 46,
+              )}
             />
             <StatTile
-              label="Security issues"
-              value={securityIssues}
-              icon={ShieldCheck}
-              tone={healthTone(securityIssues === 0 ? 96 : securityIssues < 2 ? 62 : 40)}
+              label="Active plugins"
+              value={overview?.activePlugins ?? 0}
+              icon={Puzzle}
+              tone={healthTone(80)}
             />
             <StatTile
-              label="PageSpeed (mobile)"
-              value={data.pagespeed.mobile}
-              icon={Gauge}
-              tone={healthTone(data.pagespeed.mobile)}
+              label="Database"
+              value={overview?.dbSizeMb ?? 0}
+              suffix=" MB"
+              icon={Database}
+              tone={healthTone(70)}
             />
             <StatTile
-              label="Uptime (30d)"
-              value={ext.uptime.slaPct}
-              decimals={2}
-              suffix="%"
-              icon={TrendingUp}
-              tone={healthTone(ext.uptime.slaPct > 99.9 ? 96 : 70)}
+              label={overview?.connector.active ? "Connector round-trip" : "PHP"}
+              value={
+                overview?.connector.active
+                  ? overview.connector.lastRoundtripMs ?? 0
+                  : Number(overview?.phpVersion?.split(".").slice(0, 2).join(".") ?? 0)
+              }
+              decimals={overview?.connector.active ? 0 : 1}
+              suffix={overview?.connector.active ? " ms" : ""}
+              icon={overview?.connector.active ? Cpu : Gauge}
+              tone={healthTone(overview?.connector.active ? 85 : 70)}
             />
           </div>
         </div>
 
         {/* Sub-tabs */}
         <div className="mt-5 flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-          {TABS.map((entry) => {
-            const on = entry.id === tab;
-            const Icon = entry.icon;
-            return (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => setTab(entry.id)}
-                aria-pressed={on}
-                className={cn(
-                  "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-sm transition-colors",
-                  on
-                    ? "border-sky-500 font-medium text-zinc-900 dark:text-zinc-100"
-                    : "border-transparent text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
-                )}
-              >
-                <Icon className="h-4 w-4" aria-hidden />
-                {entry.label}
-              </button>
-            );
-          })}
+          {!overview ? (
+            <div className="flex gap-2 py-2" aria-hidden>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="h-7 w-24 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800/60" />
+              ))}
+            </div>
+          ) : (
+            <>
+              {visiblePanels.map((panel) => {
+                const on = panel.id === activeTab;
+                const Icon = tabIcon(panel.icon);
+                return (
+                  <button
+                    key={panel.id}
+                    type="button"
+                    onClick={() => setTab(panel.id)}
+                    aria-pressed={on}
+                    className={cn(
+                      "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-sm transition-colors",
+                      on
+                        ? "border-sky-500 font-medium text-zinc-900 dark:text-zinc-100"
+                        : "border-transparent text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                    )}
+                  >
+                    <Icon className="h-4 w-4" aria-hidden />
+                    {panel.label}
+                  </button>
+                );
+              })}
+              {disabledCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setTab(OPTIONAL_TAB)}
+                  aria-pressed={activeTab === OPTIONAL_TAB}
+                  className={cn(
+                    "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-sm transition-colors",
+                    activeTab === OPTIONAL_TAB
+                      ? "border-sky-500 font-medium text-zinc-900 dark:text-zinc-100"
+                      : "border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                  )}
+                >
+                  <SlidersHorizontal className="h-4 w-4" aria-hidden />
+                  Optional
+                  <span className="rounded-full bg-zinc-200 px-1.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                    {disabledCount}
+                  </span>
+                </button>
+              ) : null}
+            </>
+          )}
         </div>
 
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
-            key={tab}
+            key={activeTab}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.22, ease: EASE_OUT }}
             className="mt-5"
           >
-            {tab === "updates" && <UpdatesPanel data={data} site={site} />}
-            {tab === "inventory" && <InventoryPanel data={data} site={site} />}
-            {tab === "content" && <ContentPanel ext={ext} site={site} />}
-            {tab === "media" && <MediaPanel ext={ext} site={site} />}
-            {tab === "store" && <StorePanel ext={ext} site={site} />}
-            {tab === "forms" && <FormsPanel ext={ext} site={site} />}
-            {tab === "backups" && <BackupsPanel data={data} site={site} />}
-            {tab === "staging" && <StagingPanel ext={ext} site={site} />}
-            {tab === "security" && <SecurityPanel data={data} site={site} />}
-            {tab === "audit" && <AuditPanel ext={ext} site={site} />}
-            {tab === "performance" && <PerformancePanel data={data} site={site} />}
-            {tab === "resources" && <ResourcesPanel ext={ext} site={site} />}
-            {tab === "uptime" && <UptimePanel ext={ext} site={site} />}
-            {tab === "audience" && <AudiencePanel data={data} site={site} />}
-            {tab === "email" && <EmailPanel ext={ext} site={site} />}
-            {tab === "people" && <PeoplePanel data={data} site={site} />}
-            {tab === "clients" && <ClientsPanel ext={ext} site={site} />}
-            {tab === "alerts" && <AlertsPanel ext={ext} site={site} />}
-            {tab === "logs" && <LogsPanel ext={ext} site={site} />}
-            {tab === "data" && <DataPanel data={data} site={site} />}
-            {tab === "health" && <HealthPanel data={data} site={site} />}
+            {!overview ? (
+              <PanelSkeleton />
+            ) : activeTab === OPTIONAL_TAB ? (
+              <OptionalDisabledPanel site={site} overview={overview} onEnabled={overviewState.reload} />
+            ) : ActivePanel ? (
+              <ActivePanel site={site} />
+            ) : null}
           </motion.div>
         </AnimatePresence>
       </section>

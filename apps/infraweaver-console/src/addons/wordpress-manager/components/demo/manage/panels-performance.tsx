@@ -1,115 +1,135 @@
 "use client";
 
-// Performance tab for the per-site "Manage" demo console — PageSpeed, CWV, caching, PHP errors.
-import { Bug, Clock, Gauge, LineChart, Rocket, Zap } from "lucide-react";
+// Performance panel — cache posture, autoload weight, PHP runtime and derived
+// recommendations, all read live from the site. The three tuning actions (flush
+// cache, flush rewrites, purge transients) go through the allow-listed Manage
+// actions; everything else is read-only.
+import { Cpu, Gauge, Lightbulb, MemoryStick, RefreshCw, Trash2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
-import type { SiteManageData } from "../site-manage-data";
-import { AnimatedNumber, HealthGauge, MiniGauge, SectionCard, healthTone } from "../widgets";
-import { PageSpeedTrend, ResponseTimeLine } from "../charts";
-import { DummyBadge } from "../DummyBadge";
+import type { PerformanceData } from "../../../lib/manage/probes/performance";
+import { SectionCard, StatTile, healthTone } from "../widgets";
+import { PanelState, Spinner } from "./panel-shell";
+import { useManageAction, useManagePanel } from "./use-manage";
 
 const PILL = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium";
-const NEUTRAL = "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300";
-const LEVEL_TONE = {
-  fatal: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
-  warning: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  notice: NEUTRAL,
+const TONE_PILL = {
+  good: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  neutral: "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300",
 } as const;
 const BTN =
-  "inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
+  "inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800";
 
-const demo = () => toast.info("Demo — no changes are made to the live site.");
+const AUTOLOAD_WARN_KB = 800;
 
-export function PerformancePanel({ data }: { data: SiteManageData; site: string }) {
-  const { pagespeed, cwv, perfTrend, responseTrend, cache, phpErrors } = data;
-  const cacheTone = healthTone(cache.hitRate);
+export function PerformancePanel({ site }: { site: string }) {
+  const state = useManagePanel<PerformanceData>(site, "performance");
+  const { run, pending } = useManageAction(site);
+
+  async function apply(action: Parameters<typeof run>[0]) {
+    const result = await run(action);
+    if (result.ok) {
+      toast.success(result.message);
+      state.reload();
+    } else {
+      toast.error(result.message);
+    }
+  }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
-      <SectionCard title="PageSpeed" description="Lighthouse score, mobile vs desktop." icon={Gauge} action={<DummyBadge />}>
-        <div className="flex items-center justify-around">
-          <div className="flex flex-col items-center gap-2">
-            <HealthGauge score={pagespeed.mobile} size={92} strokeWidth={8} />
-            <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Mobile</span>
+    <PanelState state={state}>
+      {(data) => {
+        const cacheLabel = data.persistentObjectCache
+          ? data.cacheType && !/default/i.test(data.cacheType)
+            ? data.cacheType
+            : "Drop-in"
+          : "None";
+        const autoloadHigh = data.autoloadKb !== null && data.autoloadKb > AUTOLOAD_WARN_KB;
+        return (
+          <div className="grid gap-5 lg:grid-cols-2">
+            <SectionCard title="Caching" description="Object cache and page-cache posture." icon={Zap}>
+              <dl className="space-y-2">
+                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
+                  <dt className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Object cache</dt>
+                  <dd>
+                    <span className={cn(PILL, data.persistentObjectCache ? TONE_PILL.good : TONE_PILL.neutral)}>{cacheLabel}</span>
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
+                  <dt className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Page cache</dt>
+                  <dd>
+                    <span className={cn(PILL, data.pageCachePlugin ? TONE_PILL.good : TONE_PILL.neutral)}>
+                      {data.pageCachePlugin ?? "None"}
+                    </span>
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => apply({ type: "flush-cache" })} disabled={pending} className={BTN}>
+                  {pending ? <Spinner /> : <Zap className="h-4 w-4" aria-hidden />} Flush cache
+                </button>
+                <button type="button" onClick={() => apply({ type: "flush-rewrites" })} disabled={pending} className={BTN}>
+                  {pending ? <Spinner /> : <RefreshCw className="h-4 w-4" aria-hidden />} Flush rewrites
+                </button>
+                <button type="button" onClick={() => apply({ type: "purge-transients" })} disabled={pending} className={BTN}>
+                  {pending ? <Spinner /> : <Trash2 className="h-4 w-4" aria-hidden />} Purge transients
+                </button>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="PHP runtime" description="Interpreter version and memory ceiling." icon={Cpu}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
+                  <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">PHP version</span>
+                  <span className="font-mono text-[11px] text-zinc-900 dark:text-zinc-100">{data.php ?? "—"}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
+                  <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Memory limit</span>
+                  <span className="font-mono text-[11px] text-zinc-900 dark:text-zinc-100">{data.memoryLimit ?? "—"}</span>
+                </div>
+              </div>
+            </SectionCard>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
+              <StatTile
+                label="Autoload weight"
+                value={data.autoloadKb ?? 0}
+                decimals={1}
+                suffix=" KB"
+                icon={MemoryStick}
+                tone={healthTone(autoloadHigh ? 55 : 92)}
+              />
+              <StatTile label="Transients" value={data.transients} icon={Trash2} tone={healthTone(data.transients > 500 ? 55 : 90)} />
+            </div>
+
+            <SectionCard
+              className="lg:col-span-2"
+              title="Recommendations"
+              description="Derived from the live cache, autoload and transient signals."
+              icon={Lightbulb}
+            >
+              {data.recommendations.length === 0 ? (
+                <div className="flex items-center gap-2 rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-500 dark:border-zinc-700">
+                  <Gauge className="h-5 w-5 text-emerald-500" aria-hidden />
+                  No performance issues detected from these signals.
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {data.recommendations.map((rec) => (
+                    <li
+                      key={rec}
+                      className="flex items-start gap-2.5 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-300"
+                    >
+                      <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden />
+                      <span>{rec}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </SectionCard>
           </div>
-          <div className="flex flex-col items-center gap-2">
-            <HealthGauge score={pagespeed.desktop} size={92} strokeWidth={8} />
-            <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Desktop</span>
-          </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Core Web Vitals" description="Field metrics, last 28 days." icon={Rocket} action={<DummyBadge />}>
-        <div className="grid grid-cols-3 gap-3">
-          {cwv.map((v) => (
-            <MiniGauge key={v.label} score={v.score} caption={v.label} unit={v.value} />
-          ))}
-        </div>
-      </SectionCard>
-
-      <SectionCard
-        className="lg:col-span-2"
-        title="PageSpeed trend"
-        description="Lighthouse score over the last 14 days."
-        icon={LineChart}
-        action={<DummyBadge />}
-      >
-        <PageSpeedTrend data={perfTrend} />
-      </SectionCard>
-
-      <SectionCard title="Response time" description="Origin latency, last 24 hours." icon={Clock} action={<DummyBadge />}>
-        <ResponseTimeLine data={responseTrend} />
-      </SectionCard>
-
-      <SectionCard title="Caching & CDN" description="Edge cache and delivery network." icon={Zap} action={<DummyBadge />}>
-        <div className="flex flex-col items-center gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
-          <AnimatedNumber value={cache.hitRate} suffix="%" className={cn("text-4xl font-semibold tabular-nums", cacheTone.text)} />
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">cache hit rate</span>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-zinc-600 dark:text-zinc-400">Engine</span>
-          <span className={cn(PILL, NEUTRAL)}>{cache.engine}</span>
-          <span className="ml-2 text-xs text-zinc-600 dark:text-zinc-400">CDN</span>
-          <span className={cn(PILL, NEUTRAL)}>{cache.cdn}</span>
-        </div>
-        <button type="button" onClick={demo} className={cn(BTN, "mt-3 w-full justify-center")}>
-          <Zap className="h-4 w-4" aria-hidden /> Purge cache
-        </button>
-      </SectionCard>
-
-      <SectionCard
-        className="lg:col-span-2"
-        title="PHP errors"
-        description="Most frequent runtime errors, last 24 hours."
-        icon={Bug}
-        action={<DummyBadge />}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-[11px] uppercase tracking-wide text-zinc-500">
-                <th className="py-2 pr-4 font-medium">Message</th>
-                <th className="py-2 pr-4 font-medium">Level</th>
-                <th className="py-2 text-right font-medium">Count</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {phpErrors.map((e, i) => (
-                <tr key={i} className="text-zinc-700 dark:text-zinc-300">
-                  <td className="max-w-0 py-2 pr-4">
-                    <span className="block min-w-0 truncate font-mono text-[11px]">{e.message}</span>
-                  </td>
-                  <td className="py-2 pr-4">
-                    <span className={cn(PILL, "capitalize", LEVEL_TONE[e.level])}>{e.level}</span>
-                  </td>
-                  <td className="py-2 text-right tabular-nums">{e.count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </SectionCard>
-    </div>
+        );
+      }}
+    </PanelState>
   );
 }

@@ -1,178 +1,255 @@
 "use client";
 
-import { useState } from "react";
 import { motion } from "framer-motion";
-import { Bug, Gauge, ListChecks, Rocket, Smartphone, Monitor } from "lucide-react";
+import {
+  AlertTriangle,
+  Cpu,
+  Gauge,
+  HeartPulse,
+  KeyRound,
+  Monitor,
+  RefreshCw,
+  Rocket,
+  ServerCrash,
+  Smartphone,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DummyBadge } from "./DummyBadge";
 import { riseItem, staggerContainer } from "./motion";
-import { HealthGauge, MiniGauge, ProgressRing, SectionCard, healthTone } from "./widgets";
-import { PageSpeedTrend, PhpErrorLine } from "./charts";
-import { BULK_UPDATES, CORE_WEB_VITALS, PAGESPEED, PERF_TREND, PHP_ERRORS, PHP_TREND } from "./dummy-data";
+import { useFleetPerformance } from "./use-fleet-performance";
+import { HealthGauge, SectionCard, StatTile, healthTone } from "./widgets";
 
-const PHP_LEVEL_TONE = {
-  fatal: "bg-red-500/10 text-red-600 dark:text-red-400",
-  warning: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  notice: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-} as const;
+const SKELETON_TILES: readonly number[] = [0, 1, 2];
 
-const BULK_STATE_TONE = {
-  queued: "bg-zinc-500/15 text-zinc-600 dark:text-zinc-300",
-  running: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-  done: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  failed: "bg-red-500/10 text-red-600 dark:text-red-400",
-} as const;
+/** Solid bar colour per PHP bucket — green for current, amber for end-of-life. */
+function phpBarColor(php: string): string {
+  if (php === "unknown") return "bg-zinc-400";
+  const match = php.match(/^(\d+)\.(\d+)/);
+  if (!match) return "bg-zinc-400";
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  if (major > 8 || (major === 8 && minor >= 3)) return "bg-emerald-500";
+  if (major === 8 && minor >= 1) return "bg-sky-500";
+  return "bg-amber-500";
+}
 
-function bulkTone(progress: number, failed: boolean) {
-  if (failed) return healthTone(30);
-  if (progress >= 100) return healthTone(95);
-  return healthTone(72);
+function PerformanceSkeleton() {
+  return (
+    <div className="space-y-6" aria-busy="true">
+      <div className="grid gap-3 sm:grid-cols-3">
+        {SKELETON_TILES.map((i) => (
+          <div
+            key={i}
+            className="h-24 animate-pulse rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800/40"
+          />
+        ))}
+      </div>
+      <div className="h-56 animate-pulse rounded-2xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800/40" />
+      <div className="h-64 animate-pulse rounded-2xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800/40" />
+    </div>
+  );
+}
+
+function PerformanceErrorCard({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-6 text-center">
+      <ServerCrash className="mx-auto h-6 w-6 text-red-500" aria-hidden />
+      <p className="mt-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">Couldn&apos;t load fleet performance</p>
+      <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+      >
+        <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Retry
+      </button>
+    </div>
+  );
+}
+
+/** A Lighthouse score gauge, or a neutral dash placeholder when unmeasured. */
+function ScoreGauge({ score, label }: { score: number | null; label: string }) {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      {score !== null ? (
+        <HealthGauge score={score} size={92} strokeWidth={8} />
+      ) : (
+        <span className="grid h-[92px] w-[92px] place-items-center rounded-full border border-dashed border-zinc-300 text-lg text-zinc-400 dark:border-zinc-700">
+          —
+        </span>
+      )}
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+        {label === "Mobile" ? (
+          <Smartphone className="h-4 w-4 text-zinc-400" aria-hidden />
+        ) : (
+          <Monitor className="h-4 w-4 text-zinc-400" aria-hidden />
+        )}
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function formatLcp(lcpMs: number | null): string {
+  if (lcpMs === null) return "—";
+  return `${(lcpMs / 1000).toFixed(2)} s`;
+}
+
+function formatCls(cls: number | null): string {
+  if (cls === null) return "—";
+  return cls.toFixed(2);
 }
 
 export function FleetPerformance() {
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set(["b3", "b4"]));
-  const toggle = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const { data, loading, error, reload } = useFleetPerformance();
+
+  if (error && !data) {
+    return <PerformanceErrorCard message={error} onRetry={reload} />;
+  }
+  if (!data) {
+    // Covers `loading && !data` (and the null-before-first-load case).
+    return <PerformanceSkeleton />;
+  }
+
+  const { perf, pagespeed } = data;
+  const maxBucket = perf.phpDistribution.reduce((max, bucket) => Math.max(max, bucket.count), 0);
 
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-2">
-        <motion.div variants={riseItem}>
-          <SectionCard title="PageSpeed" description="Lighthouse performance score, mobile vs desktop." icon={Gauge} action={<DummyBadge />}>
-            <div className="flex items-center justify-around gap-4">
-              <div className="flex flex-col items-center gap-2">
-                <HealthGauge score={PAGESPEED.mobile} size={104} strokeWidth={9} />
-                <span className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  <Smartphone className="h-4 w-4 text-zinc-400" aria-hidden /> Mobile
-                </span>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <HealthGauge score={PAGESPEED.desktop} size={104} strokeWidth={9} />
-                <span className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  <Monitor className="h-4 w-4 text-zinc-400" aria-hidden /> Desktop
-                </span>
-              </div>
-            </div>
-            <div className="mt-4">
-              <PageSpeedTrend data={PERF_TREND} />
-            </div>
-          </SectionCard>
-        </motion.div>
+      {/* Last-checked + refresh (real generatedAt from the perf roll-up) */}
+      <motion.div
+        variants={riseItem}
+        className="flex items-center justify-end gap-2 text-xs text-zinc-500 dark:text-zinc-400"
+      >
+        <span>Last checked {new Date(perf.generatedAt).toLocaleTimeString()}</span>
+        <button
+          type="button"
+          onClick={reload}
+          className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} aria-hidden /> Refresh
+        </button>
+      </motion.div>
 
-        <motion.div variants={riseItem}>
-          <SectionCard title="Core Web Vitals" description="Field metrics from the last 28 days of real-user monitoring." icon={Rocket} action={<DummyBadge />}>
-            <div className="grid grid-cols-3 gap-3">
-              {CORE_WEB_VITALS.map((cwv) => (
-                <MiniGauge key={cwv.label} score={cwv.score} caption={cwv.label} unit={cwv.value} />
-              ))}
-            </div>
-            <ul className="mt-4 space-y-1.5 text-xs text-zinc-600 dark:text-zinc-400">
-              {CORE_WEB_VITALS.map((cwv) => (
-                <li key={cwv.label} className="flex items-center justify-between">
-                  <span>{cwv.full}</span>
-                  <span className={cn("rounded-full px-2 py-0.5 font-medium capitalize", cwv.rating === "good" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : cwv.rating === "needs-improvement" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-red-500/10 text-red-600 dark:text-red-400")}>
-                    {cwv.rating.replace("-", " ")}
+      {/* Real posture stat tiles */}
+      <motion.div variants={riseItem} className="grid gap-3 sm:grid-cols-3">
+        <StatTile label="Sites managed" value={perf.total} icon={Cpu} />
+        <StatTile
+          label="Fleet health (avg)"
+          value={perf.healthAverage ?? 0}
+          icon={HeartPulse}
+          tone={healthTone(perf.healthAverage ?? 0)}
+        />
+        <StatTile
+          label="PHP upgrade needed"
+          value={perf.upgradeNeeded}
+          icon={AlertTriangle}
+          tone={perf.upgradeNeeded > 0 ? healthTone(40) : healthTone(95)}
+        />
+      </motion.div>
+
+      {/* Real PHP-version distribution from the fleet rows */}
+      <motion.div variants={riseItem}>
+        <SectionCard
+          title="PHP version distribution"
+          description="Live PHP runtime across every managed site — versions below 8.1 need an upgrade."
+          icon={Cpu}
+        >
+          {perf.phpDistribution.length === 0 ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">No managed sites yet.</p>
+          ) : (
+            <ul className="space-y-3">
+              {perf.phpDistribution.map((bucket) => (
+                <li key={bucket.php} className="flex items-center gap-3">
+                  <span className="w-20 shrink-0 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    PHP {bucket.php}
+                  </span>
+                  <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                    <div
+                      className={cn("h-full rounded-full", phpBarColor(bucket.php))}
+                      style={{ width: `${maxBucket > 0 ? (bucket.count / maxBucket) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <span className="w-24 shrink-0 text-right text-xs text-zinc-500 dark:text-zinc-400">
+                    {bucket.count} site{bucket.count === 1 ? "" : "s"}
+                    {bucket.upgradeNeeded ? (
+                      <span className="ml-1 font-medium text-amber-600 dark:text-amber-400">· upgrade</span>
+                    ) : null}
                   </span>
                 </li>
               ))}
             </ul>
-          </SectionCard>
-        </motion.div>
-      </div>
-
-      <motion.div variants={riseItem}>
-        <SectionCard title="PHP error monitoring" description="Runtime error rate over 24 hours with the noisiest sources." icon={Bug} action={<DummyBadge />}>
-          <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
-            <PhpErrorLine data={PHP_TREND} />
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[360px] text-left text-sm">
-                <thead>
-                  <tr className="text-xs text-zinc-500 dark:text-zinc-400">
-                    <th className="pb-2 font-medium">Message</th>
-                    <th className="pb-2 font-medium">Level</th>
-                    <th className="pb-2 text-right font-medium">Count</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {PHP_ERRORS.map((err) => (
-                    <tr key={err.id} className="text-zinc-800 dark:text-zinc-200">
-                      <td className="max-w-[280px] py-2.5">
-                        <span className="block truncate font-mono text-xs">{err.message}</span>
-                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{err.site}</span>
-                      </td>
-                      <td className="py-2.5">
-                        <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium capitalize", PHP_LEVEL_TONE[err.level])}>{err.level}</span>
-                      </td>
-                      <td className="py-2.5 text-right font-semibold tabular-nums">{err.count}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          )}
         </SectionCard>
       </motion.div>
 
+      {/* Google PageSpeed — real when configured, honestly degraded when not */}
       <motion.div variants={riseItem}>
         <SectionCard
-          title="Bulk update runner"
-          description="Queue and track component updates across the fleet in one pass."
-          icon={ListChecks}
-          action={
-            <div className="flex items-center gap-2">
-              <DummyBadge />
-              <button
-                type="button"
-                disabled={selected.size === 0}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Rocket className="h-3.5 w-3.5" aria-hidden /> Run {selected.size}
-              </button>
-            </div>
-          }
+          title="PageSpeed (Lighthouse)"
+          description="Google PageSpeed Insights performance scores and Core Web Vitals per site."
+          icon={Gauge}
         >
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
-              <thead>
-                <tr className="text-xs text-zinc-500 dark:text-zinc-400">
-                  <th className="w-8 pb-2" />
-                  <th className="pb-2 font-medium">Site</th>
-                  <th className="pb-2 font-medium">Component</th>
-                  <th className="pb-2 font-medium">Version</th>
-                  <th className="pb-2 font-medium">Progress</th>
-                  <th className="pb-2 font-medium">State</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                {BULK_UPDATES.map((row) => (
-                  <tr key={row.id} className="text-zinc-800 dark:text-zinc-200">
-                    <td className="py-2.5">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(row.id)}
-                        onChange={() => toggle(row.id)}
-                        aria-label={`Select ${row.component} on ${row.site}`}
-                        className="h-4 w-4 rounded border-zinc-300 text-sky-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 dark:border-zinc-600 dark:bg-zinc-950"
-                      />
-                    </td>
-                    <td className="py-2.5 text-xs">{row.site}</td>
-                    <td className="py-2.5 font-medium text-zinc-900 dark:text-zinc-100">{row.component}</td>
-                    <td className="py-2.5 font-mono text-xs text-zinc-500 dark:text-zinc-400">{row.from} → {row.to}</td>
-                    <td className="py-2.5"><ProgressRing value={row.progress} tone={bulkTone(row.progress, row.state === "failed")} /></td>
-                    <td className="py-2.5">
-                      <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium capitalize", BULK_STATE_TONE[row.state])}>{row.state}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {!pagespeed.configured ? (
+            <div className="flex items-start gap-3 rounded-xl border border-dashed border-amber-500/50 bg-amber-500/5 px-4 py-4 text-sm text-amber-800 dark:text-amber-200">
+              <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+              <div className="min-w-0">
+                <p className="font-medium">PageSpeed is not configured</p>
+                <p className="mt-0.5 text-xs text-amber-700/90 dark:text-amber-300/90">
+                  {pagespeed.reason ?? "PageSpeed needs PAGESPEED_API_KEY configured."}
+                </p>
+              </div>
+            </div>
+          ) : pagespeed.sites.length === 0 ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">No managed sites to measure yet.</p>
+          ) : (
+            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+              {pagespeed.sites.map((site) => (
+                <div
+                  key={site.site}
+                  className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950/40"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{site.site}</p>
+                    <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">{site.url}</p>
+                  </div>
+
+                  {site.error ? (
+                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                      <span className="min-w-0">{site.error}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-4 flex items-center justify-around gap-3">
+                        <ScoreGauge score={site.mobile} label="Mobile" />
+                        <ScoreGauge score={site.desktop} label="Desktop" />
+                      </div>
+                      <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+                          <dt className="text-zinc-500 dark:text-zinc-400">LCP</dt>
+                          <dd className="mt-0.5 font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                            {formatLcp(site.lcpMs)}
+                          </dd>
+                        </div>
+                        <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+                          <dt className="text-zinc-500 dark:text-zinc-400">CLS</dt>
+                          <dd className="mt-0.5 font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+                            {formatCls(site.cls)}
+                          </dd>
+                        </div>
+                      </dl>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </SectionCard>
+      </motion.div>
+
+      <motion.div variants={riseItem} className="flex items-center gap-2 text-xs text-zinc-400 dark:text-zinc-500">
+        <Rocket className="h-3.5 w-3.5" aria-hidden />
+        <span>PageSpeed scores are field/lab audits from Google Lighthouse and refresh at most every 10 minutes.</span>
       </motion.div>
     </motion.div>
   );

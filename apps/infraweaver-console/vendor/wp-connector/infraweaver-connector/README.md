@@ -10,6 +10,14 @@ connection to IW — it only verifies dual-signed commands (Ed25519 +
 SLH-DSA-192s, AND semantics) and answers with Ed25519-signed responses inside
 the same HTTP exchange.
 
+**Secure-by-design rule (read before adding features):** every new remote
+capability is a new *signed method* in the command registry — NEVER a new
+public/plaintext plugin endpoint. The plugin has exactly two ingress surfaces
+(enroll + signed `/command`) and that never grows. See
+[`apps/infraweaver-console/docs/iwsl-secure-by-design.md`](../infraweaver-console/docs/iwsl-secure-by-design.md)
+for the invariant, the add-a-method checklist (worked example: `metrics.snapshot`),
+and the console-side least-privilege review.
+
 ## What is implemented (build phases 1–2)
 
 - **Protocol core:** RFC 8785 JCS canonicalization (integer-only wire profile),

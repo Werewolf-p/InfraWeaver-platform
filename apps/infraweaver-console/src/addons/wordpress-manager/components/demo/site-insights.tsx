@@ -1,193 +1,168 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { Activity, Clock, Database, Gauge, Rocket, ShieldAlert, Timer, Users } from "lucide-react";
+import { Activity, Database, Gauge, Info, Link2, Rocket, ServerCrash, ShieldAlert, Timer, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DemoBanner, DummyBadge } from "./DummyBadge";
-import { EASE_OUT } from "./motion";
-import {
-  AnimatedNumber,
-  HealthGauge,
-  MiniGauge,
-  SectionCard,
-  SeverityBadge,
-  StatTile,
-  STATUS_LABEL,
-  STATUS_TONE,
-  UptimeStrip,
-  healthTone,
-} from "./widgets";
-import { BackupAreaChart, PhpErrorLine, ResponseTimeLine, WafAreaChart } from "./charts";
-import {
-  BACKUP_TREND,
-  CORE_WEB_VITALS,
-  DEMO_SITES,
-  PAGESPEED,
-  PHP_TREND,
-  RESPONSE_TREND,
-  UPTIME_90,
-  VULNERABILITIES,
-  WAF_TREND,
-  type DemoSite,
-} from "./dummy-data";
+import type { FleetSiteRow } from "../../lib/fleet/types";
+import { useFleet } from "./use-fleet";
+import { HealthGauge, STATUS_LABEL, STATUS_TONE, healthTone } from "./widgets";
 
-type SiteTab = "monitoring" | "security" | "performance";
-
-const SITE_TABS: ReadonlyArray<{ id: SiteTab; label: string; icon: React.ElementType }> = [
-  { id: "monitoring", label: "Monitoring", icon: Activity },
-  { id: "security", label: "Security", icon: ShieldAlert },
-  { id: "performance", label: "Performance", icon: Gauge },
+/** Sections with no secure per-site source yet — shown honestly, never faked. */
+const PENDING_INTEGRATIONS: ReadonlyArray<{ title: string; needs: string; icon: React.ElementType }> = [
+  { title: "Traffic & visitors", needs: "an analytics integration", icon: Users },
+  { title: "Firewall activity", needs: "a WAF / edge-security integration", icon: ShieldAlert },
+  { title: "Vulnerability advisories", needs: "a vulnerability-scan integration", icon: ShieldAlert },
+  { title: "Backups", needs: "a backup integration", icon: Database },
+  { title: "PageSpeed & Core Web Vitals", needs: "a Lighthouse / PageSpeed integration", icon: Gauge },
+  { title: "Latency & error history", needs: "Prometheus (see the fleet Monitoring tab)", icon: Activity },
 ];
 
-/** Deterministic demo-site pick from the real site name (no randomness → SSR-safe). */
-function pickDemoSite(name: string): DemoSite {
-  let hash = 0;
-  for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return DEMO_SITES[hash % DEMO_SITES.length];
+function pendingOf(row: FleetSiteRow): number {
+  return row.updates.core + row.updates.plugins + row.updates.themes;
+}
+
+function formatWhen(iso: string | null): string {
+  if (!iso) return "never checked";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "never checked" : d.toLocaleString();
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950/40">
+      <p className="text-xs text-zinc-600 dark:text-zinc-400">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{value}</p>
+    </div>
+  );
+}
+
+function InsightsShell({ children }: { children: React.ReactNode }) {
+  return (
+    <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60">
+      <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100">
+        <Rocket className="h-5 w-5 text-sky-500" aria-hidden />
+        <h2 className="text-lg font-medium">Site insights</h2>
+      </div>
+      {children}
+    </section>
+  );
 }
 
 export function SiteDemoInsights({ site }: { site: string }) {
-  const [tab, setTab] = useState<SiteTab>("monitoring");
-  const demo = useMemo(() => pickDemoSite(site), [site]);
-  const tone = STATUS_TONE[demo.status];
+  const { data, loading, error } = useFleet();
+
+  if (error && !data) {
+    return (
+      <InsightsShell>
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2.5 text-sm text-red-700 dark:text-red-300">
+          <ServerCrash className="h-4 w-4 shrink-0" aria-hidden /> {error}
+        </div>
+      </InsightsShell>
+    );
+  }
+
+  if (!data) {
+    return (
+      <InsightsShell>
+        <div className="mt-4 h-40 animate-pulse rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800/40" aria-busy={loading} />
+      </InsightsShell>
+    );
+  }
+
+  const row = data.sites.find((s) => s.id === site || s.name === site);
+
+  if (!row) {
+    return (
+      <InsightsShell>
+        <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-400">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-500" aria-hidden />
+          <p>
+            No live insights for this site yet. It isn&apos;t reporting through a signed InfraWeaver Connector link, so
+            per-site health, round-trip and updates can&apos;t be read securely.
+          </p>
+        </div>
+      </InsightsShell>
+    );
+  }
+
+  const tone = STATUS_TONE[row.status];
+  const pending = pendingOf(row);
 
   return (
-    <MotionConfig reducedMotion="user">
-      <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100">
-            <Rocket className="h-5 w-5 text-sky-500" aria-hidden />
-            <h2 className="text-lg font-medium">Site insights</h2>
-            <DummyBadge />
-          </div>
-          <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium", tone.ring, tone.soft, tone.text)}>
-            {STATUS_LABEL[demo.status]}
+    <InsightsShell>
+      <div className="mt-1 flex justify-end">
+        <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium", tone.ring, tone.soft, tone.text)}>
+          {STATUS_LABEL[row.status]}
+        </span>
+      </div>
+
+      {/* At-a-glance — every value below is a real, signed signal */}
+      <div className="mt-4 grid gap-4 md:grid-cols-[auto_1fr]">
+        <div className="flex items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+          {row.health !== null ? (
+            <HealthGauge score={row.health} size={112} strokeWidth={10} label="health" />
+          ) : (
+            <div className="flex h-28 w-28 flex-col items-center justify-center text-center">
+              <span className="grid h-16 w-16 place-items-center rounded-full border border-dashed border-zinc-300 text-lg text-zinc-400 dark:border-zinc-700">—</span>
+              <span className="mt-2 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">health unreadable</span>
+            </div>
+          )}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Fact label="Round-trip" value={row.responseMs !== null ? `${row.responseMs} ms` : "—"} />
+          <Fact label="Updates pending" value={String(pending)} />
+          <Fact label="Connector" value={row.connectorVersion ? `v${row.connectorVersion}` : "—"} />
+          <Fact label="Link state" value={row.connectorState ?? "not enrolled"} />
+        </div>
+      </div>
+
+      {/* Real environment + last-check details */}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Fact label="PHP" value={row.php ?? "—"} />
+        <Fact label="WordPress" value={row.wp ?? "—"} />
+        <Fact label="Last health check" value={formatWhen(row.lastHealthAt)} />
+        <Fact label="Verify rejections" value={String(row.rejections)} />
+      </div>
+
+      {row.offline ? (
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2.5 text-sm text-red-700 dark:text-red-300">
+          <ServerCrash className="h-4 w-4 shrink-0" aria-hidden /> This site&apos;s pod is not ready — signals may be
+          stale until it recovers.
+        </div>
+      ) : (
+        <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <Timer className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className={cn("font-medium", healthTone(row.health ?? 0).text)}>
+            {row.lastHealthOk === false ? "Last health check failed" : "Reporting through a signed link"}
           </span>
         </div>
+      )}
 
-        <DemoBanner className="mt-4" />
-
-        {/* At-a-glance summary */}
-        <div className="mt-4 grid gap-4 md:grid-cols-[auto_1fr]">
-          <div className="flex items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
-            <HealthGauge score={demo.health} size={112} strokeWidth={10} label="health" />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <StatTile label="Uptime (30d)" value={demo.status === "offline" ? 0 : demo.uptime} decimals={2} suffix="%" icon={Gauge} tone={healthTone(demo.health)} />
-            <StatTile label="Response" value={demo.responseMs} suffix="ms" icon={Timer} tone={healthTone(demo.responseMs < 300 ? 92 : demo.responseMs < 600 ? 70 : 40)} />
-            <StatTile label="Visitors (7d)" value={demo.visitors7d} icon={Users} tone={healthTone(82)} spark={demo.spark} />
-          </div>
+      {/* Honest "needs an integration" cards — no fabricated charts */}
+      <div className="mt-6">
+        <div className="flex items-center gap-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          <Link2 className="h-4 w-4 text-zinc-400 dark:text-zinc-500" aria-hidden /> Extended insights
         </div>
-
-        {/* Sub-tabs */}
-        <div className="mt-5 flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-          {SITE_TABS.map((entry) => {
-            const on = entry.id === tab;
-            const Icon = entry.icon;
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          These sections light up once the matching data source is connected — nothing here is estimated.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {PENDING_INTEGRATIONS.map((item) => {
+            const Icon = item.icon;
             return (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => setTab(entry.id)}
-                aria-pressed={on}
-                className={cn(
-                  "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-sm transition-colors",
-                  on
-                    ? "border-sky-500 font-medium text-zinc-900 dark:text-zinc-100"
-                    : "border-transparent text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
-                )}
+              <div
+                key={item.title}
+                className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-950/40"
               >
-                <Icon className="h-4 w-4" aria-hidden />
-                {entry.label}
-              </button>
+                <div className="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  <Icon className="h-4 w-4 text-zinc-400 dark:text-zinc-500" aria-hidden />
+                  {item.title}
+                </div>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Needs {item.needs}.</p>
+              </div>
             );
           })}
         </div>
-
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={tab}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.22, ease: EASE_OUT }}
-            className="mt-5"
-          >
-            {tab === "monitoring" && (
-              <div className="grid gap-5 lg:grid-cols-2">
-                <div className="lg:col-span-2">
-                  <div className="mb-2 flex items-baseline justify-between">
-                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">90-day uptime</p>
-                    <AnimatedNumber value={demo.status === "offline" ? 97.12 : demo.uptime} decimals={2} suffix="%" className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400" />
-                  </div>
-                  <UptimeStrip days={UPTIME_90} />
-                </div>
-                <SectionCard title="Response time" description="Origin latency, last 24 hours." icon={Clock} action={<DummyBadge />}>
-                  <ResponseTimeLine data={RESPONSE_TREND} />
-                </SectionCard>
-                <SectionCard title="Backups" description="Nightly backup size trend." icon={Database} action={<DummyBadge />}>
-                  <div className="mb-2 flex items-baseline gap-2">
-                    <span className="text-xs text-zinc-600 dark:text-zinc-400">Last backup</span>
-                    <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{demo.lastBackup}</span>
-                  </div>
-                  <BackupAreaChart data={BACKUP_TREND} />
-                </SectionCard>
-              </div>
-            )}
-
-            {tab === "security" && (
-              <div className="grid gap-5 lg:grid-cols-2">
-                <SectionCard title="Firewall activity" description="Blocked requests over 24 hours." icon={ShieldAlert} action={<DummyBadge />}>
-                  <WafAreaChart data={WAF_TREND} />
-                </SectionCard>
-                <SectionCard title="Component advisories" description="Open CVEs affecting this site's stack." icon={ShieldAlert} action={<DummyBadge />}>
-                  <ul className="space-y-2">
-                    {VULNERABILITIES.slice(0, 4).map((v) => (
-                      <li key={v.id} className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{v.component}</p>
-                          <p className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{v.cve}</p>
-                        </div>
-                        <SeverityBadge severity={v.severity} />
-                      </li>
-                    ))}
-                  </ul>
-                </SectionCard>
-              </div>
-            )}
-
-            {tab === "performance" && (
-              <div className="grid gap-5 lg:grid-cols-2">
-                <SectionCard title="PageSpeed" description="Lighthouse score, mobile vs desktop." icon={Gauge} action={<DummyBadge />}>
-                  <div className="flex items-center justify-around">
-                    <div className="flex flex-col items-center gap-2">
-                      <HealthGauge score={PAGESPEED.mobile} size={92} strokeWidth={8} />
-                      <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Mobile</span>
-                    </div>
-                    <div className="flex flex-col items-center gap-2">
-                      <HealthGauge score={PAGESPEED.desktop} size={92} strokeWidth={8} />
-                      <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">Desktop</span>
-                    </div>
-                  </div>
-                </SectionCard>
-                <SectionCard title="Core Web Vitals" description="Field metrics, last 28 days." icon={Rocket} action={<DummyBadge />}>
-                  <div className="grid grid-cols-3 gap-3">
-                    {CORE_WEB_VITALS.map((cwv) => (
-                      <MiniGauge key={cwv.label} score={cwv.score} caption={cwv.label} unit={cwv.value} />
-                    ))}
-                  </div>
-                </SectionCard>
-                <div className="lg:col-span-2">
-                  <SectionCard title="PHP error rate" description="Runtime errors over 24 hours." icon={Rocket} action={<DummyBadge />}>
-                    <PhpErrorLine data={PHP_TREND} />
-                  </SectionCard>
-                </div>
-              </div>
-            )}
-          </motion.div>
-        </AnimatePresence>
-      </section>
-    </MotionConfig>
+      </div>
+    </InsightsShell>
   );
 }

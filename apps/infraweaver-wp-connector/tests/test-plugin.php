@@ -101,6 +101,37 @@ iwsl_assert_same(
 );
 iwsl_assert( ! isset( $debug['wp_sk'] ) && ! isset( $debug['sk'] ), 'debug.status leaks no key material' );
 
+// metrics.snapshot — signed read-only telemetry for the console's Prometheus
+// exporter. Numeric/scalar only: a gauge-shaped projection of the same state,
+// with no key material and no self-reported URL (health.check owns §5 identity).
+$metrics_reply = $plugin->handle_command( iwsl_clone( $f->commands->metricsSnapshot ) );
+iwsl_assert_same( 200, $metrics_reply['status'], 'metrics.snapshot executes' );
+$metrics = $metrics_reply['body']['envelope']['result'];
+iwsl_assert_same( 2, $metrics['wp_kid'], 'metrics reports the rotated WP epoch' );
+iwsl_assert_same( 19, $metrics['last_seq'], 'metrics reports last_seq (committed before the handler runs)' );
+iwsl_assert_same( 1, $metrics['sodium'], 'metrics reports sodium availability as 1' );
+iwsl_assert_same( 0, $metrics['rotation_pending'], 'no rotation pending after confirm' );
+iwsl_assert_same( 1, $metrics['last_reroll_ok'], 'metrics reports last reroll ok (confirmed above)' );
+iwsl_assert( is_int( $metrics['last_reroll_at'] ) && $metrics['last_reroll_at'] > 0, 'metrics reports last_reroll_at as unix seconds' );
+iwsl_assert( is_string( $metrics['plugin'] ) && '' !== $metrics['plugin'], 'metrics reports plugin version' );
+iwsl_assert(
+	! isset( $metrics['wp_fingerprint'] ) && ! isset( $metrics['iw_fingerprint'] ) && ! isset( $metrics['site_url'] ),
+	'metrics exposes no fingerprint or URL (numeric-only projection)'
+);
+iwsl_assert( ! isset( $metrics['wp_sk'] ) && ! isset( $metrics['sk'] ), 'metrics leaks no key material' );
+// Verify the telemetry response is genuinely signed by the site WP-PK, not just
+// well-shaped — the whole point of routing metrics over the signed channel.
+$metrics_env = $metrics_reply['body']['envelope'];
+$metrics_msg = IWSL_Crypto::domain_message( IWSL_Crypto::DOMAIN_RESP, IWSL_JCS::canonicalize( $metrics_env ) );
+iwsl_assert(
+	IWSL_Crypto::ed_verify_raw(
+		$metrics_msg,
+		IWSL_Crypto::b64u_decode( $metrics_reply['body']['sigs'][ IWSL_Crypto::ALG_ED25519 ] ),
+		$wp_pair2['pk']
+	),
+	'metrics.snapshot response verifies against the site WP-PK'
+);
+
 // §6.4 channel binding end-to-end: an HTTPS-bound command arriving over the exec
 // ingress is refused before it can act; the reason surfaces for §12.5. Rejected
 // pre-commit, so the exec channel's seq is untouched.

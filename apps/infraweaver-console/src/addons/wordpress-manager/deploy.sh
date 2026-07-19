@@ -26,6 +26,18 @@ WP_HEALTH_CRON_BAO_PATH="${WP_HEALTH_CRON_BAO_PATH:-platform/infraweaver-console
 WP_HEALTH_CRON_BAO_PROP="${WP_HEALTH_CRON_BAO_PROP:-wordpress-health-cron-token}"
 WP_HEALTH_CRON_SECRET="${WP_HEALTH_CRON_SECRET:-wordpress-health-cron}"
 
+# ── WordPress Connector metrics wiring (Prometheus scrape token) ──────────────
+# The ServiceMonitor scrapes /api/wordpress/metrics with a Bearer token that MUST
+# match the console's WORDPRESS_METRICS_TOKEN env — sourced from the same OpenBao
+# secret so they never drift. Set SKIP_METRICS=1 to skip (e.g. no Prometheus
+# operator, or OpenBao unreachable). The ServiceMonitor apply is best-effort: a
+# cluster without the monitoring CRDs warns instead of failing the deploy.
+SKIP_METRICS="${SKIP_METRICS:-0}"
+WP_METRICS_BAO_MOUNT="${WP_METRICS_BAO_MOUNT:-secret}"
+WP_METRICS_BAO_PATH="${WP_METRICS_BAO_PATH:-platform/infraweaver-console}"
+WP_METRICS_BAO_PROP="${WP_METRICS_BAO_PROP:-wordpress-metrics-token}"
+WP_METRICS_SECRET="${WP_METRICS_SECRET:-wordpress-metrics-token}"
+
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The console app root is three levels up (src/addons/wordpress-manager). Resolve
 # and cd there so tests, typecheck, and the docker build context are correct no
@@ -91,6 +103,25 @@ else
   kubectl apply -f "${here}/k8s/health-sweep-netpol.yaml"
   kubectl apply -f "${here}/k8s/health-sweep-cronjob.yaml"
   echo "health sweep wired: CronJob wordpress-connector-health-sweep (0 * * * *)"
+fi
+
+if [[ "${SKIP_METRICS}" == "1" ]]; then
+  echo "==> Connector metrics — SKIPPED (SKIP_METRICS=1)"
+else
+  echo "==> wire the Connector metrics scrape (Bearer token from OpenBao)"
+  # Same-origin token as the console's WORDPRESS_METRICS_TOKEN env, so Prometheus
+  # and the console agree (a committed literal never matches → 401/403 scrape).
+  metrics_token="$(read_openbao_field "${WP_METRICS_BAO_MOUNT}" "${WP_METRICS_BAO_PATH}" "${WP_METRICS_BAO_PROP}")"
+  kubectl -n "${CONSOLE_NAMESPACE}" create secret generic "${WP_METRICS_SECRET}" \
+    --from-literal=token="${metrics_token}" --dry-run=client -o yaml \
+    | kubectl -n "${CONSOLE_NAMESPACE}" apply -f -
+  # Best-effort: a cluster without the prometheus-operator CRDs (ServiceMonitor)
+  # must not abort the deploy — the token + NetworkPolicy still apply usefully.
+  if kubectl apply -f "${here}/k8s/metrics-servicemonitor.yaml"; then
+    echo "metrics wired: ServiceMonitor wordpress-connector-metrics (/api/wordpress/metrics)"
+  else
+    echo "warn: ServiceMonitor apply failed (prometheus-operator CRDs missing?) — token/NetworkPolicy may be partial" >&2
+  fi
 fi
 
 echo "Done. Enable the 'wordpress-manager' addon in console settings, then visit /wordpress."
