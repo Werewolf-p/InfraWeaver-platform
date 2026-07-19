@@ -33,9 +33,11 @@ import {
   rotateConnectorKey,
   setConnectorQuarantine,
   setRotationPolicy,
+  setSiteEntitlements,
   updateConnectorPlugin,
 } from "../lib/iwsl-managed-ops";
 import { MAX_SITE_INTERVAL_MS } from "../lib/rotation-policy";
+import { MAX_ENTITLEMENT_FLAGS } from "../lib/entitlements";
 import { isValidSiteId } from "../lib/naming";
 
 /**
@@ -317,7 +319,7 @@ export async function enrollManagedSiteHandler(site: string): Promise<NextRespon
   return guard(async () => json({ link: await enrollManagedSite(site, gate.ctx.username) }, 201));
 }
 
-const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin", "confirm-identity", "set-rotation-policy"] as const;
+const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin", "confirm-identity", "set-rotation-policy", "set-entitlements"] as const;
 type OpsAction = (typeof OPS_ACTIONS)[number];
 
 const opsSchema = z
@@ -336,6 +338,12 @@ const opsSchema = z
       })
       .strict()
       .optional(),
+    // Payload for set-entitlements: a bounded boolean flag map. Normalized to
+    // known flags server-side before it is signed and pushed to the plugin.
+    entitlements: z.record(z.string().max(64), z.boolean()).refine(
+      (map) => Object.keys(map).length <= MAX_ENTITLEMENT_FLAGS,
+      { message: `at most ${MAX_ENTITLEMENT_FLAGS} flags` },
+    ).optional(),
   })
   .strict();
 
@@ -352,6 +360,8 @@ const OPS_POLICY: Record<OpsAction, { permission: WordpressPermission; ratePerMi
   "confirm-identity": { permission: "wordpress:admin", ratePerMin: 10 },
   // Tuning key-rotation cadence is a security control — admin, same as rotate.
   "set-rotation-policy": { permission: "wordpress:admin", ratePerMin: 10 },
+  // Granting a paid entitlement is a trust/commercial control — admin.
+  "set-entitlements": { permission: "wordpress:admin", ratePerMin: 10 },
 };
 
 /**
@@ -396,6 +406,11 @@ export async function managedOpsHandler(req: NextRequest, site: string): Promise
         if (!parsed.data.rotationPolicy) return fail("rotationPolicy payload is required", 400);
         const saved = await setRotationPolicy(site, parsed.data.rotationPolicy, gate.ctx.username);
         return json({ rotationPolicy: saved });
+      }
+      case "set-entitlements": {
+        if (!parsed.data.entitlements) return fail("entitlements payload is required", 400);
+        const saved = await setSiteEntitlements(site, parsed.data.entitlements, gate.ctx.username);
+        return json({ entitlements: saved });
       }
     }
   });

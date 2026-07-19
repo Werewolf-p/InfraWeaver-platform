@@ -22,17 +22,21 @@ final class IWSL_Plugin {
 	/** @var IWSL_Responder */
 	private $responder;
 
+	/** @var IWSL_Entitlements */
+	private $entitlements;
+
 	/** @var array<string, IWSL_Command_Handler> the command registry (§7), method-keyed. */
 	private $handlers;
 
 	public function __construct( IWSL_Store $store, ?callable $now_ms = null ) {
-		$this->store      = $store;
-		$this->enrollment = new IWSL_Enrollment( $store, $now_ms );
-		$this->rotation   = new IWSL_Rotation( $store );
-		$this->responder  = new IWSL_Responder( $store, $this->rotation, $now_ms );
-		$this->handlers   = self::command_handlers();
+		$this->store        = $store;
+		$this->enrollment   = new IWSL_Enrollment( $store, $now_ms );
+		$this->rotation     = new IWSL_Rotation( $store );
+		$this->responder    = new IWSL_Responder( $store, $this->rotation, $now_ms );
+		$this->entitlements = new IWSL_Entitlements( $store, $now_ms );
+		$this->handlers     = self::command_handlers();
 		// Verifier allow-list is derived from the same registry — no parallel list.
-		$this->verifier   = new IWSL_Verifier( $store, self::validators( $this->handlers ), $now_ms );
+		$this->verifier     = new IWSL_Verifier( $store, self::validators( $this->handlers ), $now_ms );
 	}
 
 	public function store(): IWSL_Store {
@@ -41,6 +45,10 @@ final class IWSL_Plugin {
 
 	public function enrollment(): IWSL_Enrollment {
 		return $this->enrollment;
+	}
+
+	public function entitlements(): IWSL_Entitlements {
+		return $this->entitlements;
 	}
 
 	public function rotation(): IWSL_Rotation {
@@ -58,7 +66,7 @@ final class IWSL_Plugin {
 	}
 
 	/**
-	 * The six current signed commands (§6/§7). Single source of truth: both the
+	 * The current signed commands (§6/§7). Single source of truth: both the
 	 * verifier allow-list and `execute()` dispatch derive from this. Runners are
 	 * closures scoped to this class, so they reach the private store/rotation/
 	 * debug surface without any of it going public.
@@ -183,6 +191,19 @@ final class IWSL_Plugin {
 				null,
 				false,
 				true // §12.6: wipe all local IWSL state after answering.
+				),
+				new IWSL_Command_Handler(
+				'entitlements.set',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Paid-feature entitlements — console-authoritative, writable ONLY
+					// through this dual-signed method. The verifier already proved the
+					// command came from the console (the site can't self-grant a flag),
+					// so the plugin stores exactly what was pushed. The map is general
+					// so future paid flags need no new method.
+					$stored = $plugin->entitlements()->apply( $envelope->params->entitlements );
+					return array( true, array( 'entitlements' => $stored ) );
+				},
+				array( 'IWSL_Entitlements', 'validate_params' )
 			),
 		);
 
@@ -226,6 +247,13 @@ final class IWSL_Plugin {
 			return array( 'status' => 403, 'body' => array( 'ok' => false, 'reason' => $verdict['reason'] ) );
 		}
 		$envelope = $verdict['envelope'];
+
+		// Heartbeat: a verified command is a signature-authenticated contact from
+		// the console. Stamp it on the verifier's success path (before dispatch, so
+		// even a wiping command counts as fresh) — the client-side feature gate
+		// judges heartbeat freshness from this, and it can only be advanced by a
+		// valid dual signature, never by an unauthenticated request.
+		$this->entitlements->record_verified_contact();
 
 		// Verifier already enforced the allow-list, so a handler always exists;
 		// guard defensively regardless (a null handler cannot dispatch).
@@ -293,6 +321,12 @@ final class IWSL_Plugin {
 			'last_rejection' => is_array( $reject )
 				? array( 'reason' => (string) $reject['reason'], 'ts' => (int) $reject['ts'] )
 				: null,
+			// Paid-feature entitlement state, echoed so the console can reconcile
+			// what the plugin actually stored against what it pushed (drift check).
+			// `last_verified_at` is the heartbeat the client-side gate reads.
+			'entitlements'     => $this->entitlements->all(),
+			'last_verified_at' => $this->entitlements->last_verified_at(),
+			'plus_gate'        => $this->entitlements->evaluate( 'plus' ),
 		);
 	}
 
@@ -388,6 +422,9 @@ final class IWSL_Plugin {
 				'wp_current_kid', 'wp_epoch_floor', 'iw_current_kid',
 				'iw_epoch_floor', 'pending_rotation', 'last_confirmed_rotation',
 				'last_rejection', 'enroll_claim',
+				// Paid-feature state — a killed link must lose Plus and its heartbeat
+				// so the client-side gate locks immediately after the kill switch.
+				'entitlements', 'entitlements_updated_at', 'last_verified_at',
 			) as $key
 		) {
 			$this->store->delete( $key );

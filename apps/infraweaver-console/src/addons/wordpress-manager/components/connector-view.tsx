@@ -48,6 +48,8 @@ interface ManagedLink {
   lastReroll?: { at: string; outcome: "confirmed" | "aborted" | "pending"; kid: number; reason?: string };
   /** §8 — per-site auto-rotation schedule override (absent ⇒ fleet default). */
   rotationPolicy?: { autoRotate: boolean; intervalMs?: number; updatedAt?: string; updatedBy?: string };
+  /** Paid-feature entitlements mirrored from the last signed push (absent ⇒ none). */
+  entitlements?: { flags?: { plus?: boolean }; updatedAt?: string; updatedBy?: string };
   /** §5 identity binding — the site's confirmed canonical URL. */
   canonicalUrl?: string;
   /** §5 safe mode: state-changing ops suspended after a self-reported URL change. */
@@ -302,6 +304,24 @@ export function ConnectorView({ site }: { site: string }) {
         rotationPolicy.autoRotate
           ? "Auto-rotation schedule saved"
           : "Auto-rotation disabled — manual reroll still available",
+      );
+      refetchLink();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const entitlementMutation = useMutation({
+    // Grant/revoke Plus. The API route pushes it to the plugin over the signed
+    // command channel; the site can never self-grant it.
+    mutationFn: (plus: boolean) =>
+      postOp<{ entitlements: { flags?: { plus?: boolean } } }>(site, "set-entitlements", {
+        entitlements: { plus },
+      }),
+    onSuccess: ({ entitlements }) => {
+      toast.success(
+        entitlements.flags?.plus
+          ? "Plus granted — pushed to the site over the signed channel"
+          : "Plus revoked — pushed to the site over the signed channel",
       );
       refetchLink();
     },
@@ -647,6 +667,35 @@ export function ConnectorView({ site }: { site: string }) {
                   : "Scheduled rotation off"}
               </span>
             </div>
+          </div>
+
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zinc-100">Plus entitlement</p>
+                <p className="mt-0.5 text-xs text-zinc-400">
+                  Grants this site&apos;s Plus paid features. Pushed to the plugin over the signed command channel — the site cannot self-grant it.
+                </p>
+              </div>
+              <label className="inline-flex shrink-0 cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-emerald-500 disabled:cursor-not-allowed"
+                  checked={link?.entitlements?.flags?.plus === true}
+                  disabled={!commandable || identitySuspended || entitlementMutation.isPending}
+                  onChange={(e) => entitlementMutation.mutate(e.target.checked)}
+                />
+                <span className="text-xs font-medium text-zinc-200">
+                  {entitlementMutation.isPending ? "Saving…" : link?.entitlements?.flags?.plus ? "Granted" : "Off"}
+                </span>
+              </label>
+            </div>
+            {link?.entitlements?.updatedBy ? (
+              <p className="mt-2 text-xs text-zinc-500">
+                Last changed by {link.entitlements.updatedBy}
+                {link.entitlements.updatedAt ? ` ${timeAgo(link.entitlements.updatedAt)}` : ""}
+              </p>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">

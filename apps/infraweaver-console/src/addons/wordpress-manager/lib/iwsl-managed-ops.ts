@@ -16,6 +16,7 @@ import {
 import { requestSafeExternalUrl } from "@/lib/outbound-url";
 import { AddonHttpError } from "./errors";
 import { clampRotationIntervalMs } from "./rotation-policy";
+import { normalizeEntitlements, type EntitlementMap } from "./entitlements";
 import { execInWpPod } from "./k8s-exec";
 import { findWpPodName } from "./provision";
 import { buildConnectorPackage } from "./connector-package";
@@ -653,6 +654,62 @@ export async function setRotationPolicy(
     target.rotationPolicy = nextPolicy;
   });
   return nextPolicy;
+}
+
+export interface SetEntitlementsResult {
+  flags: EntitlementMap;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+/**
+ * Grant/revoke this managed link's paid-feature entitlements. The map is pushed
+ * to the plugin over the DUAL-SIGNED command channel (`entitlements.set`) — the
+ * only way it can land, since the plugin trusts it precisely because it arrived
+ * signed and the site has no self-set path. The signed push runs FIRST and is
+ * authoritative; the console registry is only mirrored AFTER the plugin accepts,
+ * so a rejected/failed push never leaves the console claiming a grant the site
+ * doesn't have. Granting a paid flag is state-changing, so identity safe mode
+ * (§5) blocks it just like a rotation/update. `wordpress:admin` + audit
+ * (`updatedBy`) are enforced by the API route, mirroring set-rotation-policy.
+ */
+export async function setSiteEntitlements(
+  site: string,
+  entitlements: EntitlementMap,
+  actor: string,
+): Promise<SetEntitlementsResult> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  requireIdentityConfirmed(record);
+  const pod = await requireRunningPod(site);
+
+  // Bound + known-flags-only before it touches the wire (single source of truth
+  // in entitlements.ts), so no out-of-model key is ever signed and delivered.
+  const flags = normalizeEntitlements(entitlements);
+
+  const reply = await callRpc(
+    rpcTransport(record, execDelivery(pod), "exec"),
+    "entitlements.set",
+    { entitlements: flags as Record<string, boolean> },
+  );
+  if (reply.rejectedReason) {
+    throw new AddonHttpError(`Connector rejected the entitlement update (${reply.rejectedReason})`, 502);
+  }
+  if (!reply.ok) {
+    throw new AddonHttpError("Connector could not apply the entitlement update", 502);
+  }
+
+  const next: SetEntitlementsResult = {
+    flags,
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor,
+  };
+  await mutateExternalSites((sites) => {
+    const target = sites.find((s) => s.siteId === record.siteId);
+    if (!target) throw new AddonHttpError("Connector link vanished", 409);
+    target.entitlements = next;
+  });
+  return next;
 }
 
 /**
