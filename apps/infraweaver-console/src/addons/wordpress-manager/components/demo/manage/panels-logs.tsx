@@ -4,7 +4,7 @@
 // parsed into level-tagged entries. Read-only; informative empty state when
 // WP_DEBUG_LOG is off.
 import { useState } from "react";
-import { Bug, FileWarning, ScrollText } from "lucide-react";
+import { AlertTriangle, Bug, FileWarning, ScrollText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LogEntry, LogLevel, LogsData } from "../../../lib/manage/probes/logs";
 import { SectionCard, StatTile, healthTone } from "../widgets";
@@ -36,6 +36,21 @@ function DebugOff({ logPath }: { logPath: string | null }) {
   );
 }
 
+/**
+ * Read failed — the debug log could not be read from the site. Deliberately does
+ * NOT claim logging is off (it may well be on); it tells the operator why the
+ * info is missing so an unreadable log never reads as an empty, healthy one.
+ */
+function DebugUnreadable({ reason, logPath }: { reason: string; logPath: string | null }) {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-8 text-center text-sm text-zinc-600 dark:text-zinc-300">
+      <AlertTriangle className="h-6 w-6 text-amber-500" aria-hidden />
+      <p className="max-w-prose">{reason}</p>
+      {logPath ? <p className="font-mono text-[11px] text-zinc-400">{logPath}</p> : null}
+    </div>
+  );
+}
+
 function LogRow({ entry }: { entry: LogEntry }) {
   return (
     <li className="flex items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950/40">
@@ -55,6 +70,16 @@ export function LogsPanel({ site }: { site: string }) {
   return (
     <PanelState state={state}>
       {(data) => {
+        // A read failure is reported as its own state — never collapsed into
+        // "logging is off", which would tell the operator to enable something
+        // that may already be on and hide the real reason the logs are missing.
+        if (data.readError) {
+          return (
+            <SectionCard title="Debug log" description="PHP/WordPress errors captured on the pod." icon={ScrollText}>
+              <DebugUnreadable reason={data.readError} logPath={data.logPath} />
+            </SectionCard>
+          );
+        }
         if (!data.debugLogEnabled) {
           return (
             <SectionCard title="Debug log" description="PHP/WordPress errors captured on the pod." icon={ScrollText}>
