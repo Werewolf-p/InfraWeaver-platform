@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-export type SiteTab = "overview" | "connector";
+export type SiteTab = "overview" | "manage" | "connector";
 
 const TABS: { id: SiteTab; label: string; path: (site: string) => string }[] = [
   { id: "overview", label: "Overview", path: (site) => `/wordpress/${site}` },
+  { id: "manage", label: "Manage", path: (site) => `/wordpress/${site}/manage` },
   { id: "connector", label: "InfraWeaver Connector", path: (site) => `/wordpress/${site}/connector` },
 ];
 

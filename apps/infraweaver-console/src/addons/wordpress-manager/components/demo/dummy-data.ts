@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Seeded, deterministic PRNG. Same seed → same sequence, forever. */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a |= 0;
@@ -21,7 +21,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function series(seed: number, count: number, base: number, spread: number, drift = 0): number[] {
+export function series(seed: number, count: number, base: number, spread: number, drift = 0): number[] {
   const rand = mulberry32(seed);
   const out: number[] = [];
   for (let i = 0; i < count; i += 1) {

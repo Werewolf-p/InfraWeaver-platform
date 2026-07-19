@@ -1,0 +1,29 @@
+"use client";
+
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
+import { SiteTabs } from "./site-tabs";
+import { ManageView } from "./demo/manage/manage-view";
+
+/**
+ * Per-site "Manage" page shell. Mirrors the Overview / Connector page chrome
+ * (back-link → title → SiteTabs) and hosts the ManageView demo console. All
+ * content inside ManageView is illustrative dummy data — see site-manage-data.ts.
+ */
+export function ManagePage({ site }: { site: string }) {
+  return (
+    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
+      <Link href="/wordpress" className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-200">
+        <ArrowLeft className="h-4 w-4" aria-hidden /> All sites
+      </Link>
+
+      <header className="mt-4 flex flex-wrap items-end justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">{site}</h1>
+      </header>
+
+      <SiteTabs site={site} active="manage" />
+
+      <ManageView site={site} />
+    </div>
+  );
+}
