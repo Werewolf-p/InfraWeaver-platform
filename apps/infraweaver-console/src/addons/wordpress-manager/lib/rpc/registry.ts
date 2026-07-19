@@ -24,7 +24,8 @@ export type RpcMethod =
   | "key.rotate.self"
   | "key.rotate.confirm"
   | "key.rotate.abort"
-  | "site.deactivate";
+  | "site.deactivate"
+  | "link.purge";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -35,6 +36,7 @@ export interface RpcParams {
   "key.rotate.confirm": { rotation_id: string };
   "key.rotate.abort": { rotation_id: string };
   "site.deactivate": Record<string, never>;
+  "link.purge": Record<string, never>;
 }
 
 /**
@@ -92,6 +94,8 @@ export interface RpcResult {
   "key.rotate.confirm": Record<string, never> | { reason: string };
   "key.rotate.abort": Record<string, never>;
   "site.deactivate": { deactivated: true };
+  /** §12.6 delete — the plugin scrubbed all `iwsl_*` enrollment state. */
+  "link.purge": { purged: true };
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -128,6 +132,7 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "key.rotate.confirm": { hasParams: true, validate: rotationParams },
   "key.rotate.abort": { hasParams: true, validate: rotationParams },
   "site.deactivate": { hasParams: false, validate: noParams },
+  "link.purge": { hasParams: false, validate: noParams },
 };
 
 /** The allow-listed method names, in registry order. */

@@ -741,6 +741,35 @@ export async function deactivateConnector(site: string): Promise<{ wiped: boolea
   return { wiped };
 }
 
+/**
+ * §12.6 delete step (a): tell the plugin to scrub its own `iwsl_*` enrollment
+ * state over the SIGNED command channel, BEFORE the pod/PVC are destroyed, so a
+ * reused or restored database never carries a re-enroll-blocking orphan. Unlike
+ * the kill switch this does NOT remove the console link record — the delete
+ * orchestrator removes that as its own tracked step (§12.6 step f). Strictly
+ * best-effort and non-throwing at the edges the delete tolerates: no link, a
+ * not-yet-commandable/quarantined link (channel not trusted), or an unreachable
+ * pod all return a `skipped` outcome so the teardown continues. A transport or
+ * signature failure still propagates so the orchestrator records it as a failed
+ * step (the site is torn down regardless; a retry re-attempts the purge).
+ */
+export async function purgeConnectorEnrollment(
+  site: string,
+): Promise<{ purged: boolean; skipped?: string }> {
+  const record = await getManagedRecord(site);
+  if (!record) return { purged: false, skipped: "no connector link" };
+  // Only an active, fingerprint-confirmed, keyed link has a trusted signing
+  // path. A quarantined or half-enrolled link's channel is not trusted for a
+  // signed send — skip it; the link-record removal still scrubs the console side.
+  if (record.state !== "active" || !record.fingerprintConfirmed || !record.wpPk) {
+    return { purged: false, skipped: `link ${record.state} — signed purge skipped` };
+  }
+  const pod = await findWpPodName(site);
+  if (!pod) return { purged: false, skipped: "pod unreachable — signed purge skipped" };
+  const reply = await callRpc(rpcTransport(record, execDelivery(pod), "exec"), "link.purge", {});
+  return { purged: reply.ok };
+}
+
 // ── Maintenance ──────────────────────────────────────────────────────────────
 
 /**

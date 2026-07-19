@@ -103,7 +103,7 @@ function iwsl_now_t0( int $offset_ms = 5000 ): callable {
 	};
 }
 
-$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin' );
+$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge' );
 foreach ( $suites as $suite ) {
 	echo "== {$suite}\n";
 	require __DIR__ . '/test-' . $suite . '.php';

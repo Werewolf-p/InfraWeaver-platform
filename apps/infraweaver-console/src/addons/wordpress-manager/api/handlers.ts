@@ -15,7 +15,10 @@ import {
 import { isValidSiteName, isValidSiteId } from "../lib/naming";
 import { PLUGIN_CATALOG } from "../lib/plugins";
 import { listDomains, internalSubdomain, isAllowedDomain } from "../lib/config";
-import { createSite, deleteSite, listSites, listSitePods, listInstalledPlugins, setPlugins, updateAllPlugins, getMaintenanceMode, setMaintenanceMode, enableSso, setProtection, getSiteHealth, syncSiteWpUsers } from "../lib/provision";
+import { createSite, listSites, listSitePods, listInstalledPlugins, setPlugins, updateAllPlugins, getMaintenanceMode, setMaintenanceMode, enableSso, setProtection, getSiteHealth, syncSiteWpUsers } from "../lib/provision";
+import { teardownSite } from "../lib/site-teardown";
+import { summarizeTeardown } from "../lib/teardown-step";
+import { auditLog } from "@/lib/audit-log";
 import { ensureSiteAccess, listSiteAccessUsers, siteAccessGroupName } from "../lib/access";
 import { computeSiteWordpressUsers } from "../lib/access-policy";
 import { loadUsersConfig } from "@/lib/users-config";
@@ -194,6 +197,15 @@ export async function getConfigHandler(): Promise<NextResponse> {
   });
 }
 
+/**
+ * DELETE — permanently tear a site down: connector enrollment (signed purge),
+ * Deployments/Services, PVCs (storage — irreversible data loss), k8s + OpenBao
+ * secrets, DNS, the Authentik gate, and the console link record. `wordpress:admin`
+ * only (same as every destructive op), rate-limited, and audited with the full
+ * removed/skipped/failed tally. The teardown is idempotent and partial-failure
+ * tolerant, so a partial result returns 200 with `ok:false` and the operator can
+ * safely re-run Delete to finish any failed steps.
+ */
 export async function deleteSiteHandler(site: string): Promise<NextResponse> {
   if (!isValidSiteId(site)) return fail("Invalid site name", 400);
   const gate = await authorize("wordpress:admin", site);
@@ -201,8 +213,14 @@ export async function deleteSiteHandler(site: string): Promise<NextResponse> {
   const limited = rateLimited("delete", gate.ctx.username, 10);
   if (limited) return limited;
   return guard(async () => {
-    await deleteSite(site);
-    return json({ ok: true });
+    const result = await teardownSite(site);
+    await auditLog(
+      "wordpress:delete-site",
+      gate.ctx.username,
+      `deleted site ${site} — ${summarizeTeardown(result.steps)}`,
+      { result: result.ok ? "success" : "failure", resource: `wordpress/${site}` },
+    );
+    return json(result);
   });
 }
 

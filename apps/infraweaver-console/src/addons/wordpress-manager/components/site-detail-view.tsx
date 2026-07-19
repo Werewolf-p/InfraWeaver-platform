@@ -19,9 +19,11 @@ import {
   ShieldCheck,
   Users,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SiteRuntimeCard } from "./site-runtime-card";
 import { SiteTabs } from "./site-tabs";
 import { SiteDemoInsights } from "./demo/site-insights";
@@ -241,6 +243,30 @@ export function SiteDetailView({ site }: { site: string }) {
     onSuccess: ({ updated }) => {
       toast.success(updated.length === 0 ? "All plugins are already up to date" : `Plugin update finished (${updated.length} processed)`);
       void queryClient.invalidateQueries({ queryKey: ["wordpress-plugins", site] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (): Promise<{ ok: boolean; steps: { step: string; status: string; detail?: string }[] }> => {
+      const res = await fetch(`/api/wordpress/sites/${site}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Delete failed");
+      return body;
+    },
+    onSuccess: (result) => {
+      if (result.ok) {
+        setConfirmDeleteOpen(false);
+        toast.success(`${site} deleted`);
+        // The site (and this view) is gone — leave for the sites list.
+        window.location.assign("/wordpress");
+        return;
+      }
+      const failed = result.steps.filter((step) => step.status === "failed").length;
+      toast.error(`${site} was partially deleted — ${failed} step${failed === 1 ? "" : "s"} failed. Re-run Delete to finish.`);
+      void queryClient.invalidateQueries({ queryKey: ["wordpress-site-status", site] });
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -637,6 +663,51 @@ export function SiteDetailView({ site }: { site: string }) {
         <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">secret/wordpress/{site}</code> — they are
         never shown here.
       </p>
+
+      {/* Danger zone — irreversible full teardown of the site. */}
+      <section className="mt-6 rounded-xl border border-red-500/30 bg-red-500/5 p-5">
+        <div className="flex items-center gap-2 text-red-300">
+          <Trash2 className="h-5 w-5 text-red-400" aria-hidden />
+          <h2 className="text-lg font-medium">Danger zone</h2>
+        </div>
+        <p className="mt-1 max-w-prose text-sm text-zinc-400">
+          Permanently delete <span className="font-medium text-zinc-200">{site}</span>
+          {status?.host ? (
+            <>
+              {" "}
+              (<span className="font-mono text-zinc-300">{status.host}</span>)
+            </>
+          ) : null}
+          . This removes the WordPress deployment and its database, all storage (the site&rsquo;s content, uploads and
+          database volumes), every secret, the DNS record, the Authentik gate and the console record — after asking the
+          connector to purge its own enrollment state.{" "}
+          <span className="text-red-300">This cannot be undone; the data is gone for good.</span>
+        </p>
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            disabled={deleteMutation.isPending}
+            onClick={() => setConfirmDeleteOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
+            {deleteMutation.isPending ? "Deleting…" : "Delete site"}
+          </button>
+        </div>
+      </section>
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        danger
+        title={`Delete ${site}?`}
+        description={`This permanently deletes the WordPress deployment and database, all storage/PVCs, every secret, the DNS record${
+          status?.host ? ` for ${status.host}` : ""
+        }, the Authentik gate and the console record, and purges the connector enrollment. It is irreversible — the site's data cannot be recovered.`}
+        confirmText={deleteMutation.isPending ? "Deleting…" : "Delete this site permanently"}
+        requireTyping={site}
+        onConfirm={() => deleteMutation.mutate()}
+        onCancel={() => setConfirmDeleteOpen(false)}
+      />
     </div>
   );
 }

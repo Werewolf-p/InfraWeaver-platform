@@ -167,6 +167,23 @@ final class IWSL_Plugin {
 				false,
 				true // §8 kill switch: wipe after the response is built.
 			),
+			new IWSL_Command_Handler(
+				'link.purge',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// §12.6 delete: the console is tearing this site down and asks the
+					// plugin to scrub its own enrollment state FIRST, while the pod is
+					// still reachable, so a reused/restored database can never leave a
+					// re-enroll-blocking `iwsl_*` orphan (the bug that already bit a
+					// site). Reuses the exact `wipe()` the kill switch runs — the
+					// signed response is built and verified BEFORE the wipe, so the
+					// console still confirms the purge end-to-end. Idempotent: a fresh
+					// or half-enrolled store wipes to the same clean `unenrolled` slate.
+					return array( true, array( 'purged' => true ) );
+				},
+				null,
+				false,
+				true // §12.6: wipe all local IWSL state after answering.
+			),
 		);
 
 		$by_method = array();
