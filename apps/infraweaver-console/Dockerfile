@@ -30,7 +30,10 @@ ENV NODE_ENV=production
 # and the clone-infra-routes initContainer (which runs this same image) clones
 # the private infra repo. Without it the container starts but route sync — and
 # the initContainer — die with "git: not found" (exit 127).
-RUN apt-get update && apt-get install -y --no-install-recommends git \
+# ca-certificates is required alongside git: without the CA bundle, git's HTTPS
+# clone of GitHub fails with "server certificate verification failed" (exit 128).
+# --no-install-recommends drops it, so name it explicitly.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 # Run as non-root user (required by PodSecurity restricted policy)
 RUN groupadd --system --gid 1001 nodejs && \
