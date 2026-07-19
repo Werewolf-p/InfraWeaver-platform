@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle, ArrowRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -39,11 +39,19 @@ interface OnboardingWizardProps {
 }
 
 export function OnboardingWizard({ className }: OnboardingWizardProps) {
-  const [visible, setVisible] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return !localStorage.getItem(STORAGE_KEY);
-  });
+  // Start hidden so the server render and the first client (hydration) render
+  // agree — reading localStorage in the initial state made the server render
+  // null while the client rendered the modal, tripping a hydration mismatch
+  // (React #418). Reveal after mount, once localStorage is safe to read.
+  const [visible, setVisible] = useState(false);
   const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!localStorage.getItem(STORAGE_KEY)) setVisible(true);
+    } catch { /* localStorage unavailable — leave the tour hidden */ }
+  }, []);
 
   if (!visible) return null;
 
@@ -51,7 +59,7 @@ export function OnboardingWizard({ className }: OnboardingWizardProps) {
   const isLast = step === STEPS.length - 1;
 
   const handleDismiss = () => {
-    localStorage.setItem(STORAGE_KEY, "1");
+    try { localStorage.setItem(STORAGE_KEY, "1"); } catch { /* ignore */ }
     setVisible(false);
   };
 
