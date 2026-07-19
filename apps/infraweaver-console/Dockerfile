@@ -26,6 +26,12 @@ RUN --mount=type=tmpfs,target=/dev/shm npm run build
 FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# git is required at runtime: external-routes-server.ts shells out to `git`,
+# and the clone-infra-routes initContainer (which runs this same image) clones
+# the private infra repo. Without it the container starts but route sync — and
+# the initContainer — die with "git: not found" (exit 127).
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 # Run as non-root user (required by PodSecurity restricted policy)
 RUN groupadd --system --gid 1001 nodejs && \
     useradd --system --uid 1001 --gid 1001 nextjs
