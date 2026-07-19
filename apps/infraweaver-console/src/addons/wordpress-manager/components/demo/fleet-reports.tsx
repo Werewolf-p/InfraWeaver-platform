@@ -261,7 +261,7 @@ export function FleetReports() {
                   const tone = STATUS_TONE[item.status];
                   return (
                     <li key={item.id} className="relative flex gap-3">
-                      <span className="z-[1] grid h-8 w-8 shrink-0 place-items-center rounded-full border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                      <span className="z-raised grid h-8 w-8 shrink-0 place-items-center rounded-full border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                         <Icon className={cn("h-4 w-4", tone.text)} aria-hidden />
                       </span>
                       <div className="min-w-0 flex-1 pt-1">

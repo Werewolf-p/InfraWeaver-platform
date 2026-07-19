@@ -16,6 +16,9 @@ const config = {
   testPathIgnorePatterns: ["/node_modules/", "/.next/"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
+    // Next's server-only marker is unresolvable under jest's CJS runtime; stub
+    // it so server modules that import it can be unit-tested directly.
+    "^server-only$": "<rootDir>/tests/stubs/server-only.ts",
   },
 };
 module.exports = config;
