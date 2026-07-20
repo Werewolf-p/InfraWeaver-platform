@@ -116,9 +116,12 @@ export interface SiteManifestOptions {
 
 // No CPU limit by default — CPU throttling hurts PHP/MariaDB latency far more than
 // a memory cap, which is the actual node-stability guardrail we care about.
+// 1Gi (not 512Mi) because a real WordPress with heavy plugins (all-in-one-migration,
+// complianz, filebird, …) plus a wp-cli exec bootstrapping under the same cgroup
+// spikes past 512Mi and OOMKills the pod — observed as an enroll-time crash loop.
 const DEFAULT_WP_RESOURCES: ContainerResources = {
   requests: { cpu: "100m", memory: "256Mi" },
-  limits: { memory: "512Mi" },
+  limits: { memory: "1Gi" },
 };
 const DEFAULT_DB_RESOURCES: ContainerResources = {
   requests: { cpu: "100m", memory: "256Mi" },
