@@ -13,10 +13,12 @@ jest.mock("@/addons/wordpress-manager/lib/k8s-exec", () => ({ execInWpPod: jest.
 jest.mock("@/addons/wordpress-manager/lib/manage/overview", () => ({ requireRunningWpPod: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/manage/snapshot-cache", () => ({ invalidateManageCache: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/iwsl-managed-commands", () => ({ CONNECTOR_PLUGIN_SLUG: "infraweaver-connector" }));
+jest.mock("@/lib/mailer", () => ({ sendWpPasswordResetEmail: jest.fn(), isMailerConfigured: jest.fn(() => true) }));
 
 import {
   commandFor,
   actionPermission,
+  parseResetTarget,
   isLastAdmin,
   parseAdministratorIds,
   manageActionSchema,
@@ -134,5 +136,40 @@ describe("actionPermission", () => {
     expect(actionPermission(parse({ type: "trash-post", postId: 1 }))).toBe("wordpress:write");
     expect(actionPermission(parse({ type: "set-maintenance-mode", enabled: false }))).toBe("wordpress:write");
     expect(actionPermission(parse({ type: "flush-cache" }))).toBe("wordpress:write");
+  });
+});
+
+describe("parseResetTarget — in-pod reset-link eval output", () => {
+  test("parses a well-formed JSON blob", () => {
+    const stdout = JSON.stringify({
+      email: " user@example.com ",
+      name: "Jane Doe",
+      reset_url: "https://hi2.rlservers.com/wp-login.php?action=rp&key=abc&login=jane",
+      site_name: "Hi2 Blog",
+      site_url: "https://hi2.rlservers.com/",
+    });
+    expect(parseResetTarget(stdout)).toEqual({
+      email: "user@example.com",
+      name: "Jane Doe",
+      resetUrl: "https://hi2.rlservers.com/wp-login.php?action=rp&key=abc&login=jane",
+      siteName: "Hi2 Blog",
+      siteUrl: "https://hi2.rlservers.com/",
+    });
+  });
+
+  test("returns null on empty, malformed, or reset-url-less output", () => {
+    expect(parseResetTarget("")).toBeNull();
+    expect(parseResetTarget("   ")).toBeNull();
+    expect(parseResetTarget("not json")).toBeNull();
+    expect(parseResetTarget(JSON.stringify({ email: "a@b.c" }))).toBeNull(); // no reset_url
+    expect(parseResetTarget(JSON.stringify({ reset_url: "" }))).toBeNull();
+  });
+
+  test("coerces missing/typed fields to safe defaults but keeps the reset url", () => {
+    const t = parseResetTarget(JSON.stringify({ reset_url: "https://x/rp", email: 123, name: null }));
+    expect(t).not.toBeNull();
+    expect(t?.email).toBe("");
+    expect(t?.name).toBe("");
+    expect(t?.resetUrl).toBe("https://x/rp");
   });
 });

@@ -184,3 +184,50 @@ export async function sendCredentialEmail(input: {
   const html = brandedEmailHtml(inner, { preview: `Your ${appLabel} account is ready — sign in with the credentials inside.` });
   await sendMail({ to, subject, text, html, attachments: [logoAttachment()] });
 }
+
+/**
+ * Branded WordPress password-reset email, sent through the CONSOLE's InfraWeaver
+ * SMTP — never the WordPress site's own mailer, which many managed sites can't send.
+ * The `resetUrl` is a live, single-use reset link minted on the site (see the
+ * Manage `reset-user-password` action); this function only renders + delivers it.
+ * All interpolated values are escaped.
+ */
+export async function sendWpPasswordResetEmail(input: {
+  to: string;
+  displayName: string;
+  siteName: string;
+  siteUrl: string;
+  resetUrl: string;
+}): Promise<void> {
+  const { to, displayName, siteName, siteUrl, resetUrl } = input;
+  const greeting = displayName.trim() || to;
+  const subject = `Reset your password for ${siteName}`;
+  const text = [
+    `Hi ${greeting},`,
+    "",
+    `A password reset was requested for your account on ${siteName} (${siteUrl}).`,
+    "",
+    "Reset your password using this link:",
+    `  ${resetUrl}`,
+    "",
+    "This link is single-use and expires after a short time. If you did not request a reset, you can safely ignore this email — your password will not change.",
+  ].join("\n");
+  const safeGreeting = escapeHtml(greeting);
+  const safeSiteName = escapeHtml(siteName);
+  const safeSiteUrl = escapeHtml(siteUrl);
+  const inner = [
+    `<h1 style="margin:0 0 12px 0;font-size:22px;line-height:1.3;font-weight:700;letter-spacing:-.3px;color:#0f172a">Reset your password</h1>`,
+    `<p style="margin:0 0 8px 0;font-size:15px;line-height:1.65;color:#475569">Hi ${safeGreeting},</p>`,
+    `<p style="margin:0 0 22px 0;font-size:15px;line-height:1.65;color:#475569">A password reset was requested for your account on <a href="${safeSiteUrl}" style="color:#4f46e5;text-decoration:none">${safeSiteName}</a>. Click the button below to choose a new password.</p>`,
+    `<div style="margin:0 0 22px 0">${ctaButton(resetUrl, "Reset your password")}</div>`,
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:separate;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;margin:0 0 22px 0">`,
+    `<tr><td style="padding:11px 14px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:#64748b;border-bottom:1px solid #eef1f6;white-space:nowrap;vertical-align:middle">Website</td>` +
+      `<td style="padding:11px 14px;font-size:14px;border-bottom:1px solid #eef1f6;vertical-align:middle;word-break:break-all"><a href="${safeSiteUrl}" style="color:#0f172a;text-decoration:none">${safeSiteUrl}</a></td></tr>`,
+    `<tr><td style="padding:11px 14px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:#64748b;white-space:nowrap;vertical-align:middle">Reset link</td>` +
+      `<td style="padding:11px 14px;font-size:13px;vertical-align:middle;word-break:break-all"><a href="${escapeHtml(resetUrl)}" style="color:#4f46e5;text-decoration:none">${escapeHtml(resetUrl)}</a></td></tr>`,
+    `</table>`,
+    `<p style="margin:0;font-size:12px;line-height:1.6;color:#94a3b8">This link is single-use and expires after a short time. If you did not request a reset, you can safely ignore this email — your password will not change.</p>`,
+  ].join("");
+  const html = brandedEmailHtml(inner, { preview: `Reset your password for ${siteName}.` });
+  await sendMail({ to, subject, text, html, attachments: [logoAttachment()] });
+}

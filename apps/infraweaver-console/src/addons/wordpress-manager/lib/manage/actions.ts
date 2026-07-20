@@ -9,6 +9,7 @@ import { WP, WP_SAFE, safeWpArg, parseJsonArray, fieldStr } from "./wp-probe";
 import { invalidateManageCache } from "./snapshot-cache";
 import { WORDPRESS_ROLES, type WordpressRoleName } from "./capabilities";
 import { CONNECTOR_PLUGIN_SLUG } from "../iwsl-managed-commands";
+import { sendWpPasswordResetEmail, isMailerConfigured } from "@/lib/mailer";
 import type { WordpressPermission } from "../wordpress-rbac";
 
 /**
@@ -429,10 +430,111 @@ export async function runManageAction(site: string, action: ManageAction): Promi
   // Destructive/self-protective guardrails run BEFORE the mutation command.
   await enforceGuardrails(action, exec);
 
+  // Reset link is delivered through the CONSOLE's InfraWeaver SMTP, not the site's
+  // own mailer (which many managed sites can't send) — so it short-circuits the
+  // generic exec path.
+  if (action.type === "reset-user-password") {
+    return emailWpPasswordResetLink(site, action.userId, exec);
+  }
+
   const built = commandFor(action);
   if (!built) throw new AddonHttpError("Unsupported action", 400);
   await exec(built.command, { timeoutMs: 120_000, stdin: built.stdin });
   // The mutation changed the site — drop its cached snapshots so the next read is fresh.
   invalidateManageCache(site);
   return { ok: true, message: SUCCESS_MESSAGE[action.type] };
+}
+
+/** The fields the reset-link eval returns from the site (all optional/untrusted). */
+interface WpResetTargetRow {
+  email?: unknown;
+  name?: unknown;
+  reset_url?: unknown;
+  site_name?: unknown;
+  site_url?: unknown;
+}
+
+/** Normalized reset target — the shape the branded email needs. */
+export interface WpResetTarget {
+  email: string;
+  name: string;
+  resetUrl: string;
+  siteName: string;
+  siteUrl: string;
+}
+
+/**
+ * Parse the JSON blob the in-pod `wp eval` prints for a reset request. Returns null
+ * when the output is empty/malformed or carries no reset URL. Pure + exported so the
+ * parsing is unit-tested without a live pod.
+ */
+export function parseResetTarget(stdout: string): WpResetTarget | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+  let obj: WpResetTargetRow;
+  try {
+    obj = JSON.parse(trimmed) as WpResetTargetRow;
+  } catch {
+    return null;
+  }
+  if (!obj || typeof obj !== "object") return null;
+  const resetUrl = typeof obj.reset_url === "string" ? obj.reset_url.trim() : "";
+  if (!resetUrl) return null;
+  return {
+    email: typeof obj.email === "string" ? obj.email.trim() : "",
+    name: typeof obj.name === "string" ? obj.name : "",
+    resetUrl,
+    siteName: typeof obj.site_name === "string" ? obj.site_name : "",
+    siteUrl: typeof obj.site_url === "string" ? obj.site_url : "",
+  };
+}
+
+/** The PHP the site evals to MINT a reset key + assemble the reset URL without
+ * sending WordPress's own email. `userId` is a validated integer — the only value
+ * interpolated — so nothing free-form reaches the eval. */
+function resetLinkEvalPhp(userId: number): string {
+  return [
+    `$u=get_user_by("id", ${userId});`,
+    `if(!$u){exit(3);}`,
+    `echo json_encode(array(`,
+    `"email"=>$u->user_email,`,
+    `"name"=>$u->display_name,`,
+    `"reset_url"=>network_site_url("wp-login.php?action=rp&key=".get_password_reset_key($u)."&login=".rawurlencode($u->user_login),"login"),`,
+    `"site_name"=>get_option("blogname"),`,
+    `"site_url"=>home_url("/")`,
+    `));`,
+  ].join("");
+}
+
+/**
+ * Mint a single-use password-reset link ON THE SITE (no WP-side email) and deliver
+ * it through the console's InfraWeaver SMTP with the branded template. Refuses up
+ * front if the console mailer is not configured, so the operator gets a clear
+ * message instead of a silent no-op — the exact failure mode of the old
+ * `wp user reset-password` path on sites without SMTP.
+ */
+async function emailWpPasswordResetLink(site: string, userId: number, exec: ExecFn): Promise<ManageActionResult> {
+  if (!isMailerConfigured()) {
+    throw new AddonHttpError(
+      "InfraWeaver SMTP is not configured on the console — set it up in Settings before emailing password reset links.",
+      409,
+    );
+  }
+  const { stdout } = await exec(`${WP_SAFE} eval '${resetLinkEvalPhp(userId)}'`);
+  const target = parseResetTarget(stdout);
+  if (!target) {
+    throw new AddonHttpError("Could not read that user or mint a reset link on the site.", 502);
+  }
+  if (!target.email) {
+    throw new AddonHttpError("That user has no email address on file — add one before sending a reset link.", 409);
+  }
+  await sendWpPasswordResetEmail({
+    to: target.email,
+    displayName: target.name,
+    siteName: target.siteName || site,
+    siteUrl: target.siteUrl || `https://${site}`,
+    resetUrl: target.resetUrl,
+  });
+  invalidateManageCache(site);
+  return { ok: true, message: `Password reset link emailed to ${target.email} via InfraWeaver.` };
 }
