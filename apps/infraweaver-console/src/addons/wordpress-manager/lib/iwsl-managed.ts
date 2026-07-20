@@ -68,6 +68,30 @@ async function bindIdentityViaHealthCheck(site: string): Promise<void> {
   }
 }
 
+/**
+ * §5.1 — the instant enrollment completes the site has a running pod AND an active,
+ * confirmed link, so its (now connector-gated) Manage panels are answerable for the
+ * first time. Warm the durable overview + panel snapshots now instead of leaving the
+ * site showing zeros until the next scheduled snapshot sweep. Fire-and-forget and
+ * fully failure-isolated: `warmSiteSnapshot` never throws, and this wrapper swallows
+ * anything that slips through — a warm error must never fail the enrollment that just
+ * succeeded. Dynamic import breaks the panel-data → iwsl-managed import cycle (same
+ * reason bindIdentityViaHealthCheck imports iwsl-managed-ops dynamically).
+ */
+function warmSnapshotAfterEnroll(site: string): void {
+  void (async () => {
+    try {
+      const { warmSiteSnapshot } = await import("./manage/site-sweep");
+      const result = await warmSiteSnapshot(site);
+      if (!result.ok) {
+        console.warn(`[wordpress:iwsl] post-enroll snapshot warm for ${site} did not capture: ${result.reason ?? "unknown"}`);
+      }
+    } catch (err) {
+      console.warn(`[wordpress:iwsl] post-enroll snapshot warm for ${site} failed:`, err instanceof Error ? err.message : err);
+    }
+  })();
+}
+
 export async function enrollManagedSite(site: string, actor: string): Promise<ExternalSiteView> {
   const summary = (await listSites()).find((s) => s.site === site);
   if (!summary) throw new AddonHttpError("Site not found", 404);
@@ -101,6 +125,7 @@ export async function enrollManagedSite(site: string, actor: string): Promise<Ex
     }
     const view = await confirmFingerprint(record.siteId);
     await bindIdentityViaHealthCheck(site);
+    warmSnapshotAfterEnroll(site);
     return view;
   } catch (err) {
     // Roll the record back so a retry starts clean instead of hitting the

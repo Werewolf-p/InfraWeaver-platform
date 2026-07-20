@@ -2,6 +2,8 @@ import "server-only";
 import { buildConnectorPackage } from "./connector-package";
 import { listExternalSites } from "./iwsl-link-store";
 import { updateConnectorPlugin } from "./iwsl-managed-ops";
+import { isValidSiteId } from "./naming";
+import { mapWithConcurrency } from "./concurrency";
 
 /**
  * Fleet-wide Connector update (§5.1 maintenance). Runs the same in-place
@@ -65,6 +67,13 @@ export interface ConnectorUpdateSweepOptions {
    * DEFAULT_MAX_PER_RUN; the handler leaves it unset.
    */
   maxPerRun?: number;
+  /**
+   * Optional selection (the fleet bulk-actions UI passes it): restrict the sweep
+   * to these managed-site names. Each is validated with `isValidSiteId`; unknown
+   * or unenrolled names are silently ignored. Undefined ⇒ every enrolled managed
+   * link, exactly as before. An explicitly empty array selects nothing.
+   */
+  sites?: readonly string[];
 }
 
 /**
@@ -84,39 +93,21 @@ const DEFAULT_MAX_PER_RUN = 25;
  */
 const SWEEP_CONCURRENCY = 4;
 
-/**
- * Run `worker` over `items` with at most `limit` in flight at once, preserving
- * input order in the results. `worker` is expected never to reject (each per-site
- * update catches its own failure into a result object); a throw would still
- * reject the pool, which is acceptable here since it can only mean a programmer
- * error, not a site failure.
- */
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  worker: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const runner = async (): Promise<void> => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      results[index] = await worker(items[index], index);
-    }
-  };
-  const lanes = Array.from({ length: Math.min(limit, items.length) }, runner);
-  await Promise.all(lanes);
-  return results;
-}
-
 export async function runConnectorUpdateSweep(
   options: ConnectorUpdateSweepOptions = {},
 ): Promise<ConnectorUpdateSweepSummary> {
-  const [sites, pkg] = await Promise.all([listExternalSites(), buildConnectorPackage()]);
-  const enrolled = sites.filter(
+  const [records, pkg] = await Promise.all([listExternalSites(), buildConnectorPackage()]);
+  let enrolled = records.filter(
     (site) => site.managed && site.siteName && site.state !== "pending",
   );
+
+  // Optional selection: restrict to the requested, valid, enrolled site names. An
+  // undefined selection keeps the all-sites behaviour; unknown/invalid names are
+  // dropped rather than erroring the whole sweep.
+  if (options.sites) {
+    const requested = new Set(options.sites.filter((s) => isValidSiteId(s)));
+    enrolled = enrolled.filter((site) => requested.has(site.siteName as string));
+  }
 
   const maxPerRun = Math.max(1, Math.floor(options.maxPerRun ?? DEFAULT_MAX_PER_RUN));
   const targets = enrolled.slice(0, maxPerRun);
