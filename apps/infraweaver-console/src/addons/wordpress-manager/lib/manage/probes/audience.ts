@@ -12,7 +12,7 @@
  */
 import { WP, WP_SAFE, toInt, parseJsonObject } from "../wp-probe";
 import { SEO_PLUGIN_SLUGS, ANALYTICS_PLUGIN_SLUGS } from "../capabilities";
-import { parseJsonArray, fieldStr } from "../wp-probe";
+import { activePluginSlugs } from "../wp-probe";
 import type { PanelProbe, PanelProbeContext } from "./contract";
 
 export interface AudienceSeo {
@@ -58,12 +58,7 @@ const ANALYTICS_LABELS: Readonly<Record<string, string>> = {
 
 /** Lowercased active plugin slug set from the plugin-list JSON. */
 function activeSet(activePluginsJson: string): Set<string> {
-  const active = new Set<string>();
-  for (const row of parseJsonArray<{ name?: string }>(activePluginsJson)) {
-    const name = fieldStr(row, "name")?.toLowerCase();
-    if (name) active.add(name);
-  }
-  return active;
+  return activePluginSlugs(activePluginsJson);
 }
 
 /** First recognised slug from `order` present in `active`, or null. */

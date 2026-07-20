@@ -7,7 +7,7 @@
  * actions (flush cache, flush rewrites, purge transients) route through the
  * allow-listed Manage actions, not this probe.
  */
-import { WP, WP_SAFE, kvLine, parseKv, parseJsonArray, toInt, toNum, toStr } from "../wp-probe";
+import { WP, WP_SAFE, kvLine, parseKv, activePluginSlugs, toInt, toNum, toStr } from "../wp-probe";
 import { CACHE_PLUGIN_SLUGS } from "../capabilities";
 import type { PanelProbe, PanelProbeContext } from "./contract";
 
@@ -61,8 +61,8 @@ function buildRecommendations(input: {
 
 export function parsePerformance(input: { scalars: string; plugins: string; autoloadKb: string }): PerformanceData {
   const kv = parseKv(input.scalars);
-  const active = parseJsonArray<string>(input.plugins).map((slug) => String(slug).toLowerCase());
-  const pageCachePlugin = CACHE_PLUGIN_SLUGS.find((slug) => active.includes(slug)) ?? null;
+  const active = activePluginSlugs(input.plugins);
+  const pageCachePlugin = CACHE_PLUGIN_SLUGS.find((slug) => active.has(slug)) ?? null;
 
   const cacheType = toStr(kv.get("CACHE_TYPE"));
   const objectCacheDropin = (kv.get("OBJECT_CACHE_DROPIN") ?? "").trim() === "present";

@@ -12,8 +12,7 @@ import {
   type ManagePanelId,
 } from "./capabilities";
 import { requireRunningWpPod } from "./overview";
-import { WP } from "./wp-probe";
-import { parseJsonArray, fieldStr } from "./wp-probe";
+import { WP, activePluginSlugs } from "./wp-probe";
 import { withCache, panelKey, type Cached } from "./snapshot-cache";
 import type { PanelProbe, PanelProbeContext } from "./probes/contract";
 import { updatesProbe } from "./probes/updates";
@@ -78,12 +77,7 @@ async function readActivePlugins(pod: string): Promise<Set<string>> {
   const { stdout } = await execInWpPod(pod, `${WP} plugin list --status=active --field=name --format=json`).catch(
     () => ({ stdout: "[]" }),
   );
-  const slugs = new Set<string>();
-  for (const row of parseJsonArray<{ name?: string }>(stdout)) {
-    const name = fieldStr(row, "name")?.toLowerCase();
-    if (name) slugs.add(name);
-  }
-  return slugs;
+  return activePluginSlugs(stdout);
 }
 
 export async function getManagePanel(site: string, panelId: string): Promise<unknown> {

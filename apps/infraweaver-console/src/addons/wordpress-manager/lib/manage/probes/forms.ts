@@ -9,7 +9,7 @@
  * about that rather than fabricating lead counts. Gated on the `forms` capability.
  * Read-only: no allow-listed forms mutation, so the panel renders no action buttons.
  */
-import { WP, safeWpArg, parseJsonArray, fieldStr } from "../wp-probe";
+import { WP, safeWpArg, parseJsonArray, fieldStr, activePluginSlugs } from "../wp-probe";
 import { FORM_PLUGIN_SLUGS } from "../capabilities";
 import type { PanelProbe, PanelProbeContext } from "./contract";
 
@@ -56,11 +56,7 @@ type FormRow = {
 
 /** Pick the first active plugin (in FORM_PLUGIN_SLUGS priority order) we recognise. */
 export function detectFormPlugin(activePluginsJson: string): { slug: string; info: FormPluginInfo } | null {
-  const active = new Set<string>();
-  for (const row of parseJsonArray<{ name?: string }>(activePluginsJson)) {
-    const name = fieldStr(row, "name")?.toLowerCase();
-    if (name) active.add(name);
-  }
+  const active = activePluginSlugs(activePluginsJson);
   for (const slug of FORM_PLUGIN_SLUGS) {
     if (active.has(slug) && FORM_PLUGINS[slug]) {
       return { slug, info: FORM_PLUGINS[slug] };

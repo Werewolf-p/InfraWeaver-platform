@@ -124,6 +124,30 @@ export function parseJsonObject<T = Record<string, unknown>>(stdout: string): T 
   }
 }
 
+/**
+ * Parse `wp plugin list --status=active --field=name --format=json` into a set of
+ * lowercased active plugin slugs. That command emits a SCALAR JSON array
+ * (`["akismet", "woocommerce"]`), so each row is a bare string — reading it as an
+ * object (`fieldStr(row,"name")`) yields nothing and silently blanks the set,
+ * which then fails every plugin capability gate. We read the string directly and
+ * also tolerate the object shape (`[{ name }]`) so a future wp-cli/format change
+ * can't blind us. Empty / unparseable output ⇒ empty set.
+ */
+export function activePluginSlugs(stdout: string): Set<string> {
+  const slugs = new Set<string>();
+  for (const row of parseJsonArray<unknown>(stdout)) {
+    const name =
+      typeof row === "string"
+        ? row
+        : typeof (row as { name?: unknown })?.name === "string"
+          ? (row as { name: string }).name
+          : null;
+    const slug = name?.trim().toLowerCase();
+    if (slug) slugs.add(slug);
+  }
+  return slugs;
+}
+
 /** Read a scalar cell from a wp-cli field/option probe. */
 export function fieldStr(row: Record<string, unknown>, key: string): string | null {
   const v = row[key];
