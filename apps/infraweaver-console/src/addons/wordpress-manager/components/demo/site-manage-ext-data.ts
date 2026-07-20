@@ -205,7 +205,7 @@ export interface InvoiceRow {
 }
 export interface ClientsData {
   readonly clientName: string;
-  readonly plan: "Care Basic" | "Care Pro" | "Care Ultimate";
+  readonly plan: "Basic" | "Pro" | "Ultimate";
   readonly mrr: number;
   readonly since: string;
   readonly sitesManaged: number;
@@ -522,8 +522,8 @@ function build(site: string): SiteManageExt {
   };
 
   // ── Clients & care plans ──
-  const plan = pick(["Care Basic", "Care Pro", "Care Ultimate"] as const, roll());
-  const mrr = plan === "Care Basic" ? 49 : plan === "Care Pro" ? 99 : 199;
+  const plan = pick(["Basic", "Pro", "Ultimate"] as const, roll());
+  const mrr = plan === "Basic" ? 49 : plan === "Pro" ? 99 : 199;
   const clients: ClientsData = {
     clientName: pick(["Northwind Co.", "Helios Media", "Meridian Studio", "Cobalt Labs", "Verdant Group"], roll()),
     plan,

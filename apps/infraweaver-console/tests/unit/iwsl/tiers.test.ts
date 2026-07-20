@@ -27,17 +27,21 @@ describe("tier table", () => {
     expect(TIERS.free.grants).toEqual([]);
   });
 
-  test("every paid tier grants `plus` (so the plugin's local gate unlocks)", () => {
-    for (const id of TIER_IDS) {
-      const tier = TIERS[id];
-      if (tier.rank > 0) expect(tier.grants).toContain("plus");
-    }
+  test("Basic is a named entry rung that grants NO paid features", () => {
+    expect(TIERS.care_basic.rank).toBe(1);
+    expect(TIERS.care_basic.grants).toEqual([]);
   });
 
-  test("tier names align with the demo care-plan names", () => {
-    expect(TIERS.care_basic.displayName).toBe("Care Basic");
-    expect(TIERS.care_pro.displayName).toBe("Care Pro");
-    expect(TIERS.care_ultimate.displayName).toBe("Care Ultimate");
+  test("Pro and Ultimate grant `plus` (so the plugin's local Plus gate unlocks)", () => {
+    expect(TIERS.care_pro.grants).toContain("plus");
+    expect(TIERS.care_ultimate.grants).toContain("plus");
+  });
+
+  test("tier display names use the Free / Basic / Pro / Ultimate ladder", () => {
+    expect(TIERS.free.displayName).toBe("Free");
+    expect(TIERS.care_basic.displayName).toBe("Basic");
+    expect(TIERS.care_pro.displayName).toBe("Pro");
+    expect(TIERS.care_ultimate.displayName).toBe("Ultimate");
   });
 
   test("ranks are strictly increasing across the ordered ids", () => {
@@ -69,24 +73,40 @@ describe("deriveEntitlementsForTier", () => {
       priority_support: false,
       advanced_analytics: false,
       white_label: false,
+      image_optimization: false,
+      db_optimization: false,
+      email_delivery: false,
+      redirect_manager: false,
     });
     expect(deriveEntitlementsForTier("care_basic")).toEqual({
-      plus: true,
+      plus: false,
       priority_support: false,
       advanced_analytics: false,
       white_label: false,
+      image_optimization: false,
+      db_optimization: false,
+      email_delivery: false,
+      redirect_manager: false,
     });
     expect(deriveEntitlementsForTier("care_pro")).toEqual({
       plus: true,
       priority_support: true,
       advanced_analytics: true,
       white_label: false,
+      image_optimization: true,
+      db_optimization: true,
+      email_delivery: true,
+      redirect_manager: true,
     });
     expect(deriveEntitlementsForTier("care_ultimate")).toEqual({
       plus: true,
       priority_support: true,
       advanced_analytics: true,
       white_label: true,
+      image_optimization: true,
+      db_optimization: true,
+      email_delivery: true,
+      redirect_manager: true,
     });
   });
 
@@ -95,6 +115,49 @@ describe("deriveEntitlementsForTier", () => {
     const granted = new Set(getTier("care_pro").grants);
     const map = deriveEntitlementsForTier("care_pro");
     for (const flag of ENTITLEMENT_FLAGS) expect(map[flag]).toBe(granted.has(flag));
+  });
+});
+
+describe("image_optimization — the lossless-conversion gate (Pro and above only)", () => {
+  test("granted at Pro and inherited by Ultimate", () => {
+    expect(siteHasEntitlement({ tier: "care_pro" }, "image_optimization")).toBe(true);
+    expect(siteHasEntitlement({ tier: "care_ultimate" }, "image_optimization")).toBe(true);
+  });
+
+  test("STRICT: never granted to Free or Basic (the tiers below Pro)", () => {
+    expect(siteHasEntitlement({ tier: "free" }, "image_optimization")).toBe(false);
+    expect(siteHasEntitlement({ tier: "care_basic" }, "image_optimization")).toBe(false);
+    // Explicit `false` in the wholesale-replace map — a downgrade actively
+    // clears the flag on the wire rather than leaving it dangling.
+    expect(deriveEntitlementsForTier("care_basic").image_optimization).toBe(false);
+    expect(deriveEntitlementsForTier("free").image_optimization).toBe(false);
+  });
+});
+
+describe("Pro on-site tool flags (db_optimization / email_delivery / redirect_manager)", () => {
+  const proTools = ["db_optimization", "email_delivery", "redirect_manager"] as const;
+
+  test("granted at Pro and inherited by Ultimate", () => {
+    for (const flag of proTools) {
+      expect(siteHasEntitlement({ tier: "care_pro" }, flag)).toBe(true);
+      expect(siteHasEntitlement({ tier: "care_ultimate" }, flag)).toBe(true);
+    }
+  });
+
+  test("STRICT: never granted to Free or Basic", () => {
+    for (const flag of proTools) {
+      expect(siteHasEntitlement({ tier: "free" }, flag)).toBe(false);
+      expect(siteHasEntitlement({ tier: "care_basic" }, flag)).toBe(false);
+    }
+  });
+});
+
+describe("white_label — custom login + admin white-label (Ultimate only)", () => {
+  test("granted only at Ultimate", () => {
+    expect(siteHasEntitlement({ tier: "care_ultimate" }, "white_label")).toBe(true);
+    expect(siteHasEntitlement({ tier: "care_pro" }, "white_label")).toBe(false);
+    expect(siteHasEntitlement({ tier: "care_basic" }, "white_label")).toBe(false);
+    expect(siteHasEntitlement({ tier: "free" }, "white_label")).toBe(false);
   });
 });
 

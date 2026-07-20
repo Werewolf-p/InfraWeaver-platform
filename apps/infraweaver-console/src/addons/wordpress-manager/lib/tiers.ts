@@ -46,9 +46,18 @@ export interface TierDefinition {
 }
 
 /**
- * The tier table. Edit HERE to add a tier or move a feature between tiers. Names
- * mirror the demo care-plan names (`Care Basic/Pro/Ultimate`) plus a Free base so
- * an unassigned/revoked site has a real, named home rather than a null.
+ * The tier table. Edit HERE to add a tier or move a feature between tiers.
+ *
+ * Ladder: Free (base) → Basic → Pro → Ultimate. The persisted `id`s are kept
+ * stable (`free`/`care_basic`/`care_pro`/`care_ultimate`) so renaming the
+ * customer-facing `displayName` is a free change with no data migration.
+ *
+ * Feature placement (deliberate):
+ *   - Basic grants NOTHING — a named entry rung with no paid features.
+ *   - `image_optimization` (lossless on-site image conversion) unlocks at Pro
+ *     and is inherited by Ultimate. It is the first tier ABOVE Basic, so Basic
+ *     and Free can never invoke it — the strict gate the plugin enforces locally
+ *     mirrors this table exactly.
  */
 export const TIERS: Readonly<Record<TierId, TierDefinition>> = {
   free: {
@@ -60,24 +69,42 @@ export const TIERS: Readonly<Record<TierId, TierDefinition>> = {
   },
   care_basic: {
     id: "care_basic",
-    displayName: "Care Basic",
+    displayName: "Basic",
     rank: 1,
-    description: "Entry paid tier — unlocks the Plus feature set.",
-    grants: ["plus"],
+    description: "Entry rung — a named home for a linked site with no paid features yet.",
+    grants: [],
   },
   care_pro: {
     id: "care_pro",
-    displayName: "Care Pro",
+    displayName: "Pro",
     rank: 2,
-    description: "Adds priority support and advanced analytics on top of Plus.",
-    grants: ["plus", "priority_support", "advanced_analytics"],
+    description:
+      "First tier above Basic — unlocks the on-site tool set: lossless image optimization, database cleanup, SMTP delivery + email log, and the 301 redirect manager, plus the Plus feature set, priority support, and advanced analytics.",
+    grants: [
+      "plus",
+      "priority_support",
+      "advanced_analytics",
+      "image_optimization",
+      "db_optimization",
+      "email_delivery",
+      "redirect_manager",
+    ],
   },
   care_ultimate: {
     id: "care_ultimate",
-    displayName: "Care Ultimate",
+    displayName: "Ultimate",
     rank: 3,
-    description: "Everything in Pro plus white-label branding.",
-    grants: ["plus", "priority_support", "advanced_analytics", "white_label"],
+    description: "Everything in Pro plus white-label branding (custom login + admin).",
+    grants: [
+      "plus",
+      "priority_support",
+      "advanced_analytics",
+      "white_label",
+      "image_optimization",
+      "db_optimization",
+      "email_delivery",
+      "redirect_manager",
+    ],
   },
 };
 

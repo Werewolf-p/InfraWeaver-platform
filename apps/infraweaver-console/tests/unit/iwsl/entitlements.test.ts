@@ -87,3 +87,16 @@ describe("RPC registry", () => {
     expect(ENTITLEMENT_FLAGS).toContain("plus");
   });
 });
+
+describe("image_optimization flag (lossless on-site conversion)", () => {
+  test("is a known, grantable flag", () => {
+    expect(ENTITLEMENT_FLAGS).toContain("image_optimization");
+  });
+
+  test("survives normalization and validates on the wire", () => {
+    expect(normalizeEntitlements({ image_optimization: true })).toEqual({ image_optimization: true });
+    expect(validateEntitlementsParams({ entitlements: { image_optimization: true } })).toBe(true);
+    // A downgrade pushes it explicitly false — still a valid wire map.
+    expect(validateEntitlementsParams({ entitlements: { image_optimization: false } })).toBe(true);
+  });
+});

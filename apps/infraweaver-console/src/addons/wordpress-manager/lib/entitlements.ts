@@ -19,7 +19,16 @@
  * local feature gate (`IWSL_Entitlements::evaluate`) defaults to it, so every paid
  * tier must grant `plus` to unlock the plugin-side Plus view.
  */
-export const ENTITLEMENT_FLAGS = ["plus", "priority_support", "advanced_analytics", "white_label"] as const;
+export const ENTITLEMENT_FLAGS = [
+  "plus",
+  "priority_support",
+  "advanced_analytics",
+  "white_label",
+  "image_optimization",
+  "db_optimization",
+  "email_delivery",
+  "redirect_manager",
+] as const;
 export type EntitlementFlag = (typeof ENTITLEMENT_FLAGS)[number];
 
 /** Operator-facing metadata for a single entitlement flag (drives the UI). */
@@ -53,6 +62,30 @@ export const ENTITLEMENT_FLAG_META: Readonly<Record<EntitlementFlag, Entitlement
     flag: "white_label",
     label: "White-label branding",
     description: "Removes InfraWeaver branding from client-facing surfaces.",
+  },
+  image_optimization: {
+    flag: "image_optimization",
+    label: "Lossless image optimization",
+    description:
+      "Unlocks on-site, pixel-preserving image conversion (JPEG/PNG → lossless WebP) run locally on the linked WordPress. Gated strictly — lower tiers cannot invoke it.",
+  },
+  db_optimization: {
+    flag: "db_optimization",
+    label: "Database cleanup & optimization",
+    description:
+      "Safe, bounded local database housekeeping — expired transients, excess revisions, trashed/spam content, orphaned metadata, and table optimization, with a dry-run preview.",
+  },
+  email_delivery: {
+    flag: "email_delivery",
+    label: "SMTP delivery & email log",
+    description:
+      "Routes outgoing WordPress mail through a configured SMTP relay and keeps a capped, redacted send log so deliverability problems are visible on the site.",
+  },
+  redirect_manager: {
+    flag: "redirect_manager",
+    label: "301 redirect manager",
+    description:
+      "Manage 301/302 redirects and monitor 404s locally — open-redirect-safe, capped, and applied early on the linked site.",
   },
 };
 

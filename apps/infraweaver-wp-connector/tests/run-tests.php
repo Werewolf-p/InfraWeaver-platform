@@ -39,6 +39,22 @@ require __DIR__ . '/../includes/class-iwsl-responder.php';
 require __DIR__ . '/../includes/class-iwsl-command-handler.php';
 require __DIR__ . '/../includes/class-iwsl-entitlements.php';
 require __DIR__ . '/../includes/class-iwsl-plugin.php';
+require __DIR__ . '/../includes/class-iwsl-media-converter.php';
+require __DIR__ . '/../includes/class-iwsl-webp-lossless-converter.php';
+require __DIR__ . '/../includes/class-iwsl-media-optimizer.php';
+require __DIR__ . '/../includes/class-iwsl-redirect-matcher.php';
+require __DIR__ . '/../includes/class-iwsl-exact-path-matcher.php';
+require __DIR__ . '/../includes/class-iwsl-redirects.php';
+require __DIR__ . '/../includes/class-iwsl-mail-transport.php';
+require __DIR__ . '/../includes/class-iwsl-smtp-transport.php';
+require __DIR__ . '/../includes/class-iwsl-email-delivery.php';
+require __DIR__ . '/../includes/class-iwsl-brand-surface.php';
+require __DIR__ . '/../includes/class-iwsl-login-brand-surface.php';
+require __DIR__ . '/../includes/class-iwsl-admin-brand-surface.php';
+require __DIR__ . '/../includes/class-iwsl-white-label.php';
+require __DIR__ . '/../includes/class-iwsl-db-cleaner.php';
+require __DIR__ . '/../includes/class-iwsl-db-cleaners.php';
+require __DIR__ . '/../includes/class-iwsl-db-optimizer.php';
 
 $GLOBALS['iwsl_pass'] = 0;
 $GLOBALS['iwsl_fail'] = 0;
@@ -110,7 +126,7 @@ function iwsl_now_t0( int $offset_ms = 5000 ): callable {
 	};
 }
 
-$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements' );
+$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer' );
 foreach ( $suites as $suite ) {
 	echo "== {$suite}\n";
 	require __DIR__ . '/test-' . $suite . '.php';

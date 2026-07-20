@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.4.5
+ * Version: 0.6.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.4.5' );
+define( 'IWSL_CONNECTOR_VERSION', '0.6.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -42,6 +42,22 @@ require_once __DIR__ . '/includes/class-iwsl-command-handler.php';
 require_once __DIR__ . '/includes/class-iwsl-entitlements.php';
 require_once __DIR__ . '/includes/class-iwsl-plugin.php';
 require_once __DIR__ . '/includes/class-iwsl-plus-feature.php';
+require_once __DIR__ . '/includes/class-iwsl-media-converter.php';
+require_once __DIR__ . '/includes/class-iwsl-webp-lossless-converter.php';
+require_once __DIR__ . '/includes/class-iwsl-media-optimizer.php';
+require_once __DIR__ . '/includes/class-iwsl-redirect-matcher.php';
+require_once __DIR__ . '/includes/class-iwsl-exact-path-matcher.php';
+require_once __DIR__ . '/includes/class-iwsl-redirects.php';
+require_once __DIR__ . '/includes/class-iwsl-mail-transport.php';
+require_once __DIR__ . '/includes/class-iwsl-smtp-transport.php';
+require_once __DIR__ . '/includes/class-iwsl-email-delivery.php';
+require_once __DIR__ . '/includes/class-iwsl-brand-surface.php';
+require_once __DIR__ . '/includes/class-iwsl-login-brand-surface.php';
+require_once __DIR__ . '/includes/class-iwsl-admin-brand-surface.php';
+require_once __DIR__ . '/includes/class-iwsl-white-label.php';
+require_once __DIR__ . '/includes/class-iwsl-db-cleaner.php';
+require_once __DIR__ . '/includes/class-iwsl-db-cleaners.php';
+require_once __DIR__ . '/includes/class-iwsl-db-optimizer.php';
 require_once __DIR__ . '/includes/class-iwsl-admin.php';
 
 function iwsl_plugin(): IWSL_Plugin {
@@ -60,6 +76,45 @@ function iwsl_plugin(): IWSL_Plugin {
 if ( is_admin() ) {
 	( new IWSL_Admin( iwsl_plugin() ) )->register();
 }
+
+// 301 Redirect Manager (gated, Pro). Registered on every request because the
+// matcher runs on template_redirect; the callback's FIRST statement is the
+// entitlement gate, so a locked or revoked site gets default behavior instantly.
+( new IWSL_Redirects( iwsl_plugin()->entitlements(), new IWSL_WP_Store() ) )->register();
+
+// Custom login + admin white-label (gated, `white_label`, Ultimate). Passive
+// login/admin presentation hooks only; every callback re-checks the gate as its
+// FIRST statement, so revoking the flag from the console instantly restores
+// default WordPress login and admin chrome. Registered on every request because
+// the login hooks fire on wp-login.php (not an admin context); the engine is cheap
+// and reads only local state.
+( new IWSL_White_Label( iwsl_plugin()->entitlements(), new IWSL_WP_Store() ) )->register();
+
+// SMTP delivery & email log (`email_delivery`, Pro). Passive core hooks only;
+// every callback re-checks the gate as its first statement, so revoking the flag
+// from the console instantly restores default WordPress mail behavior. Registered
+// unconditionally (mail sends from the front end too — password resets, etc.); the
+// engine is built lazily so a request that never sends mail forces no object graph.
+add_action(
+	'phpmailer_init',
+	function ( $phpmailer ): void {
+		iwsl_plugin()->email_delivery()->configure_mailer( $phpmailer );
+	},
+	1000
+);
+add_filter(
+	'wp_mail',
+	function ( $args ) {
+		return iwsl_plugin()->email_delivery()->capture_mail( $args );
+	},
+	1000
+);
+add_action(
+	'wp_mail_failed',
+	function ( $error ): void {
+		iwsl_plugin()->email_delivery()->capture_failure( $error );
+	}
+);
 
 add_action(
 	'rest_api_init',
