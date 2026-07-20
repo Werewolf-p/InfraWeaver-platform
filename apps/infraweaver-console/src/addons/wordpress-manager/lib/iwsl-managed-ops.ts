@@ -16,7 +16,8 @@ import {
 import { requestSafeExternalUrl } from "@/lib/outbound-url";
 import { AddonHttpError } from "./errors";
 import { clampRotationIntervalMs } from "./rotation-policy";
-import { normalizeEntitlements, type EntitlementMap } from "./entitlements";
+import { normalizeEntitlements, type EntitlementMap, type SiteEntitlements } from "./entitlements";
+import { deriveEntitlementsForTier, type TierId } from "./tiers";
 import { execInWpPod } from "./k8s-exec";
 import { findWpPodName } from "./provision";
 import { buildConnectorPackage } from "./connector-package";
@@ -660,6 +661,8 @@ export interface SetEntitlementsResult {
   flags: EntitlementMap;
   updatedAt: string;
   updatedBy: string;
+  /** The tier this map was derived from, when the change came from a tier assignment. */
+  tier?: TierId;
 }
 
 /**
@@ -672,11 +675,17 @@ export interface SetEntitlementsResult {
  * doesn't have. Granting a paid flag is state-changing, so identity safe mode
  * (§5) blocks it just like a rotation/update. `wordpress:admin` + audit
  * (`updatedBy`) are enforced by the API route, mirroring set-rotation-policy.
+ *
+ * `tier` is the authoritative tier this flag map was derived from (see
+ * `setSiteTier`); when supplied it is mirrored onto the record alongside the flag
+ * map so the console can gate on the tier. Omitting it (raw flag pushes) leaves
+ * the stored tier untouched.
  */
 export async function setSiteEntitlements(
   site: string,
   entitlements: EntitlementMap,
   actor: string,
+  tier?: TierId,
 ): Promise<SetEntitlementsResult> {
   const record = await requireManagedRecord(site);
   requireCommandable(record);
@@ -699,17 +708,28 @@ export async function setSiteEntitlements(
     throw new AddonHttpError("Connector could not apply the entitlement update", 502);
   }
 
-  const next: SetEntitlementsResult = {
-    flags,
-    updatedAt: new Date().toISOString(),
-    updatedBy: actor,
-  };
+  const updatedAt = new Date().toISOString();
+  const mirror: SiteEntitlements = { flags, updatedAt, updatedBy: actor };
   await mutateExternalSites((sites) => {
     const target = sites.find((s) => s.siteId === record.siteId);
     if (!target) throw new AddonHttpError("Connector link vanished", 409);
-    target.entitlements = next;
+    target.entitlements = mirror;
+    if (tier !== undefined) target.tier = tier;
   });
-  return next;
+  return { flags, updatedAt, updatedBy: actor, ...(tier !== undefined ? { tier } : {}) };
+}
+
+/**
+ * Assign a payment tier to this managed link — the operator-facing action.
+ * Thin wrapper over `setSiteEntitlements`: it maps the tier to its full flag map
+ * (`deriveEntitlementsForTier`) and pushes THAT over the same signed channel, so
+ * there is no new signed method and no new trust surface. The tier itself is the
+ * console-authoritative record; the flag map is derived from it, never the other
+ * way round. Revoking is just assigning `free` — its map has every flag explicitly
+ * off, so the wholesale plugin replace clears the site.
+ */
+export async function setSiteTier(site: string, tierId: TierId, actor: string): Promise<SetEntitlementsResult> {
+  return setSiteEntitlements(site, deriveEntitlementsForTier(tierId), actor, tierId);
 }
 
 /**

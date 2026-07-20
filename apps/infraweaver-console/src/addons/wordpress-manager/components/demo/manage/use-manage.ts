@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ManageOverview } from "../../../lib/manage/types";
 import type { ManageAction } from "../../../lib/manage/actions";
@@ -17,7 +18,8 @@ export interface AsyncState<T> {
   readonly data: T | null;
   readonly loading: boolean;
   readonly error: string | null;
-  reload(): void;
+  /** Refetch. `force` bypasses the server's durable snapshot + SWR cache (`?refresh=1`). */
+  reload(force?: boolean): void;
 }
 
 async function readError(res: Response): Promise<string> {
@@ -45,16 +47,29 @@ function errorMessage(error: unknown): string | null {
 
 /** Fetch the Manage overview (capabilities + summary) for a site. */
 export function useManageOverview(site: string): AsyncState<ManageOverview> {
+  // One-shot force flag consumed by the very next fetch. A ref (not state) so
+  // setting it never triggers a render, and it is reset inside the queryFn so a
+  // background React-Query refetch can't accidentally reuse a stale force.
+  const forceRef = useRef(false);
   const query = useQuery({
     queryKey: ["wordpress-manage-overview", site],
-    queryFn: () => fetchJson<ManageOverview>(`/api/wordpress/sites/${site}/manage`),
+    queryFn: () => {
+      const force = forceRef.current;
+      forceRef.current = false;
+      return fetchJson<ManageOverview>(`/api/wordpress/sites/${site}/manage${force ? "?refresh=1" : ""}`);
+    },
     staleTime: 20_000,
   });
   return {
     data: query.data ?? null,
-    loading: query.isPending,
+    // Reflect refetching too (not just the first load) so the header "Force renew"
+    // control shows progress while the live pull runs.
+    loading: query.isPending || query.isFetching,
     error: errorMessage(query.error),
-    reload: () => void query.refetch(),
+    reload: (force = false) => {
+      forceRef.current = force;
+      void query.refetch();
+    },
   };
 }
 
@@ -63,10 +78,15 @@ export function useManageOverview(site: string): AsyncState<ManageOverview> {
  * hits the API). The generic `T` is the panel's data type (e.g. `UpdatesData`).
  */
 export function useManagePanel<T>(site: string, panel: ManagePanelId, enabled = true): AsyncState<T> {
+  const forceRef = useRef(false);
   const query = useQuery({
     queryKey: ["wordpress-manage-panel", site, panel],
     queryFn: async () => {
-      const body = await fetchJson<{ panel: string; data: T }>(`/api/wordpress/sites/${site}/manage/${panel}`);
+      const force = forceRef.current;
+      forceRef.current = false;
+      const body = await fetchJson<{ panel: string; data: T }>(
+        `/api/wordpress/sites/${site}/manage/${panel}${force ? "?refresh=1" : ""}`,
+      );
       return body.data;
     },
     enabled,
@@ -76,7 +96,10 @@ export function useManagePanel<T>(site: string, panel: ManagePanelId, enabled = 
     data: query.data ?? null,
     loading: enabled && query.isPending,
     error: errorMessage(query.error),
-    reload: () => void query.refetch(),
+    reload: (force = false) => {
+      forceRef.current = force;
+      void query.refetch();
+    },
   };
 }
 

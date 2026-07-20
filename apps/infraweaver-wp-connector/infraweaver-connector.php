@@ -2,16 +2,19 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.4.4
+ * Version: 0.4.5
+ * Author: InfraWeaver
+ * Requires at least: 5.9
  * Requires PHP: 7.4
  * License: AGPL-3.0-only
+ * Text Domain: infraweaver-connector
  *
  * Spec: docs/infraweaver-wp-remote-management-design.md (platform repo, FINAL v1.2).
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.4.4' );
+define( 'IWSL_CONNECTOR_VERSION', '0.4.5' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -50,8 +53,13 @@ function iwsl_plugin(): IWSL_Plugin {
 }
 
 // wp-admin test surface for the client-side feature gate (Tools → InfraWeaver
-// Plus). Registers an admin_menu hook only; renders purely from local state.
-( new IWSL_Admin( iwsl_plugin() ) )->register();
+// Plus). Only wired in admin context so a plain front-end request never forces
+// the full command-handler object graph to build — it is constructed lazily
+// inside the REST/CLI paths that actually need it. Registers an admin_menu hook
+// only; renders purely from local state.
+if ( is_admin() ) {
+	( new IWSL_Admin( iwsl_plugin() ) )->register();
+}
 
 add_action(
 	'rest_api_init',

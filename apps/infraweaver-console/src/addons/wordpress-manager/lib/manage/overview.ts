@@ -14,7 +14,8 @@ import {
   resolveCapabilities,
 } from "./capabilities";
 import type { ManageOverview } from "./types";
-import { withCache, overviewKey, type Cached } from "./snapshot-cache";
+import { withCache, overviewKey, invalidateManageCache, type Cached } from "./snapshot-cache";
+import { readSiteSnapshot, writeSiteSnapshot } from "./site-snapshot";
 
 /**
  * The Manage-console overview: one call that discovers a site's running pod,
@@ -184,4 +185,45 @@ export async function getManageOverview(site: string): Promise<ManageOverview> {
  */
 export function getCachedManageOverview(site: string): Promise<Cached<ManageOverview>> {
   return withCache(overviewKey(site), OVERVIEW_FRESH_MS, () => getManageOverview(site));
+}
+
+/**
+ * Beyond this age a durable snapshot is flagged `stale` so the header can hint
+ * "last refreshed a while ago". Sized to the hourly sweep cadence plus slack — a
+ * healthy fleet is rarely stale; a wedged sweep shows through.
+ */
+const SNAPSHOT_STALE_MS = 90 * 60 * 1000;
+
+/**
+ * The page's overview read. Prefers the DURABLE cross-replica snapshot so a cold
+ * page load — a fresh replica, a restart, a first-ever view — paints instantly
+ * from the last sweep instead of blocking on three wp-cli execs. Only pulls live
+ * when the caller forces a renew (`force`) or the site has never been swept, and
+ * then writes the fresh overview back to both the durable store and the SWR cache
+ * so the next load is instant too. Force-renew first drops the per-replica SWR so
+ * the pull is genuinely live, not a 30s-stale hit.
+ */
+export async function loadManageOverview(
+  site: string,
+  opts: { force?: boolean } = {},
+): Promise<Cached<ManageOverview>> {
+  if (!opts.force) {
+    const durable = await readSiteSnapshot(site).catch(() => null);
+    if (durable) {
+      return {
+        value: durable.overview,
+        cachedAt: durable.at,
+        stale: Date.now() - durable.at > SNAPSHOT_STALE_MS,
+      };
+    }
+  }
+
+  if (opts.force) invalidateManageCache(site);
+  const cached = await getCachedManageOverview(site);
+  // Persist durably so the next cold/cross-replica load is instant. Best-effort:
+  // a snapshot-store blip must never fail the read that already has fresh data.
+  await writeSiteSnapshot(site, cached.value, cached.cachedAt).catch((err) => {
+    console.warn(`[wordpress] durable snapshot write for ${site} failed:`, err instanceof Error ? err.message : err);
+  });
+  return cached;
 }

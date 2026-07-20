@@ -8,6 +8,8 @@
  * Loaded only when WP_CLI is defined (see infraweaver-connector.php).
  */
 
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_CLI {
 
 	/** @var IWSL_Plugin */

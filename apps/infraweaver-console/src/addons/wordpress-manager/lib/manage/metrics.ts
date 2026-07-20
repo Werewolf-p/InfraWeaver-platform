@@ -7,6 +7,8 @@ import {
 } from "../iwsl-managed-ops";
 import type { ConnectorMetricsResult } from "../rpc/registry";
 import { withCache } from "./snapshot-cache";
+import { readAllSnapshots } from "./site-snapshot";
+import { renderSiteMetrics, type SiteKpiSample } from "./site-kpis";
 
 /**
  * Prometheus exporter for the IWSL Connector fleet. Every series is sourced from
@@ -251,4 +253,29 @@ export function renderConnectorMetrics(samples: ConnectorMetricSample[]): string
 /** Collect and render in one call — what the token-gated route serves. */
 export async function exportConnectorMetrics(): Promise<string> {
   return renderConnectorMetrics(await collectConnectorMetrics());
+}
+
+// ── Per-site Manage KPIs (from the durable snapshots) ────────────────────────
+
+/**
+ * Read every site's durable Manage snapshot into KPI samples. Unlike the
+ * connector collector this does NO signed round-trip — it reads the hourly-swept
+ * ConfigMap snapshots, so the scrape is one cheap read and the values are as
+ * fresh as the last sweep. Fail-soft: a missing/unreadable store degrades to an
+ * empty sample list (a well-formed, non-blank exposition downstream), so a
+ * snapshot blip never breaks the connector metrics served alongside it.
+ */
+export async function collectSiteKpiSamples(): Promise<SiteKpiSample[]> {
+  try {
+    const snapshots = await readAllSnapshots();
+    return [...snapshots.entries()].map(([site, snap]) => ({ site, overview: snap.overview, at: snap.at }));
+  } catch (err) {
+    console.warn("[wordpress:iwsl] site KPI snapshot read failed:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+/** Collect + render the per-site `iwsl_site_*` KPI exposition. */
+export async function exportSiteMetrics(): Promise<string> {
+  return renderSiteMetrics(await collectSiteKpiSamples());
 }

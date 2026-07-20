@@ -9,7 +9,7 @@
  * total misses, and the panel notes that. Read-only: no allow-listed mutation, so
  * the panel renders no action buttons.
  */
-import { WP, WP_SAFE, toInt, parseJsonObject, parseJsonArray, fieldStr } from "../wp-probe";
+import { WP, WP_SAFE, toInt, parseJsonObject, activePluginSlugs } from "../wp-probe";
 import { SEO_PLUGIN_SLUGS } from "../capabilities";
 import type { PanelProbe, PanelProbeContext } from "./contract";
 
@@ -46,12 +46,7 @@ function ratio(total: number, missing: number): number {
 
 /** Lowercased active plugin slug set from the plugin-list JSON. */
 function activeSet(activePluginsJson: string): Set<string> {
-  const active = new Set<string>();
-  for (const row of parseJsonArray<{ name?: string }>(activePluginsJson)) {
-    const name = fieldStr(row, "name")?.toLowerCase();
-    if (name) active.add(name);
-  }
-  return active;
+  return activePluginSlugs(activePluginsJson);
 }
 
 export function parseAudit(input: {

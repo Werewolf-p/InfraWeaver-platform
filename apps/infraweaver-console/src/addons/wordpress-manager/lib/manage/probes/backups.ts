@@ -6,7 +6,7 @@
  * active. Everything is read-only: there is no allow-listed "run backup" action, so
  * the panel renders no mutation buttons.
  */
-import { WP, WP_SAFE, kvLine, parseKv, parseJsonArray, parseJsonObject, toInt, toStr, fieldStr, fieldNum } from "../wp-probe";
+import { WP, WP_SAFE, kvLine, parseKv, parseJsonObject, toInt, toStr, fieldNum, activePluginSlugs } from "../wp-probe";
 import { BACKUP_PLUGIN_SLUGS } from "../capabilities";
 import type { PanelProbe, PanelProbeContext } from "./contract";
 
@@ -49,11 +49,7 @@ async function detectActivePlugin(ctx: PanelProbeContext, slugs: readonly string
     .exec(`${WP} plugin list --status=active --field=name --format=json`)
     .then((r) => r.stdout)
     .catch(() => "[]");
-  const active = new Set(
-    parseJsonArray<{ name?: string }>(stdout)
-      .map((row) => fieldStr(row, "name")?.toLowerCase())
-      .filter((name): name is string => Boolean(name)),
-  );
+  const active = activePluginSlugs(stdout);
   return slugs.find((slug) => active.has(slug)) ?? null;
 }
 

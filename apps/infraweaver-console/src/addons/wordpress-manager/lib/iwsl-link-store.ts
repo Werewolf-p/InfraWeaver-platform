@@ -2,6 +2,7 @@ import "server-only";
 import { makeCoreApi } from "@/lib/kube-client";
 import type { SlhdsaAlg } from "@/lib/iwsl";
 import type { SiteEntitlements } from "./entitlements";
+import type { TierId } from "./tiers";
 import { isK8sNotFound, isTransientApiError } from "./k8s-errors";
 
 /**
@@ -109,6 +110,15 @@ export interface ExternalSiteRecord {
    * dual-signed copy. Absent ⇒ no paid flags granted.
    */
   entitlements?: SiteEntitlements;
+  /**
+   * Assigned payment tier — the CONSOLE-AUTHORITATIVE source of what this site is
+   * entitled to (see `tiers.ts`). Absent ⇒ Free/base. Assigning a tier derives its
+   * full flag map and pushes it over the signed `entitlements.set` channel; the
+   * `entitlements` field above is the mirror of that push. Console feature-gating
+   * resolves from THIS field (via `resolveEntitlements`), never from anything the
+   * WordPress side self-reports, so a site can never raise its own tier.
+   */
+  tier?: TierId;
   /** Last signed health.check outcome (§12.5 diagnostics). */
   lastHealth?: { at: string; ok: boolean; roundtripMs?: number; reason?: string };
   /**

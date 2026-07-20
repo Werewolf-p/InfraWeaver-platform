@@ -16,6 +16,8 @@
  * Requires 64-bit PHP (tree indices reach 2^54 for 192s, 2^63 for 192f).
  */
 
+defined( 'ABSPATH' ) || exit;
+
 class IWSL_SLHDSA {
 
 	const N        = 24;    // hash output bytes

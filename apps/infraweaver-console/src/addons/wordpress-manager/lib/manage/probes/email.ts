@@ -12,7 +12,7 @@
  * rather than `option get`-ing the whole option, so the credential is never read
  * into console memory (nor into any log line) in the first place.
  */
-import { WP_SAFE } from "../wp-probe";
+import { WP_SAFE, activePluginSlugs } from "../wp-probe";
 import { SMTP_PLUGIN_SLUGS } from "../capabilities";
 import type { PanelProbe, PanelProbeContext } from "./contract";
 
@@ -137,21 +137,7 @@ async function detectActivePlugin(ctx: PanelProbeContext, slugs: readonly string
     .exec(`wp --allow-root plugin list --status=active --field=name --format=json`)
     .then((r) => r.stdout)
     .catch(() => "[]");
-  let names: string[] = [];
-  try {
-    const parsed: unknown = JSON.parse(stdout || "[]");
-    if (Array.isArray(parsed)) {
-      names = parsed
-        // `--field=name --format=json` yields a scalar array, but tolerate the
-        // object shape (`[{ name }]`) too so a WP-CLI format change can't blind us.
-        .map((row) => (typeof row === "string" ? row : typeof (row as { name?: unknown })?.name === "string" ? (row as { name: string }).name : null))
-        .filter((n): n is string => Boolean(n))
-        .map((n) => n.toLowerCase());
-    }
-  } catch {
-    names = [];
-  }
-  const active = new Set(names);
+  const active = activePluginSlugs(stdout);
   return slugs.find((slug) => active.has(slug)) ?? null;
 }
 

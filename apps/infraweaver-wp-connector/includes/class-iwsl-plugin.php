@@ -5,6 +5,8 @@
  * protocol/enrollment/rotation set, fleet ops arrive with phase 4 dispatch.
  */
 
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_Plugin {
 
 	/** @var IWSL_Store */

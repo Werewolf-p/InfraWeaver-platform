@@ -7,7 +7,10 @@ import {
   Activity,
   AlertTriangle,
   ArrowLeft,
+  BadgeCheck,
+  Ban,
   Bug,
+  Check,
   CheckCircle2,
   CircleArrowUp,
   CircleDashed,
@@ -15,16 +18,28 @@ import {
   KeyRound,
   Link2,
   Loader2,
+  Minus,
   RefreshCw,
   ShieldAlert,
   ShieldBan,
   ShieldCheck,
+  Sparkles,
   Unlink,
   XCircle,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { isConnectorOutdated } from "../lib/connector-version";
+import { ENTITLEMENT_FLAGS, ENTITLEMENT_FLAG_META, type EntitlementMap } from "../lib/entitlements";
+import {
+  DEFAULT_TIER_ID,
+  TIERS,
+  isTierId,
+  listTiers,
+  resolveEntitlements,
+  resolveTierId,
+  type TierId,
+} from "../lib/tiers";
 import { SiteTabs } from "./site-tabs";
 
 /** Slice of ExternalSiteView the connector tab renders (§5.1 managed link). */
@@ -50,7 +65,9 @@ interface ManagedLink {
   /** §8 — per-site auto-rotation schedule override (absent ⇒ fleet default). */
   rotationPolicy?: { autoRotate: boolean; intervalMs?: number; updatedAt?: string; updatedBy?: string };
   /** Paid-feature entitlements mirrored from the last signed push (absent ⇒ none). */
-  entitlements?: { flags?: { plus?: boolean }; updatedAt?: string; updatedBy?: string };
+  entitlements?: { flags?: EntitlementMap; updatedAt?: string; updatedBy?: string };
+  /** Console-authoritative payment tier (absent ⇒ Free). Derives the flag map above. */
+  tier?: TierId;
   /** §5 identity binding — the site's confirmed canonical URL. */
   canonicalUrl?: string;
   /** §5 safe mode: state-changing ops suspended after a self-reported URL change. */
@@ -154,6 +171,27 @@ function StateBadge({ link, loadError }: { link: ManagedLink | null; loadError?:
   );
 }
 
+/**
+ * The site's current payment tier as a pill. Paid tiers read in the brand amber
+ * (the same accent as the Plus/entitlement surface); the Free base reads as a
+ * quiet neutral so an unentitled site doesn't shout.
+ */
+function TierBadge({ tierId }: { tierId: TierId }) {
+  const tier = TIERS[tierId];
+  const isPaid = tier.rank > 0;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium",
+        isPaid ? "border-amber-400/30 bg-amber-400/15 text-amber-200" : "border-zinc-700 bg-zinc-950/50 text-zinc-400",
+      )}
+    >
+      {isPaid && <Sparkles className="h-3 w-3" aria-hidden />}
+      {tier.displayName}
+    </span>
+  );
+}
+
 function MetaRow({ label, value, tone }: { label: string; value: string; tone?: "danger" }) {
   return (
     <div className="flex items-baseline justify-between gap-3 text-xs">
@@ -219,6 +257,10 @@ const ROTATION_TOAST: Record<RotationResult["outcome"], string> = {
 export function ConnectorView({ site }: { site: string }) {
   const queryClient = useQueryClient();
   const [killArmed, setKillArmed] = useState(false);
+  const [revokeArmed, setRevokeArmed] = useState(false);
+  // Tier selector (seeded from the link's authoritative tier below).
+  const [selectedTier, setSelectedTier] = useState<TierId>(DEFAULT_TIER_ID);
+  const tierSeededKey = useRef<string>("");
   // Auto-rotation schedule form (seeded from the link's saved policy below).
   const [rotAuto, setRotAuto] = useState(true);
   const [rotValue, setRotValue] = useState(30);
@@ -249,6 +291,18 @@ export function ConnectorView({ site }: { site: string }) {
     const parts = intervalToParts(link.rotationPolicy?.intervalMs, 30);
     setRotValue(parts.value);
     setRotUnit(parts.unit);
+  }, [link]);
+
+  // Seed the tier selector from the link's authoritative tier, re-seeding only
+  // when the applied tier actually changes (keyed on tier + last-push time) so a
+  // routine refetch doesn't discard an in-flight selection the operator is eyeing.
+  useEffect(() => {
+    if (!link) return;
+    const current = resolveTierId(link);
+    const key = `${link.siteId}:${current}:${link.entitlements?.updatedAt ?? ""}`;
+    if (tierSeededKey.current === key) return;
+    tierSeededKey.current = key;
+    setSelectedTier(current);
   }, [link]);
 
   const enrollMutation = useMutation({
@@ -324,19 +378,28 @@ export function ConnectorView({ site }: { site: string }) {
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const entitlementMutation = useMutation({
-    // Grant/revoke Plus. The API route pushes it to the plugin over the signed
-    // command channel; the site can never self-grant it.
-    mutationFn: (plus: boolean) =>
-      postOp<{ entitlements: { flags?: { plus?: boolean } } }>(site, "set-entitlements", {
-        entitlements: { plus },
-      }),
+  const tierMutation = useMutation({
+    // Assign a payment tier. The API route derives the tier's flag map and pushes
+    // it to the plugin over the signed command channel; the site can never grant
+    // itself a tier. Revoke is the same op with the Free tier (see revokeMutation).
+    mutationFn: (tierId: TierId) =>
+      postOp<{ entitlements: { tier?: TierId; flags?: EntitlementMap } }>(site, "set-tier", { tier: tierId }),
     onSuccess: ({ entitlements }) => {
-      toast.success(
-        entitlements.flags?.plus
-          ? "Plus granted — pushed to the site over the signed channel"
-          : "Plus revoked — pushed to the site over the signed channel",
-      );
+      const tid = entitlements.tier ?? DEFAULT_TIER_ID;
+      toast.success(`Tier set to ${TIERS[tid].displayName} — pushed to the site over the signed channel`);
+      refetchLink();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const revokeMutation = useMutation({
+    // Revoke = assign the Free tier, whose flag map has every paid flag explicitly
+    // off, so the plugin's wholesale replace clears the site over the signed channel.
+    mutationFn: () =>
+      postOp<{ entitlements: { tier?: TierId } }>(site, "set-tier", { tier: DEFAULT_TIER_ID }),
+    onSuccess: () => {
+      toast.success("Entitlements revoked — the site is back on Free over the signed channel");
+      setRevokeArmed(false);
       refetchLink();
     },
     onError: (error: Error) => toast.error(error.message),
@@ -392,6 +455,14 @@ export function ConnectorView({ site }: { site: string }) {
 
   const linked = Boolean(link);
   const commandable = link?.state === "active" && link.fingerprintConfirmed;
+  // Authoritative tier + flag map, resolved from the CONSOLE record only — never
+  // from anything the site self-reports. This is what the panel gates its display on.
+  const currentTierId = resolveTierId(link ?? undefined);
+  const currentTier = TIERS[currentTierId];
+  const grantedFlags = resolveEntitlements(link ?? undefined);
+  const tierDirty = selectedTier !== currentTierId;
+  const isFreeTier = currentTierId === DEFAULT_TIER_ID;
+  const entitlementsBusy = tierMutation.isPending || revokeMutation.isPending;
   // §5 safe mode: the site self-reported a changed canonical URL. Read-only
   // health/debug stay available; key rotation and plugin update are blocked.
   const identitySuspended = link?.identitySuspended === true;
@@ -599,6 +670,186 @@ export function ConnectorView({ site }: { site: string }) {
         )}
       </section>
 
+      {/* Plan & entitlements — the commercial tier and what it unlocks on the site */}
+      {link && (
+        <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-zinc-200">
+              <Sparkles className="h-5 w-5 text-amber-300" aria-hidden />
+              <h2 className="text-lg font-medium">Plan &amp; entitlements</h2>
+            </div>
+            <TierBadge tierId={currentTierId} />
+          </div>
+          <p className="mt-1 max-w-prose text-sm text-zinc-400">
+            This site&rsquo;s paid tier decides which Plus features unlock. Assigning a tier pushes its feature set to
+            the plugin over the <span className="text-zinc-300">signed command channel</span> — the site can never
+            grant itself a tier or a feature, it can only receive one the console signed.
+          </p>
+
+          {/* What the current tier grants — every known feature with its on/off state */}
+          <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Features on the {currentTier.displayName} tier
+            </p>
+            <ul className="mt-2.5 grid gap-2 sm:grid-cols-2">
+              {ENTITLEMENT_FLAGS.map((flag) => {
+                const on = grantedFlags[flag] === true;
+                const meta = ENTITLEMENT_FLAG_META[flag];
+                return (
+                  <li key={flag} className="flex items-start gap-2">
+                    {on ? (
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" aria-label="granted" />
+                    ) : (
+                      <Minus className="mt-0.5 h-4 w-4 shrink-0 text-zinc-600" aria-label="not granted" />
+                    )}
+                    <span className="min-w-0">
+                      <span className={cn("text-sm font-medium", on ? "text-zinc-100" : "text-zinc-500")}>
+                        {meta.label}
+                      </span>
+                      <span className="block text-xs text-zinc-500">{meta.description}</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          {/* Communication status — the console↔plugin signed exchange, made legible */}
+          <div className="mt-3 grid gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="shrink-0 text-zinc-500">Last pushed to site</span>
+              {link.entitlements?.updatedAt ? (
+                <span className="inline-flex items-center gap-1.5 truncate text-right font-mono text-emerald-300">
+                  <BadgeCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>acknowledged {timeAgo(link.entitlements.updatedAt)}</span>
+                  {link.entitlements.updatedBy && <span className="text-zinc-500">· by {link.entitlements.updatedBy}</span>}
+                </span>
+              ) : (
+                <span className="font-mono text-zinc-500">never pushed</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="shrink-0 text-zinc-500">Last verified contact</span>
+              {link.lastHealth ? (
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1.5 font-mono",
+                    isHealthStale(link.lastHealth.at) ? "text-amber-300" : "text-zinc-300",
+                  )}
+                >
+                  {timeAgo(link.lastHealth.at)}
+                  {isHealthStale(link.lastHealth.at) && (
+                    <span className="inline-flex items-center gap-1 text-amber-400">
+                      <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden /> stale
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span className="font-mono text-zinc-500">never</span>
+              )}
+            </div>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              The plugin re-checks this signed heartbeat locally — if it goes stale, the Plus features lock on the site
+              until the next verified sweep. The console mirror above is authoritative regardless.
+            </p>
+          </div>
+
+          {/* Assign a tier */}
+          <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+            <div className="min-w-0 grow">
+              <label htmlFor={`tier-${site}`} className="text-xs font-medium text-zinc-400">
+                Assign tier
+              </label>
+              <select
+                id={`tier-${site}`}
+                value={selectedTier}
+                disabled={!commandable || identitySuspended || entitlementsBusy}
+                onChange={(e) => {
+                  if (isTierId(e.target.value)) setSelectedTier(e.target.value);
+                }}
+                className="mt-1 block w-full max-w-xs rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {listTiers().map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.displayName}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 max-w-prose text-xs text-zinc-500">{TIERS[selectedTier].description}</p>
+            </div>
+            <button
+              type="button"
+              disabled={!commandable || identitySuspended || entitlementsBusy || !tierDirty}
+              title={
+                identitySuspended
+                  ? "Suspended — confirm the site's identity first"
+                  : !tierDirty
+                    ? "Already on this tier"
+                    : undefined
+              }
+              onClick={() => tierMutation.mutate(selectedTier)}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-sky-500 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {tierMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Sparkles className="h-4 w-4" aria-hidden />
+              )}
+              {tierMutation.isPending ? "Applying…" : tierDirty ? `Apply ${TIERS[selectedTier].displayName}` : "Applied"}
+            </button>
+          </div>
+
+          {/* Revoke — the distinct, destructive off-switch with a confirm step */}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-sm font-medium text-red-200">
+                <Ban className="h-4 w-4" aria-hidden /> Revoke entitlements
+              </p>
+              <p className="mt-0.5 max-w-prose text-xs text-zinc-400">
+                Moves the site back to <span className="font-medium text-zinc-300">Free</span> and clears every paid
+                flag over the signed channel. The Plus features lock on the site right away.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {revokeArmed && !isFreeTier && (
+                <button
+                  type="button"
+                  onClick={() => setRevokeArmed(false)}
+                  className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-500"
+                >
+                  Cancel
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={!commandable || identitySuspended || entitlementsBusy || isFreeTier}
+                title={
+                  identitySuspended
+                    ? "Suspended — confirm the site's identity first"
+                    : isFreeTier
+                      ? "Already on Free — nothing to revoke"
+                      : undefined
+                }
+                onClick={() => (revokeArmed ? revokeMutation.mutate() : setRevokeArmed(true))}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  revokeArmed && !isFreeTier
+                    ? "bg-red-500 text-white hover:bg-red-400"
+                    : "border border-red-500/40 bg-transparent text-red-300 hover:bg-red-500/10",
+                )}
+              >
+                {revokeMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Ban className="h-4 w-4" aria-hidden />
+                )}
+                {revokeMutation.isPending ? "Revoking…" : revokeArmed && !isFreeTier ? "Confirm revoke" : "Revoke"}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Security — key rotation, quarantine, kill switch */}
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
         <div className="flex items-center gap-2 text-zinc-200">
@@ -696,35 +947,6 @@ export function ConnectorView({ site }: { site: string }) {
                   : "Scheduled rotation off"}
               </span>
             </div>
-          </div>
-
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-zinc-100">Plus entitlement</p>
-                <p className="mt-0.5 text-xs text-zinc-400">
-                  Grants this site&apos;s Plus paid features. Pushed to the plugin over the signed command channel — the site cannot self-grant it.
-                </p>
-              </div>
-              <label className="inline-flex shrink-0 cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-emerald-500 disabled:cursor-not-allowed"
-                  checked={link?.entitlements?.flags?.plus === true}
-                  disabled={!commandable || identitySuspended || entitlementMutation.isPending}
-                  onChange={(e) => entitlementMutation.mutate(e.target.checked)}
-                />
-                <span className="text-xs font-medium text-zinc-200">
-                  {entitlementMutation.isPending ? "Saving…" : link?.entitlements?.flags?.plus ? "Granted" : "Off"}
-                </span>
-              </label>
-            </div>
-            {link?.entitlements?.updatedBy ? (
-              <p className="mt-2 text-xs text-zinc-500">
-                Last changed by {link.entitlements.updatedBy}
-                {link.entitlements.updatedAt ? ` ${timeAgo(link.entitlements.updatedAt)}` : ""}
-              </p>
-            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">

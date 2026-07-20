@@ -4,8 +4,8 @@ import { getManagePanelHandler } from "@/addons/wordpress-manager/api/handlers";
 
 export const dynamic = "force-dynamic";
 
-/** GET — one Manage panel's live data (capability gate enforced server-side). */
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ site: string; panel: string }> }) {
+/** GET — one Manage panel's live data (capability gate enforced server-side; supports `?refresh=1`). */
+export async function GET(req: NextRequest, ctx: { params: Promise<{ site: string; panel: string }> }) {
   const { site, panel } = await ctx.params;
-  return getManagePanelHandler(site, panel);
+  return getManagePanelHandler(req, site, panel);
 }

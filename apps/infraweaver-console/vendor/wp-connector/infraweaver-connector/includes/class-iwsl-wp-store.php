@@ -5,6 +5,8 @@
  * must survive utf8mb4 column round-trips untouched.
  */
 
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_WP_Store implements IWSL_Store {
 
 	const PREFIX = 'iwsl_';

@@ -5,8 +5,11 @@ import { withAuth } from "@/lib/with-auth";
 import { appLabelFromPod, type PromQueryResult } from "@/lib/firewall/drops";
 import { MANAGED_BY, workloadSelectorFromPodLabels } from "@/lib/firewall/rules";
 import {
+  allowedFqdnsFromPolicy,
+  allowlistPolicyName,
   buildLearnPolicy,
   buildLearnedAllowRules,
+  filterAlreadyAllowed,
   learnPolicyName,
   learnedQueriesQuery,
   parseLearnedQueries,
@@ -68,11 +71,17 @@ export const GET = withAuth({ permission: "cluster:read" }, async ({ req }) => {
   const policy = await getLearnPolicy(namespace, learnPolicyName(appLabel));
   if (!policy) return NextResponse.json({ active: false, learned: [] });
 
-  const result = await promQuery(learnedQueriesQuery(namespace, learnWindowMinutes(policy)));
+  // Exclude FQDNs already covered by the durable allowlist so a prior "Allow
+  // learned" doesn't keep re-surfacing the same domains it already committed.
+  const [result, allowlist] = await Promise.all([
+    promQuery(learnedQueriesQuery(namespace, learnWindowMinutes(policy))),
+    getLearnPolicy(namespace, allowlistPolicyName(appLabel)),
+  ]);
+  const learned = filterAlreadyAllowed(parseLearnedQueries(result, pods), allowedFqdnsFromPolicy(allowlist));
   return NextResponse.json({
     active: true,
     since: policy.metadata?.creationTimestamp ?? null,
-    learned: parseLearnedQueries(result, pods),
+    learned,
   });
 });
 
@@ -124,14 +133,16 @@ export const POST = withAuth({ permission: "cluster:admin" }, async ({ req }) =>
     if (action === "commit") {
       const policy = await getLearnPolicy(namespace, policyName);
       if (!policy) return NextResponse.json({ error: "Learn mode is not active" }, { status: 409 });
-      const result = await promQuery(learnedQueriesQuery(namespace, learnWindowMinutes(policy)));
-      const learned = parseLearnedQueries(result, pods);
+      const allowlistName = allowlistPolicyName(appLabel);
+      const [result, existing] = await Promise.all([
+        promQuery(learnedQueriesQuery(namespace, learnWindowMinutes(policy))),
+        getLearnPolicy(namespace, allowlistName) as Promise<{ spec?: Record<string, unknown> } | undefined>,
+      ]);
+      // Filter out already-allowed FQDNs before building rules so a re-commit
+      // can't re-add them; the merge/dedup below stays as defense-in-depth.
+      const learned = filterAlreadyAllowed(parseLearnedQueries(result, pods), allowedFqdnsFromPolicy(existing));
       const rules = buildLearnedAllowRules(learned);
       if (rules.length > 0) {
-        const allowlistName = `${appLabel}-egress-allowlist`;
-        const existing = (await getLearnPolicy(namespace, allowlistName)) as
-          | { spec?: Record<string, unknown> }
-          | undefined;
         if (existing) {
           const current = (existing.spec?.egress as unknown[] | undefined) ?? [];
           const have = new Set(current.map((r) => JSON.stringify(r)));

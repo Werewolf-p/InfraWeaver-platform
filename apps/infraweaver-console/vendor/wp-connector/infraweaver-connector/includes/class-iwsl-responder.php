@@ -5,6 +5,8 @@
  * IWSL_Rotation::signing_kid() so a pending rotation proves the new epoch.
  */
 
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_Responder {
 
 	/** @var IWSL_Store */

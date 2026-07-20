@@ -16,6 +16,16 @@ export function learnPolicyName(appLabel: string): string {
   return `${appLabel}-learn-mode`;
 }
 
+/** The durable per-app egress allowlist that "Allow learned" writes into. */
+export function allowlistPolicyName(appLabel: string): string {
+  return `${appLabel}-egress-allowlist`;
+}
+
+/** Normalize an FQDN the way both the learned list and toFQDNs matching expect: trimmed, trailing dot stripped, lowercased. */
+function normalizeFqdn(value: string): string {
+  return value.trim().replace(/\.$/, "").toLowerCase();
+}
+
 /**
  * The temp-allow policy: selects the workload and allows all egress + ingress
  * so the app fully works while learning. The kube-dns rule carries a DNS proxy
@@ -88,7 +98,7 @@ export function parseLearnedQueries(
   for (const s of result?.data?.result ?? []) {
     const m = s.metric ?? {};
     if (!pods.has(m.source_pod ?? "")) continue;
-    const raw = (m.query ?? "").replace(/\.$/, "").toLowerCase();
+    const raw = normalizeFqdn(m.query ?? "");
     if (!raw || !raw.includes(".")) continue;
     if (IGNORED_SUFFIXES.some((suf) => raw.endsWith(suf))) continue;
     const count = Number(s.value?.[1]);
@@ -98,6 +108,73 @@ export function parseLearnedQueries(
   return [...byFqdn.entries()]
     .map(([fqdn, count]) => ({ fqdn, count }))
     .sort((a, b) => b.count - a.count);
+}
+
+/** The set of FQDNs an existing allowlist policy already permits, split by match kind. */
+export interface AllowedFqdns {
+  /** Exact `matchName` values (normalized). */
+  names: ReadonlySet<string>;
+  /** `matchPattern` wildcards (normalized), e.g. `*.example.com`. */
+  patterns: readonly string[];
+}
+
+/**
+ * Extract every FQDN already covered by an existing `<app>-egress-allowlist`
+ * policy's `spec.egress[].toFQDNs[]` rules. Accepts an unknown object (the raw
+ * k8s custom resource) and narrows defensively so a malformed/absent policy just
+ * yields an empty set. Pure — no I/O.
+ */
+export function allowedFqdnsFromPolicy(policy: unknown): AllowedFqdns {
+  const names = new Set<string>();
+  const patterns: string[] = [];
+  const spec = (policy as { spec?: { egress?: unknown } } | null | undefined)?.spec;
+  const egress = Array.isArray(spec?.egress) ? (spec.egress as unknown[]) : [];
+  for (const rule of egress) {
+    const toFQDNs = (rule as { toFQDNs?: unknown } | null | undefined)?.toFQDNs;
+    if (!Array.isArray(toFQDNs)) continue;
+    for (const entry of toFQDNs) {
+      const e = entry as { matchName?: unknown; matchPattern?: unknown } | null | undefined;
+      if (typeof e?.matchName === "string") {
+        const n = normalizeFqdn(e.matchName);
+        if (n) names.add(n);
+      }
+      if (typeof e?.matchPattern === "string") {
+        const p = normalizeFqdn(e.matchPattern);
+        if (p) patterns.push(p);
+      }
+    }
+  }
+  return { names, patterns };
+}
+
+/**
+ * Does a Cilium `toFQDNs` matchPattern cover this fqdn? Mirrors Cilium's
+ * semantics closely enough for de-duping: every char is literal except `*`,
+ * which matches any run of DNS characters *including dots* (so `*.example.com`
+ * covers both `a.example.com` and `a.b.example.com`).
+ */
+function patternCovers(pattern: string, fqdn: string): boolean {
+  const source = pattern
+    .split("*")
+    .map((seg) => seg.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&"))
+    .join("[a-z0-9_.-]*");
+  return new RegExp(`^${source}$`).test(fqdn);
+}
+
+/**
+ * Drop from the learned list any FQDN already permitted by the existing
+ * allowlist — by exact `matchName` or by a covering `matchPattern` wildcard.
+ * This is what stops already-allowed domains from re-appearing on the next
+ * Learn session. Pure and order-preserving.
+ */
+export function filterAlreadyAllowed(
+  queries: readonly LearnedQuery[],
+  allowed: AllowedFqdns,
+): LearnedQuery[] {
+  if (allowed.names.size === 0 && allowed.patterns.length === 0) return [...queries];
+  return queries.filter(
+    (q) => !allowed.names.has(q.fqdn) && !allowed.patterns.some((p) => patternCovers(p, q.fqdn)),
+  );
 }
 
 /**
