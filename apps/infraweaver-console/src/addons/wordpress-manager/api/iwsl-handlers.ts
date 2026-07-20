@@ -83,6 +83,22 @@ async function authorize(permission: WordpressPermission, site?: string): Promis
 
 const RATE_WINDOW_MS = 60_000;
 
+/**
+ * Optional selection body shared by the two fleet sweeps: `{ sites?: string[] }`
+ * restricts the run to those sites (the fleet bulk-actions UI). Parsed defensively —
+ * a missing/empty/malformed body yields `undefined`, which the sweeps treat as "all
+ * sites" (the unchanged no-body behaviour). Per-name validation and unknown-name
+ * dropping happen in the sweep libs, so a bad name never errors the request.
+ */
+const sweepSelectionSchema = z
+  .object({ sites: z.array(z.string().min(1).max(64)).max(1000).optional() })
+  .strict();
+
+async function parseSweepSites(req: NextRequest): Promise<string[] | undefined> {
+  const parsed = sweepSelectionSchema.safeParse(await req.json().catch(() => ({})));
+  return parsed.success ? parsed.data.sites : undefined;
+}
+
 function rateLimited(action: string, user: string, max: number): NextResponse | null {
   if (!checkRateLimit(`wordpress:iwsl-${action}:${user || "anon"}`, max, RATE_WINDOW_MS)) {
     return fail("Too many requests — slow down and try again shortly", 429);
@@ -587,7 +603,10 @@ export async function manageSnapshotSweepHandler(req: NextRequest): Promise<Next
     const limited = rateLimited("manage-sweep", gate.ctx.username, 6);
     if (limited) return limited;
   }
-  return guard(async () => json({ summary: await runSiteSnapshotSweep() }));
+  // Optional `{ sites?: string[] }` restricts the warm to a selection; the cron
+  // sends no body and sweeps every site, unchanged.
+  const sites = await parseSweepSites(req);
+  return guard(async () => json({ summary: await runSiteSnapshotSweep(sites) }));
 }
 
 // ── Fleet-wide Connector update (§5.1 maintenance) ───────────────────────────
@@ -599,10 +618,13 @@ export async function manageSnapshotSweepHandler(req: NextRequest): Promise<Next
  * pod, so it is deliberately not driven by the health-sweep cron token — a bad
  * build must not auto-deploy fleet-wide unattended. Rate-limited hard.
  */
-export async function connectorUpdateSweepHandler(): Promise<NextResponse> {
+export async function connectorUpdateSweepHandler(req: NextRequest): Promise<NextResponse> {
   const gate = await authorize("wordpress:admin");
   if (!gate.ok) return gate.error;
   const limited = rateLimited("update-sweep", gate.ctx.username, 3);
   if (limited) return limited;
-  return guard(async () => json({ summary: await runConnectorUpdateSweep() }));
+  // Optional `{ sites?: string[] }` restricts the reinstall to a selection; no body
+  // pushes to every enrolled managed link, unchanged.
+  const sites = await parseSweepSites(req);
+  return guard(async () => json({ summary: await runConnectorUpdateSweep({ sites }) }));
 }

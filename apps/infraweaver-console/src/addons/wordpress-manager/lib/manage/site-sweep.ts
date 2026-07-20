@@ -1,5 +1,6 @@
 import "server-only";
 import { listSites } from "../provision";
+import { isValidSiteId } from "../naming";
 import { getManageOverview } from "./overview";
 import { capturePanelSnapshots } from "./panel-data";
 import { writeSiteSnapshots, type SnapshotWriteEntry } from "./site-snapshot";
@@ -94,10 +95,13 @@ export async function sweepSites(sites: readonly string[]): Promise<SiteSweepSum
 
   // Warm each captured site's per-panel durable snapshots. Per-site isolated so one
   // site's panel failures never abort another's; the counts fold back per result.
+  // The site's overview is passed through so the capture core can reject a
+  // degenerate (all-zero) panel that contradicts the overview's authoritative counts
+  // instead of overwriting the last good snapshot with it.
   const panelOutcomes = await Promise.allSettled(
     toPersist.map(async ({ site, overview }) => ({
       site,
-      ...(await capturePanelSnapshots(site, availablePanelIds(overview))),
+      ...(await capturePanelSnapshots(site, availablePanelIds(overview), overview)),
     })),
   );
   const panelCounts = new Map<string, { captured: number; failed: number }>();
@@ -126,7 +130,30 @@ export async function sweepSites(sites: readonly string[]): Promise<SiteSweepSum
   };
 }
 
-export async function runSiteSnapshotSweep(): Promise<SiteSweepSummary> {
-  const sites = await listSites();
-  return sweepSites(sites.map((s) => s.site).filter((s) => s.length > 0));
+/**
+ * The scheduled/operator entry point. With no argument it sweeps EVERY provisioned
+ * site (the hourly cron, unchanged). With an explicit `sites` selection (the fleet
+ * bulk-actions UI) it restricts the warm to those provisioned sites: each is
+ * validated with `isValidSiteId`, and names that don't match a provisioned site are
+ * ignored (an empty/unknown selection simply sweeps nothing).
+ */
+export async function runSiteSnapshotSweep(sites?: readonly string[]): Promise<SiteSweepSummary> {
+  const provisioned = (await listSites()).map((s) => s.site).filter((s) => s.length > 0);
+  if (!sites) return sweepSites(provisioned);
+  const requested = new Set(sites.filter((s) => isValidSiteId(s)));
+  return sweepSites(provisioned.filter((s) => requested.has(s)));
+}
+
+/**
+ * Warm ONE site's durable snapshots immediately — the init/enroll path, so a newly
+ * available site paints real data at once instead of showing zeros until the next
+ * scheduled sweep. Delegates to the same isolated sweep machinery (live overview
+ * pull → durable persist → per-panel capture with degenerate-rejection). Never
+ * throws: `sweepSites` folds every failure into its summary, so an unreachable pod
+ * yields an `ok:false` result rather than a rejection — a warm error must never
+ * block or fail the enrollment that triggered it.
+ */
+export async function warmSiteSnapshot(site: string): Promise<SiteSweepResult> {
+  const summary = await sweepSites([site]);
+  return summary.results[0] ?? { site, ok: false, reason: "no result" };
 }

@@ -11,8 +11,9 @@ jest.mock("@/addons/wordpress-manager/lib/manage/overview", () => ({ getManageOv
 jest.mock("@/addons/wordpress-manager/lib/manage/site-snapshot", () => ({ writeSiteSnapshots: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/manage/panel-data", () => ({ capturePanelSnapshots: jest.fn() }));
 
-import { sweepSites } from "@/addons/wordpress-manager/lib/manage/site-sweep";
+import { sweepSites, runSiteSnapshotSweep } from "@/addons/wordpress-manager/lib/manage/site-sweep";
 import { getManageOverview } from "@/addons/wordpress-manager/lib/manage/overview";
+import { listSites } from "@/addons/wordpress-manager/lib/provision";
 import { writeSiteSnapshots } from "@/addons/wordpress-manager/lib/manage/site-snapshot";
 import { capturePanelSnapshots } from "@/addons/wordpress-manager/lib/manage/panel-data";
 import type { ManageOverview } from "@/addons/wordpress-manager/lib/manage/types";
@@ -20,6 +21,11 @@ import type { ManageOverview } from "@/addons/wordpress-manager/lib/manage/types
 const pullMock = getManageOverview as jest.MockedFunction<typeof getManageOverview>;
 const writeMock = writeSiteSnapshots as jest.MockedFunction<typeof writeSiteSnapshots>;
 const captureMock = capturePanelSnapshots as jest.MockedFunction<typeof capturePanelSnapshots>;
+const listSitesMock = listSites as jest.MockedFunction<typeof listSites>;
+
+/** Minimal provisioned-site list — the sweep only reads `.site`. */
+const provisioned = (names: string[]): Awaited<ReturnType<typeof listSites>> =>
+  names.map((site) => ({ site })) as unknown as Awaited<ReturnType<typeof listSites>>;
 
 function overview(site: string, overrides: Partial<ManageOverview> = {}): ManageOverview {
   return {
@@ -115,8 +121,52 @@ describe("sweepSites", () => {
     expect(captureMock).toHaveBeenCalledTimes(1);
     expect(captureMock.mock.calls[0][0]).toBe("blog");
     expect(captureMock.mock.calls[0][1]).toEqual(["updates", "people"]);
+    // The overview is threaded through so the capture core can reject a degenerate
+    // (all-zero) panel that contradicts these authoritative counts.
+    expect(captureMock.mock.calls[0][2]).toMatchObject({ site: "blog", totalPlugins: 1, activePlugins: 1 });
     // Counts fold back per-result and into the fleet totals.
     expect(summary.results[0]).toMatchObject({ site: "blog", panelsCaptured: 2, panelsFailed: 1 });
     expect(summary).toMatchObject({ panelsCaptured: 2, panelsFailed: 1 });
+  });
+});
+
+describe("runSiteSnapshotSweep selection", () => {
+  let warnSpy: jest.SpyInstance;
+  beforeEach(() => {
+    jest.clearAllMocks();
+    writeMock.mockResolvedValue(undefined);
+    captureMock.mockResolvedValue({ captured: 0, failed: 0 });
+    pullMock.mockImplementation(async (site: string) => overview(site));
+    warnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => warnSpy?.mockRestore());
+
+  test("no argument sweeps every provisioned site", async () => {
+    listSitesMock.mockResolvedValue(provisioned(["a", "b"]));
+
+    const summary = await runSiteSnapshotSweep();
+
+    expect(summary.total).toBe(2);
+    expect(summary.results.map((r) => r.site).sort()).toEqual(["a", "b"]);
+  });
+
+  test("restricts to a valid selection — unknown/invalid names are dropped", async () => {
+    listSitesMock.mockResolvedValue(provisioned(["blog-a", "blog-b", "blog-c"]));
+
+    // "blog-a"/"blog-c" are provisioned; "not-provisioned" is a valid id but not a
+    // provisioned site; "BAD!" fails isValidSiteId — both are dropped.
+    const summary = await runSiteSnapshotSweep(["blog-a", "blog-c", "not-provisioned", "BAD!"]);
+
+    expect(summary.total).toBe(2);
+    expect(summary.results.map((r) => r.site).sort()).toEqual(["blog-a", "blog-c"]);
+  });
+
+  test("an empty selection sweeps nothing (no live pull)", async () => {
+    listSitesMock.mockResolvedValue(provisioned(["a"]));
+
+    const summary = await runSiteSnapshotSweep([]);
+
+    expect(summary.total).toBe(0);
+    expect(pullMock).not.toHaveBeenCalled();
   });
 });

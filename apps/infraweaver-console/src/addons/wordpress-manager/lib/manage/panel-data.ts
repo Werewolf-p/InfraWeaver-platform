@@ -14,12 +14,9 @@ import {
 import { requireRunningWpPod } from "./overview";
 import { WP, activePluginSlugs } from "./wp-probe";
 import { withCache, panelKey, invalidateManageCache, type Cached } from "./snapshot-cache";
-import {
-  readSitePanelSnapshot,
-  writeSitePanelSnapshot,
-  writeSitePanelSnapshots,
-  type PanelSnapshotWriteEntry,
-} from "./panel-snapshot";
+import { readSitePanelSnapshot, writeSitePanelSnapshot } from "./panel-snapshot";
+import { runPanelCapture } from "./panel-capture";
+import type { ManageOverview } from "./types";
 import type { PanelProbe, PanelProbeContext } from "./probes/contract";
 import { updatesProbe } from "./probes/updates";
 import { inventoryProbe } from "./probes/inventory";
@@ -181,45 +178,20 @@ export async function loadManagePanel(
 /**
  * Sweep-side capture: live-pull the given panels for a site and persist the
  * successes into the site's durable panel ConfigMap in ONE batch write. Per-panel
- * failure-isolated (allSettled) so one broken probe never blanks the rest; a panel
- * that fails keeps its last good snapshot. Called by the hourly site sweep with
- * the site's AVAILABLE panel ids (gated panels the site can't answer for are never
- * captured). An empty panel list is a no-op.
+ * failure-isolated so one broken probe never blanks the rest; a panel that fails —
+ * or that comes back degenerately empty against the overview — keeps its last good
+ * snapshot. Called by the hourly site sweep (and the init warm) with the site's
+ * AVAILABLE panel ids; pass the site's `overview` so the capture core can reject a
+ * demonstrably-wrong empty result. An empty panel list is a no-op.
+ *
+ * The concurrency limit + degenerate-rejection live in runPanelCapture (unit-tested
+ * with an injected fetcher); here we simply wire in the real getManagePanel.
  */
-export async function capturePanelSnapshots(
+export function capturePanelSnapshots(
   site: string,
   panelIds: readonly ManagePanelId[],
+  overview?: Pick<ManageOverview, "totalPlugins" | "activePlugins">,
   at = Date.now(),
 ): Promise<{ captured: number; failed: number }> {
-  if (panelIds.length === 0) return { captured: 0, failed: 0 };
-
-  const settled = await Promise.allSettled(
-    panelIds.map(async (panelId): Promise<PanelSnapshotWriteEntry> => {
-      const data = await getManagePanel(site, panelId);
-      return { panel: panelId, data };
-    }),
-  );
-
-  const entries: PanelSnapshotWriteEntry[] = [];
-  let failed = 0;
-  settled.forEach((outcome, i) => {
-    if (outcome.status === "fulfilled") {
-      entries.push(outcome.value);
-    } else {
-      failed += 1;
-      console.warn(
-        `[wordpress] Manage panel sweep ${site}/${panelIds[i]} failed:`,
-        outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
-      );
-    }
-  });
-
-  await writeSitePanelSnapshots(site, entries, at).catch((err) => {
-    console.warn(
-      `[wordpress] durable panel snapshot batch write for ${site} failed:`,
-      err instanceof Error ? err.message : err,
-    );
-  });
-
-  return { captured: entries.length, failed };
+  return runPanelCapture(getManagePanel, site, panelIds, overview, at);
 }

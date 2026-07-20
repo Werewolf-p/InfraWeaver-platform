@@ -22,7 +22,18 @@ import { toast } from "@/lib/notify";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select } from "@/components/ui/select";
 import { isValidSiteName } from "../lib/naming";
+import {
+  type SiteSelection,
+  toggleSite,
+  selectAll,
+  selectNone,
+  invertSelection,
+  orderedSelection,
+  isAllSelected,
+  isIndeterminate,
+} from "../lib/selection";
 import { ExternalSitesPanel } from "./external-sites-panel";
+import { FleetBulkToolbar } from "./fleet-bulk-toolbar";
 import { FLEET_DEMO_TABS, FleetDemoArea, type FleetTabId } from "./demo/fleet-tabs";
 
 /** Top-level dashboard tabs: the real "Sites" surface plus the demo fleet views. */
@@ -129,12 +140,21 @@ export function WordpressDashboard() {
   const [connector, setConnector] = useState(true);
   const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
   const [toDelete, setToDelete] = useState<string | null>(null);
+  // Fleet bulk-action selection. Persists while the page is mounted; derived
+  // reads below prune it to the currently-visible sites so a refetch that drops
+  // a site can never leave it "selected".
+  const [selection, setSelection] = useState<SiteSelection>(() => new Set());
 
   const { data: sites = [], isLoading } = useQuery({
     queryKey: ["wordpress-sites"],
     queryFn: fetchSites,
     refetchInterval: 8000,
   });
+
+  const siteNames = sites.map((site) => site.site);
+  const selectedSites = orderedSelection(siteNames, selection);
+  const allSelected = isAllSelected(siteNames, selection);
+  const someSelected = isIndeterminate(siteNames, selection);
 
   const { data: config, isLoading: configLoading } = useQuery({
     queryKey: ["wordpress-config"],
@@ -545,20 +565,75 @@ export function WordpressDashboard() {
             <p className="mt-1 text-sm text-zinc-500">Create one above — everything is provisioned automatically.</p>
           </div>
         ) : (
-          <ul className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
+                <input
+                  type="checkbox"
+                  ref={(el) => {
+                    if (el) el.indeterminate = someSelected;
+                  }}
+                  checked={allSelected}
+                  onChange={() => setSelection(allSelected ? selectNone() : selectAll(siteNames))}
+                  aria-label={allSelected ? "Deselect all sites" : "Select all sites"}
+                  className="h-4 w-4 rounded border-zinc-400 bg-white text-sky-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 dark:border-zinc-600 dark:bg-zinc-950"
+                />
+                Select all
+              </label>
+              <div className="flex items-center gap-1 text-sm">
+                {(
+                  [
+                    { label: "All", onClick: () => setSelection(selectAll(siteNames)) },
+                    { label: "None", onClick: () => setSelection(selectNone()) },
+                    { label: "Invert", onClick: () => setSelection(invertSelection(siteNames, selection)) },
+                  ] as const
+                ).map((control) => (
+                  <button
+                    key={control.label}
+                    type="button"
+                    onClick={control.onClick}
+                    className="rounded px-2 py-1 text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 dark:text-zinc-400 dark:hover:text-zinc-100"
+                  >
+                    {control.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <FleetBulkToolbar
+              selectedSites={selectedSites}
+              onClear={() => setSelection(selectNone())}
+              onDone={() => void queryClient.invalidateQueries({ queryKey: ["wordpress-sites"] })}
+            />
+
+            <ul className="mt-4 grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
             {sites.map((site, index) => (
               <motion.li
                 key={site.site}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, ease: EASE_OUT, delay: Math.min(index * 0.04, 0.2) }}
-                className="group flex flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 transition-colors hover:border-zinc-700"
+                className={cn(
+                  "group flex flex-col justify-between rounded-xl border bg-zinc-900/60 p-4 transition-colors",
+                  selection.has(site.site)
+                    ? "border-sky-500/60 ring-1 ring-sky-500/40"
+                    : "border-zinc-800 hover:border-zinc-700",
+                )}
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">
-                    <Link href={`/wordpress/${encodeURIComponent(site.site)}`} className="font-medium text-zinc-100 hover:text-sky-300">
-                      {site.site}
-                    </Link>
+                    <div className="flex min-w-0 items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={selection.has(site.site)}
+                        onChange={() => setSelection(toggleSite(selection, site.site))}
+                        aria-label={`Select ${site.site}`}
+                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-600 bg-zinc-950 text-sky-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
+                      />
+                      <Link href={`/wordpress/${encodeURIComponent(site.site)}`} className="min-w-0 truncate font-medium text-zinc-100 hover:text-sky-300">
+                        {site.site}
+                      </Link>
+                    </div>
                     <span
                       className={cn(
                         "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
@@ -598,7 +673,8 @@ export function WordpressDashboard() {
                 </div>
               </motion.li>
             ))}
-          </ul>
+            </ul>
+          </>
         )}
       </section>
 

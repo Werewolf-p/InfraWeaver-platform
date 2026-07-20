@@ -151,6 +151,43 @@ describe("runConnectorUpdateSweep", () => {
     expect(summary.deferred).toBe(1); // 3 enrolled − 2 attempted; pending/external excluded
   });
 
+  test("restricts to a provided sites selection — unknown/invalid names are ignored", async () => {
+    listMock.mockResolvedValue([
+      link({ siteName: "keep-1" }),
+      link({ siteName: "keep-2" }),
+      link({ siteName: "skip-me" }),
+    ]);
+
+    const summary = await runConnectorUpdateSweep({
+      sites: ["keep-1", "keep-2", "not-enrolled", "BAD_ID!"],
+    });
+
+    expect(updateMock).toHaveBeenCalledTimes(2);
+    expect(updateMock).toHaveBeenCalledWith("keep-1");
+    expect(updateMock).toHaveBeenCalledWith("keep-2");
+    expect(updateMock).not.toHaveBeenCalledWith("skip-me");
+    expect(summary.total).toBe(2);
+    expect(summary.updated).toBe(2);
+  });
+
+  test("an explicitly empty sites selection sweeps nothing", async () => {
+    listMock.mockResolvedValue([link({ siteName: "a" }), link({ siteName: "b" })]);
+
+    const summary = await runConnectorUpdateSweep({ sites: [] });
+
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(summary).toMatchObject({ total: 0, updated: 0, failed: 0 });
+  });
+
+  test("no sites option keeps the all-enrolled behaviour unchanged", async () => {
+    listMock.mockResolvedValue([link({ siteName: "a" }), link({ siteName: "b" })]);
+
+    const summary = await runConnectorUpdateSweep();
+
+    expect(updateMock).toHaveBeenCalledTimes(2);
+    expect(summary.total).toBe(2);
+  });
+
   test("bounds concurrency — the CM write burst never exceeds the pool width", async () => {
     // The 409 race is a lockstep write burst on the one IWSL ConfigMap. Prove the
     // sweep never runs more than its pool width of per-site updates at once, no
