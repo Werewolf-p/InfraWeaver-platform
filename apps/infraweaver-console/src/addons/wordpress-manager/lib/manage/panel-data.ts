@@ -109,11 +109,36 @@ export async function getManagePanel(site: string, panelId: string): Promise<unk
   const ctx: PanelProbeContext = {
     site,
     pod,
-    exec: (script, opts) => execInWpPod(pod, script, opts),
+    exec: (script, opts) => execProbe(pod, script, opts),
     capabilities,
     managed,
   };
   return probe.fetch(ctx);
+}
+
+/**
+ * Probe exec with retry-on-empty. A wp-cli exec into a slow/loaded pod
+ * occasionally returns exit-0 with NO output at all (the exec stream closes
+ * early), which a probe would otherwise parse as "0 results" and cache as wrong
+ * data — the "site shows all 0s" bug. Total silence (empty stdout AND stderr) is
+ * treated as a transient flake and retried a couple times with a short backoff.
+ * A genuinely-empty command still returns empty after the retries (a few hundred
+ * ms slower, correct); any command that produced stderr or a non-zero exit is
+ * never retried here (the latter already threw in execInWpPod).
+ */
+async function execProbe(
+  pod: string,
+  script: string,
+  opts?: Parameters<typeof execInWpPod>[2],
+): Promise<{ stdout: string; stderr: string }> {
+  const MAX_ATTEMPTS = 3;
+  let last = { stdout: "", stderr: "" };
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    last = await execInWpPod(pod, script, opts);
+    if (last.stdout.trim() !== "" || last.stderr.trim() !== "") return last;
+    if (attempt < MAX_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+  }
+  return last;
 }
 
 /** How long a panel snapshot is served without a background refresh. */
