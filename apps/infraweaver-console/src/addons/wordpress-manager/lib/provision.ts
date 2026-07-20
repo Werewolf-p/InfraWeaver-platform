@@ -23,6 +23,7 @@ import { SsoUnavailableError } from "@/lib/sso/errors";
 import { emitSsoUnavailableAlert, clearSsoUnavailableAlert } from "./reconcile-alerts";
 import { siteHealthCommand, parseSiteHealth, type SiteHealth } from "./health";
 import { shapeSitePods, type SitePod, type SitePodSource } from "./site-pods";
+import { runStep, type StepOutcome, type TeardownStep } from "./teardown-step";
 
 export interface SiteSummary {
   site: string;
@@ -251,50 +252,101 @@ async function siteHostFromCluster(apps: k8s.AppsV1Api, site: string): Promise<s
   return legacySiteHost(site);
 }
 
-export async function deleteSite(site: string): Promise<void> {
+/**
+ * Delete a k8s resource, classifying an already-absent (404) object as a
+ * `skipped` idempotent no-op rather than a failure. Any other error rethrows so
+ * `runStep` records it as `failed` — the teardown keeps going regardless.
+ */
+async function k8sDelete(del: () => Promise<unknown>): Promise<StepOutcome> {
+  try {
+    await del();
+    return { status: "removed" };
+  } catch (err) {
+    if (isK8sNotFound(err)) return { status: "skipped", detail: "already absent" };
+    throw err;
+  }
+}
+
+/**
+ * Tear down every cluster/DNS/secret resource a site owns (§12.6 delete steps
+ * b–e, plus the Authentik gate and access group that make up the console
+ * record). Idempotent and partial-failure-tolerant: each resource is its own
+ * tracked step, an already-absent object is `skipped`, and one failing delete
+ * never aborts the rest — the caller aggregates the returned steps and can
+ * safely re-run the whole teardown to finish any that failed. Callers that also
+ * need the signed connector purge (step a) and link-record removal (step f)
+ * should use `teardownSite`, which wraps this.
+ */
+export async function deleteSite(site: string): Promise<TeardownStep[]> {
   assertValidSiteId(site);
   const { core, apps, objects } = clients();
   const names = resourceNames(site);
   const opts = { namespace: WORDPRESS_NAMESPACE };
   const host = await siteHostFromCluster(apps, site);
+  const steps: TeardownStep[] = [];
 
-  await objects
-    .delete({ apiVersion: "traefik.io/v1alpha1", kind: "IngressRoute", metadata: { name: names.ingressRoute, namespace: WORDPRESS_NAMESPACE } })
-    .catch(() => undefined);
-  await Promise.all([
-    apps.deleteNamespacedDeployment({ name: names.wp, ...opts }).catch(() => undefined),
-    apps.deleteNamespacedDeployment({ name: names.db, ...opts }).catch(() => undefined),
-  ]);
-  await objects
-    .delete({ apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy", metadata: { name: `${names.db}-allow-wp`, namespace: WORDPRESS_NAMESPACE } })
-    .catch(() => undefined);
-  await Promise.all([
-    ...[names.wpService, names.dbService].map((svc) => core.deleteNamespacedService({ name: svc, ...opts }).catch(() => undefined)),
-    ...[names.wpPvc, names.dbPvc].map((pvcName) => core.deleteNamespacedPersistentVolumeClaim({ name: pvcName, ...opts }).catch(() => undefined)),
-    ...[names.wpSecret, names.dbSecret].map((secretName) =>
-      core.deleteNamespacedSecret({ name: secretName, ...opts }).catch((err) => {
-        if (!isK8sNotFound(err)) console.warn(`[wordpress] failed to delete k8s Secret ${secretName}; credentials may remain:`, err instanceof Error ? err.message : err);
-      }),
+  // (b) Deployments + Services (and the ingress route / db network policy).
+  steps.push(
+    await runStep(`ingressroute/${names.ingressRoute}`, () =>
+      k8sDelete(() =>
+        objects.delete({ apiVersion: "traefik.io/v1alpha1", kind: "IngressRoute", metadata: { name: names.ingressRoute, namespace: WORDPRESS_NAMESPACE } }),
+      ),
     ),
-  ]);
-  await resolveZoneId(host)
-    .then((zoneId) => deleteRecordsByName(host, zoneId))
-    .catch(() => undefined);
-  // De-register the Authentik application/providers and drop the proxy provider
-  // from the embedded outpost so a deleted host doesn't linger as a stale gate.
-  await removeSsoGate(`wordpress-${site}`, host).catch((err) =>
-    console.warn(`[wordpress] failed to remove Authentik SSO for ${site}; it may linger:`, err instanceof Error ? err.message : err),
   );
-  // Drop the per-site access group so a deleted site doesn't leave a stale Authentik group.
-  await removeSiteAccess(site).catch((err) =>
-    console.warn(`[wordpress] failed to remove Authentik access group for ${site}; it may linger:`, err instanceof Error ? err.message : err),
+  steps.push(await runStep(`deployment/${names.wp}`, () => k8sDelete(() => apps.deleteNamespacedDeployment({ name: names.wp, ...opts }))));
+  steps.push(await runStep(`deployment/${names.db}`, () => k8sDelete(() => apps.deleteNamespacedDeployment({ name: names.db, ...opts }))));
+  steps.push(
+    await runStep(`networkpolicy/${names.db}-allow-wp`, () =>
+      k8sDelete(() =>
+        objects.delete({ apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy", metadata: { name: `${names.db}-allow-wp`, namespace: WORDPRESS_NAMESPACE } }),
+      ),
+    ),
   );
+  for (const svc of [names.wpService, names.dbService]) {
+    steps.push(await runStep(`service/${svc}`, () => k8sDelete(() => core.deleteNamespacedService({ name: svc, ...opts }))));
+  }
+  // (c) Storage — the PVCs. This is the irreversible data loss.
+  for (const pvcName of [names.wpPvc, names.dbPvc]) {
+    steps.push(await runStep(`pvc/${pvcName}`, () => k8sDelete(() => core.deleteNamespacedPersistentVolumeClaim({ name: pvcName, ...opts }))));
+  }
+  // In-cluster k8s Secrets the pods mount (distinct from the OpenBao paths below).
+  for (const secretName of [names.wpSecret, names.dbSecret]) {
+    steps.push(await runStep(`k8s-secret/${secretName}`, () => k8sDelete(() => core.deleteNamespacedSecret({ name: secretName, ...opts }))));
+  }
+  // (e) Public DNS record, if one was created for the host.
+  steps.push(
+    await runStep("dns", async () => {
+      const zoneId = await resolveZoneId(host);
+      await deleteRecordsByName(host, zoneId);
+      return { status: "removed" };
+    }),
+  );
+  // Console record: de-register the Authentik application/providers + drop the
+  // proxy provider from the embedded outpost so a deleted host leaves no gate.
+  steps.push(
+    await runStep("authentik-sso", async () => {
+      await removeSsoGate(`wordpress-${site}`, host);
+      return { status: "removed" };
+    }),
+  );
+  // Console record: drop the per-site access group so no stale group lingers.
+  steps.push(
+    await runStep("access-group", async () => {
+      await removeSiteAccess(site);
+      return { status: "removed" };
+    }),
+  );
+  // (d) OpenBao secret paths — deleteSecret already treats a 404 as success.
   const paths = vaultPaths(site);
-  for (const path of [paths.db, paths.wp, paths.authentik, paths.config]) {
-    await deleteSecret(path).catch((err) =>
-      console.warn(`[wordpress] failed to delete vault secret ${path}; credentials may remain:`, err instanceof Error ? err.message : err),
+  for (const [label, path] of Object.entries({ db: paths.db, wp: paths.wp, authentik: paths.authentik, config: paths.config })) {
+    steps.push(
+      await runStep(`vault/${label}`, async () => {
+        await deleteSecret(path);
+        return { status: "removed" };
+      }),
     );
   }
+  return steps;
 }
 
 export interface WordpressUserSyncSummary {

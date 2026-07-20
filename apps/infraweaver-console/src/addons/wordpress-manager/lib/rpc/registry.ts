@@ -16,6 +16,8 @@
  * is injected by `iwsl-managed-ops`.
  */
 
+import { validateEntitlementsParams } from "../entitlements";
+
 /** Signed-command methods the Connector allow-lists (§7). Wire strings — never rename. */
 export type RpcMethod =
   | "health.check"
@@ -24,7 +26,9 @@ export type RpcMethod =
   | "key.rotate.self"
   | "key.rotate.confirm"
   | "key.rotate.abort"
-  | "site.deactivate";
+  | "site.deactivate"
+  | "link.purge"
+  | "entitlements.set";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -35,6 +39,9 @@ export interface RpcParams {
   "key.rotate.confirm": { rotation_id: string };
   "key.rotate.abort": { rotation_id: string };
   "site.deactivate": Record<string, never>;
+  "link.purge": Record<string, never>;
+  /** Paid-feature entitlements — a console-authoritative boolean flag map. */
+  "entitlements.set": { entitlements: Record<string, boolean> };
 }
 
 /**
@@ -92,6 +99,10 @@ export interface RpcResult {
   "key.rotate.confirm": Record<string, never> | { reason: string };
   "key.rotate.abort": Record<string, never>;
   "site.deactivate": { deactivated: true };
+  /** §12.6 delete — the plugin scrubbed all `iwsl_*` enrollment state. */
+  "link.purge": { purged: true };
+  /** The plugin echoes back the stored flag map it applied. */
+  "entitlements.set": { entitlements: Record<string, boolean> };
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -117,8 +128,8 @@ const rotationParams: RpcParamsValidator = (params) =>
   Object.keys(params).every((key) => key === "rotation_id" || key === "new_kid");
 
 /**
- * The six current signed commands. Single source of truth for the console side;
- * the ordering matches `IWSL_Plugin::allowed_methods()` for easy cross-reading.
+ * The current signed commands. Single source of truth for the console side; the
+ * ordering matches `IWSL_Plugin::allowed_methods()` for easy cross-reading.
  */
 export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "health.check": { hasParams: false, validate: noParams },
@@ -128,6 +139,9 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "key.rotate.confirm": { hasParams: true, validate: rotationParams },
   "key.rotate.abort": { hasParams: true, validate: rotationParams },
   "site.deactivate": { hasParams: false, validate: noParams },
+  "link.purge": { hasParams: false, validate: noParams },
+  // Paid-feature entitlements — validator mirrors the plugin's allow-list check.
+  "entitlements.set": { hasParams: true, validate: validateEntitlementsParams },
 };
 
 /** The allow-listed method names, in registry order. */

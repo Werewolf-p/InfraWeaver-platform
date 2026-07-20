@@ -67,6 +67,25 @@ final class IWSL_CLI {
 		WP_CLI::log( 'Last rejection:   ' . ( is_array( $reject ) ? $reject['reason'] . ' @ ' . $reject['ts'] : '-' ) );
 	}
 
+	/**
+	 * Client-side feature gate state — the same evaluation the Tools →
+	 * InfraWeaver Plus page renders, on the command line. All local, no network.
+	 *
+	 * @subcommand gate
+	 */
+	public function gate( array $args, array $assoc_args ): void {
+		$g = $this->plugin->entitlements()->evaluate( 'plus' );
+		WP_CLI::log( 'Feature:          ' . $g['feature'] );
+		WP_CLI::log( 'Unlocked:         ' . ( $g['unlocked'] ? 'yes' : 'NO' ) );
+		WP_CLI::log( 'Linked:           ' . ( $g['linked'] ? 'yes' : 'no (' . $g['state'] . ')' ) );
+		WP_CLI::log( 'Heartbeat fresh:  ' . ( $g['heartbeat_fresh'] ? 'yes' : 'no' )
+			. ( null === $g['last_verified_at'] ? ' (never verified)' : ' (age ' . (int) floor( (int) $g['heartbeat_age_ms'] / 1000 ) . 's)' ) );
+		WP_CLI::log( 'Plus granted:     ' . ( $g['plus'] ? 'yes' : 'no' ) );
+		if ( ! empty( $g['reasons'] ) ) {
+			WP_CLI::log( 'Locked because:   ' . implode( ', ', $g['reasons'] ) );
+		}
+	}
+
 	/** Keys present, sign/verify round-trip, clock sanity. @subcommand selftest */
 	public function selftest( array $args, array $assoc_args ): void {
 		$failures = 0;

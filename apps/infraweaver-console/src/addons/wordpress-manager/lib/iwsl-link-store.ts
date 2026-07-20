@@ -1,6 +1,7 @@
 import "server-only";
 import { makeCoreApi } from "@/lib/kube-client";
 import type { SlhdsaAlg } from "@/lib/iwsl";
+import type { SiteEntitlements } from "./entitlements";
 import { isK8sNotFound, isTransientApiError } from "./k8s-errors";
 
 /**
@@ -101,6 +102,13 @@ export interface ExternalSiteRecord {
     updatedAt?: string;
     updatedBy?: string;
   };
+  /**
+   * Paid-feature entitlements mirrored from the last signed `entitlements.set`
+   * push (see `entitlements.ts`). The console is authoritative and this record is
+   * its mirror for display + drift reconciliation; the plugin holds the real,
+   * dual-signed copy. Absent ⇒ no paid flags granted.
+   */
+  entitlements?: SiteEntitlements;
   /** Last signed health.check outcome (§12.5 diagnostics). */
   lastHealth?: { at: string; ok: boolean; roundtripMs?: number; reason?: string };
   /**

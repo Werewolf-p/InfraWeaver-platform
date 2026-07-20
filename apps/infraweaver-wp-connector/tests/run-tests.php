@@ -31,6 +31,7 @@ require __DIR__ . '/../includes/class-iwsl-enrollment.php';
 require __DIR__ . '/../includes/class-iwsl-rotation.php';
 require __DIR__ . '/../includes/class-iwsl-responder.php';
 require __DIR__ . '/../includes/class-iwsl-command-handler.php';
+require __DIR__ . '/../includes/class-iwsl-entitlements.php';
 require __DIR__ . '/../includes/class-iwsl-plugin.php';
 
 $GLOBALS['iwsl_pass'] = 0;
@@ -103,7 +104,7 @@ function iwsl_now_t0( int $offset_ms = 5000 ): callable {
 	};
 }
 
-$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin' );
+$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements' );
 foreach ( $suites as $suite ) {
 	echo "== {$suite}\n";
 	require __DIR__ . '/test-' . $suite . '.php';

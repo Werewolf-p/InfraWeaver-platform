@@ -18,6 +18,9 @@ jest.mock("framer-motion", () => {
             ReactLib.createElement(tag, { className }, children),
       },
     ),
+    // ConfirmDialog (rendered by the new Danger zone) pulls useMotionSafe →
+    // useReducedMotion; the shim must export it. false = motion enabled.
+    useReducedMotion: () => false,
   };
 });
 
