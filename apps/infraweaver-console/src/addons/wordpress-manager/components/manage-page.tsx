@@ -12,7 +12,7 @@ import { ManageView } from "./demo/manage/manage-view";
  */
 export function ManagePage({ site }: { site: string }) {
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6">
+    <div className="w-full px-4 py-8 sm:px-6 lg:px-8">
       <Link href="/wordpress" className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-200">
         <ArrowLeft className="h-4 w-4" aria-hidden /> All sites
       </Link>

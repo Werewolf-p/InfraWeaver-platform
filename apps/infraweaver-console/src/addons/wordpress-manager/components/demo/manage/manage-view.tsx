@@ -261,7 +261,7 @@ export function ManageView({ site }: { site: string }) {
         </div>
 
         {/* Desktop: two-pane — vertical rail + wide content. */}
-        <div className="mt-5 grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <div className="mt-5 grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)]">
           <aside className="hidden lg:block">
             <div className="sticky top-6">
               {overview ? (
