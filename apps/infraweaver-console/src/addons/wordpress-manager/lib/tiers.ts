@@ -88,6 +88,7 @@ export const TIERS: Readonly<Record<TierId, TierDefinition>> = {
       "db_optimization",
       "email_delivery",
       "redirect_manager",
+      "page_cache",
     ],
   },
   care_ultimate: {
@@ -104,6 +105,7 @@ export const TIERS: Readonly<Record<TierId, TierDefinition>> = {
       "db_optimization",
       "email_delivery",
       "redirect_manager",
+      "page_cache",
     ],
   },
 };

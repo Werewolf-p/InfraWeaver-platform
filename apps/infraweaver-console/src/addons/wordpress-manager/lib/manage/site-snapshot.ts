@@ -114,6 +114,21 @@ export async function writeSiteSnapshot(site: string, overview: ManageOverview, 
   });
 }
 
+/**
+ * Drop one site's durable overview snapshot — call after a write action so the next
+ * overview read pulls live and reflects the just-changed plugin/user/content state
+ * (the header counts + capability booleans) instead of the pre-mutation snapshot.
+ * Reads first and skips the write when the site has no stored overview, so it never
+ * touches the ConfigMap needlessly.
+ */
+export async function clearSiteSnapshot(site: string): Promise<void> {
+  const { data } = await readConfigMapData(CONFIGMAP_NAME);
+  if (!(site in data)) return;
+  await mutateConfigMap(CONFIGMAP_NAME, (map) => {
+    delete map[site];
+  });
+}
+
 /** One site's overview to persist in a batch sweep write. */
 export interface SnapshotWriteEntry {
   readonly site: string;

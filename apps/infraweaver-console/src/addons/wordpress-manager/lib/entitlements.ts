@@ -28,6 +28,7 @@ export const ENTITLEMENT_FLAGS = [
   "db_optimization",
   "email_delivery",
   "redirect_manager",
+  "page_cache",
 ] as const;
 export type EntitlementFlag = (typeof ENTITLEMENT_FLAGS)[number];
 
@@ -86,6 +87,12 @@ export const ENTITLEMENT_FLAG_META: Readonly<Record<EntitlementFlag, Entitlement
     label: "301 redirect manager",
     description:
       "Manage 301/302 redirects and monitor 404s locally — open-redirect-safe, capped, and applied early on the linked site.",
+  },
+  page_cache: {
+    flag: "page_cache",
+    label: "Page cache",
+    description:
+      "Safe-by-default full-page cache via a native WordPress drop-in — anonymous visitors only, auto-purged on content change. Never caches logged-in or session pages.",
   },
 };
 

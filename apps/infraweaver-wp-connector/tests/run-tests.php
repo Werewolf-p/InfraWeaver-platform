@@ -45,6 +45,8 @@ require __DIR__ . '/../includes/class-iwsl-media-optimizer.php';
 require __DIR__ . '/../includes/class-iwsl-redirect-matcher.php';
 require __DIR__ . '/../includes/class-iwsl-exact-path-matcher.php';
 require __DIR__ . '/../includes/class-iwsl-redirects.php';
+require __DIR__ . '/../includes/iwsl-page-cache-helpers.php';
+require __DIR__ . '/../includes/class-iwsl-page-cache.php';
 require __DIR__ . '/../includes/class-iwsl-mail-transport.php';
 require __DIR__ . '/../includes/class-iwsl-smtp-transport.php';
 require __DIR__ . '/../includes/class-iwsl-email-delivery.php';
@@ -126,7 +128,7 @@ function iwsl_now_t0( int $offset_ms = 5000 ): callable {
 	};
 }
 
-$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer' );
+$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache' );
 foreach ( $suites as $suite ) {
 	echo "== {$suite}\n";
 	require __DIR__ . '/test-' . $suite . '.php';

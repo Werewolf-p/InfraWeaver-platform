@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.6.0
+ * Version: 0.7.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.6.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.7.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -48,6 +48,8 @@ require_once __DIR__ . '/includes/class-iwsl-media-optimizer.php';
 require_once __DIR__ . '/includes/class-iwsl-redirect-matcher.php';
 require_once __DIR__ . '/includes/class-iwsl-exact-path-matcher.php';
 require_once __DIR__ . '/includes/class-iwsl-redirects.php';
+require_once __DIR__ . '/includes/iwsl-page-cache-helpers.php';
+require_once __DIR__ . '/includes/class-iwsl-page-cache.php';
 require_once __DIR__ . '/includes/class-iwsl-mail-transport.php';
 require_once __DIR__ . '/includes/class-iwsl-smtp-transport.php';
 require_once __DIR__ . '/includes/class-iwsl-email-delivery.php';
@@ -81,6 +83,18 @@ if ( is_admin() ) {
 // matcher runs on template_redirect; the callback's FIRST statement is the
 // entitlement gate, so a locked or revoked site gets default behavior instantly.
 ( new IWSL_Redirects( iwsl_plugin()->entitlements(), new IWSL_WP_Store() ) )->register();
+
+// Page Cache (gated, Pro/Ultimate, flag `page_cache`). Registered on every
+// request: register() wires the purge hooks (each self-gates on is_enabled(), so
+// a locked/disabled site pays nothing) and the admin_init revocation check.
+// maybe_revoke() is ALSO invoked once here at bootstrap so the signed-command /
+// heartbeat request path (non-admin) tears the serve-time drop-in down the moment
+// the console revokes the flag — the drop-in itself runs before plugins load and
+// cannot re-check the gate, so presence-based enforcement lives here. The common
+// case is one is_file(): maybe_revoke() only touches disk when OUR drop-in exists.
+$iwsl_page_cache = new IWSL_Page_Cache( iwsl_plugin()->entitlements() );
+$iwsl_page_cache->register();
+$iwsl_page_cache->maybe_revoke();
 
 // Custom login + admin white-label (gated, `white_label`, Ultimate). Passive
 // login/admin presentation hooks only; every callback re-checks the gate as its

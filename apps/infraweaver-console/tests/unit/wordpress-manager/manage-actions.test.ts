@@ -12,6 +12,7 @@ jest.mock("@/addons/wordpress-manager/lib/provision", () => ({
 jest.mock("@/addons/wordpress-manager/lib/k8s-exec", () => ({ execInWpPod: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/manage/overview", () => ({ requireRunningWpPod: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/manage/snapshot-cache", () => ({ invalidateManageCache: jest.fn() }));
+jest.mock("@/addons/wordpress-manager/lib/manage/invalidate", () => ({ invalidateManageReadsAfterMutation: jest.fn(() => Promise.resolve()) }));
 jest.mock("@/addons/wordpress-manager/lib/iwsl-managed-commands", () => ({ CONNECTOR_PLUGIN_SLUG: "infraweaver-connector" }));
 jest.mock("@/lib/mailer", () => ({ sendWpPasswordResetEmail: jest.fn(), isMailerConfigured: jest.fn(() => true) }));
 

@@ -147,6 +147,26 @@ export async function writeSitePanelSnapshot(
   });
 }
 
+/**
+ * Drop EVERY durable panel snapshot for a site — call after a write action so the
+ * next per-panel read pulls the post-mutation state live and re-warms, instead of
+ * serving the pre-mutation snapshot durable-first (which is why a real
+ * activate/update/delete could look like it "did nothing"). The reserved timestamp
+ * key is preserved. Reads first and skips the write entirely when there is nothing
+ * to clear, so a mutation on a never-swept site never creates an empty ConfigMap.
+ */
+export async function clearSitePanelSnapshots(site: string): Promise<void> {
+  const name = panelConfigMapName(site);
+  const { data } = await readConfigMapData(name);
+  const hasPayload = Object.keys(data).some((key) => key !== RESERVED_UPDATED_AT_KEY);
+  if (!hasPayload) return;
+  await mutateConfigMap(name, (map) => {
+    for (const key of Object.keys(map)) {
+      if (key !== RESERVED_UPDATED_AT_KEY) delete map[key];
+    }
+  });
+}
+
 /** One panel's data to persist in a batch sweep write. */
 export interface PanelSnapshotWriteEntry {
   readonly panel: ManagePanelId;

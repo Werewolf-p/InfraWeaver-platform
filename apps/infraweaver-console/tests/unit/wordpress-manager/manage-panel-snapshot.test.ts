@@ -17,6 +17,7 @@ import {
   writeSitePanelSnapshots,
   readSitePanelSnapshot,
   readSitePanelSnapshots,
+  clearSitePanelSnapshots,
   MAX_PANEL_ENTRY_BYTES,
 } from "@/addons/wordpress-manager/lib/manage/panel-snapshot";
 import {
@@ -90,6 +91,34 @@ describe("panel-snapshot bounding", () => {
 
   test("an empty batch is a no-op (no I/O)", async () => {
     await writeSitePanelSnapshots("blog", []);
+    expect(mutateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("panel-snapshot clearing (post-mutation invalidation)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mutateMock.mockResolvedValue(undefined);
+  });
+
+  test("clears every payload panel key in one mutate, keeping the reserved timestamp", async () => {
+    readMock.mockResolvedValue({ data: { updatedAt: "t", content: "x", media: "y" } });
+    await clearSitePanelSnapshots("blog");
+    expect(mutateMock).toHaveBeenCalledTimes(1);
+    const map: Record<string, string> = { updatedAt: "t", content: "x", media: "y" };
+    mutateMock.mock.calls[0][1](map);
+    expect(map).toEqual({ updatedAt: "t" });
+  });
+
+  test("no-op (no write) when the site has no panel snapshots", async () => {
+    readMock.mockResolvedValue({ data: {} });
+    await clearSitePanelSnapshots("blog");
+    expect(mutateMock).not.toHaveBeenCalled();
+  });
+
+  test("no-op when only the reserved timestamp is present", async () => {
+    readMock.mockResolvedValue({ data: { updatedAt: "t" } });
+    await clearSitePanelSnapshots("blog");
     expect(mutateMock).not.toHaveBeenCalled();
   });
 });

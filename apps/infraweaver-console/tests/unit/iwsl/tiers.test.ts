@@ -77,6 +77,7 @@ describe("deriveEntitlementsForTier", () => {
       db_optimization: false,
       email_delivery: false,
       redirect_manager: false,
+      page_cache: false,
     });
     expect(deriveEntitlementsForTier("care_basic")).toEqual({
       plus: false,
@@ -87,6 +88,7 @@ describe("deriveEntitlementsForTier", () => {
       db_optimization: false,
       email_delivery: false,
       redirect_manager: false,
+      page_cache: false,
     });
     expect(deriveEntitlementsForTier("care_pro")).toEqual({
       plus: true,
@@ -97,6 +99,7 @@ describe("deriveEntitlementsForTier", () => {
       db_optimization: true,
       email_delivery: true,
       redirect_manager: true,
+      page_cache: true,
     });
     expect(deriveEntitlementsForTier("care_ultimate")).toEqual({
       plus: true,
@@ -107,6 +110,7 @@ describe("deriveEntitlementsForTier", () => {
       db_optimization: true,
       email_delivery: true,
       redirect_manager: true,
+      page_cache: true,
     });
   });
 
@@ -135,7 +139,7 @@ describe("image_optimization — the lossless-conversion gate (Pro and above onl
 });
 
 describe("Pro on-site tool flags (db_optimization / email_delivery / redirect_manager)", () => {
-  const proTools = ["db_optimization", "email_delivery", "redirect_manager"] as const;
+  const proTools = ["db_optimization", "email_delivery", "redirect_manager", "page_cache"] as const;
 
   test("granted at Pro and inherited by Ultimate", () => {
     for (const flag of proTools) {

@@ -7,8 +7,10 @@ import { ManageView } from "./demo/manage/manage-view";
 
 /**
  * Per-site "Manage" page shell. Mirrors the Overview / Connector page chrome
- * (back-link → title → SiteTabs) and hosts the ManageView demo console. All
- * content inside ManageView is illustrative dummy data — see site-manage-data.ts.
+ * (back-link → title → SiteTabs) and hosts the ManageView console. Every panel
+ * inside ManageView reads the site's live state over the secure in-pod wp-cli path
+ * and every write control dispatches a real allow-listed Manage action — there is
+ * no dummy data or no-op control on this surface.
  */
 export function ManagePage({ site }: { site: string }) {
   return (

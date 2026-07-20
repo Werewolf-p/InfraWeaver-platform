@@ -7,6 +7,7 @@ import { AddonHttpError, SiteNotFoundError } from "../errors";
 import { requireRunningWpPod } from "./overview";
 import { WP, WP_SAFE, safeWpArg, parseJsonArray, fieldStr } from "./wp-probe";
 import { invalidateManageCache } from "./snapshot-cache";
+import { invalidateManageReadsAfterMutation } from "./invalidate";
 import { WORDPRESS_ROLES, type WordpressRoleName } from "./capabilities";
 import { CONNECTOR_PLUGIN_SLUG } from "../iwsl-managed-commands";
 import { sendWpPasswordResetEmail, isMailerConfigured } from "@/lib/mailer";
@@ -414,13 +415,13 @@ export async function runManageAction(site: string, action: ManageAction): Promi
   // Actions routed through vetted provisioning capabilities rather than a raw exec.
   if (action.type === "sync-users") {
     const summary = await syncSiteWpUsers(site);
-    invalidateManageCache(site);
+    await invalidateManageReadsAfterMutation(site);
     const changed = summary.actions.filter((a) => a.action !== "unchanged").length;
     return { ok: true, message: `Accounts reconciled — ${changed} changed, ${summary.failed.length} failed.` };
   }
   if (action.type === "set-maintenance-mode") {
     await setMaintenanceMode(site, action.enabled);
-    invalidateManageCache(site);
+    await invalidateManageReadsAfterMutation(site);
     return { ok: true, message: action.enabled ? "Maintenance mode enabled." : "Maintenance mode disabled." };
   }
 
@@ -440,8 +441,10 @@ export async function runManageAction(site: string, action: ManageAction): Promi
   const built = commandFor(action);
   if (!built) throw new AddonHttpError("Unsupported action", 400);
   await exec(built.command, { timeoutMs: 120_000, stdin: built.stdin });
-  // The mutation changed the site — drop its cached snapshots so the next read is fresh.
-  invalidateManageCache(site);
+  // The mutation changed the site — drop its cached reads (in-memory AND the durable
+  // cross-replica snapshots) so the next read reflects the change instead of the
+  // pre-mutation snapshot the console would otherwise serve durable-first.
+  await invalidateManageReadsAfterMutation(site);
   return { ok: true, message: SUCCESS_MESSAGE[action.type] };
 }
 

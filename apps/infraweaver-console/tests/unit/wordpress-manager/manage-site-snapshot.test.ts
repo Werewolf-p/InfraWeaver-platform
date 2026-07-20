@@ -7,12 +7,27 @@ jest.mock("server-only", () => ({}), { virtual: true });
 // The store imports kube-client for its I/O half; stub it so importing the pure
 // serialize/parse functions never touches a real k8s client.
 jest.mock("@/lib/kube-client", () => ({ makeCoreApi: jest.fn() }));
+// Mock the ConfigMap I/O layer so the clearSiteSnapshot logic (read-then-conditional-
+// delete) is exercised without a real k8s client.
+jest.mock("@/addons/wordpress-manager/lib/manage/configmap-store", () => ({
+  mutateConfigMap: jest.fn(),
+  readConfigMapData: jest.fn(),
+  RESERVED_UPDATED_AT_KEY: "updatedAt",
+}));
 
 import {
   serializeSnapshot,
   parseSnapshot,
+  clearSiteSnapshot,
 } from "@/addons/wordpress-manager/lib/manage/site-snapshot";
+import {
+  mutateConfigMap,
+  readConfigMapData,
+} from "@/addons/wordpress-manager/lib/manage/configmap-store";
 import type { ManageOverview } from "@/addons/wordpress-manager/lib/manage/types";
+
+const mutateMock = mutateConfigMap as jest.MockedFunction<typeof mutateConfigMap>;
+const readMock = readConfigMapData as jest.MockedFunction<typeof readConfigMapData>;
 
 function overview(overrides: Partial<ManageOverview> = {}): ManageOverview {
   return {
@@ -71,5 +86,27 @@ describe("site-snapshot (de)serialization", () => {
     expect(parseSnapshot(JSON.stringify({ v: 1, at: 1, overview: { site: "x", panels: {} } }))).toBeNull();
     // overview not an object
     expect(parseSnapshot(JSON.stringify({ v: 1, at: 1, overview: 5 }))).toBeNull();
+  });
+});
+
+describe("clearSiteSnapshot (post-mutation invalidation)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mutateMock.mockResolvedValue(undefined);
+  });
+
+  test("deletes only the target site's entry in one mutate", async () => {
+    readMock.mockResolvedValue({ data: { updatedAt: "t", blog: "x", shop: "y" } });
+    await clearSiteSnapshot("blog");
+    expect(mutateMock).toHaveBeenCalledTimes(1);
+    const map: Record<string, string> = { updatedAt: "t", blog: "x", shop: "y" };
+    mutateMock.mock.calls[0][1](map);
+    expect(map).toEqual({ updatedAt: "t", shop: "y" });
+  });
+
+  test("no-op (no write) when the site has no stored overview", async () => {
+    readMock.mockResolvedValue({ data: { updatedAt: "t", shop: "y" } });
+    await clearSiteSnapshot("blog");
+    expect(mutateMock).not.toHaveBeenCalled();
   });
 });

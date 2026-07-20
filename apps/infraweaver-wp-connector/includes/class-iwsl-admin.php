@@ -50,6 +50,12 @@ final class IWSL_Admin {
 	const DB_OPTIMIZE_ACTION = 'iwsl_db_optimize';
 	const DB_OPTIMIZE_NONCE  = 'iwsl_db_optimize';
 
+	/** admin-post actions + nonces for the Page Cache enable/disable toggle + purge. */
+	const PAGE_CACHE_TOGGLE_ACTION = 'iwsl_page_cache_toggle';
+	const PAGE_CACHE_TOGGLE_NONCE  = 'iwsl_page_cache_toggle';
+	const PAGE_CACHE_PURGE_ACTION  = 'iwsl_page_cache_purge';
+	const PAGE_CACHE_PURGE_NONCE   = 'iwsl_page_cache_purge';
+
 	/** @var IWSL_Plugin */
 	private $plugin;
 
@@ -68,13 +74,17 @@ final class IWSL_Admin {
 	/** @var IWSL_DB_Optimizer|null lazily built from the plugin's entitlements + global $wpdb. */
 	private $db_optimizer;
 
-	public function __construct( IWSL_Plugin $plugin, ?IWSL_Media_Optimizer $optimizer = null, ?IWSL_Email_Delivery $email_delivery = null, ?IWSL_Redirects $redirects = null, ?IWSL_White_Label $white_label = null, ?IWSL_DB_Optimizer $db_optimizer = null ) {
+	/** @var IWSL_Page_Cache|null lazily built from the plugin's entitlements. */
+	private $page_cache;
+
+	public function __construct( IWSL_Plugin $plugin, ?IWSL_Media_Optimizer $optimizer = null, ?IWSL_Email_Delivery $email_delivery = null, ?IWSL_Redirects $redirects = null, ?IWSL_White_Label $white_label = null, ?IWSL_DB_Optimizer $db_optimizer = null, ?IWSL_Page_Cache $page_cache = null ) {
 		$this->plugin         = $plugin;
 		$this->optimizer      = $optimizer;
 		$this->email_delivery = $email_delivery;
 		$this->redirects      = $redirects;
 		$this->white_label    = $white_label;
 		$this->db_optimizer   = $db_optimizer;
+		$this->page_cache     = $page_cache;
 	}
 
 	/** Hook the admin menu + the image-optimization + email-delivery + redirect + db-optimize admin-post handlers. */
@@ -88,6 +98,8 @@ final class IWSL_Admin {
 		add_action( 'admin_post_' . self::REDIRECT_LOG_ACTION, array( $this, 'handle_redirects_log' ) );
 		add_action( 'admin_post_' . self::WHITE_LABEL_ACTION, array( $this, 'handle_white_label_save' ) );
 		add_action( 'admin_post_' . self::DB_OPTIMIZE_ACTION, array( $this, 'handle_db_optimize' ) );
+		add_action( 'admin_post_' . self::PAGE_CACHE_TOGGLE_ACTION, array( $this, 'handle_page_cache_toggle' ) );
+		add_action( 'admin_post_' . self::PAGE_CACHE_PURGE_ACTION, array( $this, 'handle_page_cache_purge' ) );
 	}
 
 	public function add_menu(): void {
@@ -140,6 +152,14 @@ final class IWSL_Admin {
 		return $this->db_optimizer;
 	}
 
+	/** The page-cache controller, built once from the plugin's entitlement gate. */
+	private function page_cache(): IWSL_Page_Cache {
+		if ( null === $this->page_cache ) {
+			$this->page_cache = new IWSL_Page_Cache( $this->plugin->entitlements() );
+		}
+		return $this->page_cache;
+	}
+
 	public function render_page(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have permission to view this page.', 'infraweaver-connector' ) );
@@ -167,6 +187,8 @@ final class IWSL_Admin {
 		$this->render_white_label_section();
 
 		$this->render_db_optimizer_section();
+
+		$this->render_page_cache_section();
 
 		echo '</div>';
 	}
@@ -1327,6 +1349,211 @@ final class IWSL_Admin {
 
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( 'iwsl_db_result_' . (int) get_current_user_id(), $summary, 60 );
+		}
+		wp_safe_redirect( $redirect );
+		exit;
+	}
+
+	// ── Section 7: Page Cache ──────────────────────────────────────────────────
+
+	/**
+	 * Render the page-cache section (LAYER 1 of the gate), driven by the
+	 * `page_cache` flag. Locked → reasons only, no controls. Unlocked → per-user
+	 * PRG result notice + the status table + an enable/disable toggle + a Purge-all
+	 * button. The serve/store engine itself is the drop-in (installed by enable());
+	 * this page only manages it and reports status.
+	 */
+	private function render_page_cache_section(): void {
+		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
+
+		echo '<hr style="margin:24px 0;">';
+		echo '<h2>' . esc_html__( 'Page Cache', 'infraweaver-connector' ) . '</h2>';
+		echo '<p>' . esc_html__( 'Serve a static HTML copy of public pages to anonymous visitors — faster loads with no external service. Logged-in users, password-protected posts and carts always bypass the cache, and content changes purge it automatically.', 'infraweaver-connector' ) . '</p>';
+
+		// A redirect from a handler after a locked POST (layer-2 defence tripped).
+		if ( isset( $_GET['iwsl_pc_locked'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p><strong>' . esc_html__( 'The Page Cache entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p></div>';
+		}
+
+		if ( empty( $gate['unlocked'] ) ) {
+			self::render_page_cache_locked_notice( $gate );
+			return;
+		}
+
+		$this->render_page_cache_result_notice();
+		$this->render_page_cache_status_and_controls();
+	}
+
+	/** Reason lines for a locked page-cache gate (no controls). */
+	private static function render_page_cache_locked_notice( array $gate ): void {
+		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
+		// flag; here it maps to the page-cache-specific message (Pro tier).
+		$messages = array(
+			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
+			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
+			'requires-plus'   => 'The Page Cache entitlement is not granted — assign the Pro tier from the console.',
+		);
+		echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p><strong>🔒 Page Cache is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
+		foreach ( (array) $gate['reasons'] as $reason ) {
+			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
+			echo '<li>' . esc_html( $text ) . '</li>';
+		}
+		echo '</ul></div>';
+	}
+
+	/** Render (then clear) the current user's PRG result transient. */
+	private function render_page_cache_result_notice(): void {
+		if ( ! function_exists( 'get_transient' ) || ! function_exists( 'get_current_user_id' ) ) {
+			return;
+		}
+		$key    = 'iwsl_pc_result_' . (int) get_current_user_id();
+		$result = get_transient( $key );
+		if ( function_exists( 'delete_transient' ) ) {
+			delete_transient( $key );
+		}
+		if ( ! is_array( $result ) ) {
+			return;
+		}
+		if ( ! empty( $result['ok'] ) ) {
+			if ( ! empty( $result['purged_msg'] ) ) {
+				$msg = esc_html( (string) $result['purged_msg'] );
+			} elseif ( ! empty( $result['enabled'] ) ) {
+				$msg = esc_html__( 'Page cache enabled.', 'infraweaver-connector' );
+			} else {
+				$msg = esc_html__( 'Page cache disabled.', 'infraweaver-connector' );
+			}
+			echo '<div class="notice notice-success" style="margin-top:12px;padding:12px;"><p>' . $msg . '</p></div>';
+			if ( ! empty( $result['manual_step'] ) ) {
+				echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p>' . esc_html( (string) $result['manual_step'] ) . '</p></div>';
+			}
+		} else {
+			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p>' . esc_html( sprintf( 'Action failed: %s', (string) ( $result['reason'] ?? 'unknown' ) ) ) . '</p></div>';
+		}
+	}
+
+	/** The status table + enable/disable toggle + purge-all button + the plain note. */
+	private function render_page_cache_status_and_controls(): void {
+		$status  = $this->page_cache()->status();
+		$enabled = ! empty( $status['enabled'] );
+
+		echo '<table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
+		echo '<th>' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Value', 'infraweaver-connector' ) . '</th></tr></thead><tbody>';
+		self::render_page_cache_status_row( esc_html__( 'Cache active', 'infraweaver-connector' ), $enabled );
+		self::render_page_cache_status_row( esc_html__( 'Drop-in installed', 'infraweaver-connector' ), ! empty( $status['dropin_present'] ) && ! empty( $status['dropin_is_ours'] ) );
+		self::render_page_cache_status_row( esc_html__( 'WP_CACHE set in wp-config.php', 'infraweaver-connector' ), ! empty( $status['wp_cache_defined'] ) );
+		self::render_page_cache_status_row( esc_html__( 'wp-config.php writable', 'infraweaver-connector' ), ! empty( $status['wp_config_writable'] ) );
+		echo '<tr><th scope="row">' . esc_html__( 'Cached pages', 'infraweaver-connector' ) . '</th><td>' . esc_html( (string) (int) $status['entries'] ) . '</td></tr>';
+		echo '<tr><th scope="row">' . esc_html__( 'Cache size', 'infraweaver-connector' ) . '</th><td>' . esc_html( self::format_bytes( (int) $status['total_bytes'] ) ) . '</td></tr>';
+		echo '<tr><th scope="row">' . esc_html__( 'Freshness (TTL)', 'infraweaver-connector' ) . '</th><td>' . esc_html( sprintf( '%d seconds', (int) $status['ttl'] ) ) . '</td></tr>';
+		echo '</tbody></table>';
+
+		// If WP_CACHE cannot be set automatically, show the exact manual step.
+		if ( empty( $status['wp_cache_defined'] ) && empty( $status['wp_config_writable'] ) ) {
+			echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p>' . esc_html__( "wp-config.php is not writable. Add define('WP_CACHE', true); near the top of wp-config.php to activate the cache; the drop-in stays inert until then.", 'infraweaver-connector' ) . '</p></div>';
+		}
+
+		// Enable / disable toggle.
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:16px;display:inline-block;">';
+		wp_nonce_field( self::PAGE_CACHE_TOGGLE_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::PAGE_CACHE_TOGGLE_ACTION ) . '">';
+		echo '<input type="hidden" name="enable" value="' . esc_attr( $enabled ? '0' : '1' ) . '">';
+		$label = $enabled
+			? esc_html__( 'Disable page cache', 'infraweaver-connector' )
+			: esc_html__( 'Enable page cache', 'infraweaver-connector' );
+		echo '<button type="submit" class="button button-primary">' . $label . '</button>';
+		echo '</form> ';
+
+		// Purge-all button.
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:16px;display:inline-block;">';
+		wp_nonce_field( self::PAGE_CACHE_PURGE_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::PAGE_CACHE_PURGE_ACTION ) . '">';
+		echo '<button type="submit" class="button">' . esc_html__( 'Purge all', 'infraweaver-connector' ) . '</button>';
+		echo '</form>';
+
+		echo '<p class="description" style="margin-top:8px;">' . esc_html__( 'Only anonymous visitors are served cached pages; logged-in users and carts always bypass. Content changes purge the cache automatically.', 'infraweaver-connector' ) . '</p>';
+	}
+
+	/** One yes/no status row. */
+	private static function render_page_cache_status_row( string $label, bool $ok ): void {
+		$marker = $ok
+			? '<span style="color:#1a7f37;font-weight:600;">&#10004; yes</span>'
+			: '<span style="color:#b3261e;font-weight:600;">&#10008; no</span>';
+		echo '<tr><th scope="row">' . esc_html( $label ) . '</th><td>' . $marker . '</td></tr>';
+	}
+
+	/**
+	 * admin-post handler: enable/disable the page cache. LAYER 2 of the gate
+	 * (capability + nonce + gate re-check), then enable()/disable() (whose own
+	 * STATEMENT 1 is the authoritative LAYER 3 gate). The only input that crosses
+	 * the boundary is the nonce + a boolean intent. POST-redirect-GET.
+	 */
+	public function handle_page_cache_toggle(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
+		}
+		check_admin_referer( self::PAGE_CACHE_TOGGLE_NONCE );
+
+		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+
+		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_safe_redirect( add_query_arg( 'iwsl_pc_locked', '1', $redirect ) );
+			exit;
+		}
+
+		$enable = ! empty( $_POST['enable'] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$pc     = $this->page_cache();
+		if ( $enable ) {
+			$out              = $pc->enable(); // LAYER 3 inside.
+			$result           = array( 'ok' => ! empty( $out['ok'] ), 'enabled' => ! empty( $out['ok'] ) );
+			if ( isset( $out['reason'] ) ) {
+				$result['reason'] = (string) $out['reason'];
+			}
+			if ( ! empty( $out['manual_step'] ) ) {
+				$result['manual_step'] = (string) $out['manual_step'];
+			}
+		} else {
+			$out    = $pc->disable(); // LAYER 3 inside (signature-verified teardown).
+			$result = array( 'ok' => ! empty( $out['ok'] ), 'enabled' => false );
+			if ( isset( $out['reason'] ) ) {
+				$result['reason'] = (string) $out['reason'];
+			}
+		}
+
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( 'iwsl_pc_result_' . (int) get_current_user_id(), $result, 60 );
+		}
+		wp_safe_redirect( $redirect );
+		exit;
+	}
+
+	/**
+	 * admin-post handler: purge the whole page cache. Same LAYER 2 skeleton, then
+	 * purge_all(). Purging is harmless, so no further inputs cross the boundary.
+	 * POST-redirect-GET.
+	 */
+	public function handle_page_cache_purge(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
+		}
+		check_admin_referer( self::PAGE_CACHE_PURGE_NONCE );
+
+		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+
+		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_safe_redirect( add_query_arg( 'iwsl_pc_locked', '1', $redirect ) );
+			exit;
+		}
+
+		$out    = $this->page_cache()->purge_all();
+		$result = array(
+			'ok'         => ! empty( $out['ok'] ),
+			'purged_msg' => sprintf( 'Purged %d cached pages.', (int) ( $out['purged'] ?? 0 ) ),
+		);
+
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( 'iwsl_pc_result_' . (int) get_current_user_id(), $result, 60 );
 		}
 		wp_safe_redirect( $redirect );
 		exit;
