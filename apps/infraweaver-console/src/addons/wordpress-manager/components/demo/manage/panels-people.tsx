@@ -8,10 +8,15 @@
  * reset-user-password, delete-user (with optional content reassignment). Last-admin
  * and connector-service-account guardrails are enforced SERVER-SIDE (409) and their
  * messages surface inline; destructive delete additionally requires typing the login.
+ *
+ * Built on the Manage design-system kit (`./kit`): the roster is a `DataTable`, roles
+ * are `Pill`s, the empty state is `EmptyState`, filtering uses `FilterTabs`, and the
+ * delete block is fenced by `DangerZone`. Client-side search + role filter + bulk
+ * select keep the panel usable on membership sites with hundreds of accounts.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
-import { KeyRound, Mail, RefreshCw, ShieldAlert, Trash2, UserCog, UserPlus, Users } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { KeyRound, Mail, RefreshCw, Search, Trash2, UserCog, UserPlus, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import type { PeopleData, WpUserRow } from "../../../lib/manage/probes/people";
@@ -32,40 +37,66 @@ import {
   useActionRunner,
 } from "./manage-ui";
 import { isValidEmail, isValidLogin, isValidPassword } from "./form-validation";
+import { DangerZone, DataTable, EmptyState, FilterTabs, Pill } from "./kit";
+import type { Column, FilterTabOption, PillTone } from "./kit";
 
-type RoleTone = "violet" | "info" | "good" | "warn" | "neutral";
-const PILL_BASE = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium";
-const ROLE_PILL: Readonly<Record<RoleTone, string>> = {
-  violet: "border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400",
-  info: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
-  good: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  warn: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  neutral: "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300",
-};
+type WordpressRoleName = (typeof WORDPRESS_ROLES)[number];
+
 const TILE = "rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950/40";
+const EMPTY_USERS: readonly WpUserRow[] = [];
 
-const ROLE_TONE: Readonly<Record<string, RoleTone>> = {
-  administrator: "violet",
-  editor: "info",
+// Compact controls for the floating bulk toolbar / row selection.
+const BULK_SELECT =
+  "rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200";
+const CHECKBOX =
+  "h-4 w-4 rounded border-zinc-300 text-sky-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 dark:border-zinc-600 dark:bg-zinc-900";
+
+// Role → kit Pill tone. Colour rides WITH the role text, never alone.
+const ROLE_PILL_TONE: Readonly<Record<string, PillTone>> = {
+  administrator: "info",
+  editor: "good",
   author: "good",
   contributor: "warn",
   subscriber: "neutral",
 };
-function roleTone(role: string): RoleTone {
-  return ROLE_TONE[role] ?? "neutral";
+function roleToneOf(role: string): PillTone {
+  return ROLE_PILL_TONE[role] ?? "neutral";
 }
 
-function RolePill({ role }: { role: string }): ReactNode {
+function RolePill({ role }: { role: string }) {
   return (
-    <span className={cn(PILL_BASE, ROLE_PILL[roleTone(role)])}>
+    <Pill tone={roleToneOf(role)}>
       <span className="capitalize">{role}</span>
-    </span>
+    </Pill>
   );
 }
 
 function shortDate(value: string | null): string {
   if (!value) return "—";
   return value.split(" ")[0] || value;
+}
+
+/** Checkbox that supports the `indeterminate` visual state via a DOM ref. */
+function SelectCheckbox({
+  checked,
+  indeterminate = false,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return (
+    <label className="flex cursor-pointer items-center justify-center p-1">
+      <input ref={ref} type="checkbox" checked={checked} onChange={onChange} aria-label={label} className={CHECKBOX} />
+    </label>
+  );
 }
 
 // ── Add-user dialog ───────────────────────────────────────────────────────────
@@ -84,7 +115,7 @@ function AddUserDialog({
   const { run, pending, error } = useActionRunner(site);
   const [login, setLogin] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<(typeof WORDPRESS_ROLES)[number]>("subscriber");
+  const [role, setRole] = useState<WordpressRoleName>("subscriber");
   const [password, setPassword] = useState("");
 
   const loginBad = login.length > 0 && !isValidLogin(login);
@@ -116,7 +147,7 @@ function AddUserDialog({
           <input id="adduser-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} className={INPUT} placeholder="jane@example.com" />
         </Field>
         <Field label="Role" htmlFor="adduser-role" required>
-          <select id="adduser-role" value={role} onChange={(e) => setRole(e.target.value as typeof role)} className={INPUT}>
+          <select id="adduser-role" value={role} onChange={(e) => setRole(e.target.value as WordpressRoleName)} className={INPUT}>
             {WORDPRESS_ROLES.map((r) => (
               <option key={r} value={r} className="capitalize">
                 {r}
@@ -178,7 +209,7 @@ function ManageUserDialog({
   const reload = () => onChanged();
 
   async function saveRole() {
-    await run({ type: "update-user-role", userId: user.id, role: role as (typeof WORDPRESS_ROLES)[number] }, { onSuccess: reload });
+    await run({ type: "update-user-role", userId: user.id, role: role as WordpressRoleName }, { onSuccess: reload });
   }
   async function saveEmail() {
     await run({ type: "update-user-email", userId: user.id, email }, { onSuccess: reload });
@@ -256,17 +287,11 @@ function ManageUserDialog({
             </button>
           </div>
 
-          <div className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/5 p-3">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-300">
-              <ShieldAlert className="h-3.5 w-3.5" aria-hidden /> Danger zone
-            </div>
-            <p className="text-xs text-red-700/90 dark:text-red-300/90">
-              Deleting an account is permanent. Their content can be reassigned to another user.
-            </p>
+          <DangerZone description="Deleting an account is permanent. Their content can be reassigned to another user.">
             <button type="button" className={BTN_DANGER_GHOST} disabled={pending} onClick={() => setDeleteOpen(true)}>
               <Trash2 className="h-3.5 w-3.5" aria-hidden /> Delete user
             </button>
-          </div>
+          </DangerZone>
         </div>
       </Modal>
 
@@ -300,11 +325,81 @@ function ManageUserDialog({
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
+const ROLE_FILTER_ALL = "all";
+
 export function PeoplePanel({ site }: { site: string }) {
   const state = useManagePanel<PeopleData>(site, "people");
   const { run, pending } = useManageAction(site);
+
   const [addOpen, setAddOpen] = useState(false);
   const [manageId, setManageId] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>(ROLE_FILTER_ALL);
+  const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set<number>());
+  const [bulkRole, setBulkRole] = useState<WordpressRoleName>("subscriber");
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
+
+  const data = state.data;
+  const users = data?.users ?? EMPTY_USERS;
+
+  // Default sort: administrators first, then most-recently registered.
+  const sorted = useMemo(() => {
+    const copy = [...users];
+    copy.sort((a, b) => {
+      const aAdmin = a.roles.includes("administrator") ? 0 : 1;
+      const bAdmin = b.roles.includes("administrator") ? 0 : 1;
+      if (aAdmin !== bAdmin) return aAdmin - bAdmin;
+      return (b.registered ?? "").localeCompare(a.registered ?? "");
+    });
+    return copy;
+  }, [users]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return sorted.filter((u) => {
+      if (roleFilter !== ROLE_FILTER_ALL && !u.roles.includes(roleFilter)) return false;
+      if (!q) return true;
+      return (
+        u.login.toLowerCase().includes(q) ||
+        u.displayName.toLowerCase().includes(q) ||
+        (u.email ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [sorted, query, roleFilter]);
+
+  const selectedIds = useMemo(() => [...selected], [selected]);
+  const managed = useMemo(
+    () => (manageId === null ? null : users.find((u) => u.id === manageId) ?? null),
+    [manageId, users],
+  );
+  const others = useMemo(() => users.filter((u) => u.id !== manageId), [users, manageId]);
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every((u) => selected.has(u.id));
+  const someFilteredSelected = filtered.some((u) => selected.has(u.id));
+
+  function toggleOne(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllFiltered() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (filtered.every((u) => prev.has(u.id))) {
+        filtered.forEach((u) => next.delete(u.id));
+      } else {
+        filtered.forEach((u) => next.add(u.id));
+      }
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelected(new Set<number>());
+  }
 
   async function reconcile() {
     const result = await run({ type: "sync-users" });
@@ -316,109 +411,291 @@ export function PeoplePanel({ site }: { site: string }) {
     }
   }
 
-  const managed = useMemo(
-    () => (manageId === null ? null : state.data?.users.find((u) => u.id === manageId) ?? null),
-    [manageId, state.data],
-  );
-  const others = useMemo(
-    () => (state.data?.users ?? []).filter((u) => u.id !== manageId),
-    [state.data, manageId],
-  );
+  function summarizeBulk(ok: number, failed: number, lastError: string, verb: string) {
+    if (failed === 0) {
+      toast.success(`${ok} user${ok === 1 ? "" : "s"} ${verb}.`);
+    } else if (ok === 0) {
+      toast.error(lastError || `Bulk action failed.`);
+    } else {
+      toast.error(`${ok} ${verb}, ${failed} failed${lastError ? ` — ${lastError}` : ""}.`);
+    }
+  }
+
+  async function applyBulkRole() {
+    if (selectedIds.length === 0) return;
+    setBulkRunning(true);
+    let ok = 0;
+    let failed = 0;
+    let lastError = "";
+    for (const id of selectedIds) {
+      const res = await run({ type: "update-user-role", userId: id, role: bulkRole });
+      if (res.ok) ok += 1;
+      else {
+        failed += 1;
+        lastError = res.message;
+      }
+    }
+    setBulkRunning(false);
+    summarizeBulk(ok, failed, lastError, "updated");
+    clearSelection();
+    state.reload();
+  }
+
+  async function applyBulkDelete() {
+    if (selectedIds.length === 0) return;
+    setBulkRunning(true);
+    let ok = 0;
+    let failed = 0;
+    let lastError = "";
+    for (const id of selectedIds) {
+      const res = await run({ type: "delete-user", userId: id });
+      if (res.ok) ok += 1;
+      else {
+        failed += 1;
+        lastError = res.message;
+      }
+    }
+    setBulkRunning(false);
+    summarizeBulk(ok, failed, lastError, "deleted");
+    setBulkDeleteOpen(false);
+    clearSelection();
+    state.reload();
+  }
+
+  const columns: Column<WpUserRow>[] = [
+    {
+      key: "select",
+      header: (
+        <SelectCheckbox
+          checked={allFilteredSelected}
+          indeterminate={!allFilteredSelected && someFilteredSelected}
+          onChange={toggleAllFiltered}
+          label="Select all users in view"
+        />
+      ),
+      headClassName: "w-8",
+      className: "w-8",
+      render: (u) => (
+        <SelectCheckbox checked={selected.has(u.id)} onChange={() => toggleOne(u.id)} label={`Select ${u.login}`} />
+      ),
+    },
+    {
+      key: "user",
+      header: "User",
+      render: (u) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium text-zinc-900 dark:text-zinc-100">{u.displayName}</p>
+          <p className="truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">@{u.login}</p>
+          <p className="truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{u.email ?? "—"}</p>
+        </div>
+      ),
+    },
+    {
+      key: "roles",
+      header: "Roles",
+      render: (u) => (
+        <div className="flex flex-wrap gap-1">
+          {u.roles.length === 0 ? <RolePill role="none" /> : u.roles.map((r) => <RolePill key={r} role={r} />)}
+        </div>
+      ),
+    },
+    {
+      key: "registered",
+      header: "Registered",
+      className: "whitespace-nowrap text-zinc-500 dark:text-zinc-400",
+      render: (u) => shortDate(u.registered),
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      align: "right",
+      render: (u) => (
+        <button type="button" className={cn(BTN_SM, "min-h-[24px]")} onClick={() => setManageId(u.id)}>
+          <UserCog className="h-3.5 w-3.5" aria-hidden /> Manage
+        </button>
+      ),
+    },
+  ];
 
   return (
     <>
-      <PanelState state={state} isEmpty={(d) => d.users.length === 0} emptyMessage="No WordPress accounts on this site.">
-        {(data) => (
-          <div className="grid gap-5 lg:grid-cols-2">
-            <SectionCard
-              title="Users"
-              description={
-                data.total > data.users.length
-                  ? `Showing first ${data.users.length} of ${data.total} accounts.`
-                  : `${data.total} account${data.total === 1 ? "" : "s"} with dashboard access.`
-              }
-              icon={Users}
-              action={
-                <div className="flex gap-2">
-                  <button type="button" className={BTN} disabled={pending} onClick={reconcile}>
-                    {pending ? <Spinner /> : <RefreshCw className="h-4 w-4" aria-hidden />} Reconcile
-                  </button>
+      <PanelState state={state}>
+        {(d) => {
+          if (d.users.length === 0) {
+            return (
+              <EmptyState
+                icon={Users}
+                title="No accounts on this site yet."
+                body="Add a WordPress account or reconcile members from the directory."
+                action={
                   <button type="button" className={BTN_PRIMARY} onClick={() => setAddOpen(true)}>
                     <UserPlus className="h-4 w-4" aria-hidden /> Add user
                   </button>
-                </div>
-              }
-              className="lg:col-span-2"
-            >
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-500">
-                      <th className="py-2 pr-3 font-medium">User</th>
-                      <th className="py-2 pr-3 font-medium">Email</th>
-                      <th className="py-2 pr-3 font-medium">Role</th>
-                      <th className="py-2 pr-3 font-medium">Registered</th>
-                      <th className="py-2 font-medium">
-                        <span className="sr-only">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                    {data.users.map((user) => (
-                      <tr key={user.id}>
-                        <td className="py-2 pr-3">
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-zinc-900 dark:text-zinc-100">{user.displayName}</p>
-                            <p className="truncate font-mono text-[11px] text-zinc-500 dark:text-zinc-400">@{user.login}</p>
-                          </div>
-                        </td>
-                        <td className="py-2 pr-3">
-                          <span className="block max-w-[200px] truncate font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
-                            {user.email ?? "—"}
-                          </span>
-                        </td>
-                        <td className="py-2 pr-3">
-                          <div className="flex flex-wrap gap-1">
-                            {user.roles.length === 0 ? <RolePill role="none" /> : user.roles.map((role) => <RolePill key={role} role={role} />)}
-                          </div>
-                        </td>
-                        <td className="py-2 pr-3 text-zinc-500 dark:text-zinc-400">{shortDate(user.registered)}</td>
-                        <td className="py-2 text-right">
-                          <button type="button" className={BTN_SM} onClick={() => setManageId(user.id)}>
-                            <UserCog className="h-3.5 w-3.5" aria-hidden /> Manage
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </SectionCard>
+                }
+              />
+            );
+          }
 
-            <SectionCard
-              title="Role distribution"
-              description="How dashboard access is spread across roles."
-              icon={UserCog}
-              className="lg:col-span-2"
-            >
-              {data.roleCounts.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
-                  No roles assigned.
+          const roleOptions: FilterTabOption<string>[] = [
+            { value: ROLE_FILTER_ALL, label: "All", count: d.total },
+            ...d.roleCounts.map((rc) => ({
+              value: rc.role,
+              label: <span className="capitalize">{rc.role}</span>,
+              count: rc.count,
+            })),
+          ];
+          const description =
+            d.total > d.users.length
+              ? `Showing ${d.users.length} of ${d.total} — search to find a specific user.`
+              : `${d.total} account${d.total === 1 ? "" : "s"} with dashboard access.`;
+          const isFiltered = query.trim().length > 0 || roleFilter !== ROLE_FILTER_ALL;
+
+          return (
+            <div className="grid gap-5 lg:grid-cols-2">
+              <SectionCard
+                title="Users"
+                description={description}
+                icon={Users}
+                action={
+                  <div className="flex gap-2">
+                    <button type="button" className={BTN} disabled={pending || bulkRunning} onClick={reconcile}>
+                      {pending ? <Spinner /> : <RefreshCw className="h-4 w-4" aria-hidden />} Reconcile
+                    </button>
+                    <button type="button" className={BTN_PRIMARY} onClick={() => setAddOpen(true)}>
+                      <UserPlus className="h-4 w-4" aria-hidden /> Add user
+                    </button>
+                  </div>
+                }
+                className="lg:col-span-2"
+              >
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="relative w-full sm:max-w-xs">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" aria-hidden />
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Search users…"
+                      aria-label="Search users by name, username or email"
+                      className={cn(INPUT, "pl-8")}
+                    />
+                  </div>
+                  <FilterTabs
+                    ariaLabel="Filter users by role"
+                    value={roleFilter}
+                    onChange={setRoleFilter}
+                    options={roleOptions}
+                  />
                 </div>
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {data.roleCounts.map((entry) => (
-                    <div key={entry.role} className={cn("flex items-center justify-between gap-3", TILE)}>
-                      <RolePill role={entry.role} />
-                      <span className="text-2xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{entry.count}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SectionCard>
-          </div>
-        )}
+
+                <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+                  {filtered.length} of {d.users.length} shown{isFiltered ? " (filtered)" : ""}
+                </p>
+
+                <DataTable
+                  caption="WordPress accounts on this site with their roles and registration dates"
+                  columns={columns}
+                  rows={filtered}
+                  getRowKey={(u) => u.id}
+                  empty={<span>No users match your search.</span>}
+                />
+              </SectionCard>
+
+              <SectionCard
+                title="Role distribution"
+                description="How dashboard access is spread across roles."
+                icon={UserCog}
+                className="lg:col-span-2"
+              >
+                {d.roleCounts.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
+                    No roles assigned.
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {d.roleCounts.map((entry) => (
+                      <div key={entry.role} className={cn("flex items-center justify-between gap-3", TILE)}>
+                        <RolePill role={entry.role} />
+                        <span className="text-2xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{entry.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </SectionCard>
+            </div>
+          );
+        }}
       </PanelState>
+
+      {/* Floating bulk-action toolbar — appears only while rows are selected. */}
+      {selectedIds.length > 0 ? (
+        <div className="fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+          <div
+            role="region"
+            aria-label="Bulk user actions"
+            className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white/95 p-2 shadow-2xl backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95"
+          >
+            <span className="px-1 text-xs font-medium tabular-nums text-zinc-700 dark:text-zinc-200">
+              {selectedIds.length} selected
+            </span>
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="bulk-role" className="sr-only">
+                Role to apply to selected users
+              </label>
+              <select
+                id="bulk-role"
+                value={bulkRole}
+                onChange={(e) => setBulkRole(e.target.value as WordpressRoleName)}
+                className={BULK_SELECT}
+                disabled={bulkRunning}
+              >
+                {WORDPRESS_ROLES.map((r) => (
+                  <option key={r} value={r} className="capitalize">
+                    {r}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className={cn(BTN_SM, "min-h-[24px]")} onClick={applyBulkRole} disabled={bulkRunning}>
+                {bulkRunning ? <Spinner className="h-3.5 w-3.5 animate-spin" /> : <UserCog className="h-3.5 w-3.5" aria-hidden />} Change role
+              </button>
+            </div>
+            <button
+              type="button"
+              className={cn(BTN_DANGER_GHOST, "min-h-[24px]")}
+              onClick={() => setBulkDeleteOpen(true)}
+              disabled={bulkRunning}
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden /> Delete
+            </button>
+            <button
+              type="button"
+              className={cn(BTN_SM, "min-h-[24px]")}
+              onClick={clearSelection}
+              disabled={bulkRunning}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={applyBulkDelete}
+        title={`Delete ${selectedIds.length} user${selectedIds.length === 1 ? "" : "s"}?`}
+        description="This permanently removes the selected accounts."
+        confirmLabel={`Delete ${selectedIds.length}`}
+        confirmPhrase="delete"
+        confirmPhraseLabel="Type delete to confirm"
+        pending={bulkRunning}
+        body={
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Their content is deleted unless reassigned elsewhere first. The last administrator and the connector service
+            account are protected server-side and will be skipped.
+          </p>
+        }
+      />
 
       {addOpen ? (
         <AddUserDialog site={site} open={addOpen} onClose={() => setAddOpen(false)} onChanged={state.reload} />

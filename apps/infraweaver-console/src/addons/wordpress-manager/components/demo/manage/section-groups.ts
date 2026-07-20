@@ -49,16 +49,21 @@ export function isSyntheticSection(id: string): id is SyntheticSectionId {
   return id === "overview" || id === "settings";
 }
 
-/** A labeled cluster of related sections in the rail. */
+/**
+ * A labeled cluster of related sections in the rail. Grouped by the OWNER'S JOB in
+ * plain language ("Keep it safe", "Speed & fixes") rather than by WordPress
+ * mechanics ("Operations", "Monitoring") — and the care-plan trio a site owner
+ * actually pays for (updates + plugins + backups + security) is co-located at the
+ * top instead of scattered across three engineer-named groups.
+ */
 export type ManageGroupId =
   | "overview"
+  | "keep-safe"
   | "content"
   | "people"
-  | "extensions"
-  | "configuration"
-  | "operations"
-  | "monitoring"
-  | "security";
+  | "speed"
+  | "insights"
+  | "settings";
 
 export interface ManageGroupDef {
   readonly id: ManageGroupId;
@@ -71,34 +76,41 @@ export interface ManageGroupDef {
 
 /**
  * The rail's group catalog, in render order. Every one of the 22 `MANAGE_PANELS`
- * ids appears in exactly one group; the two synthetic sections anchor their
- * groups (Overview leads, Settings sits in Configuration). Adjusted from the
- * convergent WP-manager taxonomy to the console's real panel set.
+ * ids appears in exactly one group; the two synthetic sections anchor their groups
+ * (Overview leads "Home", Settings leads "Settings"). Grouped by the owner's job:
+ *
+ *  - "Keep it safe" co-locates the care-plan trio the owner pays for — updates,
+ *    plugins/themes, backups, security — that the old taxonomy scattered across
+ *    Extensions / Operations / Security.
+ *  - "Speed & fixes" gathers the tune/repair panels; "Insights" everything that
+ *    only reports; "Settings" the configuration surfaces.
+ *
+ * Nothing here gates a panel — availability is owned by capabilities.ts. This is a
+ * pure relabel/regroup, so the API and capability model are untouched.
  */
 export const MANAGE_GROUPS: readonly ManageGroupDef[] = [
   { id: "overview", label: "Overview", icon: "LayoutDashboard", sections: ["overview"] },
+  {
+    id: "keep-safe",
+    label: "Keep it safe",
+    icon: "ShieldCheck",
+    sections: ["updates", "inventory", "backups", "security"],
+  },
   { id: "content", label: "Content", icon: "FileText", sections: ["content", "media", "store", "forms"] },
   { id: "people", label: "People", icon: "Users", sections: ["people", "clients"] },
-  { id: "extensions", label: "Extensions", icon: "Puzzle", sections: ["updates", "inventory"] },
   {
-    id: "configuration",
-    label: "Configuration",
-    icon: "SlidersHorizontal",
-    sections: ["settings", "email", "audience", "audit"],
+    id: "speed",
+    label: "Speed & fixes",
+    icon: "Gauge",
+    sections: ["performance", "data", "resources", "staging"],
   },
   {
-    id: "operations",
-    label: "Operations",
-    icon: "Wrench",
-    sections: ["data", "performance", "resources", "backups", "staging"],
-  },
-  {
-    id: "monitoring",
-    label: "Monitoring",
+    id: "insights",
+    label: "Insights",
     icon: "Activity",
-    sections: ["health", "uptime", "metrics", "alerts", "logs"],
+    sections: ["health", "uptime", "metrics", "audience", "audit", "alerts", "logs"],
   },
-  { id: "security", label: "Security", icon: "ShieldCheck", sections: ["security"] },
+  { id: "settings", label: "Settings", icon: "SlidersHorizontal", sections: ["settings", "email"] },
 ];
 
 /** One resolved section in the rail — label + icon resolved, availability applied. */

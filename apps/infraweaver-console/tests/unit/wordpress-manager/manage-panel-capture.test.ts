@@ -14,8 +14,21 @@ import type { ManagePanelId } from "@/addons/wordpress-manager/lib/manage/capabi
 
 const writeMock = writeSitePanelSnapshots as jest.MockedFunction<typeof writeSitePanelSnapshots>;
 
-/** The two overview fields the cross-check reads. Mirrors the confirmed bug site. */
+/** The two plugin-count fields the original cross-check read. */
 const overview = { totalPlugins: 12, activePlugins: 10 } as const;
+
+/**
+ * The FULL authoritative cross-signal a real overview carries — mirrors the
+ * confirmed bug site (zonnevaarwater): a big site whose light overview reads real
+ * numbers while its heavy per-panel execs flake to empty under sweep concurrency.
+ */
+const fullOverview = {
+  totalPlugins: 12,
+  activePlugins: 10,
+  uploadsMb: 1077,
+  dbSizeMb: 46,
+  userCount: 4,
+} as const;
 
 let warnSpy: jest.SpyInstance;
 beforeEach(() => {
@@ -52,8 +65,56 @@ describe("isDegenerateCapture", () => {
     expect(isDegenerateCapture("inventory", { plugins: [] }, undefined)).toBe(false);
   });
 
-  test("a panel with no overview cross-signal (people) is never rejected", () => {
+  test("people empty while an older overview lacks userCount → not rejected (no signal)", () => {
+    // Backward-compat: an overview snapshot written before userCount existed carries
+    // no people signal, so an empty capture there stays accepted.
     expect(isDegenerateCapture("people", { users: [], total: 0 }, overview)).toBe(false);
+  });
+
+  // --- The zonnevaarwater bug: media/database/users read all-zero on a big/slow
+  // --- site while the overview proves the site is non-empty. These MUST be rejected.
+  test("media 0 MB / 0 attachments while the overview measured 1077 MB uploads → degenerate", () => {
+    expect(
+      isDegenerateCapture("media", { total: 0, uploadsMb: null, mime: [], largestDirs: [] }, fullOverview),
+    ).toBe(true);
+  });
+
+  test("media with real attachments → not degenerate", () => {
+    expect(
+      isDegenerateCapture("media", { total: 812, uploadsMb: 1077, mime: [], largestDirs: [] }, fullOverview),
+    ).toBe(false);
+  });
+
+  test("database 0 MB / 0 tables while the overview measured a 46 MB database → degenerate", () => {
+    expect(
+      isDegenerateCapture("data", { totalMb: null, tables: [], autoloadKb: null, autoloadCount: 0, transients: 0, revisions: 0 }, fullOverview),
+    ).toBe(true);
+  });
+
+  test("database with tables present → not degenerate", () => {
+    expect(
+      isDegenerateCapture("data", { totalMb: 46, tables: [{ name: "wp_options", sizeMb: 12 }], autoloadKb: 100, autoloadCount: 200, transients: 5, revisions: 9 }, fullOverview),
+    ).toBe(false);
+  });
+
+  test("users empty while the overview counted 4 accounts → degenerate", () => {
+    expect(isDegenerateCapture("people", { users: [], total: 0, roleCounts: [], limit: 100 }, fullOverview)).toBe(true);
+  });
+
+  test("users present → not degenerate", () => {
+    expect(
+      isDegenerateCapture("people", { users: [{ id: 1 }], total: 4, roleCounts: [], limit: 100 }, fullOverview),
+    ).toBe(false);
+  });
+
+  test("a genuinely empty site (overview measured 0 uploads/db) → empty capture accepted", () => {
+    const emptySite = { totalPlugins: 0, activePlugins: 0, uploadsMb: 0, dbSizeMb: 0, userCount: 1 } as const;
+    expect(
+      isDegenerateCapture("media", { total: 0, uploadsMb: null, mime: [], largestDirs: [] }, emptySite),
+    ).toBe(false);
+    expect(
+      isDegenerateCapture("data", { totalMb: null, tables: [], autoloadKb: null, autoloadCount: 0, transients: 0, revisions: 0 }, emptySite),
+    ).toBe(false);
   });
 });
 

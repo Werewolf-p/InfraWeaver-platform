@@ -5,6 +5,27 @@ import type { ManagePanelId } from "./capabilities";
 import type { ManageOverview } from "./types";
 import type { InventoryData } from "./probes/inventory";
 import type { UpdatesData } from "./probes/updates";
+import type { MediaData } from "./probes/media";
+import type { DataPanelData } from "./probes/data";
+import type { PeopleData } from "./probes/people";
+
+/**
+ * The authoritative fields of a site's overview that let us prove a panel capture
+ * is a degenerate (empty-exec) all-zero rather than legitimately empty. Every
+ * value here is read by the LIGHT overview probe, which succeeds on sites whose
+ * heavier per-panel execs (a `du` over a 1 GB uploads tree, `db size --tables`)
+ * flake to empty under sweep concurrency — the exact split that made one big site
+ * show all zeros while its overview stayed correct.
+ */
+export type OverviewCrossSignal = Pick<
+  ManageOverview,
+  "totalPlugins" | "activePlugins" | "uploadsMb" | "dbSizeMb" | "userCount"
+>;
+
+/** `> 0` when the overview carries a concrete positive scalar (null/undefined ⇒ no signal). */
+function positive(value: number | null | undefined): boolean {
+  return typeof value === "number" && value > 0;
+}
 
 /**
  * Sweep-side panel capture core, split out of panel-data.ts so the concurrency +
@@ -31,39 +52,76 @@ const PANEL_CAPTURE_CONCURRENCY = 3;
 
 /**
  * True when a freshly-captured panel value is empty in a way the site overview
- * proves is WRONG (a degenerate/empty exec), so it must not overwrite the last good
- * snapshot. Only panels with an authoritative overview cross-signal can be rejected;
- * panels with no such signal (people/content/media/…) are always accepted here — an
- * empty capture there may be legitimately empty, and there is nothing to contradict
- * it. Pure and total.
+ * proves is WRONG (a degenerate/empty exec), so it must not overwrite — nor be
+ * served from — the last good snapshot.
+ *
+ * A panel is only rejectable when the overview carries an authoritative cross-signal
+ * that CONTRADICTS the empty capture: the overview counts installed plugins yet the
+ * inventory found none; it measured a 1 GB uploads tree yet the media panel reads
+ * 0 MB and 0 attachments; it measured a 46 MB database yet the data panel reads 0
+ * tables; it counted N accounts yet the people panel returns none. When the overview
+ * has NO positive signal for a panel (a genuinely empty site, or an older overview
+ * snapshot missing the newer `userCount` field) the empty capture is accepted — an
+ * empty result there may be legitimate and there is nothing to contradict it. This
+ * is the single defence, shared by the sweep write, the interactive force write, and
+ * the durable read, so a demonstrably-wrong all-zero panel can be neither stored nor
+ * served. Pure and total.
  */
 export function isDegenerateCapture(
   panelId: ManagePanelId,
   data: unknown,
-  overview?: Pick<ManageOverview, "totalPlugins" | "activePlugins">,
+  overview?: OverviewCrossSignal,
 ): boolean {
   if (!overview) return false;
 
-  if (panelId === "inventory") {
-    const inv = data as Partial<InventoryData> | null;
-    const plugins = Array.isArray(inv?.plugins) ? inv!.plugins : [];
-    // Overview counts installed plugins, but the capture found none → empty exec.
-    if (overview.totalPlugins > 0 && plugins.length === 0) return true;
-    // Overview counts active plugins, but the capture counts none active → wrong.
-    if (overview.activePlugins > 0 && (inv?.activePlugins ?? 0) === 0) return true;
-    return false;
-  }
+  switch (panelId) {
+    case "inventory": {
+      const inv = data as Partial<InventoryData> | null;
+      const plugins = Array.isArray(inv?.plugins) ? inv!.plugins : [];
+      // Overview counts installed plugins, but the capture found none → empty exec.
+      if (overview.totalPlugins > 0 && plugins.length === 0) return true;
+      // Overview counts active plugins, but the capture counts none active → wrong.
+      if (overview.activePlugins > 0 && (inv?.activePlugins ?? 0) === 0) return true;
+      return false;
+    }
 
-  if (panelId === "updates") {
-    const upd = data as Partial<UpdatesData> | null;
-    // The updates panel re-reads the full installed-plugin list for its
-    // total/auto-update counts; reading zero while the overview counts some is the
-    // same empty-exec signature.
-    if (overview.totalPlugins > 0 && (upd?.totalPlugins ?? 0) === 0) return true;
-    return false;
-  }
+    case "updates": {
+      const upd = data as Partial<UpdatesData> | null;
+      // The updates panel re-reads the full installed-plugin list for its
+      // total/auto-update counts; reading zero while the overview counts some is the
+      // same empty-exec signature.
+      if (overview.totalPlugins > 0 && (upd?.totalPlugins ?? 0) === 0) return true;
+      return false;
+    }
 
-  return false;
+    case "media": {
+      const m = data as Partial<MediaData> | null;
+      // Overview measured a non-empty uploads tree, but the panel read nothing:
+      // both the `du` size and the attachment count came back empty → dead exec.
+      const empty = !positive(m?.uploadsMb) && (m?.total ?? 0) === 0;
+      return positive(overview.uploadsMb) && empty;
+    }
+
+    case "data": {
+      const d = data as Partial<DataPanelData> | null;
+      // Overview measured a non-empty database, but the panel read no size AND no
+      // tables → the `db size` execs died rather than a truly empty database.
+      const empty = !positive(d?.totalMb) && (d?.tables?.length ?? 0) === 0;
+      return positive(overview.dbSizeMb) && empty;
+    }
+
+    case "people": {
+      const p = data as Partial<PeopleData> | null;
+      // Overview counted accounts, but the panel returned none → dead exec. (A real
+      // WordPress site always has at least one admin, so a positive overview count
+      // with an empty people capture is never legitimate.)
+      const empty = (p?.total ?? 0) === 0 && (p?.users?.length ?? 0) === 0;
+      return positive(overview.userCount) && empty;
+    }
+
+    default:
+      return false;
+  }
 }
 
 /** Outcome of one panel capture, before the batch write. */
@@ -82,7 +140,7 @@ export async function runPanelCapture(
   fetchPanel: (site: string, panelId: ManagePanelId) => Promise<unknown>,
   site: string,
   panelIds: readonly ManagePanelId[],
-  overview?: Pick<ManageOverview, "totalPlugins" | "activePlugins">,
+  overview?: OverviewCrossSignal,
   at = Date.now(),
 ): Promise<{ captured: number; failed: number }> {
   if (panelIds.length === 0) return { captured: 0, failed: 0 };

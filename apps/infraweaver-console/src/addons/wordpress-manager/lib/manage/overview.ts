@@ -66,6 +66,7 @@ function summaryCommand(): string {
     `echo "PHP_VERSION=$(php -r 'echo PHP_VERSION;' 2>/dev/null)"`,
     `echo "DB_SIZE_MB=$(${WP_SAFE} db size --size_format=mb 2>/dev/null)"`,
     `echo "UPLOADS_MB=$(du -sm wp-content/uploads 2>/dev/null | cut -f1)"`,
+    `echo "USER_COUNT=$(${WP_SAFE} user list --format=count 2>/dev/null)"`,
     `echo "CORE_UPDATE=$(${WP_SAFE} core check-update --field=version --format=count 2>/dev/null)"`,
   ].join("\n");
 }
@@ -132,6 +133,7 @@ export async function getManageOverview(site: string): Promise<ManageOverview> {
   const phpVersion = toStr(kv.get("PHP_VERSION"));
   const dbSizeMb = toNum(kv.get("DB_SIZE_MB"));
   const uploadsMb = toNum(kv.get("UPLOADS_MB"));
+  const userCount = toInt(kv.get("USER_COUNT"));
   const coreUpdate = (toInt(kv.get("CORE_UPDATE")) ?? 0) > 0;
 
   const inventory = parsePluginInventory(parseJsonArray<PluginRow>(pluginsOut));
@@ -165,6 +167,7 @@ export async function getManageOverview(site: string): Promise<ManageOverview> {
     totalPlugins: inventory.totalCount,
     dbSizeMb,
     uploadsMb,
+    userCount,
     cachePlugin: inventory.cachePlugin,
     health,
     connector: {

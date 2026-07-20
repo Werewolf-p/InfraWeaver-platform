@@ -74,6 +74,13 @@ export interface ManageOverview {
   readonly totalPlugins: number;
   readonly dbSizeMb: number | null;
   readonly uploadsMb: number | null;
+  /**
+   * Total WordPress accounts on the site (authoritative count from the light
+   * summary probe). Used as the People-panel cross-check signal that lets the
+   * durable-snapshot layer reject a degenerate all-zero users capture. Optional so
+   * a snapshot written before this field existed still parses.
+   */
+  readonly userCount?: number | null;
   readonly cachePlugin: string | null;
   readonly health: number;
   readonly connector: OverviewConnector;

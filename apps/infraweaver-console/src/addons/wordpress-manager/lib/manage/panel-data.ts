@@ -15,8 +15,8 @@ import { requireRunningWpPod } from "./overview";
 import { WP, activePluginSlugs } from "./wp-probe";
 import { withCache, panelKey, invalidateManageCache, type Cached } from "./snapshot-cache";
 import { readSitePanelSnapshot, writeSitePanelSnapshot } from "./panel-snapshot";
-import { runPanelCapture } from "./panel-capture";
-import type { ManageOverview } from "./types";
+import { readSiteSnapshot } from "./site-snapshot";
+import { runPanelCapture, isDegenerateCapture, type OverviewCrossSignal } from "./panel-capture";
 import type { PanelProbe, PanelProbeContext } from "./probes/contract";
 import { updatesProbe } from "./probes/updates";
 import { inventoryProbe } from "./probes/inventory";
@@ -141,6 +141,28 @@ async function execProbe(
   return last;
 }
 
+/**
+ * The site's authoritative overview scalars from the DURABLE overview snapshot —
+ * the cross-signal the degenerate-capture check needs. Read from the ConfigMap
+ * store (no wp-cli), best-effort: any miss returns undefined, which simply disables
+ * the cross-check for this read (never a false rejection). This is what lets a panel
+ * read distrust a stored all-zero snapshot that the site overview proves is wrong,
+ * and refuse to persist a fresh one, WITHOUT a live overview round-trip on the hot
+ * path.
+ */
+async function readOverviewCrossSignal(site: string): Promise<OverviewCrossSignal | undefined> {
+  const snap = await readSiteSnapshot(site).catch(() => null);
+  if (!snap) return undefined;
+  const o = snap.overview;
+  return {
+    totalPlugins: o.totalPlugins,
+    activePlugins: o.activePlugins,
+    uploadsMb: o.uploadsMb,
+    dbSizeMb: o.dbSizeMb,
+    userCount: o.userCount ?? null,
+  };
+}
+
 /** How long a panel snapshot is served without a background refresh. */
 const PANEL_FRESH_MS = 25_000;
 
@@ -163,10 +185,12 @@ const PANEL_SNAPSHOT_STALE_MS = 90 * 60 * 1000;
  * The page's per-panel read. Prefers the DURABLE cross-replica snapshot so a cold
  * open — a fresh replica, a restart, a first-ever view — paints instantly from the
  * last sweep instead of blocking on a wp-cli round-trip. Only pulls live when the
- * caller forces a renew (`force`) or the panel has never been swept, and then
- * writes the fresh data back to the durable store so the next cold open is instant
- * too. Force-renew first drops the per-replica SWR so the pull is genuinely live.
- * The panel's capability gate is enforced on the live path (getManagePanel).
+ * caller forces a renew (`force`), the panel has never been swept, OR the stored
+ * snapshot is a degenerate all-zero that the site overview proves is wrong — the
+ * self-heal that unsticks a big/slow site whose earlier sweep captured empty execs.
+ * A fresh pull is written back only when it is NOT itself degenerate, so a live pull
+ * can replace bad data with good but never good with bad. The panel's capability
+ * gate is enforced on the live path (getManagePanel).
  */
 export async function loadManagePanel(
   site: string,
@@ -176,9 +200,16 @@ export async function loadManagePanel(
   assertValidSiteId(site);
   if (!isManagePanelId(panelId)) throw new AddonHttpError("Unknown panel", 404);
 
+  // The site overview's authoritative scalars — used to reject a demonstrably-wrong
+  // empty capture on both the read (don't serve it) and the write (don't persist it).
+  const crossSignal = await readOverviewCrossSignal(site);
+
   if (!opts.force) {
     const durable = await readSitePanelSnapshot(site, panelId).catch(() => null);
-    if (durable) {
+    // Serve the snapshot only when the overview does NOT prove it degenerate. A
+    // stored all-zero that contradicts the overview is skipped so we fall through to
+    // a live pull instead of painting known-wrong zeros.
+    if (durable && !isDegenerateCapture(panelId, durable.data, crossSignal)) {
       return {
         value: durable.data,
         cachedAt: durable.at,
@@ -189,14 +220,22 @@ export async function loadManagePanel(
 
   if (opts.force) invalidateManageCache(site);
   const cached = await getCachedManagePanel(site, panelId);
-  // Persist durably so the next cold/cross-replica open is instant. Best-effort:
-  // a snapshot-store blip must never fail a read that already has fresh data.
-  await writeSitePanelSnapshot(site, panelId, cached.value, cached.cachedAt).catch((err) => {
+  // Persist durably so the next cold/cross-replica open is instant — but never
+  // overwrite a good snapshot with a fresh pull the overview proves is a degenerate
+  // empty (a slow pod can flake mid-force too). Best-effort: a snapshot-store blip
+  // must never fail a read that already has fresh data.
+  if (isDegenerateCapture(panelId, cached.value, crossSignal)) {
     console.warn(
-      `[wordpress] durable panel snapshot write for ${site}/${panelId} failed:`,
-      err instanceof Error ? err.message : err,
+      `[wordpress] Manage panel ${site}/${panelId} live pull is degenerate against the overview — not persisted (kept last good)`,
     );
-  });
+  } else {
+    await writeSitePanelSnapshot(site, panelId, cached.value, cached.cachedAt).catch((err) => {
+      console.warn(
+        `[wordpress] durable panel snapshot write for ${site}/${panelId} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    });
+  }
   return cached;
 }
 
@@ -215,7 +254,7 @@ export async function loadManagePanel(
 export function capturePanelSnapshots(
   site: string,
   panelIds: readonly ManagePanelId[],
-  overview?: Pick<ManageOverview, "totalPlugins" | "activePlugins">,
+  overview?: OverviewCrossSignal,
   at = Date.now(),
 ): Promise<{ captured: number; failed: number }> {
   return runPanelCapture(getManagePanel, site, panelIds, overview, at);

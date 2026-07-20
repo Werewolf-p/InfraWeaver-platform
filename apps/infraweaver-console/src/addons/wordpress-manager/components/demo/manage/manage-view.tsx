@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { ChevronDown, RefreshCw, Wand2, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -108,8 +109,19 @@ function sectionMeta(target: ManageRailTarget): { label: string; summary: string
  * available panels appear; gated ones collapse into the trailing "Optional" entry.
  */
 export function ManageView({ site }: { site: string }) {
+  const queryClient = useQueryClient();
   const overviewState = useManageOverview(site);
   const overview = overviewState.data;
+
+  // Force renew must refresh BOTH the header overview AND the open panel. The
+  // button historically forced only the overview, so a stuck panel (e.g. a big
+  // site's media/database that a slow-pod sweep captured as all-zeros) never
+  // refreshed. Invalidating the panel queries makes the visible panel re-pull; the
+  // server then distrusts any degenerate snapshot and returns live data.
+  const forceRenew = () => {
+    overviewState.reload(true);
+    void queryClient.invalidateQueries({ queryKey: ["wordpress-manage-panel", site] });
+  };
 
   const availablePanelIds = useMemo(() => {
     const set = new Set<ManagePanelId>();
@@ -202,7 +214,7 @@ export function ManageView({ site }: { site: string }) {
             </span>
             <button
               type="button"
-              onClick={() => overviewState.reload(true)}
+              onClick={forceRenew}
               disabled={overviewState.loading}
               className="inline-flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               title="Pull the site's live current info now (bypasses the cached snapshot)"

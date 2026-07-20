@@ -9,31 +9,36 @@ import { useState } from "react";
 import { CalendarClock, Check, File, FileText, Hash, History, MessageSquare, PencilLine, Trash2, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ContentData, RecentPost } from "../../../lib/manage/probes/content";
-import { SectionCard, StatTile } from "../widgets";
+import { SectionCard, StatTile, healthTone } from "../widgets";
 import { PanelState, Spinner } from "./panel-shell";
 import { useManagePanel } from "./use-manage";
 import { ActionError, BTN, BTN_SM, BTN_DANGER_GHOST, ConfirmDialog, Field, INPUT, useActionRunner } from "./manage-ui";
 import { parseId } from "./form-validation";
+import { DataTable, EmptyState, Pill, type Column, type PillTone } from "./kit";
 
 type StatusKey = "published" | "draft" | "scheduled" | "pending" | "other";
-const PILL_BASE = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium";
-const PILL: Record<StatusKey, string> = {
-  published: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  scheduled: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
-  pending: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  draft: "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300",
-  other: "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300",
-};
 const TILE = "rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950/40";
 
-const STATUS_META: Record<string, { key: StatusKey; label: string }> = {
+/** Above-this pending count paints the Comments tile amber — a backlog is the actionable thing. */
+const HEALTHY_SCORE = 90;
+const WARN_SCORE = 55;
+
+const STATUS_META: Record<string, { readonly key: StatusKey; readonly label: string }> = {
   publish: { key: "published", label: "Published" },
   future: { key: "scheduled", label: "Scheduled" },
   pending: { key: "pending", label: "Pending" },
   draft: { key: "draft", label: "Draft" },
 };
 
-function statusMeta(status: string): { key: StatusKey; label: string } {
+const STATUS_TONE: Readonly<Record<StatusKey, PillTone>> = {
+  published: "good",
+  scheduled: "info",
+  pending: "warn",
+  draft: "neutral",
+  other: "neutral",
+};
+
+function statusMeta(status: string): { readonly key: StatusKey; readonly label: string } {
   return STATUS_META[status] ?? { key: "other", label: status };
 }
 
@@ -42,18 +47,27 @@ function shortDate(value: string | null): string {
   return value.split(" ")[0] || value;
 }
 
-function RecentRow({ item }: { item: RecentPost }) {
-  const meta = statusMeta(item.status);
-  return (
-    <tr className="text-zinc-700 dark:text-zinc-300">
-      <td className="py-2 pr-4 font-medium text-zinc-900 dark:text-zinc-100">{item.title}</td>
-      <td className="py-2 pr-4">
-        <span className={cn(PILL_BASE, PILL[meta.key])}>{meta.label}</span>
-      </td>
-      <td className="py-2 text-zinc-500 dark:text-zinc-400">{shortDate(item.date)}</td>
-    </tr>
-  );
-}
+const RECENT_COLUMNS: readonly Column<RecentPost>[] = [
+  {
+    key: "title",
+    header: "Title",
+    render: (item) => <span className="font-medium text-zinc-900 dark:text-zinc-100">{item.title}</span>,
+  },
+  {
+    key: "status",
+    header: "Status",
+    render: (item) => {
+      const meta = statusMeta(item.status);
+      return <Pill tone={STATUS_TONE[meta.key]}>{meta.label}</Pill>;
+    },
+  },
+  {
+    key: "date",
+    header: "Created",
+    align: "right",
+    render: (item) => <span className="text-zinc-500 dark:text-zinc-400">{shortDate(item.date)}</span>,
+  },
+];
 
 /** Manage a single post by numeric id — trash, restore to draft, or permanently delete. */
 function PostByIdCard({ site, onChanged }: { site: string; onChanged: () => void }) {
@@ -81,9 +95,17 @@ function PostByIdCard({ site, onChanged }: { site: string; onChanged: () => void
   }
 
   return (
-    <SectionCard title="Manage a post" description="Act on a specific post by its ID (found in the post's edit URL)." icon={Hash}>
+    <SectionCard
+      title="Manage a single post"
+      description="Move one post to the trash, bring it back, or delete it for good."
+      icon={Hash}
+    >
       <div className="space-y-3">
-        <Field label="Post ID" htmlFor="post-id" hint="e.g. 42">
+        <Field
+          label="Post ID"
+          htmlFor="post-id"
+          hint="Every post has a number — you'll see it in the web address while editing that post (e.g. 42)."
+        >
           <input
             id="post-id"
             inputMode="numeric"
@@ -98,7 +120,7 @@ function PostByIdCard({ site, onChanged }: { site: string; onChanged: () => void
         </Field>
         <div className="flex flex-wrap gap-2">
           <button type="button" className={BTN} disabled={!ready} onClick={trash}>
-            {pending ? <Spinner /> : <Trash2 className="h-4 w-4" aria-hidden />} Trash
+            {pending ? <Spinner /> : <Trash2 className="h-4 w-4" aria-hidden />} Move to trash
           </button>
           <button type="button" className={BTN} disabled={!ready} onClick={restore}>
             <Undo2 className="h-4 w-4" aria-hidden /> Restore to draft
@@ -125,10 +147,9 @@ function PostByIdCard({ site, onChanged }: { site: string; onChanged: () => void
   );
 }
 
-/** Moderate the pending comment queue (held comments) in bulk. */
-function CommentModeration({ site, pendingCount, onChanged }: { site: string; pendingCount: number; onChanged: () => void }) {
+/** Moderate the pending comment queue (held comments) in bulk. Only rendered when a queue exists. */
+function CommentModeration({ site, onChanged }: { site: string; onChanged: () => void }) {
   const { run, pending, error } = useActionRunner(site);
-  const hasQueue = pendingCount > 0;
 
   async function moderate(action: "approve" | "spam" | "trash") {
     await run({ type: "moderate-comments", action, scope: "all" }, { onSuccess: onChanged });
@@ -137,20 +158,18 @@ function CommentModeration({ site, pendingCount, onChanged }: { site: string; pe
   return (
     <div className="mt-3 space-y-2">
       <div className="flex flex-wrap gap-2">
-        <button type="button" className={BTN_SM} disabled={!hasQueue || pending} onClick={() => moderate("approve")}>
+        <button type="button" className={BTN_SM} disabled={pending} onClick={() => moderate("approve")}>
           <Check className="h-3.5 w-3.5" aria-hidden /> Approve pending
         </button>
-        <button type="button" className={BTN_SM} disabled={!hasQueue || pending} onClick={() => moderate("spam")}>
+        <button type="button" className={BTN_SM} disabled={pending} onClick={() => moderate("spam")}>
           Mark pending spam
         </button>
-        <button type="button" className={BTN_SM} disabled={!hasQueue || pending} onClick={() => moderate("trash")}>
+        <button type="button" className={BTN_SM} disabled={pending} onClick={() => moderate("trash")}>
           <Trash2 className="h-3.5 w-3.5" aria-hidden /> Trash pending
         </button>
         {pending ? <Spinner /> : null}
       </div>
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        {hasQueue ? "Acts on every comment currently held for moderation." : "No comments are awaiting moderation."}
-      </p>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">Acts on every comment currently held for moderation.</p>
       {error ? <ActionError message={error} /> : null}
     </div>
   );
@@ -161,89 +180,91 @@ export function ContentPanel({ site }: { site: string }) {
 
   return (
     <PanelState state={state}>
-      {(data) => (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2 lg:grid-cols-4">
-            <StatTile label="Posts" value={data.posts} icon={FileText} />
-            <StatTile label="Pages" value={data.pages} icon={File} />
-            <StatTile label="Drafts" value={data.drafts} icon={PencilLine} />
-            <StatTile label="Comments" value={data.comments} icon={MessageSquare} />
+      {(data) => {
+        const hasQueue = data.pendingComments > 0;
+        return (
+          <div className="grid gap-5 lg:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2 lg:grid-cols-4">
+              <StatTile label="Posts" value={data.posts} icon={FileText} />
+              <StatTile label="Pages" value={data.pages} icon={File} />
+              <StatTile label="Drafts" value={data.drafts} icon={PencilLine} />
+              <StatTile
+                label="Comments"
+                value={data.comments}
+                icon={MessageSquare}
+                tone={healthTone(hasQueue ? WARN_SCORE : HEALTHY_SCORE)}
+              />
+            </div>
+
+            <SectionCard
+              className="lg:col-span-2"
+              title="Recent posts"
+              description="The most recently created posts on this site."
+              icon={FileText}
+            >
+              {data.recent.length === 0 ? (
+                <EmptyState icon={FileText} title="No posts yet." body="New posts will appear here once they're created." />
+              ) : (
+                <DataTable
+                  caption="Recent posts on this site, with status and creation date"
+                  columns={RECENT_COLUMNS}
+                  rows={data.recent}
+                  getRowKey={(item, index) => `${item.title}-${index}`}
+                />
+              )}
+            </SectionCard>
+
+            <SectionCard title="Comment queue" description="Comments waiting for your review." icon={MessageSquare}>
+              {hasQueue ? (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className={TILE}>
+                      <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Total</p>
+                      <p className="mt-1 text-2xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{data.comments}</p>
+                    </div>
+                    <div className={TILE}>
+                      <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Pending</p>
+                      <p className="mt-1 text-2xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">{data.pendingComments}</p>
+                    </div>
+                    <div className={TILE}>
+                      <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Spam</p>
+                      <p className="mt-1 text-2xl font-semibold tabular-nums text-red-600 dark:text-red-400">{data.spamComments}</p>
+                    </div>
+                  </div>
+                  <CommentModeration site={site} onChanged={state.reload} />
+                </>
+              ) : (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">No comments awaiting moderation.</p>
+              )}
+            </SectionCard>
+
+            <PostByIdCard site={site} onChanged={state.reload} />
+
+            <SectionCard title="Editorial" description="Drafts and stored revisions." icon={CalendarClock} className="lg:col-span-2">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className={cn("flex items-center gap-3", TILE)}>
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-zinc-500/10 text-zinc-600 dark:text-zinc-400">
+                    <PencilLine className="h-4 w-4" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Drafts</p>
+                    <p className="text-xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{data.drafts}</p>
+                  </div>
+                </div>
+                <div className={cn("flex items-center gap-3", TILE)}>
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                    <History className="h-4 w-4" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Revisions stored</p>
+                    <p className="text-xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{data.revisions}</p>
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
           </div>
-
-          <SectionCard
-            className="lg:col-span-2"
-            title="Recent posts"
-            description="The most recently created posts on this site."
-            icon={FileText}
-          >
-            {data.recent.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
-                No posts yet.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="text-[11px] uppercase tracking-wide text-zinc-500">
-                      <th className="py-2 pr-4 font-medium">Title</th>
-                      <th className="py-2 pr-4 font-medium">Status</th>
-                      <th className="py-2 font-medium">Created</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                    {data.recent.map((item, i) => (
-                      <RecentRow key={`${item.title}-${i}`} item={item} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </SectionCard>
-
-          <SectionCard title="Comment queue" description="Moderation backlog across all posts." icon={MessageSquare}>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className={TILE}>
-                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Total</p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{data.comments}</p>
-              </div>
-              <div className={TILE}>
-                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Pending</p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">{data.pendingComments}</p>
-              </div>
-              <div className={TILE}>
-                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Spam</p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-red-600 dark:text-red-400">{data.spamComments}</p>
-              </div>
-            </div>
-            <CommentModeration site={site} pendingCount={data.pendingComments} onChanged={state.reload} />
-          </SectionCard>
-
-          <PostByIdCard site={site} onChanged={state.reload} />
-
-          <SectionCard title="Editorial" description="Drafts and stored revisions." icon={CalendarClock} className="lg:col-span-2">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className={cn("flex items-center gap-3", TILE)}>
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-zinc-500/10 text-zinc-600 dark:text-zinc-400">
-                  <PencilLine className="h-4 w-4" aria-hidden />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Drafts</p>
-                  <p className="text-xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{data.drafts}</p>
-                </div>
-              </div>
-              <div className={cn("flex items-center gap-3", TILE)}>
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                  <History className="h-4 w-4" aria-hidden />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Revisions stored</p>
-                  <p className="text-xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{data.revisions}</p>
-                </div>
-              </div>
-            </div>
-          </SectionCard>
-        </div>
-      )}
+        );
+      }}
     </PanelState>
   );
 }

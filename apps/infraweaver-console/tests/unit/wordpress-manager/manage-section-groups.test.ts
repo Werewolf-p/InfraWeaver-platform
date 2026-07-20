@@ -40,13 +40,20 @@ describe("buildVisibleGroups", () => {
     const flat = flattenSections(groups);
     expect(flat).toContain("overview");
     expect(flat).toContain("settings");
-    expect(groups.map((g) => g.id)).toEqual(["overview", "configuration"]);
+    // Only the two groups with a synthetic member survive an empty capability set.
+    expect(groups.map((g) => g.id)).toEqual(["overview", "settings"]);
   });
 
   test("drops groups with no available panel and no synthetic member", () => {
     const groups = buildVisibleGroups(new Set());
-    expect(groups.find((g) => g.id === "security")).toBeUndefined();
-    expect(groups.find((g) => g.id === "monitoring")).toBeUndefined();
+    expect(groups.find((g) => g.id === "keep-safe")).toBeUndefined();
+    expect(groups.find((g) => g.id === "insights")).toBeUndefined();
+  });
+
+  test("co-locates the care-plan trio (updates + backups + security) in one group", () => {
+    const groups = buildVisibleGroups(new Set<ManagePanelId>(["updates", "backups", "security", "inventory"]));
+    const keepSafe = groups.find((g) => g.id === "keep-safe");
+    expect(keepSafe?.sections.map((s) => s.id)).toEqual(["updates", "inventory", "backups", "security"]);
   });
 
   test("includes available panels and preserves catalog order within a group", () => {
