@@ -4,10 +4,10 @@ import { getManageOverviewHandler, runManageActionHandler } from "@/addons/wordp
 
 export const dynamic = "force-dynamic";
 
-/** GET — Manage console overview: capabilities + summary. */
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ site: string }> }) {
+/** GET — Manage console overview: capabilities + summary (supports `?refresh=1`). */
+export async function GET(req: NextRequest, ctx: { params: Promise<{ site: string }> }) {
   const { site } = await ctx.params;
-  return getManageOverviewHandler(site);
+  return getManageOverviewHandler(req, site);
 }
 
 /** POST — run one allow-listed Manage write action. */

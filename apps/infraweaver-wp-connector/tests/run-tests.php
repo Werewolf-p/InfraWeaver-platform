@@ -22,6 +22,12 @@ if ( ! function_exists( 'home_url' ) ) {
 }
 define( 'IWSL_FIXTURE_SITE_URL', 'https://fixture-site.test' );
 
+// The plugin's PHP files now carry a `defined('ABSPATH')||exit;` guard (WP.org
+// best practice — direct-access protection). This harness is not a WordPress
+// runtime, so define a stub ABSPATH before loading any include, or the guard
+// would exit the whole run.
+defined( 'ABSPATH' ) || define( 'ABSPATH', __DIR__ . '/' );
+
 require __DIR__ . '/../includes/class-iwsl-jcs.php';
 require __DIR__ . '/../includes/class-iwsl-slhdsa.php';
 require __DIR__ . '/../includes/class-iwsl-crypto.php';

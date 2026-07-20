@@ -9,7 +9,8 @@ import { WpPodExecError } from "../lib/k8s-exec";
 import { runHealthSweep } from "../lib/health-sweep";
 import { runRotationSweep } from "../lib/rotation-sweep";
 import { runConnectorUpdateSweep } from "../lib/update-sweep";
-import { exportConnectorMetrics } from "../lib/manage/metrics";
+import { exportConnectorMetrics, exportSiteMetrics } from "../lib/manage/metrics";
+import { runSiteSnapshotSweep } from "../lib/manage/site-sweep";
 import {
   getWordpressAccessContext,
   hasWordpressPermission,
@@ -35,10 +36,12 @@ import {
   setConnectorQuarantine,
   setRotationPolicy,
   setSiteEntitlements,
+  setSiteTier,
   updateConnectorPlugin,
 } from "../lib/iwsl-managed-ops";
 import { MAX_SITE_INTERVAL_MS } from "../lib/rotation-policy";
 import { MAX_ENTITLEMENT_FLAGS } from "../lib/entitlements";
+import { isTierId } from "../lib/tiers";
 import { isValidSiteId } from "../lib/naming";
 
 /**
@@ -320,7 +323,7 @@ export async function enrollManagedSiteHandler(site: string): Promise<NextRespon
   return guard(async () => json({ link: await enrollManagedSite(site, gate.ctx.username) }, 201));
 }
 
-const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin", "confirm-identity", "set-rotation-policy", "set-entitlements"] as const;
+const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin", "confirm-identity", "set-rotation-policy", "set-entitlements", "set-tier"] as const;
 type OpsAction = (typeof OPS_ACTIONS)[number];
 
 const opsSchema = z
@@ -345,6 +348,9 @@ const opsSchema = z
       (map) => Object.keys(map).length <= MAX_ENTITLEMENT_FLAGS,
       { message: `at most ${MAX_ENTITLEMENT_FLAGS} flags` },
     ).optional(),
+    // Payload for set-tier: a tier id. Narrowed to a known tier server-side
+    // before it derives the flag map that gets signed and pushed.
+    tier: z.string().max(64).optional(),
   })
   .strict();
 
@@ -363,6 +369,8 @@ const OPS_POLICY: Record<OpsAction, { permission: WordpressPermission; ratePerMi
   "set-rotation-policy": { permission: "wordpress:admin", ratePerMin: 10 },
   // Granting a paid entitlement is a trust/commercial control — admin.
   "set-entitlements": { permission: "wordpress:admin", ratePerMin: 10 },
+  // Assigning a payment tier drives the same signed push — admin.
+  "set-tier": { permission: "wordpress:admin", ratePerMin: 10 },
 };
 
 /**
@@ -417,6 +425,20 @@ export async function managedOpsHandler(req: NextRequest, site: string): Promise
           "wordpress:set-entitlements",
           gate.ctx.username,
           `site ${site} entitlements → ${JSON.stringify(saved.flags)}`,
+          { result: "success", resource: `wordpress/${site}` },
+        );
+        return json({ entitlements: saved });
+      }
+      case "set-tier": {
+        const tier = parsed.data.tier;
+        if (!isTierId(tier)) return fail("A known tier id is required", 400);
+        const saved = await setSiteTier(site, tier, gate.ctx.username);
+        // A tier assignment is a commercial control — same forensic trail as
+        // set-entitlements: who moved this site to which tier, and when.
+        await auditLog(
+          "wordpress:set-tier",
+          gate.ctx.username,
+          `site ${site} tier → ${tier} (${JSON.stringify(saved.flags)})`,
           { result: "success", resource: `wordpress/${site}` },
         );
         return json({ entitlements: saved });
@@ -477,13 +499,15 @@ function bearerTokenValid(req: NextRequest, expected = process.env.WORDPRESS_MET
 }
 
 /**
- * GET — Prometheus text exposition of the Connector fleet's signed telemetry
- * (`iwsl_connector_*`). Every series is sourced from a signed, pinned-key-verified
- * `metrics.snapshot`, so a scraped value is authenticated end-to-end — the scrape
- * surface itself is the ONLY new thing exposed on the console, and it is
- * token-gated. Authenticated by the Prometheus scrape token (`Authorization:
- * Bearer`, how the ServiceMonitor calls in) OR an operator session with
- * `wordpress:read`. Fail-closed on both. Served as text/plain, never cached.
+ * GET — Prometheus text exposition of two families: the Connector fleet's signed
+ * telemetry (`iwsl_connector_*`, sourced from signed pinned-key-verified
+ * `metrics.snapshot` round-trips) AND the per-site Manage KPIs (`iwsl_site_*`,
+ * rendered from the durable hourly snapshots — no live wp-cli at scrape time).
+ * Both are token-gated: authenticated by the Prometheus scrape token
+ * (`Authorization: Bearer`, how the ServiceMonitor calls in) OR an operator
+ * session with `wordpress:read`. Fail-closed on both. Served as text/plain, never
+ * cached. The two families share no metric names, so concatenating their
+ * exposition blocks is valid.
  */
 export async function connectorMetricsHandler(req: NextRequest): Promise<NextResponse | Response> {
   if (!bearerTokenValid(req)) {
@@ -493,7 +517,8 @@ export async function connectorMetricsHandler(req: NextRequest): Promise<NextRes
     if (limited) return limited;
   }
   try {
-    const body = await exportConnectorMetrics();
+    const [connectorBody, siteBody] = await Promise.all([exportConnectorMetrics(), exportSiteMetrics()]);
+    const body = connectorBody + siteBody;
     return new Response(body, {
       status: 200,
       headers: {
@@ -542,6 +567,27 @@ export async function rotationSweepHandler(req: NextRequest): Promise<NextRespon
     if (limited) return limited;
   }
   return guard(async () => json({ summary: await runRotationSweep() }));
+}
+
+/**
+ * POST — run the Manage-snapshot sweep: force-pull every provisioned site's
+ * overview live and persist it to the durable cross-replica snapshot store, so
+ * the Manage page paints instantly and the metrics exporter has fresh numeric
+ * KPIs to render. Authenticated by a DEDICATED in-cluster cron token
+ * (`WORDPRESS_METRICS_CRON_TOKEN`, how the hourly CronJob calls in) OR an operator
+ * session. Read-only against sites (it only writes an internal snapshot cache,
+ * never mutates a site), so the operator fallback needs just `wordpress:read`.
+ * Fail-closed on both. Kept off the health/rotation tokens so the crons stay
+ * independently gateable.
+ */
+export async function manageSnapshotSweepHandler(req: NextRequest): Promise<NextResponse> {
+  if (!cronTokenValid(req, process.env.WORDPRESS_METRICS_CRON_TOKEN)) {
+    const gate = await authorize("wordpress:read");
+    if (!gate.ok) return gate.error;
+    const limited = rateLimited("manage-sweep", gate.ctx.username, 6);
+    if (limited) return limited;
+  }
+  return guard(async () => json({ summary: await runSiteSnapshotSweep() }));
 }
 
 // ── Fleet-wide Connector update (§5.1 maintenance) ───────────────────────────

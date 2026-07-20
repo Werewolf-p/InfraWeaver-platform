@@ -167,6 +167,21 @@ export default auth(async (req) => {
       return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
     }
 
+    // Internal cron caller: the hourly Manage-snapshot sweep CronJob POSTs here
+    // with its OWN dedicated token to force-pull every site's overview into the
+    // durable snapshot store (keeps the Manage page instant + warms the site KPI
+    // gauges). Same fail-closed contract as the sweeps above — a missing/wrong
+    // token falls through to the auth wall and the route handler re-validates the
+    // token (defence in depth). Kept ahead of the rate-limit/CSRF/auth blocks so
+    // the sole authenticator is the token.
+    if (
+      pathname === "/api/wordpress/manage/sweep" &&
+      req.method === "POST" &&
+      internalCronTokenMatches(req.headers.get("x-internal-cron-token"), process.env.WORDPRESS_METRICS_CRON_TOKEN)
+    ) {
+      return withSecurityHeaders(withApiCacheControl(pathname, NextResponse.next()), nonce, requestId);
+    }
+
     // Internal cron caller: the users-reconcile CronJob POSTs here with a shared
     // token instead of a session (see lib/users/reconcile.ts). Same fail-closed
     // contract as the health-sweep bypass above — a missing/wrong token falls

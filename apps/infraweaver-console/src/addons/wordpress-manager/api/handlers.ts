@@ -22,10 +22,12 @@ import { auditLog } from "@/lib/audit-log";
 import { ensureSiteAccess, listSiteAccessUsers, siteAccessGroupName } from "../lib/access";
 import { computeSiteWordpressUsers } from "../lib/access-policy";
 import { loadUsersConfig } from "@/lib/users-config";
-import { getCachedManageOverview } from "../lib/manage/overview";
+import { loadManageOverview } from "../lib/manage/overview";
 import { getCachedManagePanel } from "../lib/manage/panel-data";
 import { getCachedFleet } from "../lib/fleet/aggregate";
 import { isManagePanelId } from "../lib/manage/capabilities";
+import { invalidateManageCache } from "../lib/manage/snapshot-cache";
+import { isForceRefresh } from "../lib/manage/refresh";
 import { actionPermission, manageActionSchema, runManageAction } from "../lib/manage/actions";
 
 function json(data: unknown, status = 200) {
@@ -384,14 +386,17 @@ export async function syncAccessHandler(site: string): Promise<NextResponse> {
  * are available) plus the header summary, all from the site's own runtime over
  * the secure in-pod path. Read access to the site is enough.
  */
-export async function getManageOverviewHandler(site: string): Promise<NextResponse> {
+export async function getManageOverviewHandler(req: NextRequest, site: string): Promise<NextResponse> {
   if (!isValidSiteId(site)) return fail("Invalid site name", 400);
   const gate = await authorize("wordpress:read", site);
   if (!gate.ok) return gate.error;
   const limited = rateLimited("manage-overview", gate.ctx.username, 60);
   if (limited) return limited;
+  // `?refresh=1` (the header "Force renew") bypasses the durable snapshot + SWR
+  // cache and pulls the site's live current info, then re-warms both caches.
+  const force = isForceRefresh(req.nextUrl.searchParams);
   return guard(async () => {
-    const cached = await getCachedManageOverview(site);
+    const cached = await loadManageOverview(site, { force });
     return json({ ...cached.value, cachedAt: cached.cachedAt, stale: cached.stale });
   });
 }
@@ -414,14 +419,18 @@ export async function getFleetHandler(): Promise<NextResponse> {
   });
 }
 
-export async function getManagePanelHandler(site: string, panel: string): Promise<NextResponse> {
+export async function getManagePanelHandler(req: NextRequest, site: string, panel: string): Promise<NextResponse> {
   if (!isValidSiteId(site)) return fail("Invalid site name", 400);
   if (!isManagePanelId(panel)) return fail("Unknown panel", 404);
   const gate = await authorize("wordpress:read", site);
   if (!gate.ok) return gate.error;
   const limited = rateLimited("manage-panel", gate.ctx.username, 120);
   if (limited) return limited;
+  // `?refresh=1` drops the per-replica SWR entry for the site so the next panel
+  // read is a genuinely live pull (the "Force renew" path).
+  const force = isForceRefresh(req.nextUrl.searchParams);
   return guard(async () => {
+    if (force) invalidateManageCache(site);
     const cached = await getCachedManagePanel(site, panel);
     return json({ panel, data: cached.value, cachedAt: cached.cachedAt, stale: cached.stale });
   });

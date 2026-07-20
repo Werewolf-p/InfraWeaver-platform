@@ -10,6 +10,8 @@
  * Default posture everywhere: deny.
  */
 
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_Verifier {
 
 	const MAX_CLOCK_SKEW_MS = 300000; // ±300s (§6.3)

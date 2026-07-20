@@ -24,7 +24,8 @@ jest.mock("@/addons/wordpress-manager/lib/iwsl-link-store", () => ({
   mutateExternalSites: jest.fn(),
 }));
 
-import { setSiteEntitlements } from "@/addons/wordpress-manager/lib/iwsl-managed-ops";
+import { setSiteEntitlements, setSiteTier } from "@/addons/wordpress-manager/lib/iwsl-managed-ops";
+import { deriveEntitlementsForTier } from "@/addons/wordpress-manager/lib/tiers";
 import { listExternalSites, mutateExternalSites, type ExternalSiteRecord } from "@/addons/wordpress-manager/lib/iwsl-link-store";
 import { execInWpPod } from "@/addons/wordpress-manager/lib/k8s-exec";
 import { findWpPodName } from "@/addons/wordpress-manager/lib/provision";
@@ -135,5 +136,54 @@ describe("setSiteEntitlements", () => {
 
     await expect(setSiteEntitlements("blog", { plus: true }, "alice")).rejects.toThrow(/identity safe mode/i);
     expect(execMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("setSiteTier", () => {
+  test("derives the tier's flag map, pushes it, and mirrors BOTH tier and flags", async () => {
+    const store = [managedLink()];
+    withStore(store);
+    const expectedFlags = deriveEntitlementsForTier("care_pro");
+    execMock.mockResolvedValue(signedReply({ entitlements: expectedFlags }) as never);
+    verifyMock.mockReturnValue({ ok: true } as ReturnType<typeof verifySignedResponse>);
+
+    const result = await setSiteTier("blog", "care_pro", "alice");
+
+    // The signed push carried the FULL derived map for the tier.
+    expect(signMock.mock.calls[0][0].method).toBe("entitlements.set");
+    expect(signMock.mock.calls[0][0].params).toEqual({ entitlements: expectedFlags });
+
+    // The record mirrors both the authoritative tier and the flag map.
+    expect(result.tier).toBe("care_pro");
+    expect(result.flags).toEqual(expectedFlags);
+    expect(store[0].tier).toBe("care_pro");
+    expect(store[0].entitlements?.flags).toEqual(expectedFlags);
+  });
+
+  test("revoke (Free tier) pushes an all-off map and stores tier=free", async () => {
+    const store = [managedLink({ tier: "care_ultimate" })];
+    withStore(store);
+    const freeFlags = deriveEntitlementsForTier("free");
+    execMock.mockResolvedValue(signedReply({ entitlements: freeFlags }) as never);
+    verifyMock.mockReturnValue({ ok: true } as ReturnType<typeof verifySignedResponse>);
+
+    const result = await setSiteTier("blog", "free", "alice");
+
+    // Every paid flag is explicitly false on the wire (wholesale replace clears the site).
+    expect(signMock.mock.calls[0][0].params).toEqual({ entitlements: freeFlags });
+    expect(Object.values(freeFlags).every((v) => v === false)).toBe(true);
+    expect(result.tier).toBe("free");
+    expect(store[0].tier).toBe("free");
+  });
+
+  test("a plugin rejection leaves the stored tier untouched (no phantom upgrade)", async () => {
+    const store = [managedLink({ tier: "free" })];
+    withStore(store);
+    execMock.mockResolvedValue({ stdout: JSON.stringify({ status: 403, body: { ok: false, reason: "unknown-method" } }) } as never);
+
+    await expect(setSiteTier("blog", "care_ultimate", "alice")).rejects.toThrow(/rejected/i);
+
+    expect(store[0].tier).toBe("free"); // unchanged
+    expect(store[0].entitlements).toBeUndefined();
   });
 });

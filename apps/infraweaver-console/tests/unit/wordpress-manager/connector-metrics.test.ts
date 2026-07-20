@@ -14,6 +14,12 @@ jest.mock("@/addons/wordpress-manager/lib/iwsl-managed-ops", () => ({
   connectorMetrics: jest.fn(),
   externalConnectorMetrics: jest.fn(),
 }));
+// The exporter now also renders per-site KPI gauges from the durable snapshot
+// store (kube-client-backed); stub it so this connector-metrics suite stays
+// cluster-free and focused on the signed-telemetry half.
+jest.mock("@/addons/wordpress-manager/lib/manage/site-snapshot", () => ({
+  readAllSnapshots: jest.fn(async () => new Map()),
+}));
 // Pass-through cache so the exporter's SWR layer never bleeds state across tests
 // and the cache metadata (cachedAt/stale) is deterministic.
 jest.mock("@/addons/wordpress-manager/lib/manage/snapshot-cache", () => ({

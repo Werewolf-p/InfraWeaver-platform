@@ -7,6 +7,8 @@
  * rollback past a commit does not exist in the protocol.
  */
 
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_Rotation {
 
 	/** @var IWSL_Store */

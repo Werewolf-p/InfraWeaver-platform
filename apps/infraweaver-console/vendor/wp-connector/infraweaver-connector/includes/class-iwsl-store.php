@@ -22,6 +22,8 @@
  *  last_confirmed_rotation  string (idempotent CONFIRM acks)
  */
 
+defined( 'ABSPATH' ) || exit;
+
 interface IWSL_Store {
 	/** @return mixed */
 	public function get( string $key, $default = null );

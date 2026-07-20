@@ -12,12 +12,49 @@
  */
 
 /**
- * Known grantable flags. The plugin accepts ANY `[a-z0-9_]` flag (bounded), so
- * this list is the console's own UI/validation surface — add a flag here to make
- * it grantable from the console, no other change required.
+ * Known grantable feature flags. The plugin accepts ANY `[a-z0-9_]` flag
+ * (bounded), so this list is the console's own UI/validation surface — add a flag
+ * here to make it grantable from the console, then reference it from a tier in
+ * `tiers.ts`; no other change required. `plus` stays first because the plugin's
+ * local feature gate (`IWSL_Entitlements::evaluate`) defaults to it, so every paid
+ * tier must grant `plus` to unlock the plugin-side Plus view.
  */
-export const ENTITLEMENT_FLAGS = ["plus"] as const;
+export const ENTITLEMENT_FLAGS = ["plus", "priority_support", "advanced_analytics", "white_label"] as const;
 export type EntitlementFlag = (typeof ENTITLEMENT_FLAGS)[number];
+
+/** Operator-facing metadata for a single entitlement flag (drives the UI). */
+export interface EntitlementFlagMeta {
+  readonly flag: EntitlementFlag;
+  readonly label: string;
+  readonly description: string;
+}
+
+/**
+ * Display metadata for each known flag. Kept next to `ENTITLEMENT_FLAGS` so a new
+ * flag is defined and described in one place. UI-only — never sent over the wire.
+ */
+export const ENTITLEMENT_FLAG_META: Readonly<Record<EntitlementFlag, EntitlementFlagMeta>> = {
+  plus: {
+    flag: "plus",
+    label: "Plus features",
+    description: "Unlocks the plugin-side Plus feature set on the linked site.",
+  },
+  priority_support: {
+    flag: "priority_support",
+    label: "Priority support",
+    description: "Fast-lane support queue for this site.",
+  },
+  advanced_analytics: {
+    flag: "advanced_analytics",
+    label: "Advanced analytics",
+    description: "Deeper traffic and performance reporting.",
+  },
+  white_label: {
+    flag: "white_label",
+    label: "White-label branding",
+    description: "Removes InfraWeaver branding from client-facing surfaces.",
+  },
+};
 
 /** Boolean flag map — the exact shape sent to the plugin over the signed channel. */
 export type EntitlementMap = Partial<Record<EntitlementFlag, boolean>>;

@@ -12,6 +12,8 @@
  * Runners are supplied by IWSL_Plugin (closures scoped to that class), so they
  * reach its private store/rotation/debug surface without widening visibility.
  */
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_Command_Handler {
 
 	/** @var string wire method (e.g. `health.check`). */

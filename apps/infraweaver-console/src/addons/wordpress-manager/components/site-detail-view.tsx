@@ -17,12 +17,14 @@ import {
   Globe,
   Lock,
   ShieldCheck,
+  Sparkles,
   Users,
   RefreshCw,
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
+import { DEFAULT_TIER_ID, TIERS, resolveTierId, type TierId } from "../lib/tiers";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SiteRuntimeCard } from "./site-runtime-card";
 import { SiteTabs } from "./site-tabs";
@@ -141,6 +143,19 @@ export function SiteDetailView({ site }: { site: string }) {
   const { data: access } = useQuery({
     queryKey: ["wordpress-access", site],
     queryFn: () => fetchAccess(site),
+  });
+
+  // At-a-glance payment tier for the header badge — read from the console link
+  // record (authoritative), degrading silently to Free when the site is unlinked
+  // or the read fails. Manage it on the Connector tab.
+  const { data: siteTier } = useQuery({
+    queryKey: ["wordpress-site-tier", site],
+    queryFn: async (): Promise<TierId> => {
+      const res = await fetch(`/api/wordpress/sites/${site}/iwsl`);
+      if (!res.ok) return DEFAULT_TIER_ID;
+      const body = (await res.json()) as { link?: { tier?: TierId } | null };
+      return resolveTierId(body.link ?? undefined);
+    },
   });
 
   const installed = new Set(data?.installed ?? []);
@@ -295,19 +310,31 @@ export function SiteDetailView({ site }: { site: string }) {
 
       <header className="mt-4 flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">{site}</h1>
-        {status && (
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs",
-              status.ready
-                ? "border-green-500/30 bg-green-500/15 text-green-300"
-                : "border-amber-500/30 bg-amber-500/15 text-amber-300",
-            )}
-          >
-            {status.ready ? <CheckCircle2 className="h-3 w-3" aria-hidden /> : <CircleDashed className="h-3 w-3 animate-pulse" aria-hidden />}
-            {status.ready ? "Ready" : "Starting"}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {siteTier && siteTier !== DEFAULT_TIER_ID && (
+            <Link
+              href={`/wordpress/${site}/connector`}
+              title="Manage this site's plan on the Connector tab"
+              className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/15 px-2.5 py-0.5 text-xs font-medium text-amber-200 transition-colors hover:bg-amber-400/25"
+            >
+              <Sparkles className="h-3 w-3" aria-hidden />
+              {TIERS[siteTier].displayName}
+            </Link>
+          )}
+          {status && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs",
+                status.ready
+                  ? "border-green-500/30 bg-green-500/15 text-green-300"
+                  : "border-amber-500/30 bg-amber-500/15 text-amber-300",
+              )}
+            >
+              {status.ready ? <CheckCircle2 className="h-3 w-3" aria-hidden /> : <CircleDashed className="h-3 w-3 animate-pulse" aria-hidden />}
+              {status.ready ? "Ready" : "Starting"}
+            </span>
+          )}
+        </div>
       </header>
 
       <SiteTabs site={site} active="overview" />

@@ -8,6 +8,8 @@
  * document. enroll_secret itself is never published — only the HMAC binding.
  */
 
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_Enrollment {
 
 	/** @var IWSL_Store */

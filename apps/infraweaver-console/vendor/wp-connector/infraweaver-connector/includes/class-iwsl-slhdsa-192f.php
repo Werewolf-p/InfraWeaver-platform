@@ -12,6 +12,8 @@
  * publicKey=48, signature=35664. Verify chosen for its cheap verify + ~30×
  * faster IW-side signing than 192s (the whole point of the migration).
  */
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_SLHDSA_192f extends IWSL_SLHDSA {
 
 	const H_TOTAL  = 66;

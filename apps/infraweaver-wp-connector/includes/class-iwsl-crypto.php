@@ -6,6 +6,8 @@
  * (apps/infraweaver-console/src/lib/iwsl/crypto.ts).
  */
 
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_Crypto {
 
 	const ALG_ED25519      = 'ed25519';

@@ -26,6 +26,7 @@ fi
 rm -rf "$DEST"
 mkdir -p "$DEST/includes"
 cp "$SRC/infraweaver-connector.php" "$DEST/"
+cp "$SRC/uninstall.php" "$DEST/" 2>/dev/null || true
 cp "$SRC/README.md" "$DEST/" 2>/dev/null || true
 cp "$SRC"/includes/*.php "$DEST/includes/"
 echo "sync-wp-connector: vendored $(find "$DEST" -type f | wc -l | tr -d ' ') files from $SRC"

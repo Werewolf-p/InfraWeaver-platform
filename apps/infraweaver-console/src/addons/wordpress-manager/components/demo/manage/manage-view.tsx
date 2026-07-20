@@ -2,14 +2,20 @@
 
 import { useMemo, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { Cpu, Database, Gauge, Puzzle, RefreshCw, SlidersHorizontal, Wand2 } from "lucide-react";
+import { Cpu, Database, Gauge, Puzzle, RefreshCw, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EASE_OUT } from "../motion";
 import { HealthGauge, StatTile, healthTone } from "../widgets";
 import { MANAGE_PANELS, type ManagePanelId } from "../../../lib/manage/capabilities";
 import { PanelError, PanelSkeleton } from "./panel-shell";
 import { OptionalDisabledPanel } from "./panel-optional";
-import { tabIcon } from "./tab-icons";
+import {
+  ManageTabRail,
+  MANAGE_TABPANEL_ID,
+  OPTIONAL_TAB,
+  manageTabButtonId,
+  type ManageTab,
+} from "./tab-rail";
 import { useManageOverview } from "./use-manage";
 import { UpdatesPanel } from "./panels-updates";
 import { InventoryPanel } from "./panels-inventory";
@@ -34,9 +40,17 @@ import { LogsPanel } from "./panels-logs";
 import { DataPanel } from "./panels-data";
 import { HealthPanel } from "./panels-health";
 
-/** Special tab id for the "Optional (Disabled)" surface — never a real panel. */
-const OPTIONAL_TAB = "__optional__";
-type ActiveTab = ManagePanelId | typeof OPTIONAL_TAB;
+/** Compact "when the snapshot was gathered" label for the header. */
+function formatUpdatedAt(cachedAt?: number): string | null {
+  if (!cachedAt) return null;
+  const secs = Math.max(0, Math.round((Date.now() - cachedAt) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
 
 /** Map a panel id to its self-fetching component. */
 const PANEL_COMPONENTS: Record<ManagePanelId, (props: { site: string }) => React.ReactNode> = {
@@ -86,12 +100,12 @@ export function ManageView({ site }: { site: string }) {
     return overview.panels.filter((p) => !p.available).length;
   }, [overview]);
 
-  const [tab, setTab] = useState<ActiveTab>("updates");
+  const [tab, setTab] = useState<ManageTab>("updates");
 
   // Derive the effective tab during render (no effect): clamp the user's choice
   // to a still-visible panel as capabilities resolve or change (e.g. after
   // enabling one), so a tab that disappears falls back to the first available.
-  const activeTab: ActiveTab =
+  const activeTab: ManageTab =
     tab === OPTIONAL_TAB
       ? OPTIONAL_TAB
       : visiblePanels.some((p) => p.id === tab)
@@ -119,18 +133,18 @@ export function ManageView({ site }: { site: string }) {
           <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
             <span>
               {overview
-                ? `${overview.activePlugins} active plugins · ${visiblePanels.length} panels`
+                ? `${formatUpdatedAt(overview.cachedAt) ? `Updated ${formatUpdatedAt(overview.cachedAt)} · ` : ""}${overview.activePlugins} active plugins · ${visiblePanels.length} panels`
                 : "Reading site…"}
             </span>
             <button
               type="button"
-              onClick={overviewState.reload}
+              onClick={() => overviewState.reload(true)}
               disabled={overviewState.loading}
               className="inline-flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              title="Refresh from the site"
+              title="Pull the site's live current info now (bypasses the cached snapshot)"
             >
               <RefreshCw className={cn("h-3.5 w-3.5", overviewState.loading && "animate-spin")} aria-hidden />
-              Refresh
+              Force renew
             </button>
           </div>
         </div>
@@ -182,63 +196,22 @@ export function ManageView({ site }: { site: string }) {
           </div>
         </div>
 
-        {/* Sub-tabs */}
-        <div className="mt-5 flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-          {!overview ? (
-            <div className="flex gap-2 py-2" aria-hidden>
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-7 w-24 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800/60" />
-              ))}
-            </div>
-          ) : (
-            <>
-              {visiblePanels.map((panel) => {
-                const on = panel.id === activeTab;
-                const Icon = tabIcon(panel.icon);
-                return (
-                  <button
-                    key={panel.id}
-                    type="button"
-                    onClick={() => setTab(panel.id)}
-                    aria-pressed={on}
-                    className={cn(
-                      "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-sm transition-colors",
-                      on
-                        ? "border-sky-500 font-medium text-zinc-900 dark:text-zinc-100"
-                        : "border-transparent text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
-                    )}
-                  >
-                    <Icon className="h-4 w-4" aria-hidden />
-                    {panel.label}
-                  </button>
-                );
-              })}
-              {disabledCount > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setTab(OPTIONAL_TAB)}
-                  aria-pressed={activeTab === OPTIONAL_TAB}
-                  className={cn(
-                    "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-sm transition-colors",
-                    activeTab === OPTIONAL_TAB
-                      ? "border-sky-500 font-medium text-zinc-900 dark:text-zinc-100"
-                      : "border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
-                  )}
-                >
-                  <SlidersHorizontal className="h-4 w-4" aria-hidden />
-                  Optional
-                  <span className="rounded-full bg-zinc-200 px-1.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                    {disabledCount}
-                  </span>
-                </button>
-              ) : null}
-            </>
-          )}
-        </div>
+        {/* Sub-tabs: dynamic — only installed / has-info panels show as primary
+            tabs; gated ones collapse into the trailing "Optional" chip. */}
+        <ManageTabRail
+          panels={visiblePanels}
+          activeTab={activeTab}
+          disabledCount={disabledCount}
+          onSelect={setTab}
+          loading={!overview}
+        />
 
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={activeTab}
+            role="tabpanel"
+            id={MANAGE_TABPANEL_ID}
+            aria-labelledby={manageTabButtonId(activeTab)}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}

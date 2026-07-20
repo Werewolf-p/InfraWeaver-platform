@@ -9,6 +9,8 @@
  *    JSON arrays, so builders must use `new stdClass()` for empty objects.
  */
 
+defined( 'ABSPATH' ) || exit;
+
 final class IWSL_JCS {
 
 	/**
