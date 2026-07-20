@@ -2,20 +2,24 @@
 
 import { useMemo, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { Cpu, Database, Gauge, Puzzle, RefreshCw, Wand2 } from "lucide-react";
+import { ChevronDown, RefreshCw, Wand2, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EASE_OUT } from "../motion";
-import { HealthGauge, StatTile, healthTone } from "../widgets";
-import { MANAGE_PANELS, type ManagePanelId } from "../../../lib/manage/capabilities";
+import { MANAGE_PANELS, getPanelDef, type ManagePanelId } from "../../../lib/manage/capabilities";
 import { PanelError, PanelSkeleton } from "./panel-shell";
 import { OptionalDisabledPanel } from "./panel-optional";
 import {
-  ManageTabRail,
-  MANAGE_TABPANEL_ID,
-  OPTIONAL_TAB,
-  manageTabButtonId,
-  type ManageTab,
-} from "./tab-rail";
+  OPTIONAL_SECTION,
+  SYNTHETIC_SECTIONS,
+  buildVisibleGroups,
+  flattenSections,
+  isSyntheticSection,
+  type ManageRailTarget,
+  type ManageSectionId,
+} from "./section-groups";
+import { SectionNav, SectionNavSkeleton } from "./section-nav";
+import { OverviewLanding } from "./panels-overview";
+import { SettingsPanel } from "./panels-settings";
 import { useManageOverview } from "./use-manage";
 import { UpdatesPanel } from "./panels-updates";
 import { InventoryPanel } from "./panels-inventory";
@@ -39,6 +43,10 @@ import { AlertsPanel } from "./panels-alerts";
 import { LogsPanel } from "./panels-logs";
 import { DataPanel } from "./panels-data";
 import { HealthPanel } from "./panels-health";
+
+/** Stable id of the single content region every section button controls. */
+const SECTION_PANEL_ID = "manage-section-panel";
+const SECTION_TITLE_ID = "manage-section-title";
 
 /** Compact "when the snapshot was gathered" label for the header. */
 function formatUpdatedAt(cachedAt?: number): string | null {
@@ -78,39 +86,71 @@ const PANEL_COMPONENTS: Record<ManagePanelId, (props: { site: string }) => React
   health: HealthPanel,
 };
 
+/** Human label + one-line summary for the content header of any rail target. */
+function sectionMeta(target: ManageRailTarget): { label: string; summary: string } {
+  if (target === OPTIONAL_SECTION) {
+    return { label: "Optional", summary: "Panels whose plugin or connector isn't active on this site yet." };
+  }
+  if (isSyntheticSection(target)) {
+    const meta = SYNTHETIC_SECTIONS[target];
+    return { label: meta.label, summary: meta.summary };
+  }
+  const def = getPanelDef(target);
+  return { label: def?.label ?? target, summary: def?.summary ?? "" };
+}
+
 /**
  * The per-site "Manage" console. Every value is read live from the site over the
- * addon's secure in-pod wp-cli path or the signed IWSL Connector channel — the
- * overview here detects which optional capabilities are present, so the tab strip
- * only shows panels the site can actually answer for and the rest move to the
- * "Optional (Disabled)" tab.
+ * addon's secure in-pod wp-cli path or the signed IWSL Connector channel. The
+ * console now uses a full-width VERTICAL grouped section rail (Overview · Content ·
+ * People · Extensions · Configuration · Operations · Monitoring · Security) with an
+ * Overview status-card landing — replacing the old horizontal tab strip. Only
+ * available panels appear; gated ones collapse into the trailing "Optional" entry.
  */
 export function ManageView({ site }: { site: string }) {
   const overviewState = useManageOverview(site);
   const overview = overviewState.data;
 
-  const visiblePanels = useMemo(() => {
-    if (!overview) return [];
+  const availablePanelIds = useMemo(() => {
+    const set = new Set<ManagePanelId>();
+    if (!overview) return set;
     const availableById = new Map(overview.panels.map((p) => [p.id, p.available]));
-    return MANAGE_PANELS.filter((panel) => availableById.get(panel.id) !== false);
+    for (const panel of MANAGE_PANELS) {
+      if (availableById.get(panel.id) !== false) set.add(panel.id);
+    }
+    return set;
   }, [overview]);
 
-  const disabledCount = useMemo(() => {
-    if (!overview) return 0;
-    return overview.panels.filter((p) => !p.available).length;
-  }, [overview]);
+  const groups = useMemo(() => buildVisibleGroups(availablePanelIds), [availablePanelIds]);
+  const visibleSectionIds = useMemo(() => new Set(flattenSections(groups)), [groups]);
+  const disabledCount = useMemo(
+    () => (overview ? overview.panels.filter((p) => !p.available).length : 0),
+    [overview],
+  );
 
-  const [tab, setTab] = useState<ManageTab>("updates");
+  const [section, setSection] = useState<ManageRailTarget>("overview");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [maintenanceOn, setMaintenanceOn] = useState<boolean | null>(null);
 
-  // Derive the effective tab during render (no effect): clamp the user's choice
-  // to a still-visible panel as capabilities resolve or change (e.g. after
-  // enabling one), so a tab that disappears falls back to the first available.
-  const activeTab: ManageTab =
-    tab === OPTIONAL_TAB
-      ? OPTIONAL_TAB
-      : visiblePanels.some((p) => p.id === tab)
-        ? tab
-        : visiblePanels[0]?.id ?? tab;
+  // Clamp the chosen section during render (no effect) as capabilities resolve:
+  // synthetic sections + Optional are always valid; a panel that disappears falls
+  // back to the Overview landing.
+  const active: ManageRailTarget =
+    section === OPTIONAL_SECTION || isSyntheticSection(section)
+      ? section
+      : visibleSectionIds.has(section)
+        ? section
+        : "overview";
+
+  const badges = useMemo<Partial<Record<ManageSectionId, number>>>(
+    () => (overview ? { updates: overview.pendingUpdates } : {}),
+    [overview],
+  );
+
+  const select = (target: ManageRailTarget) => {
+    setSection(target);
+    setMobileNavOpen(false);
+  };
 
   if (overviewState.error) {
     return (
@@ -120,11 +160,35 @@ export function ManageView({ site }: { site: string }) {
     );
   }
 
-  const ActivePanel = activeTab !== OPTIONAL_TAB ? PANEL_COMPONENTS[activeTab] : null;
+  const meta = sectionMeta(active);
+  const updatedLabel = overview ? formatUpdatedAt(overview.cachedAt) : null;
+
+  const renderBody = () => {
+    if (!overview) return <PanelSkeleton />;
+    if (active === OPTIONAL_SECTION) {
+      return <OptionalDisabledPanel site={site} overview={overview} onEnabled={overviewState.reload} />;
+    }
+    if (active === "overview") {
+      return <OverviewLanding overview={overview} visibleSections={visibleSectionIds} onNavigate={select} />;
+    }
+    if (active === "settings") {
+      return (
+        <SettingsPanel
+          site={site}
+          maintenanceOn={maintenanceOn}
+          onMaintenanceChange={setMaintenanceOn}
+          onSaved={() => overviewState.reload()}
+        />
+      );
+    }
+    const ActivePanel = PANEL_COMPONENTS[active];
+    return ActivePanel ? <ActivePanel site={site} /> : null;
+  };
 
   return (
     <MotionConfig reducedMotion="user">
       <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/60">
+        {/* Header — title, freshness line + Force renew (preserved). */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100">
             <Wand2 className="h-5 w-5 text-sky-500" aria-hidden />
@@ -133,7 +197,7 @@ export function ManageView({ site }: { site: string }) {
           <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
             <span>
               {overview
-                ? `${formatUpdatedAt(overview.cachedAt) ? `Updated ${formatUpdatedAt(overview.cachedAt)} · ` : ""}${overview.activePlugins} active plugins · ${visiblePanels.length} panels`
+                ? `${updatedLabel ? `Updated ${updatedLabel} · ` : ""}${overview.activePlugins} active plugins · ${visibleSectionIds.size} sections`
                 : "Reading site…"}
             </span>
             <button
@@ -149,84 +213,96 @@ export function ManageView({ site }: { site: string }) {
           </div>
         </div>
 
-        <p className="mt-1 max-w-prose text-sm text-zinc-600 dark:text-zinc-400">
-          Everything InfraWeaver manages on this WordPress site — updates, content, backups, security, performance,
-          users, database and health — read live from the site over the secure Connector path.
-        </p>
+        {maintenanceOn === true ? (
+          <div
+            role="status"
+            className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-200"
+          >
+            <Wrench className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="font-medium">Maintenance mode is on</span>
+            <span className="text-amber-700/90 dark:text-amber-300/80">— visitors see a maintenance notice.</span>
+          </div>
+        ) : null}
 
-        {/* At-a-glance summary */}
-        <div className="mt-4 grid gap-4 md:grid-cols-[auto_1fr]">
-          <div className="flex items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
-            <HealthGauge score={overview?.health ?? 0} size={112} strokeWidth={10} label="site health" />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <StatTile
-              label="Pending updates"
-              value={overview?.pendingUpdates ?? 0}
-              icon={RefreshCw}
-              tone={healthTone(
-                (overview?.pendingUpdates ?? 0) === 0 ? 96 : (overview?.pendingUpdates ?? 0) < 4 ? 74 : 46,
+        {/* Mobile: section switcher (accordion, never a horizontal scroll strip). */}
+        <div className="mt-4 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen((v) => !v)}
+            aria-expanded={mobileNavOpen}
+            aria-controls="manage-mobile-nav"
+            className="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3.5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-100"
+          >
+            <span>
+              Section: <span className="text-sky-600 dark:text-sky-400">{meta.label}</span>
+            </span>
+            <ChevronDown className={cn("h-4 w-4 transition-transform", mobileNavOpen && "rotate-180")} aria-hidden />
+          </button>
+          {mobileNavOpen ? (
+            <div
+              id="manage-mobile-nav"
+              className="mt-2 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900/60"
+            >
+              {overview ? (
+                <SectionNav
+                  groups={groups}
+                  active={active}
+                  onSelect={select}
+                  badges={badges}
+                  optionalCount={disabledCount}
+                  idPrefix="drawer"
+                  panelId={SECTION_PANEL_ID}
+                />
+              ) : (
+                <SectionNavSkeleton />
               )}
-            />
-            <StatTile
-              label="Active plugins"
-              value={overview?.activePlugins ?? 0}
-              icon={Puzzle}
-              tone={healthTone(80)}
-            />
-            <StatTile
-              label="Database"
-              value={overview?.dbSizeMb ?? 0}
-              suffix=" MB"
-              icon={Database}
-              tone={healthTone(70)}
-            />
-            <StatTile
-              label={overview?.connector.active ? "Connector round-trip" : "PHP"}
-              value={
-                overview?.connector.active
-                  ? overview.connector.lastRoundtripMs ?? 0
-                  : Number(overview?.phpVersion?.split(".").slice(0, 2).join(".") ?? 0)
-              }
-              decimals={overview?.connector.active ? 0 : 1}
-              suffix={overview?.connector.active ? " ms" : ""}
-              icon={overview?.connector.active ? Cpu : Gauge}
-              tone={healthTone(overview?.connector.active ? 85 : 70)}
-            />
-          </div>
+            </div>
+          ) : null}
         </div>
 
-        {/* Sub-tabs: dynamic — only installed / has-info panels show as primary
-            tabs; gated ones collapse into the trailing "Optional" chip. */}
-        <ManageTabRail
-          panels={visiblePanels}
-          activeTab={activeTab}
-          disabledCount={disabledCount}
-          onSelect={setTab}
-          loading={!overview}
-        />
+        {/* Desktop: two-pane — vertical rail + wide content. */}
+        <div className="mt-5 grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
+          <aside className="hidden lg:block">
+            <div className="sticky top-6">
+              {overview ? (
+                <SectionNav
+                  groups={groups}
+                  active={active}
+                  onSelect={select}
+                  badges={badges}
+                  optionalCount={disabledCount}
+                  idPrefix="rail"
+                  panelId={SECTION_PANEL_ID}
+                />
+              ) : (
+                <SectionNavSkeleton />
+              )}
+            </div>
+          </aside>
 
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={activeTab}
-            role="tabpanel"
-            id={MANAGE_TABPANEL_ID}
-            aria-labelledby={manageTabButtonId(activeTab)}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.22, ease: EASE_OUT }}
-            className="mt-5"
-          >
-            {!overview ? (
-              <PanelSkeleton />
-            ) : activeTab === OPTIONAL_TAB ? (
-              <OptionalDisabledPanel site={site} overview={overview} onEnabled={overviewState.reload} />
-            ) : ActivePanel ? (
-              <ActivePanel site={site} />
-            ) : null}
-          </motion.div>
-        </AnimatePresence>
+          <div className="min-w-0">
+            <div className="mb-4 border-b border-zinc-200 pb-3 dark:border-zinc-800">
+              <h3 id={SECTION_TITLE_ID} className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                {meta.label}
+              </h3>
+              {meta.summary ? <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">{meta.summary}</p> : null}
+            </div>
+
+            <section role="region" id={SECTION_PANEL_ID} aria-labelledby={SECTION_TITLE_ID}>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={active}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.22, ease: EASE_OUT }}
+                >
+                  {renderBody()}
+                </motion.div>
+              </AnimatePresence>
+            </section>
+          </div>
+        </div>
       </section>
     </MotionConfig>
   );

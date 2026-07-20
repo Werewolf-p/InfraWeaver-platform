@@ -1,14 +1,19 @@
 "use client";
 // Content panel — post / page / draft / comment / revision counts and recent
-// posts, all read live from the site. Read-only: no content mutation is exposed
-// through the allow-listed Manage actions, so this panel renders no write buttons.
+// posts, read live from the site. Actionable: moderate the pending comment queue
+// (approve / spam / trash) and manage a post by id (trash / restore / permanently
+// delete). WordPress core exposes no post id in the recent-post snapshot, so
+// per-post actions are keyed by a typed id; the queue actions need no id.
 
-import { CalendarClock, File, FileText, History, MessageSquare, PencilLine } from "lucide-react";
+import { useState } from "react";
+import { CalendarClock, Check, File, FileText, Hash, History, MessageSquare, PencilLine, Trash2, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ContentData, RecentPost } from "../../../lib/manage/probes/content";
 import { SectionCard, StatTile } from "../widgets";
-import { PanelState } from "./panel-shell";
+import { PanelState, Spinner } from "./panel-shell";
 import { useManagePanel } from "./use-manage";
+import { ActionError, BTN, BTN_SM, BTN_DANGER_GHOST, ConfirmDialog, Field, INPUT, useActionRunner } from "./manage-ui";
+import { parseId } from "./form-validation";
 
 type StatusKey = "published" | "draft" | "scheduled" | "pending" | "other";
 const PILL_BASE = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium";
@@ -32,7 +37,6 @@ function statusMeta(status: string): { key: StatusKey; label: string } {
   return STATUS_META[status] ?? { key: "other", label: status };
 }
 
-/** Show the date portion of a `YYYY-MM-DD HH:MM:SS` wp-cli timestamp. */
 function shortDate(value: string | null): string {
   if (!value) return "—";
   return value.split(" ")[0] || value;
@@ -48,6 +52,107 @@ function RecentRow({ item }: { item: RecentPost }) {
       </td>
       <td className="py-2 text-zinc-500 dark:text-zinc-400">{shortDate(item.date)}</td>
     </tr>
+  );
+}
+
+/** Manage a single post by numeric id — trash, restore to draft, or permanently delete. */
+function PostByIdCard({ site, onChanged }: { site: string; onChanged: () => void }) {
+  const { run, pending, error, clearError } = useActionRunner(site);
+  const [idText, setIdText] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const postId = parseId(idText);
+  const ready = postId !== null && !pending;
+
+  async function trash() {
+    if (postId === null) return;
+    await run({ type: "trash-post", postId }, { onSuccess: onChanged });
+  }
+  async function restore() {
+    if (postId === null) return;
+    await run({ type: "untrash-post", postId }, { onSuccess: onChanged });
+  }
+  async function confirmDelete() {
+    if (postId === null) return;
+    const result = await run({ type: "delete-post", postId }, { onSuccess: onChanged });
+    if (result.ok) {
+      setDeleteOpen(false);
+      setIdText("");
+    }
+  }
+
+  return (
+    <SectionCard title="Manage a post" description="Act on a specific post by its ID (found in the post's edit URL)." icon={Hash}>
+      <div className="space-y-3">
+        <Field label="Post ID" htmlFor="post-id" hint="e.g. 42">
+          <input
+            id="post-id"
+            inputMode="numeric"
+            value={idText}
+            onChange={(e) => {
+              setIdText(e.target.value);
+              clearError();
+            }}
+            className={INPUT}
+            placeholder="Post ID"
+          />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className={BTN} disabled={!ready} onClick={trash}>
+            {pending ? <Spinner /> : <Trash2 className="h-4 w-4" aria-hidden />} Trash
+          </button>
+          <button type="button" className={BTN} disabled={!ready} onClick={restore}>
+            <Undo2 className="h-4 w-4" aria-hidden /> Restore to draft
+          </button>
+          <button type="button" className={BTN_DANGER_GHOST} disabled={!ready} onClick={() => setDeleteOpen(true)}>
+            <Trash2 className="h-3.5 w-3.5" aria-hidden /> Delete permanently
+          </button>
+        </div>
+        {error ? <ActionError message={error} onDismiss={clearError} /> : null}
+      </div>
+      <ConfirmDialog
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={confirmDelete}
+        title={`Permanently delete post ${postId ?? ""}?`}
+        description="This bypasses the trash — the post cannot be recovered."
+        confirmLabel="Delete permanently"
+        confirmPhrase={postId !== null ? String(postId) : undefined}
+        confirmPhraseLabel="Re-type the post ID to confirm"
+        pending={pending}
+        error={error}
+      />
+    </SectionCard>
+  );
+}
+
+/** Moderate the pending comment queue (held comments) in bulk. */
+function CommentModeration({ site, pendingCount, onChanged }: { site: string; pendingCount: number; onChanged: () => void }) {
+  const { run, pending, error } = useActionRunner(site);
+  const hasQueue = pendingCount > 0;
+
+  async function moderate(action: "approve" | "spam" | "trash") {
+    await run({ type: "moderate-comments", action, scope: "all" }, { onSuccess: onChanged });
+  }
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={BTN_SM} disabled={!hasQueue || pending} onClick={() => moderate("approve")}>
+          <Check className="h-3.5 w-3.5" aria-hidden /> Approve pending
+        </button>
+        <button type="button" className={BTN_SM} disabled={!hasQueue || pending} onClick={() => moderate("spam")}>
+          Mark pending spam
+        </button>
+        <button type="button" className={BTN_SM} disabled={!hasQueue || pending} onClick={() => moderate("trash")}>
+          <Trash2 className="h-3.5 w-3.5" aria-hidden /> Trash pending
+        </button>
+        {pending ? <Spinner /> : null}
+      </div>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        {hasQueue ? "Acts on every comment currently held for moderation." : "No comments are awaiting moderation."}
+      </p>
+      {error ? <ActionError message={error} /> : null}
+    </div>
   );
 }
 
@@ -110,9 +215,12 @@ export function ContentPanel({ site }: { site: string }) {
                 <p className="mt-1 text-2xl font-semibold tabular-nums text-red-600 dark:text-red-400">{data.spamComments}</p>
               </div>
             </div>
+            <CommentModeration site={site} pendingCount={data.pendingComments} onChanged={state.reload} />
           </SectionCard>
 
-          <SectionCard title="Editorial" description="Drafts and stored revisions." icon={CalendarClock}>
+          <PostByIdCard site={site} onChanged={state.reload} />
+
+          <SectionCard title="Editorial" description="Drafts and stored revisions." icon={CalendarClock} className="lg:col-span-2">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className={cn("flex items-center gap-3", TILE)}>
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-zinc-500/10 text-zinc-600 dark:text-zinc-400">

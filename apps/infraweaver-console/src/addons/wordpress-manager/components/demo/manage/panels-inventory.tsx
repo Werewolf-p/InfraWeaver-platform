@@ -3,13 +3,21 @@
 // allow-listed update / activate / deactivate actions.
 
 import { useState } from "react";
-import { Palette, Power, Puzzle, RefreshCw, Zap } from "lucide-react";
+import { CheckCircle2, Palette, Power, Puzzle, RefreshCw, Trash2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import type { InventoryData } from "../../../lib/manage/probes/inventory";
 import { SectionCard } from "../widgets";
 import { PanelState, Spinner } from "./panel-shell";
 import { useManageAction, useManagePanel } from "./use-manage";
+import { BTN_DANGER_GHOST, ConfirmDialog, useActionRunner } from "./manage-ui";
+
+/** A plugin/theme queued for deletion behind a typed-confirm dialog. */
+interface DeleteTarget {
+  readonly kind: "plugin" | "theme";
+  readonly slug: string;
+  readonly name: string;
+}
 
 const PILL = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium";
 const BTN_SM =
@@ -33,7 +41,9 @@ const FILTERS: ReadonlyArray<{ id: PluginFilter; label: string }> = [
 export function InventoryPanel({ site }: { site: string }) {
   const state = useManagePanel<InventoryData>(site, "inventory");
   const { run, pending } = useManageAction(site);
+  const del = useActionRunner(site);
   const [filter, setFilter] = useState<PluginFilter>("all");
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
 
   async function apply(action: Parameters<typeof run>[0]) {
     const result = await run(action);
@@ -45,7 +55,18 @@ export function InventoryPanel({ site }: { site: string }) {
     }
   }
 
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const action =
+      deleteTarget.kind === "plugin"
+        ? ({ type: "delete-plugin", slug: deleteTarget.slug } as const)
+        : ({ type: "delete-theme", slug: deleteTarget.slug } as const);
+    const result = await del.run(action, { onSuccess: () => state.reload() });
+    if (result.ok) setDeleteTarget(null);
+  }
+
   return (
+    <>
     <PanelState state={state} isEmpty={(d) => d.plugins.length === 0 && d.themes.length === 0} emptyMessage="No plugins or themes are installed.">
       {(data) => {
         const shown = data.plugins.filter((p) =>
@@ -152,6 +173,16 @@ export function InventoryPanel({ site }: { site: string }) {
                                   <Power className="h-3.5 w-3.5" aria-hidden /> {p.active ? "Deactivate" : "Activate"}
                                 </button>
                               ) : null}
+                              {p.canAct && !p.active && p.slug ? (
+                                <button
+                                  type="button"
+                                  className={BTN_DANGER_GHOST}
+                                  disabled={del.pending}
+                                  onClick={() => setDeleteTarget({ kind: "plugin", slug: p.slug, name: p.name })}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" aria-hidden /> Delete
+                                </button>
+                              ) : null}
                             </div>
                           </td>
                         </tr>
@@ -177,10 +208,10 @@ export function InventoryPanel({ site }: { site: string }) {
                         {t.active ? "Active" : "Inactive"}
                       </span>
                     </div>
-                    {t.updateAvailable ? (
-                      <div className="mt-3 flex items-center justify-between gap-2">
-                        <span className={cn(PILL, TONE_PILL.sky)}>Update available</span>
-                        {t.canAct ? (
+                    {(t.updateAvailable || (!t.active && t.canAct)) ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {t.updateAvailable ? <span className={cn(PILL, TONE_PILL.sky)}>Update available</span> : null}
+                        {t.updateAvailable && t.canAct ? (
                           <button
                             type="button"
                             className={BTN_SM}
@@ -189,6 +220,26 @@ export function InventoryPanel({ site }: { site: string }) {
                           >
                             <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Update
                           </button>
+                        ) : null}
+                        {!t.active && t.canAct && t.slug ? (
+                          <>
+                            <button
+                              type="button"
+                              className={BTN_SM}
+                              disabled={pending}
+                              onClick={() => apply({ type: "activate-theme", slug: t.slug })}
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Activate
+                            </button>
+                            <button
+                              type="button"
+                              className={BTN_DANGER_GHOST}
+                              disabled={del.pending}
+                              onClick={() => setDeleteTarget({ kind: "theme", slug: t.slug, name: t.name })}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden /> Delete
+                            </button>
+                          </>
                         ) : null}
                       </div>
                     ) : null}
@@ -200,5 +251,22 @@ export function InventoryPanel({ site }: { site: string }) {
         );
       }}
     </PanelState>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title={deleteTarget ? `Delete ${deleteTarget.kind} “${deleteTarget.name}”?` : "Delete"}
+        description={
+          deleteTarget?.kind === "theme"
+            ? "The active theme cannot be deleted — activate another theme first."
+            : "This removes the plugin and its files from the site."
+        }
+        confirmLabel={deleteTarget ? `Delete ${deleteTarget.kind}` : "Delete"}
+        confirmPhrase={deleteTarget?.slug}
+        confirmPhraseLabel="Type the slug to confirm"
+        pending={del.pending}
+        error={del.error}
+      />
+    </>
   );
 }

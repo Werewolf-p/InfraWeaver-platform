@@ -1,6 +1,5 @@
 import "server-only";
-import { makeCoreApi } from "@/lib/kube-client";
-import { isK8sNotFound, isTransientApiError } from "../k8s-errors";
+import { mutateConfigMap, readConfigMapData, RESERVED_UPDATED_AT_KEY } from "./configmap-store";
 import type { ManageOverview } from "./types";
 
 /**
@@ -23,7 +22,6 @@ import type { ManageOverview } from "./types";
  * snapshot" (a live pull) rather than throwing into the page path.
  */
 
-const CONSOLE_NAMESPACE = process.env.CONSOLE_NAMESPACE ?? process.env.POD_NAMESPACE ?? "infraweaver-console";
 const CONFIGMAP_NAME = process.env.WP_MANAGE_SNAPSHOTS_CONFIGMAP_NAME ?? "infraweaver-wp-manage-snapshots";
 
 /** Serialization version — bumped if the stored shape ever changes incompatibly. */
@@ -79,110 +77,12 @@ export function parseSnapshot(raw: string | undefined): StoredSiteSnapshot | nul
   return { overview: overview as ManageOverview, at: env.at };
 }
 
-interface SnapshotsConfigMap {
-  metadata?: { resourceVersion?: string };
-  data?: Record<string, string | undefined>;
-}
-
-interface LoadedSnapshots {
-  data: Record<string, string>;
-  resourceVersion?: string;
-}
-
-async function readConfigMap(): Promise<LoadedSnapshots> {
-  const core = makeCoreApi();
-  try {
-    const cm = (await core.readNamespacedConfigMap({
-      name: CONFIGMAP_NAME,
-      namespace: CONSOLE_NAMESPACE,
-    })) as SnapshotsConfigMap;
-    const data: Record<string, string> = {};
-    for (const [key, value] of Object.entries(cm.data ?? {})) {
-      if (typeof value === "string") data[key] = value;
-    }
-    return { data, resourceVersion: cm.metadata?.resourceVersion };
-  } catch (err) {
-    if (isK8sNotFound(err)) return { data: {} };
-    throw err;
-  }
-}
-
-async function writeConfigMap(state: LoadedSnapshots): Promise<void> {
-  const core = makeCoreApi();
-  const body = {
-    apiVersion: "v1",
-    kind: "ConfigMap",
-    metadata: {
-      name: CONFIGMAP_NAME,
-      namespace: CONSOLE_NAMESPACE,
-      labels: {
-        "app.kubernetes.io/managed-by": "infraweaver-console",
-        "infraweaver.io/component": "wordpress",
-      },
-      ...(state.resourceVersion ? { resourceVersion: state.resourceVersion } : {}),
-    },
-    data: { ...state.data, updatedAt: new Date().toISOString() },
-  };
-  if (state.resourceVersion) {
-    await core.replaceNamespacedConfigMap({ name: CONFIGMAP_NAME, namespace: CONSOLE_NAMESPACE, body });
-  } else {
-    await core.createNamespacedConfigMap({ namespace: CONSOLE_NAMESPACE, body });
-  }
-}
-
-/** How many times a conflicting read-modify-write is retried (mirrors iwsl-link-store). */
-const MUTATE_MAX_ATTEMPTS = 6;
-const MUTATE_BACKOFF_BASE_MS = 25;
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Full-jitter exponential backoff so lock-stepped sweep writers don't re-collide. */
-function backoffDelayMs(retry: number): number {
-  const ceiling = MUTATE_BACKOFF_BASE_MS * 2 ** retry;
-  return Math.floor(Math.random() * ceiling);
-}
-
-function isWriteConflict(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return /409|conflict|already\s*exists/i.test(message);
-}
-
-function isRetriableMutateError(err: unknown): boolean {
-  return isWriteConflict(err) || isTransientApiError(err);
-}
-
-/**
- * Read-modify-write on the snapshot map with retry on both an optimistic-lock 409
- * and a transient apiserver drop. The mutator edits the reserved-key-free data
- * map in place on each fresh read, so a concurrent write that lands between our
- * read and write is merged, not clobbered (the sweep's per-site writes converge).
- */
-async function mutateSnapshots(mutator: (data: Record<string, string>) => void): Promise<void> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < MUTATE_MAX_ATTEMPTS; attempt += 1) {
-    if (attempt > 0) await sleep(backoffDelayMs(attempt - 1));
-    try {
-      const state = await readConfigMap();
-      mutator(state.data);
-      await writeConfigMap(state);
-      return;
-    } catch (err) {
-      lastErr = err;
-      if (!isRetriableMutateError(err) || attempt === MUTATE_MAX_ATTEMPTS - 1) throw err;
-    }
-  }
-  throw lastErr ?? new Error("Failed to persist Manage snapshots");
-}
-
-/** Reserved data key carrying the ConfigMap's own write timestamp — never a site. */
-const RESERVED_KEY = "updatedAt";
-
 /** Read every site's durable snapshot, keyed by site. Corrupt entries are skipped. */
 export async function readAllSnapshots(): Promise<Map<string, StoredSiteSnapshot>> {
-  const { data } = await readConfigMap();
+  const { data } = await readConfigMapData(CONFIGMAP_NAME);
   const out = new Map<string, StoredSiteSnapshot>();
   for (const [site, raw] of Object.entries(data)) {
-    if (site === RESERVED_KEY) continue;
+    if (site === RESERVED_UPDATED_AT_KEY) continue;
     const snap = parseSnapshot(raw);
     if (snap) out.set(site, snap);
   }
@@ -191,7 +91,7 @@ export async function readAllSnapshots(): Promise<Map<string, StoredSiteSnapshot
 
 /** Read one site's durable snapshot, or null when absent/corrupt. */
 export async function readSiteSnapshot(site: string): Promise<StoredSiteSnapshot | null> {
-  const { data } = await readConfigMap();
+  const { data } = await readConfigMapData(CONFIGMAP_NAME);
   return parseSnapshot(data[site]);
 }
 
@@ -209,7 +109,7 @@ export async function writeSiteSnapshot(site: string, overview: ManageOverview, 
     console.warn(`[wordpress] Manage snapshot for ${site} exceeds ${MAX_ENTRY_BYTES}B — not persisted`);
     return;
   }
-  await mutateSnapshots((data) => {
+  await mutateConfigMap(CONFIGMAP_NAME, (data) => {
     data[site] = raw;
   });
 }
@@ -238,7 +138,7 @@ export async function writeSiteSnapshots(entries: readonly SnapshotWriteEntry[],
       return true;
     });
   if (encoded.length === 0) return;
-  await mutateSnapshots((data) => {
+  await mutateConfigMap(CONFIGMAP_NAME, (data) => {
     for (const { site, raw } of encoded) data[site] = raw;
   });
 }

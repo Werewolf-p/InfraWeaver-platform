@@ -23,10 +23,9 @@ import { ensureSiteAccess, listSiteAccessUsers, siteAccessGroupName } from "../l
 import { computeSiteWordpressUsers } from "../lib/access-policy";
 import { loadUsersConfig } from "@/lib/users-config";
 import { loadManageOverview } from "../lib/manage/overview";
-import { getCachedManagePanel } from "../lib/manage/panel-data";
+import { loadManagePanel } from "../lib/manage/panel-data";
 import { getCachedFleet } from "../lib/fleet/aggregate";
 import { isManagePanelId } from "../lib/manage/capabilities";
-import { invalidateManageCache } from "../lib/manage/snapshot-cache";
 import { isForceRefresh } from "../lib/manage/refresh";
 import { actionPermission, manageActionSchema, runManageAction } from "../lib/manage/actions";
 
@@ -426,12 +425,13 @@ export async function getManagePanelHandler(req: NextRequest, site: string, pane
   if (!gate.ok) return gate.error;
   const limited = rateLimited("manage-panel", gate.ctx.username, 120);
   if (limited) return limited;
-  // `?refresh=1` drops the per-replica SWR entry for the site so the next panel
-  // read is a genuinely live pull (the "Force renew" path).
+  // Durable-first: serves the last-swept panel snapshot instantly (cross-replica),
+  // pulling live only when the panel was never swept. `?refresh=1` ("Force renew")
+  // bypasses both the durable snapshot and the per-replica SWR for a live pull,
+  // then re-warms the durable store.
   const force = isForceRefresh(req.nextUrl.searchParams);
   return guard(async () => {
-    if (force) invalidateManageCache(site);
-    const cached = await getCachedManagePanel(site, panel);
+    const cached = await loadManagePanel(site, panel, { force });
     return json({ panel, data: cached.value, cachedAt: cached.cachedAt, stale: cached.stale });
   });
 }
