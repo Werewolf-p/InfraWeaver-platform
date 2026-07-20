@@ -15,6 +15,7 @@ import {
   KeyRound,
   Link2,
   Loader2,
+  RefreshCw,
   ShieldAlert,
   ShieldBan,
   ShieldCheck,
@@ -115,7 +116,16 @@ function intervalToParts(intervalMs: number | undefined, fallbackDays: number): 
   return { value: Math.max(1, Math.round(ms / MS_PER_HOUR)), unit: "hours" };
 }
 
-function StateBadge({ link }: { link: ManagedLink | null }) {
+function StateBadge({ link, loadError }: { link: ManagedLink | null; loadError?: boolean }) {
+  // A failed status read is not the same as an unlinked site — don't assert
+  // "Not linked" when we simply couldn't reach the status endpoint.
+  if (loadError) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-0.5 text-xs text-amber-300">
+        <AlertTriangle className="h-3 w-3" aria-hidden /> Status unavailable
+      </span>
+    );
+  }
   if (!link) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-950/50 px-2.5 py-0.5 text-xs text-zinc-400">
@@ -215,11 +225,15 @@ export function ConnectorView({ site }: { site: string }) {
   const [rotUnit, setRotUnit] = useState<"hours" | "days">("days");
   const rotSeededKey = useRef<string>("");
 
-  const { data: linkData, isLoading: linkLoading } = useQuery({
+  const { data: linkData, isLoading: linkLoading, isError: linkError } = useQuery({
     queryKey: ["wordpress-iwsl-link", site],
     queryFn: () => fetchManagedLink(site),
   });
   const link = linkData?.link ?? null;
+  // A failed fetch with no cached link must NOT be read as "not linked": that
+  // renders an Enable-connector CTA and invites a needless re-enroll of a site
+  // that is almost certainly still linked. Show a distinct, retryable load error.
+  const linkLoadFailed = linkError && !link;
   const bundledConnectorVersion = linkData?.bundledConnectorVersion ?? null;
 
   const refetchLink = () => void queryClient.invalidateQueries({ queryKey: ["wordpress-iwsl-link", site] });
@@ -408,7 +422,7 @@ export function ConnectorView({ site }: { site: string }) {
 
       <header className="mt-4 flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">{site}</h1>
-        <StateBadge link={link ?? null} />
+        <StateBadge link={link ?? null} loadError={linkLoadFailed} />
       </header>
 
       <SiteTabs site={site} active="connector" />
@@ -551,6 +565,21 @@ export function ConnectorView({ site }: { site: string }) {
               </button>
             </div>
           </>
+        ) : linkLoadFailed ? (
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+            <p className="flex items-center gap-1.5 text-sm text-amber-200/90">
+              <AlertTriangle className="h-4 w-4 text-amber-400" aria-hidden /> Couldn&rsquo;t read this site&rsquo;s link
+              state — the console or connector may be briefly unreachable. This does not mean the site is unlinked; retry
+              before enrolling.
+            </p>
+            <button
+              type="button"
+              onClick={() => void refetchLink()}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-sm font-medium text-amber-200 transition-colors hover:bg-amber-500/20"
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden /> Retry
+            </button>
+          </div>
         ) : (
           <div className="mt-4 flex items-center justify-between gap-3">
             <p className="flex items-center gap-1.5 text-sm text-zinc-500">
