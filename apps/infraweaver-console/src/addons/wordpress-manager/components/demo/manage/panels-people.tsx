@@ -242,7 +242,7 @@ function ManageUserDialog({
         <div className="space-y-5">
           {error ? <ActionError message={error} onDismiss={clearError} /> : null}
 
-          <div className="flex items-end gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <div className="min-w-0 flex-1">
               <Field label="Role" htmlFor="mu-role">
                 <select id="mu-role" value={role} onChange={(e) => setRole(e.target.value)} className={INPUT}>
@@ -259,7 +259,7 @@ function ManageUserDialog({
             </button>
           </div>
 
-          <div className="flex items-end gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <div className="min-w-0 flex-1">
               <Field label="Email" htmlFor="mu-email" error={emailBad ? "Enter a valid email address." : undefined}>
                 <input id="mu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={INPUT} />
@@ -272,7 +272,7 @@ function ManageUserDialog({
 
           <div className="space-y-2 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
             <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Password</p>
-            <div className="flex items-end gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
               <div className="min-w-0 flex-1">
                 <Field label="Set a new password" htmlFor="mu-password" error={passwordBad ? "8–200 characters, no line breaks." : undefined}>
                   <input id="mu-password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className={INPUT} placeholder="New password" />
