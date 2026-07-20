@@ -1,7 +1,5 @@
 import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
 /**
  * Legacy deep link. The per-pod detail route (/pods/<ns>/<name>) was removed in
  * the IA restructure — every /pods/* path now redirects to the generic Apps

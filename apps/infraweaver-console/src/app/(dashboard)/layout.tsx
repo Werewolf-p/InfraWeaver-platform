@@ -7,7 +7,7 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { Breadcrumb, titleForPathname } from "@/components/ui/breadcrumb";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, Suspense } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
@@ -762,8 +762,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </main>
       </div>
 
-      {/* Unified Floating Action Button (includes feedback + back-to-top) */}
-      <FloatingActionButton />
+      {/* Unified Floating Action Button (includes feedback + back-to-top).
+          Wrapped in Suspense because it reads useSearchParams(): this confines
+          any prerender CSR-bailout to the button alone instead of de-opting the
+          whole route, which otherwise renders blank on client-side tab nav. */}
+      <Suspense fallback={null}>
+        <FloatingActionButton />
+      </Suspense>
 
       {/* Bottom mobile nav — MOBILE_BOTTOM_NAV core destinations + More */}
       <nav
@@ -1009,7 +1014,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       </AnimatePresence>
 
-      <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+      {/* GlobalSearch reads useSearchParams(); Suspense-wrap it for the same
+          reason as the FAB above — keep the CSR-bailout scoped to this chrome so
+          every dashboard route can prerender/hydrate without going blank. */}
+      <Suspense fallback={null}>
+        <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+      </Suspense>
 
       {/* Session timeout warning modal */}
       <AnimatePresence>
