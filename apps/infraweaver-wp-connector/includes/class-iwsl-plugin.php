@@ -191,8 +191,8 @@ final class IWSL_Plugin {
 				null,
 				false,
 				true // §12.6: wipe all local IWSL state after answering.
-				),
-				new IWSL_Command_Handler(
+			),
+			new IWSL_Command_Handler(
 				'entitlements.set',
 				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
 					// Paid-feature entitlements — console-authoritative, writable ONLY

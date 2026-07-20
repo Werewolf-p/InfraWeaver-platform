@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { auditLog } from "@/lib/audit-log";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { AddonHttpError } from "../lib/errors";
 import { WpPodExecError } from "../lib/k8s-exec";
@@ -410,6 +411,14 @@ export async function managedOpsHandler(req: NextRequest, site: string): Promise
       case "set-entitlements": {
         if (!parsed.data.entitlements) return fail("entitlements payload is required", 400);
         const saved = await setSiteEntitlements(site, parsed.data.entitlements, gate.ctx.username);
+        // Granting/revoking a paid entitlement is a commercial control — leave a
+        // forensic trail of who changed which flags and when (mirrors delete-site).
+        await auditLog(
+          "wordpress:set-entitlements",
+          gate.ctx.username,
+          `site ${site} entitlements → ${JSON.stringify(saved.flags)}`,
+          { result: "success", resource: `wordpress/${site}` },
+        );
         return json({ entitlements: saved });
       }
     }
