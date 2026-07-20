@@ -12,7 +12,7 @@
     "test:e2e": "playwright test",
     "test:e2e:jellyfin": "NODE_OPTIONS=\"--require ./tests/e2e/support/server-only-shim.cjs\" playwright test tests/e2e/jellyfin-adopt-reset.spec.ts --reporter=line",
     "test:coverage": "jest --coverage",
-    "test:coverage:jellyfin-access": "jest --coverage --collectCoverageFrom=src/lib/jellyfin/access.ts --coverageThreshold={\\\"global\\\":{\\\"lines\\\":80,\\\"statements\\\":80,\\\"branches\\\":80,\\\"functions\\\":80}} tests/unit/jellyfin-access-audit.test.ts tests/unit/jellyfin-access-reset.test.ts",
+    "test:coverage:jellyfin-access": "jest --coverage --collectCoverageFrom=src/lib/jellyfin/access.ts --coverageThreshold={\\\"global\\\":{\\\"lines\\\":80,\\\"statements\\\":80,\\\"branches\\\":80,\\\"functions\\\":80}} tests/unit/jellyfin-access-audit.test.ts tests/unit/jellyfin-access-reset.test.ts tests/unit/jellyfin-enrollment-gate.test.ts",
     "prebuild": "node ./scripts/build-addon-registry.mjs && sh ./scripts/sync-wp-connector.sh",
     "predev": "node ./scripts/build-addon-registry.mjs",
     "iwsl:fixtures": "tsx ../infraweaver-wp-connector/tests/gen-fixtures.ts"
