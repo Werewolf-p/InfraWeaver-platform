@@ -111,6 +111,23 @@ export const CACHE_PLUGIN_SLUGS: readonly string[] = [
   "cache-enabler",
 ];
 
+/**
+ * The WordPress roles the Manage console lets an operator assign or count. This is
+ * the single allow-list shared by the user-management actions (the zod enum that
+ * validates add/update-user-role) and the Users probe (per-role headcounts) — a
+ * role outside this set is refused before it reaches a command line. Isomorphic:
+ * a plain const so both the server actions and the client can import it.
+ */
+export const WORDPRESS_ROLES = [
+  "administrator",
+  "editor",
+  "author",
+  "contributor",
+  "subscriber",
+] as const;
+
+export type WordpressRoleName = (typeof WORDPRESS_ROLES)[number];
+
 /** The site facts a capability check reads. `activePlugins` are lowercased wp.org slugs. */
 export interface SiteCapabilityFacts {
   /** Active plugin slugs (lowercased). */

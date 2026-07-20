@@ -36,7 +36,12 @@ function isPublicPath(pathname: string) {
 
 function buildLoginUrl(req: Pick<NextRequest, "nextUrl">) {
   const loginUrl = new URL("/login", req.nextUrl);
-  loginUrl.searchParams.set("callbackUrl", `${req.nextUrl.pathname}${req.nextUrl.search}`);
+  // callbackUrl must be a navigable PAGE. A background poll that 401s on session
+  // expiry (e.g. the degraded-backends banner hitting /api/health/circuits) would
+  // otherwise become the post-login destination and the browser would land on raw
+  // JSON instead of a page. Never return the user to an API path.
+  const isApiPath = req.nextUrl.pathname.startsWith("/api/");
+  loginUrl.searchParams.set("callbackUrl", isApiPath ? "/" : `${req.nextUrl.pathname}${req.nextUrl.search}`);
   return loginUrl;
 }
 
@@ -312,7 +317,9 @@ export default auth(async (req) => {
         !callbackUrl.startsWith("//") &&
         !callbackUrl.startsWith("/login") &&
         !callbackUrl.startsWith("/auth/signin") &&
-        !callbackUrl.startsWith("/api/auth") &&
+        // Never redirect a logged-in user to an API route — those render raw JSON,
+        // not a page (defense in depth against a stale /api/* callbackUrl).
+        !callbackUrl.startsWith("/api/") &&
         !callbackUrl.includes("callbackUrl=");
       // Defense in depth: resolve against the request origin and confirm it does
       // not escape it before trusting the redirect target.

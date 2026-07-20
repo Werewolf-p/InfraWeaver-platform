@@ -12,6 +12,7 @@ import {
   HeartPulse,
   Image as ImageIcon,
   Inbox,
+  LayoutDashboard,
   LineChart,
   Mail,
   Puzzle,
@@ -19,9 +20,11 @@ import {
   ScrollText,
   ShieldCheck,
   ShoppingCart,
+  SlidersHorizontal,
   TrendingUp,
   Users,
   Wand2,
+  Wrench,
 } from "lucide-react";
 
 /** Resolve a panel-registry icon key to its lucide component (falls back to Wand2). */
@@ -48,6 +51,9 @@ export const TAB_ICONS: Record<string, React.ElementType> = {
   Database,
   HeartPulse,
   LineChart,
+  LayoutDashboard,
+  SlidersHorizontal,
+  Wrench,
 };
 
 export function tabIcon(key: string): React.ElementType {
