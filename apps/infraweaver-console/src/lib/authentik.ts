@@ -1,7 +1,6 @@
 import { createServiceFetch } from "@/lib/service-fetch";
 
-const AUTHENTIK_URL = process.env.AUTHENTIK_URL || "http://authentik-server.authentik.svc.cluster.local";
-const AUTHENTIK_TOKEN = process.env.AUTHENTIK_TOKEN || "";
+const DEFAULT_AUTHENTIK_URL = "http://authentik-server.authentik.svc.cluster.local";
 const AUTHENTIK_TIMEOUT_MS = 8000;
 const AUTHENTIK_SESSION_IDENTIFIER_RE = /^[A-Za-z0-9._:-]{1,160}$/;
 
@@ -42,14 +41,23 @@ export function mapAuthentikSessions(results: unknown[]): AuthentikSessionSummar
   });
 }
 
-const authentikServiceFetch = createServiceFetch({
-  baseUrl: `${AUTHENTIK_URL}/api/v3`,
-  headers: {
-    Authorization: `Bearer ${AUTHENTIK_TOKEN}`,
-    "Content-Type": "application/json",
-  },
-  timeoutMs: AUTHENTIK_TIMEOUT_MS,
-});
+// Base URL and token are resolved per call — NOT captured at module import — so the
+// URL can be repointed (e.g. at an in-process fake) by setting AUTHENTIK_URL before
+// the first request. Matches how the other service adapters read their env at call
+// time; a top-level `const` would bake in the cluster DNS name at import and ignore a
+// later override.
+function authentikServiceFetch(path: string, init?: RequestInit): Promise<Response> {
+  const baseUrl = process.env.AUTHENTIK_URL || DEFAULT_AUTHENTIK_URL;
+  const serviceFetch = createServiceFetch({
+    baseUrl: `${baseUrl}/api/v3`,
+    headers: {
+      Authorization: `Bearer ${process.env.AUTHENTIK_TOKEN || ""}`,
+      "Content-Type": "application/json",
+    },
+    timeoutMs: AUTHENTIK_TIMEOUT_MS,
+  });
+  return serviceFetch(path, init);
+}
 
 export async function authentikFetch(path: string, options?: RequestInit) {
   return authentikServiceFetch(path, { ...options, redirect: "error" });

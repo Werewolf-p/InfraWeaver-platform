@@ -70,6 +70,13 @@ test.beforeAll(async () => {
       { Id: "guid-service", Name: "infraweaver-service", password: "service-pw", IsAdministrator: true, IsDisabled: false },
       { Id: "guid-alice", Name: "alice", password: ORIGINAL_PASSWORD, IsAdministrator: false, IsDisabled: false },
     ],
+    // alice resolves to a live Authentik identity (keeps her in the desired set and
+    // supplies the canonical username); the service account is present but never
+    // queried by the reconcile — only granted users are resolved.
+    authentikUsers: [
+      { pk: 1, username: "alice", email: "alice@example.com", is_active: true },
+      { pk: 2, username: "infraweaver-service", email: "service@example.com", is_active: true },
+    ],
     vault: {
       "platform/app-accounts/jellyfin/service-account": { apiKey: SERVICE_API_KEY },
       // alice starts as a healthy managed account (on the roster, credential stored).
@@ -89,6 +96,11 @@ test.beforeAll(async () => {
   process.env.GITHUB_API_URL = fake.baseUrl;
   process.env.GITHUB_TOKEN = "test-gh-token";
   process.env.GITHUB_REPO = "example/infra";
+  // Authentik base URL is read per call by lib/authentik.ts (lazy), so setting it here
+  // — before the first reconcile — repoints identity resolution at the fake. Off-cluster
+  // runners can't resolve the default *.svc.cluster.local name; this removes that dep.
+  process.env.AUTHENTIK_URL = fake.baseUrl;
+  process.env.AUTHENTIK_TOKEN = "test-authentik-token";
 });
 
 test.afterAll(async () => {
