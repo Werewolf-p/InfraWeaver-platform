@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 // framer-motion ships ESM that ts-jest does not transform — swap it for plain DOM
 // (StatTile's AnimatedNumber uses animate(); manage-ui's Modal uses motion/AnimatePresence).
@@ -95,10 +95,11 @@ describe("ContentPanel", () => {
     expect(screen.getByText("Posts")).toBeInTheDocument();
     expect(screen.getByText("Pages")).toBeInTheDocument();
     // A real semantic table with an sr-only caption for the recent posts.
-    expect(screen.getByRole("table", { name: /recent posts on this site/i })).toBeInTheDocument();
-    expect(screen.getByText("Hello World")).toBeInTheDocument();
-    expect(screen.getByText("Published")).toBeInTheDocument();
-    expect(screen.getByText("Draft")).toBeInTheDocument();
+    // DataTable renders a phone card stack too — scope row assertions to the table.
+    const posts = within(screen.getByRole("table", { name: /recent posts on this site/i }));
+    expect(posts.getByText("Hello World")).toBeInTheDocument();
+    expect(posts.getByText("Published")).toBeInTheDocument();
+    expect(posts.getByText("Draft")).toBeInTheDocument();
   });
 
   test("shows the moderation queue with actions when comments are pending", () => {
@@ -233,11 +234,11 @@ describe("InventoryPanel", () => {
     render(<InventoryPanel site={SITE} />);
 
     expect(screen.getByRole("group", { name: /filter plugins by status/i })).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: /installed plugins/i })).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: /installed themes/i })).toBeInTheDocument();
-    expect(screen.getByText("Akismet")).toBeInTheDocument();
-    expect(screen.getByText("Jetpack")).toBeInTheDocument();
-    expect(screen.getByText("Twenty Twenty-Four")).toBeInTheDocument();
+    const plugins = within(screen.getByRole("table", { name: /installed plugins/i }));
+    const themes = within(screen.getByRole("table", { name: /installed themes/i }));
+    expect(plugins.getByText("Akismet")).toBeInTheDocument();
+    expect(plugins.getByText("Jetpack")).toBeInTheDocument();
+    expect(themes.getByText("Twenty Twenty-Four")).toBeInTheDocument();
   });
 
   test("surfaces update state as a pill and preserves the per-row actions", () => {
@@ -245,12 +246,14 @@ describe("InventoryPanel", () => {
     render(<InventoryPanel site={SITE} />);
 
     // Jetpack (inactive, canAct, has update) surfaces the pending version and keeps
-    // its Update / Activate / Delete actions.
-    expect(screen.getByText(/→\s*12\.1/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^update$/i })).toBeInTheDocument();
+    // its Update / Activate / Delete actions. Scope to the plugins table (DataTable
+    // also renders a phone card copy of every row + its actions).
+    const plugins = within(screen.getByRole("table", { name: /installed plugins/i }));
+    expect(plugins.getByText(/→\s*12\.1/)).toBeInTheDocument();
+    expect(plugins.getByRole("button", { name: /^update$/i })).toBeInTheDocument();
     // Anchored so /activate/ does not also match Akismet's "Deactivate".
-    expect(screen.getByRole("button", { name: /^activate$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^delete$/i })).toBeInTheDocument();
+    expect(plugins.getByRole("button", { name: /^activate$/i })).toBeInTheDocument();
+    expect(plugins.getByRole("button", { name: /^delete$/i })).toBeInTheDocument();
     // Bulk "Update all" is offered because updates are pending.
     expect(screen.getByRole("button", { name: /update all/i })).toBeInTheDocument();
   });

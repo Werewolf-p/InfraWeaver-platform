@@ -137,15 +137,17 @@ describe("DataPanel", () => {
     panelData[MANAGE_KEY] = DATA;
     render(<DataPanel site={SITE} />);
 
+    // DataTable renders a phone card stack AND the desktop table; scope to the table.
+    const table = within(screen.getByRole("table"));
     // wp_options is 60% of the 100 MB total → Large.
-    const optionsRow = screen.getByText("wp_options").closest("tr") as HTMLElement;
+    const optionsRow = table.getByText("wp_options").closest("tr") as HTMLElement;
     expect(within(optionsRow).getByText("Large")).toBeInTheDocument();
     // wp_posts is only 10% → not flagged.
-    const postsRow = screen.getByText("wp_posts").closest("tr") as HTMLElement;
+    const postsRow = table.getByText("wp_posts").closest("tr") as HTMLElement;
     expect(within(postsRow).queryByText("Large")).toBeNull();
 
-    expect(screen.getByText("Total")).toBeInTheDocument();
-    expect(screen.getByText("100 MB")).toBeInTheDocument();
+    expect(table.getByText("Total")).toBeInTheDocument();
+    expect(table.getByText("100 MB")).toBeInTheDocument();
   });
 
   test("surfaces a warn pill when autoload weight is high", () => {
@@ -236,7 +238,9 @@ describe("UpdatesPanel", () => {
     );
     render(<UpdatesPanel site={SITE} />);
 
-    const row = (): HTMLElement => screen.getByText("Akismet").closest("tr") as HTMLElement;
+    // Scope to the desktop table (DataTable also renders a phone card copy).
+    const row = (): HTMLElement =>
+      within(screen.getByRole("table")).getByText("Akismet").closest("tr") as HTMLElement;
     fireEvent.click(within(row()).getByRole("button", { name: /update/i }));
 
     // While the request is in flight the row swaps its button for a progress ring.

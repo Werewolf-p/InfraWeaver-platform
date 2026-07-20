@@ -475,6 +475,8 @@ export function PeoplePanel({ site }: { site: string }) {
       ),
       headClassName: "w-8",
       className: "w-8",
+      // Bulk multi-select is a desktop power feature; the phone card stack drops it.
+      mobileHidden: true,
       render: (u) => (
         <SelectCheckbox checked={selected.has(u.id)} onChange={() => toggleOne(u.id)} label={`Select ${u.login}`} />
       ),
@@ -482,6 +484,8 @@ export function PeoplePanel({ site }: { site: string }) {
     {
       key: "user",
       header: "User",
+      // Phone card title.
+      primary: true,
       render: (u) => (
         <div className="min-w-0">
           <p className="truncate font-medium text-zinc-900 dark:text-zinc-100">{u.displayName}</p>

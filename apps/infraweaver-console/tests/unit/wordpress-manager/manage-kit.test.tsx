@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import {
   DataTable,
   EmptyState,
@@ -27,11 +27,14 @@ describe("DataTable", () => {
   test("renders a row per item across every column", () => {
     render(<DataTable caption="People" columns={COLUMNS} rows={ROWS} getRowKey={(r) => r.id} />);
 
-    expect(screen.getByText("alice")).toBeInTheDocument();
-    expect(screen.getByText("bob")).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument();
-    expect(screen.getByText("7")).toBeInTheDocument();
-    // Two data rows, no ghost empty row.
+    // Content renders twice by design — a phone card stack AND the desktop table
+    // (CSS shows one per viewport). Scope row assertions to the semantic table.
+    const table = within(screen.getByRole("table"));
+    expect(table.getByText("alice")).toBeInTheDocument();
+    expect(table.getByText("bob")).toBeInTheDocument();
+    expect(table.getByText("3")).toBeInTheDocument();
+    expect(table.getByText("7")).toBeInTheDocument();
+    // Two data rows, no ghost empty row (cards are <li>, never role=row).
     expect(screen.getAllByRole("row")).toHaveLength(ROWS.length + 1); // + header row
   });
 
@@ -56,7 +59,7 @@ describe("DataTable", () => {
     const { container } = render(
       <DataTable caption="People" columns={COLUMNS} rows={ROWS} getRowKey={(r) => r.id} />,
     );
-    const numericCell = screen.getByText("7").closest("td");
+    const numericCell = within(screen.getByRole("table")).getByText("7").closest("td");
     expect(numericCell).toHaveClass("tabular-nums");
     expect(container).toBeTruthy();
   });
