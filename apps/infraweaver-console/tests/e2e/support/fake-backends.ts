@@ -8,6 +8,7 @@
 //   Jellyfin admin API   — /System/*, /Users*, /Auth/Keys, /Startup/*
 //   OpenBao KV v2        — /v1/<mount>/data/*, /v1/<mount>/metadata/*
 //   GitHub contents API  — /repos/:owner/:repo/contents/users.yaml (users.yaml source)
+//   Authentik core API   — /api/v3/core/users/?username=|email= (identity resolve)
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { AddressInfo } from "node:net";
 
@@ -19,6 +20,18 @@ export interface JellyfinUserRecord {
   IsDisabled: boolean;
 }
 
+/**
+ * Minimal Authentik user record served by the fake `/api/v3/core/users/` lookup —
+ * shaped per the fields `resolveAuthentikIdentity` reads (`pk`, `username`, `email`,
+ * `is_active`). `findUserBy` in `lib/authentik.ts` returns `results[0]`.
+ */
+export interface AuthentikUserRecord {
+  pk: number | string;
+  username: string;
+  email: string;
+  is_active: boolean;
+}
+
 export interface FakeSeed {
   /** users.yaml body served by the fake GitHub contents API. */
   usersYaml: string;
@@ -28,6 +41,8 @@ export interface FakeSeed {
   validApiKeys: string[];
   /** Pre-seeded OpenBao KV entries, keyed by logical path (no mount / `data/`). */
   vault: Record<string, unknown>;
+  /** Authentik identities resolvable via `/api/v3/core/users/?username=|email=`. */
+  authentikUsers: AuthentikUserRecord[];
 }
 
 export interface FakeBackends {
@@ -74,6 +89,7 @@ export async function startFakeBackends(seed: FakeSeed): Promise<FakeBackends> {
   const users: JellyfinUserRecord[] = seed.jellyfinUsers.map((u) => ({ ...u }));
   const apiKeys = new Set(seed.validApiKeys);
   const vault = new Map<string, unknown>(Object.entries(seed.vault));
+  const authentikUsers: AuthentikUserRecord[] = seed.authentikUsers.map((u) => ({ ...u }));
 
   const userDto = (u: JellyfinUserRecord) => ({
     Id: u.Id,
@@ -184,14 +200,34 @@ export async function startFakeBackends(seed: FakeSeed): Promise<FakeBackends> {
     }), true;
   }
 
+  // Authentik identity lookup — `lib/authentik.ts#findUserBy` hits
+  // `/api/v3/core/users/?username=<u>` (or `?email=<e>`) and reads `results[0]`.
+  // Return the first seeded record matching the queried field, or an empty list
+  // (which resolves to `null`, exactly as the real API's no-match response does).
+  function handleAuthentik(res: ServerResponse, path: string, query: string): boolean {
+    if (path !== "/api/v3/core/users/") return false;
+    const params = new URLSearchParams(query);
+    const username = params.get("username");
+    const email = params.get("email");
+    const match = authentikUsers.find(
+      (u) => (username !== null && u.username === username) || (email !== null && u.email === email),
+    );
+    return send(res, 200, { results: match ? [match] : [] }), true;
+  }
+
   const server: Server = createServer((req, res) => {
-    const path = (req.url ?? "").split("?")[0];
+    const url = req.url ?? "";
+    const qIndex = url.indexOf("?");
+    const path = qIndex === -1 ? url : url.slice(0, qIndex);
+    const query = qIndex === -1 ? "" : url.slice(qIndex + 1);
     void (async () => {
       try {
         if (path.startsWith("/v1/")) {
           if (await handleVault(req, res, path)) return;
         } else if (path.startsWith("/repos/")) {
           if (handleGitHub(req, res, path)) return;
+        } else if (path.startsWith("/api/v3/")) {
+          if (handleAuthentik(res, path, query)) return;
         } else if (await handleJellyfin(req, res, path)) {
           return;
         }
