@@ -39,6 +39,7 @@ require __DIR__ . '/../includes/class-iwsl-responder.php';
 require __DIR__ . '/../includes/class-iwsl-command-handler.php';
 require __DIR__ . '/../includes/class-iwsl-entitlements.php';
 require __DIR__ . '/../includes/class-iwsl-feature-switches.php';
+require __DIR__ . '/../includes/iwsl-ui-help.php';
 require __DIR__ . '/../includes/class-iwsl-plugin.php';
 require __DIR__ . '/../includes/class-iwsl-media-converter.php';
 require __DIR__ . '/../includes/class-iwsl-webp-lossless-converter.php';

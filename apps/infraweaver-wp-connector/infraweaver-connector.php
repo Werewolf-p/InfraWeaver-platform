@@ -41,6 +41,7 @@ require_once __DIR__ . '/includes/class-iwsl-responder.php';
 require_once __DIR__ . '/includes/class-iwsl-command-handler.php';
 require_once __DIR__ . '/includes/class-iwsl-entitlements.php';
 require_once __DIR__ . '/includes/class-iwsl-feature-switches.php';
+require_once __DIR__ . '/includes/iwsl-ui-help.php';
 require_once __DIR__ . '/includes/class-iwsl-plugin.php';
 require_once __DIR__ . '/includes/class-iwsl-plus-feature.php';
 require_once __DIR__ . '/includes/class-iwsl-media-converter.php';

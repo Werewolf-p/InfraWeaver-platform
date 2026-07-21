@@ -831,6 +831,8 @@ final class IWSL_Admin {
 .iwsl-shell .iwsl-card__titlerow{ display: flex; align-items: center; gap: 7px; }
 .iwsl-shell .iwsl-help{ position: relative; display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--iw-line-2); background: var(--iw-panel-2); color: var(--iw-ink-2); cursor: help; flex: 0 0 auto; }
 .iwsl-shell .iwsl-help__q{ font-size: 11px; font-weight: 700; line-height: 1; }
+.iwsl-shell .iwsl-help--field{ width: 15px; height: 15px; margin-left: 5px; vertical-align: middle; }
+.iwsl-shell .iwsl-help--field .iwsl-help__q{ font-size: 10px; }
 .iwsl-shell .iwsl-help:hover, .iwsl-shell .iwsl-help:focus-visible{ color: var(--iw-ink); border-color: var(--iw-signal); outline: none; }
 .iwsl-shell .iwsl-help__tip{ position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 260px; padding: 9px 11px; border-radius: 8px; background: var(--iw-panel-2); border: 1px solid var(--iw-line-2); color: var(--iw-ink); font-size: 12.5px; font-weight: 400; line-height: 1.4; text-transform: none; letter-spacing: 0; box-shadow: 0 6px 20px rgba(0,0,0,.28); opacity: 0; visibility: hidden; transition: opacity .12s; z-index: 40; pointer-events: none; }
 .iwsl-shell .iwsl-help__tip::before{ content: ""; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-bottom-color: var(--iw-line-2); }
