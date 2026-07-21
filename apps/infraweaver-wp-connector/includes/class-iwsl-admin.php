@@ -165,6 +165,44 @@ final class IWSL_Admin {
 		return $map[ $id ] ?? null;
 	}
 
+	/**
+	 * Plain-English, one-line "what does this do" help per feature — no jargon,
+	 * for the "?" bubble on each card. Kept deliberately short and concrete.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function feature_help_map(): array {
+		return array(
+			'speed'             => __( 'Makes your pages load faster by trimming extra code and files.', 'infraweaver-connector' ),
+			'cache'             => __( 'Keeps a ready-made copy of each page so visitors get it instantly.', 'infraweaver-connector' ),
+			'cdn'               => __( 'Serves your images and files from servers closer to each visitor, so they load quicker.', 'infraweaver-connector' ),
+			'lazy-load'         => __( 'Loads images only when a visitor scrolls to them, so the page opens sooner.', 'infraweaver-connector' ),
+			'images'            => __( 'Shrinks image file sizes so pages load faster, without making pictures look worse.', 'infraweaver-connector' ),
+			'auto-convert'      => __( 'Automatically turns your images into a smaller, faster format for you.', 'infraweaver-connector' ),
+			'svg'               => __( 'Lets you safely upload logo and icon files that stay crisp at any size.', 'infraweaver-connector' ),
+			'seo'               => __( 'Helps Google understand your pages so more people can find your site.', 'infraweaver-connector' ),
+			'seo-audit'         => __( 'Checks your pages for common Google mistakes and tells you what to fix.', 'infraweaver-connector' ),
+			'duplicate'         => __( 'Copies a post or page in one click so you don’t start from scratch.', 'infraweaver-connector' ),
+			'links'             => __( 'Finds links on your site that lead nowhere, so you can fix them.', 'infraweaver-connector' ),
+			'redirects'         => __( 'Sends visitors from an old or changed web address to the right page.', 'infraweaver-connector' ),
+			'statistics'        => __( 'Shows how many people visit your site — privately, with no outside trackers.', 'infraweaver-connector' ),
+			'activity-log'      => __( 'Keeps a record of who changed what in your site’s admin.', 'infraweaver-connector' ),
+			'consent'           => __( 'Shows visitors a cookie notice so you follow privacy rules.', 'infraweaver-connector' ),
+			'maintenance'       => __( 'Shows a friendly “be right back” page to visitors while you work on the site.', 'infraweaver-connector' ),
+			'whitelabel'        => __( 'Replaces WordPress branding with your own on the login and admin screens.', 'infraweaver-connector' ),
+			'database'          => __( 'Clears out old clutter in your site’s database so it stays lean and quick.', 'infraweaver-connector' ),
+			'scheduled-cleanup' => __( 'Tidies the database automatically on a schedule, so you don’t have to.', 'infraweaver-connector' ),
+			'email'             => __( 'Helps your site’s emails — like password resets — actually reach inboxes.', 'infraweaver-connector' ),
+			'config'            => __( 'Advanced settings for how WordPress runs. Best left to an expert.', 'infraweaver-connector' ),
+		);
+	}
+
+	/** Plain-English help for a tab id, or '' if none. */
+	private static function feature_help( string $id ): string {
+		$map = self::feature_help_map();
+		return isset( $map[ $id ] ) ? (string) $map[ $id ] : '';
+	}
+
 	/** Hook the admin menu + the image-optimization + email-delivery + redirect + db-optimize admin-post handlers. */
 	public function register(): void {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
@@ -692,7 +730,18 @@ final class IWSL_Admin {
 		echo '<header class="iwsl-card__head">';
 		echo '<span class="iwsl-card__mark" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span></span>';
 		echo '<div class="iwsl-card__id">';
+		echo '<div class="iwsl-card__titlerow">';
 		echo '<h2 class="iwsl-card__title">' . esc_html( $label ) . '</h2>';
+		$help = self::feature_help( $id );
+		if ( '' !== $help ) {
+			/* translators: 1: feature name, 2: plain-english explanation. */
+			$help_label = sprintf( __( 'What is %1$s? %2$s', 'infraweaver-connector' ), $label, $help );
+			echo '<span class="iwsl-help" tabindex="0" role="note" aria-label="' . esc_attr( $help_label ) . '">';
+			echo '<span class="iwsl-help__q" aria-hidden="true">?</span>';
+			echo '<span class="iwsl-help__tip" aria-hidden="true">' . esc_html( $help ) . '</span>';
+			echo '</span>';
+		}
+		echo '</div>';
 		echo '<span class="iwsl-card__state iwsl-card__state--' . esc_attr( $state ) . '">' . esc_html( $state_label[ $state ] ) . '</span>';
 		echo '</div>';
 
@@ -778,7 +827,14 @@ final class IWSL_Admin {
 .iwsl-shell .iwsl-jump__lock{ font-size: 13px !important; width: 13px !important; height: 13px !important; opacity: .7; }
 
 .iwsl-shell .iwsl-cards{ display: flex; flex-direction: column; gap: 16px; }
-.iwsl-shell .iwsl-card{ border: 1px solid var(--iw-line); border-radius: var(--iw-r-sm, 12px); background: var(--iw-panel); overflow: hidden; scroll-margin-top: 96px; }
+.iwsl-shell .iwsl-card{ border: 1px solid var(--iw-line); border-radius: var(--iw-r-sm, 12px); background: var(--iw-panel); overflow: visible; scroll-margin-top: 96px; }
+.iwsl-shell .iwsl-card__titlerow{ display: flex; align-items: center; gap: 7px; }
+.iwsl-shell .iwsl-help{ position: relative; display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--iw-line-2); background: var(--iw-panel-2); color: var(--iw-ink-2); cursor: help; flex: 0 0 auto; }
+.iwsl-shell .iwsl-help__q{ font-size: 11px; font-weight: 700; line-height: 1; }
+.iwsl-shell .iwsl-help:hover, .iwsl-shell .iwsl-help:focus-visible{ color: var(--iw-ink); border-color: var(--iw-signal); outline: none; }
+.iwsl-shell .iwsl-help__tip{ position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 260px; padding: 9px 11px; border-radius: 8px; background: var(--iw-panel-2); border: 1px solid var(--iw-line-2); color: var(--iw-ink); font-size: 12.5px; font-weight: 400; line-height: 1.4; text-transform: none; letter-spacing: 0; box-shadow: 0 6px 20px rgba(0,0,0,.28); opacity: 0; visibility: hidden; transition: opacity .12s; z-index: 40; pointer-events: none; }
+.iwsl-shell .iwsl-help__tip::before{ content: ""; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-bottom-color: var(--iw-line-2); }
+.iwsl-shell .iwsl-help:hover .iwsl-help__tip, .iwsl-shell .iwsl-help:focus-visible .iwsl-help__tip{ opacity: 1; visibility: visible; }
 .iwsl-shell .iwsl-card--off{ opacity: .92; }
 .iwsl-shell .iwsl-card--locked{ opacity: .7; }
 .iwsl-shell .iwsl-card__head{ display: flex; align-items: center; gap: 13px; padding: 15px 18px; border-bottom: 1px solid transparent; }
