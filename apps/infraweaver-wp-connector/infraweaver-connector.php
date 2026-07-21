@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.9.0
+ * Version: 0.9.1
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.9.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.9.1' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -83,6 +83,7 @@ require_once __DIR__ . '/includes/class-iwsl-seo-analyzer.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-head.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-sitemap.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-suite.php';
+require_once __DIR__ . '/includes/class-iwsl-perf-audit.php';
 require_once __DIR__ . '/includes/class-iwsl-admin.php';
 
 function iwsl_plugin(): IWSL_Plugin {
@@ -107,6 +108,19 @@ $iwsl_switches = new IWSL_Feature_Switches( iwsl_plugin()->entitlements(), new I
 
 if ( is_admin() ) {
 	( new IWSL_Admin( iwsl_plugin(), switches: $iwsl_switches ) )->register();
+}
+
+// Load-Time Audit (FREE — no entitlement gate, no feature switch). The passive
+// collector times real front-end page views with WordPress's own request timer;
+// register() wires a single late `shutdown` hook whose FIRST checks are "enabled?"
+// and "measurable front-end GET?", so admin / AJAX / cron / REST / bot / admin-user
+// requests pay nothing. Registered on every request because the hook fires on the
+// front end. Its two admin-post controls (toggle + reset) are wired in admin only.
+$iwsl_perf_audit = new IWSL_Perf_Audit( new IWSL_WP_Store() );
+$iwsl_perf_audit->register();
+if ( is_admin() ) {
+	add_action( 'admin_post_' . IWSL_Perf_Audit::TOGGLE_ACTION, array( $iwsl_perf_audit, 'handle_toggle' ) );
+	add_action( 'admin_post_' . IWSL_Perf_Audit::RESET_ACTION, array( $iwsl_perf_audit, 'handle_reset' ) );
 }
 
 // 301 Redirect Manager (gated, Pro). Registered on every request because the

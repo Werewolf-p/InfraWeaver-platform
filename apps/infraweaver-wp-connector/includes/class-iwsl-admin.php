@@ -177,6 +177,7 @@ final class IWSL_Admin {
 			'cache'             => __( 'Keeps a ready-made copy of each page so visitors get it instantly.', 'infraweaver-connector' ),
 			'cdn'               => __( 'Serves your images and files from servers closer to each visitor, so they load quicker.', 'infraweaver-connector' ),
 			'lazy-load'         => __( 'Loads images only when a visitor scrolls to them, so the page opens sooner.', 'infraweaver-connector' ),
+			'perf-audit'        => __( 'Times how long your server takes to build each page for visitors, so you can spot the slow ones. Free.', 'infraweaver-connector' ),
 			'images'            => __( 'Shrinks image file sizes so pages load faster, without making pictures look worse.', 'infraweaver-connector' ),
 			'auto-convert'      => __( 'Automatically turns your images into a smaller, faster format for you.', 'infraweaver-connector' ),
 			'svg'               => __( 'Lets you safely upload logo and icon files that stay crisp at any size.', 'infraweaver-connector' ),
@@ -465,6 +466,9 @@ final class IWSL_Admin {
 				return;
 			case 'config':
 				$this->render_config_section();
+				return;
+			case 'perf-audit':
+				$this->render_perf_audit_section();
 				return;
 		}
 		$new = $this->new_engine_panels();
@@ -948,6 +952,7 @@ final class IWSL_Admin {
 			array( 'id' => 'cache', 'label' => 'Cache', 'icon' => 'performance', 'group' => 'Performance' ),
 			array( 'id' => 'cdn', 'label' => 'CDN', 'icon' => 'cloud', 'group' => 'Performance' ),
 			array( 'id' => 'lazy-load', 'label' => 'Lazy Load', 'icon' => 'images-alt2', 'group' => 'Performance' ),
+			array( 'id' => 'perf-audit', 'label' => 'Load Time', 'icon' => 'dashboard', 'group' => 'Performance' ),
 
 			// Media
 			array( 'id' => 'images', 'label' => 'Images', 'icon' => 'format-image', 'group' => 'Media' ),
@@ -3765,6 +3770,15 @@ JS;
 	 * effective current value. If a write target is not writable, a notice makes
 	 * clear the change cannot be applied automatically.
 	 */
+	/**
+	 * Render the FREE Load-Time Audit section. No entitlement gate — this feature is
+	 * available on every plan, so it is built with only the site's own store (mirrors
+	 * the config editor). The engine self-renders its status, controls, and table.
+	 */
+	private function render_perf_audit_section(): void {
+		( new IWSL_Perf_Audit( new IWSL_WP_Store() ) )->render_section();
+	}
+
 	private function render_config_section(): void {
 		$editor  = $this->config_editor();
 		$current = $editor->current();
