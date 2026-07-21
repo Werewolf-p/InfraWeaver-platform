@@ -34,6 +34,9 @@ final class IWSL_Admin {
 	const EMAIL_LOG_CLEAR_ACTION = 'iwsl_email_log_clear';
 	const EMAIL_LOG_CLEAR_NONCE  = 'iwsl_email_log_clear';
 
+	const EMAIL_TEST_ACTION = 'iwsl_email_test';
+	const EMAIL_TEST_NONCE  = 'iwsl_email_test';
+
 	/** admin-post actions + nonces for the 301 Redirect Manager. */
 	const REDIRECT_ADD_ACTION    = 'iwsl_redirects_add';
 	const REDIRECT_ADD_NONCE     = 'iwsl_redirects_add';
@@ -93,6 +96,7 @@ final class IWSL_Admin {
 		add_action( 'admin_post_' . self::OPTIMIZE_ACTION, array( $this, 'handle_media_optimize' ) );
 		add_action( 'admin_post_' . self::EMAIL_SETTINGS_ACTION, array( $this, 'handle_email_settings_save' ) );
 		add_action( 'admin_post_' . self::EMAIL_LOG_CLEAR_ACTION, array( $this, 'handle_email_log_clear' ) );
+		add_action( 'admin_post_' . self::EMAIL_TEST_ACTION, array( $this, 'handle_email_test' ) );
 		add_action( 'admin_post_' . self::REDIRECT_ADD_ACTION, array( $this, 'handle_redirects_add' ) );
 		add_action( 'admin_post_' . self::REDIRECT_DELETE_ACTION, array( $this, 'handle_redirects_delete' ) );
 		add_action( 'admin_post_' . self::REDIRECT_LOG_ACTION, array( $this, 'handle_redirects_log' ) );
@@ -1083,6 +1087,7 @@ JS;
 
 		$this->render_email_result_notice();
 		$this->render_email_settings_form();
+		$this->render_email_test_form();
 		$this->render_email_log_table();
 	}
 
@@ -1117,12 +1122,28 @@ JS;
 			return;
 		}
 		if ( ! empty( $result['ok'] ) ) {
-			$msg = ! empty( $result['cleared'] )
-				? esc_html__( 'Email log cleared.', 'infraweaver-connector' )
-				: esc_html__( 'SMTP settings saved.', 'infraweaver-connector' );
+			if ( ! empty( $result['tested'] ) ) {
+				$msg = esc_html( sprintf(
+					/* translators: %s is the recipient email address. */
+					__( 'Test email sent to %s. Check the inbox (and spam) — the result is in the log below.', 'infraweaver-connector' ),
+					(string) ( $result['to'] ?? '' )
+				) );
+			} elseif ( ! empty( $result['cleared'] ) ) {
+				$msg = esc_html__( 'Email log cleared.', 'infraweaver-connector' );
+			} else {
+				$msg = esc_html__( 'SMTP settings saved.', 'infraweaver-connector' );
+			}
 			echo '<div class="notice notice-success" style="margin-top:12px;padding:12px;"><p>' . $msg . '</p></div>';
 		} else {
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p>' . esc_html( sprintf( 'Could not save: %s', (string) ( $result['reason'] ?? 'unknown' ) ) ) . '</p></div>';
+			$reason = (string) ( $result['reason'] ?? 'unknown' );
+			if ( 'invalid-recipient' === $reason ) {
+				$err = esc_html__( 'Enter a valid recipient email address.', 'infraweaver-connector' );
+			} elseif ( 'send-failed' === $reason ) {
+				$err = esc_html__( 'Test send failed — check the SMTP settings above and the log below.', 'infraweaver-connector' );
+			} else {
+				$err = esc_html( sprintf( 'Could not save: %s', $reason ) );
+			}
+			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p>' . $err . '</p></div>';
 		}
 	}
 
@@ -1189,6 +1210,71 @@ JS;
 		echo '</tbody></table>';
 		echo '<p><button type="submit" class="button button-primary">' . esc_html__( 'Save SMTP settings', 'infraweaver-connector' ) . '</button></p>';
 		echo '</form>';
+	}
+
+	/** A send-a-test-email form so the operator can verify SMTP end-to-end. */
+	private function render_email_test_form(): void {
+		$default = '';
+		if ( function_exists( 'wp_get_current_user' ) ) {
+			$user = wp_get_current_user();
+			if ( $user && isset( $user->user_email ) ) {
+				$default = (string) $user->user_email;
+			}
+		}
+		echo '<h3 style="margin-top:24px;">' . esc_html__( 'Send a test email', 'infraweaver-connector' ) . '</h3>';
+		echo '<p class="description" style="margin-bottom:8px;">' . esc_html__( 'Sends a real message through the SMTP settings above so you can confirm delivery. The outcome is recorded in the log below.', 'infraweaver-connector' ) . '</p>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="max-width:640px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+		wp_nonce_field( self::EMAIL_TEST_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::EMAIL_TEST_ACTION ) . '">';
+		echo '<input type="email" name="test_to" class="regular-text" value="' . esc_attr( $default ) . '" placeholder="you@example.com" required style="flex:1;min-width:220px;">';
+		echo '<button type="submit" class="button">' . esc_html__( 'Send test email', 'infraweaver-connector' ) . '</button>';
+		echo '</form>';
+	}
+
+	/**
+	 * admin-post handler for the SMTP test send. Same gate discipline as the
+	 * other email actions: capability + nonce + re-checked entitlement, then a
+	 * validated recipient and a plain wp_mail() (routed through the configured
+	 * SMTP by the registered phpmailer_init hook). PRG via the shared transient.
+	 */
+	public function handle_email_test(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
+		}
+		check_admin_referer( self::EMAIL_TEST_NONCE );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+
+		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_safe_redirect( add_query_arg( 'iwsl_ed_locked', '1', $redirect ) );
+			exit;
+		}
+
+		$to = isset( $_POST['test_to'] ) ? sanitize_email( wp_unslash( $_POST['test_to'] ) ) : '';
+		if ( '' === $to || ( function_exists( 'is_email' ) && ! is_email( $to ) ) ) {
+			$this->stash_email_result( array( 'ok' => false, 'reason' => 'invalid-recipient' ) );
+			wp_safe_redirect( $redirect );
+			exit;
+		}
+
+		$subject = 'InfraWeaver SMTP test';
+		$body    = "This is a test email from the InfraWeaver Connector, sent to verify your SMTP settings.\n\nIf you received it, outgoing mail is working.";
+		$sent    = function_exists( 'wp_mail' ) ? (bool) wp_mail( $to, $subject, $body ) : false;
+
+		$this->stash_email_result(
+			$sent
+				? array( 'ok' => true, 'tested' => true, 'to' => $to )
+				: array( 'ok' => false, 'reason' => 'send-failed' )
+		);
+		wp_safe_redirect( $redirect );
+		exit;
+	}
+
+	/** Stash a per-user PRG result for the email section's result notice. */
+	private function stash_email_result( array $result ): void {
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( 'iwsl_ed_result_' . (int) get_current_user_id(), $result, 60 );
+		}
 	}
 
 	/** The bounded email log table + the nonce-protected clear-log form. */
