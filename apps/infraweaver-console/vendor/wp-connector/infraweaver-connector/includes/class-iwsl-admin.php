@@ -1,9 +1,13 @@
 <?php
 /**
- * The plugin's wp-admin surface: a single Tools → "InfraWeaver Plus" page that
- * is the MANUAL TEST SURFACE for the client-side feature gates. It reads only
- * local plugin state (IWSL_Entitlements::evaluate) — never a network call — and
- * hosts two gated sections:
+ * The plugin's wp-admin surface: a top-level "InfraWeaver Plus" menu whose main
+ * page is a STATUS-ONLY landing dashboard (identity, connector version, current
+ * tier, gate posture, the read-only Plus snapshot, and a grid of category cards),
+ * with every feature living on its own category sub-page (Performance, Media,
+ * SEO & Content, Analytics, Privacy & Site, System). It is the MANUAL TEST
+ * SURFACE for the client-side feature gates. It reads only local plugin state
+ * (IWSL_Entitlements::evaluate) — never a network call — and hosts these gated
+ * sections, including:
  *
  *   1. Plus — Site Content & Health Snapshot (gate flag `plus`), read-only.
  *   2. Lossless Image Optimization (gate flag `image_optimization`), which runs
@@ -68,6 +72,12 @@ final class IWSL_Admin {
 	const CONFIG_SAVE_ACTION = 'iwsl_config_save';
 	const CONFIG_SAVE_NONCE  = 'iwsl_config_save';
 
+	/** admin-post action + nonce for the tier-aware per-feature enable/disable toggle. */
+	const FEATURE_TOGGLE_ACTION = 'iwsl_feature_toggle';
+	const FEATURE_TOGGLE_NONCE  = 'iwsl_feature_toggle';
+	/** Per-user transient prefix for the toggle result toast. */
+	const FEATURE_TOGGLE_RESULT = 'iwsl_feature_toggle_result_';
+
 	/** @var IWSL_Plugin */
 	private $plugin;
 
@@ -92,10 +102,13 @@ final class IWSL_Admin {
 	/** @var IWSL_Config_Editor|null lazily built; no entitlement — manage_options + nonce gated. */
 	private $config_editor;
 
-	/** @var string The hook suffix returned by add_menu_page(), used to scope wp_enqueue_media() to this page only. */
-	private $page_hook = '';
+	/** @var IWSL_Feature_Switches|null the tier-aware operator on/off layer; lazily built from plugin state. */
+	private $switches;
 
-	public function __construct( IWSL_Plugin $plugin, ?IWSL_Media_Optimizer $optimizer = null, ?IWSL_Email_Delivery $email_delivery = null, ?IWSL_Redirects $redirects = null, ?IWSL_White_Label $white_label = null, ?IWSL_DB_Optimizer $db_optimizer = null, ?IWSL_Page_Cache $page_cache = null, ?IWSL_Config_Editor $config_editor = null ) {
+	/** @var string[] The hook suffixes returned by add_menu_page()/add_submenu_page(), used to scope wp_enqueue_media() to this plugin's own pages only. */
+	private $page_hooks = array();
+
+	public function __construct( IWSL_Plugin $plugin, ?IWSL_Media_Optimizer $optimizer = null, ?IWSL_Email_Delivery $email_delivery = null, ?IWSL_Redirects $redirects = null, ?IWSL_White_Label $white_label = null, ?IWSL_DB_Optimizer $db_optimizer = null, ?IWSL_Page_Cache $page_cache = null, ?IWSL_Config_Editor $config_editor = null, ?IWSL_Feature_Switches $switches = null ) {
 		$this->plugin         = $plugin;
 		$this->optimizer      = $optimizer;
 		$this->email_delivery = $email_delivery;
@@ -104,6 +117,91 @@ final class IWSL_Admin {
 		$this->db_optimizer   = $db_optimizer;
 		$this->page_cache     = $page_cache;
 		$this->config_editor  = $config_editor;
+		$this->switches       = $switches;
+	}
+
+	/** The tier-aware operator on/off layer, built lazily from local plugin state. */
+	private function switches(): IWSL_Feature_Switches {
+		if ( null === $this->switches ) {
+			$this->switches = new IWSL_Feature_Switches( $this->plugin->entitlements(), new IWSL_WP_Store() );
+		}
+		return $this->switches;
+	}
+
+	/**
+	 * Canonical tab-id => FEATURE-flag map (the tier-gated engines). Ids absent
+	 * here (overview, roadmap, config) carry no tier gate and are never switchable.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function feature_flag_map(): array {
+		return array(
+			'images'            => IWSL_Media_Optimizer::FEATURE,
+			'database'          => IWSL_DB_Optimizer::FEATURE,
+			'email'             => IWSL_Email_Delivery::FEATURE,
+			'redirects'         => IWSL_Redirects::FEATURE,
+			'whitelabel'        => IWSL_White_Label::FEATURE,
+			'cache'             => IWSL_Page_Cache::FEATURE,
+			'lazy-load'         => IWSL_Lazy_Load::FEATURE,
+			'cdn'               => IWSL_CDN_Rewrite::FEATURE,
+			'duplicate'         => IWSL_Duplicate_Post::FEATURE,
+			'seo-audit'         => IWSL_SEO_Audit::FEATURE,
+			'svg'               => IWSL_SVG_Upload::FEATURE,
+			'links'             => IWSL_Broken_Link_Scan::FEATURE,
+			'maintenance'       => IWSL_Maintenance_Mode::FEATURE,
+			'scheduled-cleanup' => IWSL_Scheduled_DB_Cleanup::FEATURE,
+			'activity-log'      => IWSL_Activity_Log::FEATURE,
+			'auto-convert'      => IWSL_Auto_Convert::FEATURE,
+			'speed'             => IWSL_Speed_Pack::FEATURE,
+			'statistics'        => IWSL_Statistics::FEATURE,
+			'consent'           => IWSL_Cookie_Consent::FEATURE,
+			'seo'               => IWSL_SEO_Suite::FEATURE,
+		);
+	}
+
+	/** The FEATURE flag for a tab id, or null if the id has no tier gate. */
+	private static function feature_flag_for( string $id ): ?string {
+		$map = self::feature_flag_map();
+		return $map[ $id ] ?? null;
+	}
+
+	/**
+	 * Plain-English, one-line "what does this do" help per feature — no jargon,
+	 * for the "?" bubble on each card. Kept deliberately short and concrete.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function feature_help_map(): array {
+		return array(
+			'speed'             => __( 'Makes your pages load faster by trimming extra code and files.', 'infraweaver-connector' ),
+			'cache'             => __( 'Keeps a ready-made copy of each page so visitors get it instantly.', 'infraweaver-connector' ),
+			'cdn'               => __( 'Serves your images and files from servers closer to each visitor, so they load quicker.', 'infraweaver-connector' ),
+			'lazy-load'         => __( 'Loads images only when a visitor scrolls to them, so the page opens sooner.', 'infraweaver-connector' ),
+			'perf-audit'        => __( 'Times how long your server takes to build each page for visitors, so you can spot the slow ones. Free.', 'infraweaver-connector' ),
+			'images'            => __( 'Shrinks image file sizes so pages load faster, without making pictures look worse.', 'infraweaver-connector' ),
+			'auto-convert'      => __( 'Automatically turns your images into a smaller, faster format for you.', 'infraweaver-connector' ),
+			'svg'               => __( 'Lets you safely upload logo and icon files that stay crisp at any size.', 'infraweaver-connector' ),
+			'seo'               => __( 'Helps Google understand your pages so more people can find your site.', 'infraweaver-connector' ),
+			'seo-audit'         => __( 'Checks your pages for common Google mistakes and tells you what to fix.', 'infraweaver-connector' ),
+			'duplicate'         => __( 'Copies a post or page in one click so you don’t start from scratch.', 'infraweaver-connector' ),
+			'links'             => __( 'Finds links on your site that lead nowhere, so you can fix them.', 'infraweaver-connector' ),
+			'redirects'         => __( 'Sends visitors from an old or changed web address to the right page.', 'infraweaver-connector' ),
+			'statistics'        => __( 'Shows how many people visit your site — privately, with no outside trackers.', 'infraweaver-connector' ),
+			'activity-log'      => __( 'Keeps a record of who changed what in your site’s admin.', 'infraweaver-connector' ),
+			'consent'           => __( 'Shows visitors a cookie notice so you follow privacy rules.', 'infraweaver-connector' ),
+			'maintenance'       => __( 'Shows a friendly “be right back” page to visitors while you work on the site.', 'infraweaver-connector' ),
+			'whitelabel'        => __( 'Replaces WordPress branding with your own on the login and admin screens.', 'infraweaver-connector' ),
+			'database'          => __( 'Clears out old clutter in your site’s database so it stays lean and quick.', 'infraweaver-connector' ),
+			'scheduled-cleanup' => __( 'Tidies the database automatically on a schedule, so you don’t have to.', 'infraweaver-connector' ),
+			'email'             => __( 'Helps your site’s emails — like password resets — actually reach inboxes.', 'infraweaver-connector' ),
+			'config'            => __( 'Advanced settings for how WordPress runs. Best left to an expert.', 'infraweaver-connector' ),
+		);
+	}
+
+	/** Plain-English help for a tab id, or '' if none. */
+	private static function feature_help( string $id ): string {
+		$map = self::feature_help_map();
+		return isset( $map[ $id ] ) ? (string) $map[ $id ] : '';
 	}
 
 	/** Hook the admin menu + the image-optimization + email-delivery + redirect + db-optimize admin-post handlers. */
@@ -122,30 +220,91 @@ final class IWSL_Admin {
 		add_action( 'admin_post_' . self::PAGE_CACHE_TOGGLE_ACTION, array( $this, 'handle_page_cache_toggle' ) );
 		add_action( 'admin_post_' . self::PAGE_CACHE_PURGE_ACTION, array( $this, 'handle_page_cache_purge' ) );
 		add_action( 'admin_post_' . self::CONFIG_SAVE_ACTION, array( $this, 'handle_config_save' ) );
+		add_action( 'admin_post_' . self::FEATURE_TOGGLE_ACTION, array( $this, 'handle_feature_toggle' ) );
+	}
+
+	/**
+	 * Flip a feature's operator switch. cap + nonce + tier-gate (the switch itself
+	 * refuses to enable a feature the tier doesn't grant). Redirects back to the
+	 * originating category page with a per-user result toast. Never widens the
+	 * signed entitlement — this only turns a granted feature off, or back on.
+	 */
+	public function handle_feature_toggle(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
+		}
+		check_admin_referer( self::FEATURE_TOGGLE_NONCE );
+
+		$feature = isset( $_POST['feature'] ) ? sanitize_key( wp_unslash( (string) $_POST['feature'] ) ) : '';
+		$on      = isset( $_POST['enable'] ) && '1' === (string) $_POST['enable'];
+		$result  = $this->switches()->set( $feature, $on );
+
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( self::FEATURE_TOGGLE_RESULT . get_current_user_id(), $result, 60 );
+		}
+
+		$back = wp_get_referer();
+		if ( ! is_string( $back ) || '' === $back ) {
+			$back = admin_url( 'admin.php?page=infraweaver-plus' );
+		}
+		wp_safe_redirect( $back );
+		exit;
 	}
 
 	public function add_menu(): void {
-		// Top-level sidebar entry so operators can find the Plus features
-		// (image optimization, DB cleanup, email, redirects, white-label,
-		// page cache) directly, rather than buried under Tools.
-		$this->page_hook = (string) add_menu_page(
+		// Top-level sidebar entry → the status-only LANDING dashboard. Operators
+		// land on a posture/overview page; every actual feature lives on its own
+		// category sub-page (registered below), never on this main page.
+		$this->page_hooks[] = (string) add_menu_page(
 			'InfraWeaver Plus',
 			'InfraWeaver Plus',
 			'manage_options',
 			'infraweaver-plus',
-			array( $this, 'render_page' ),
+			array( $this, 'render_landing' ),
 			'dashicons-shield',
 			81
 		);
+
+		// Category sub-pages in the sidebar. Each is a REAL admin page with its own
+		// slug + render callback that shows ONLY that group's feature tabs — not a
+		// hash-link into one opaque page. The first item reuses the main slug so the
+		// auto-duplicated "InfraWeaver Plus" row relabels to "Dashboard".
+		if ( ! function_exists( 'add_submenu_page' ) ) {
+			return;
+		}
+		$this->page_hooks[] = (string) add_submenu_page(
+			'infraweaver-plus',
+			'InfraWeaver Plus — Dashboard',
+			'Dashboard',
+			'manage_options',
+			'infraweaver-plus',
+			array( $this, 'render_landing' )
+		);
+		foreach ( self::group_meta() as $label => $meta ) {
+			$group             = (string) $label;
+			$this->page_hooks[] = (string) add_submenu_page(
+				'infraweaver-plus',
+				'InfraWeaver Plus — ' . $group,
+				$group,
+				'manage_options',
+				'infraweaver-plus-' . $meta['slug'],
+				function () use ( $group ) {
+					$this->render_group_page( $group );
+				}
+			);
+		}
 	}
 
 	/**
 	 * Enqueue the WordPress media library JS ONLY on this plugin's own admin
-	 * page — never globally — so the image-optimizer's "Choose images…"
-	 * picker can open `wp.media()`.
+	 * pages — never globally — so the image-optimizer / speed-pack "Choose
+	 * images…" pickers can open `wp.media()`. Every Plus page hook (landing +
+	 * the six category sub-pages) is captured in {@see add_menu()}; the picker
+	 * lives on Media + Performance but enqueueing across all Plus pages is
+	 * cheap, uniform, and future-proof.
 	 */
 	public function enqueue_assets( $hook ): void {
-		if ( $hook !== $this->page_hook ) {
+		if ( ! in_array( (string) $hook, $this->page_hooks, true ) ) {
 			return;
 		}
 		if ( function_exists( 'wp_enqueue_media' ) ) {
@@ -209,42 +368,172 @@ final class IWSL_Admin {
 		return $this->config_editor;
 	}
 
-	public function render_page(): void {
+	/**
+	 * Canonical category groups. Single source of truth for the sidebar sub-pages,
+	 * the landing cards, and the group headers: display label → { slug, icon,
+	 * blurb }. The slug forms the sub-page slug `infraweaver-plus-<slug>`. Order
+	 * here is the order the groups appear everywhere.
+	 */
+	private static function group_meta(): array {
+		return array(
+			'Performance'    => array( 'slug' => 'performance', 'icon' => 'superhero', 'blurb' => 'Speed, caching, and delivery — make every page load fast.' ),
+			'Media'          => array( 'slug' => 'media', 'icon' => 'format-image', 'blurb' => 'Compress, convert, and safely serve images and SVG.' ),
+			'SEO & Content'  => array( 'slug' => 'seo', 'icon' => 'chart-area', 'blurb' => 'Metadata, audits, duplicates, links, and redirects.' ),
+			'Analytics'      => array( 'slug' => 'analytics', 'icon' => 'chart-bar', 'blurb' => 'Private, first-party traffic and activity insight.' ),
+			'Privacy & Site' => array( 'slug' => 'privacy', 'icon' => 'privacy', 'blurb' => 'Consent, maintenance, and white-label presentation.' ),
+			'System'         => array( 'slug' => 'system', 'icon' => 'admin-generic', 'blurb' => 'Database hygiene, email delivery, and configuration.' ),
+		);
+	}
+
+	/** The feature tabs (from {@see tab_defs()}) that belong to one category group, in order. */
+	private static function group_tabs( string $group ): array {
+		$out = array();
+		foreach ( self::tab_defs() as $tab ) {
+			if ( isset( $tab['group'] ) && (string) $tab['group'] === $group ) {
+				$out[] = $tab;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Per-feature unlock state, keyed by tab id. Drives the live status dot on
+	 * each tab, the landing cards' lock glyphs, and the tier inference. Reads only
+	 * local plugin state via IWSL_Entitlements::evaluate — never a network call.
+	 */
+	private function unlocked_map(): array {
+		$ent      = $this->plugin->entitlements();
+		$unlocked = array();
+		foreach ( self::feature_flag_map() as $key => $feature ) {
+			$fg               = $ent->evaluate( $feature );
+			$unlocked[ $key ] = ! empty( $fg['unlocked'] );
+		}
+		return $unlocked;
+	}
+
+	/**
+	 * The data-driven "new engine" panels: tab id → [ display label, render
+	 * closure ]. A LOCKED feature shows one quiet, uniform placeholder instead of
+	 * a loud per-engine "🔒 … requires a plan" block — the tab lock already
+	 * communicates it; the panel behind it stays calm.
+	 */
+	private function new_engine_panels(): array {
+		$ent = $this->plugin->entitlements();
+		return array(
+			'speed'             => array( 'Speed Pack', function () use ( $ent ) { ( new IWSL_Speed_Pack( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'cdn'               => array( 'CDN URL Rewrite', function () use ( $ent ) { ( new IWSL_CDN_Rewrite( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'lazy-load'         => array( 'Lazy-Load Media', function () use ( $ent ) { ( new IWSL_Lazy_Load( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'auto-convert'      => array( 'Scheduled Auto-Convert', function () use ( $ent ) { ( new IWSL_Auto_Convert( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'svg'               => array( 'SVG Uploads', function () use ( $ent ) { ( new IWSL_SVG_Upload( $ent ) )->render_section(); } ),
+			'seo-audit'         => array( 'SEO Meta Audit', function () use ( $ent ) { ( new IWSL_SEO_Audit( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'duplicate'         => array( 'One-Click Duplicate', function () use ( $ent ) { ( new IWSL_Duplicate_Post( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'links'             => array( 'Broken Link Scanner', function () use ( $ent ) { ( new IWSL_Broken_Link_Scan( $ent ) )->render_section(); } ),
+			'seo'               => array( 'SEO Suite', function () use ( $ent ) { ( new IWSL_SEO_Suite( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'statistics'        => array( 'Site Statistics', function () use ( $ent ) { ( new IWSL_Statistics( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'activity-log'      => array( 'Activity Log', function () use ( $ent ) { ( new IWSL_Activity_Log( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'consent'           => array( 'Cookie Consent', function () use ( $ent ) { ( new IWSL_Cookie_Consent( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'maintenance'       => array( 'Maintenance Mode', function () use ( $ent ) { ( new IWSL_Maintenance_Mode( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'scheduled-cleanup' => array( 'Scheduled Database Cleanup', function () use ( $ent ) { ( new IWSL_Scheduled_DB_Cleanup( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+		);
+	}
+
+	/**
+	 * Render the BODY of one tab panel by id — the same guarded machinery the
+	 * single page used, factored so each category sub-page can render just its own
+	 * tabs. Legacy engines self-handle their own locked/unlocked notice; the
+	 * data-driven engines use the `$unlocked ? render_section() : locked_panel`
+	 * pattern. Gating/nonce/entitlement logic is untouched — this only routes.
+	 */
+	private function render_panel_for( string $id, array $unlocked ): void {
+		switch ( $id ) {
+			case 'images':
+				$this->render_image_optimization_section();
+				return;
+			case 'database':
+				$this->render_db_optimizer_section();
+				return;
+			case 'email':
+				$this->render_email_delivery_section();
+				return;
+			case 'redirects':
+				$this->render_redirects_section();
+				return;
+			case 'whitelabel':
+				$this->render_white_label_section();
+				return;
+			case 'cache':
+				$this->render_page_cache_section();
+				return;
+			case 'config':
+				$this->render_config_section();
+				return;
+			case 'perf-audit':
+				$this->render_perf_audit_section();
+				return;
+		}
+		$new = $this->new_engine_panels();
+		if ( isset( $new[ $id ] ) ) {
+			if ( ! empty( $unlocked[ $id ] ) ) {
+				( $new[ $id ][1] )();
+			} else {
+				self::render_locked_panel( (string) $new[ $id ][0] );
+			}
+		}
+	}
+
+	/**
+	 * Infer a DISPLAY tier from the locally-unlocked flags — the plugin holds the
+	 * entitlement FLAG map, not a tier name. white_label ⇒ Ultimate; any other
+	 * granted tool flag ⇒ Pro; else `plus` only ⇒ Basic; else Free.
+	 */
+	private static function infer_tier( array $unlocked, bool $plus_unlocked ): string {
+		if ( ! empty( $unlocked['whitelabel'] ) ) {
+			return 'Ultimate';
+		}
+		foreach ( $unlocked as $key => $on ) {
+			if ( $on && 'whitelabel' !== $key ) {
+				return 'Pro';
+			}
+		}
+		return $plus_unlocked ? 'Basic' : 'Free';
+	}
+
+	/** A prominent, plan-colored tier badge (Free / Basic / Pro / Ultimate). */
+	private static function render_tier_badge( string $tier ): void {
+		$slug = strtolower( $tier );
+		echo '<span class="iwsl-tier iwsl-tier--' . esc_attr( $slug ) . '">';
+		echo '<span class="iwsl-tier__gem" aria-hidden="true"></span>';
+		echo '<span class="iwsl-tier__label">' . esc_html( $tier ) . '</span>';
+		echo '<span class="screen-reader-text"> ' . esc_html__( 'plan tier', 'infraweaver-connector' ) . '</span>';
+		echo '</span>';
+	}
+
+	/**
+	 * The main "InfraWeaver Plus" page: a STATUS-ONLY landing dashboard. No forms,
+	 * no feature control surface — identity, connector version, current tier, gate
+	 * posture, the read-only Plus snapshot, and a grid of category cards that link
+	 * to each feature sub-page. Every actual feature lives on its sub-page.
+	 */
+	public function render_landing(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have permission to view this page.', 'infraweaver-connector' ) );
 		}
-		$gate = $this->plugin->entitlements()->evaluate( 'plus' );
+		$gate     = $this->plugin->entitlements()->evaluate( 'plus' );
+		$unlocked = $this->unlocked_map();
+		$tier     = self::infer_tier( $unlocked, ! empty( $gate['unlocked'] ) );
 
-		// Per-feature unlock state drives the live status dot on each tab.
-		$feature_map = array(
-			'images'     => IWSL_Media_Optimizer::FEATURE,
-			'database'   => IWSL_DB_Optimizer::FEATURE,
-			'email'      => IWSL_Email_Delivery::FEATURE,
-			'redirects'  => IWSL_Redirects::FEATURE,
-			'whitelabel' => IWSL_White_Label::FEATURE,
-			'cache'      => IWSL_Page_Cache::FEATURE,
-		);
-		$unlocked = array();
-		foreach ( $feature_map as $key => $feature ) {
-			$fg              = $this->plugin->entitlements()->evaluate( $feature );
-			$unlocked[ $key ] = ! empty( $fg['unlocked'] );
-		}
-
-		echo '<div class="wrap iwsl-shell">';
+		echo '<div class="wrap iwsl-shell iwsl-shell--landing" data-iwsl-scope="landing">';
 		self::render_shell_styles();
 		$this->render_hero( $gate );
-		self::render_tab_nav( $gate, $unlocked );
 
-		echo '<div class="iwsl-panels">';
+		echo '<div class="iwsl-panels"><div class="iwsl-landing">';
 
-		// ── Overview ──────────────────────────────────────────────────────────
-		echo '<section class="iwsl-tabpanel is-active" id="iwsl-tab-overview" role="tabpanel" aria-labelledby="iwsl-tabbtn-overview" tabindex="0">';
-		echo '<h2>' . esc_html__( 'Connection & entitlements', 'infraweaver-connector' ) . '</h2>';
-		echo '<p class="iwsl-lede">' . wp_kses(
-			__( 'Every Plus feature is gated locally. It runs only when this site is <strong>linked</strong>, shows a <strong>fresh signed heartbeat</strong>, and has the matching entitlement granted from the console — no standing WordPress&rarr;InfraWeaver path.', 'infraweaver-connector' ),
-			array( 'strong' => array() )
-		) . '</p>';
-		self::render_gate_table( $gate );
+		$this->render_landing_status( $tier, $gate );
+		self::render_landing_cards( $unlocked );
+
+		// Read-only Plus snapshot — status content, not a control surface.
+		echo '<section class="iwsl-landing__snapshot">';
+		echo '<h2>' . esc_html__( 'Site Content & Health Snapshot', 'infraweaver-connector' ) . '</h2>';
 		if ( ! empty( $gate['unlocked'] ) ) {
 			IWSL_Plus_Feature::render();
 		} else {
@@ -252,58 +541,446 @@ final class IWSL_Admin {
 		}
 		echo '</section>';
 
-		// ── Feature panels (each existing renderer, wrapped as a tab panel) ───
-		echo '<section class="iwsl-tabpanel" id="iwsl-tab-images" role="tabpanel" aria-labelledby="iwsl-tabbtn-images" tabindex="0" hidden>';
-		$this->render_image_optimization_section();
-		echo '</section>';
-
-		echo '<section class="iwsl-tabpanel" id="iwsl-tab-database" role="tabpanel" aria-labelledby="iwsl-tabbtn-database" tabindex="0" hidden>';
-		$this->render_db_optimizer_section();
-		echo '</section>';
-
-		echo '<section class="iwsl-tabpanel" id="iwsl-tab-email" role="tabpanel" aria-labelledby="iwsl-tabbtn-email" tabindex="0" hidden>';
-		$this->render_email_delivery_section();
-		echo '</section>';
-
-		echo '<section class="iwsl-tabpanel" id="iwsl-tab-redirects" role="tabpanel" aria-labelledby="iwsl-tabbtn-redirects" tabindex="0" hidden>';
-		$this->render_redirects_section();
-		echo '</section>';
-
-		echo '<section class="iwsl-tabpanel" id="iwsl-tab-whitelabel" role="tabpanel" aria-labelledby="iwsl-tabbtn-whitelabel" tabindex="0" hidden>';
-		$this->render_white_label_section();
-		echo '</section>';
-
-		echo '<section class="iwsl-tabpanel" id="iwsl-tab-cache" role="tabpanel" aria-labelledby="iwsl-tabbtn-cache" tabindex="0" hidden>';
-		$this->render_page_cache_section();
-		echo '</section>';
-
-		echo '<section class="iwsl-tabpanel" id="iwsl-tab-config" role="tabpanel" aria-labelledby="iwsl-tabbtn-config" tabindex="0" hidden>';
-		$this->render_config_section();
-		echo '</section>';
-
-		echo '<section class="iwsl-tabpanel" id="iwsl-tab-roadmap" role="tabpanel" aria-labelledby="iwsl-tabbtn-roadmap" tabindex="0" hidden>';
+		// Roadmap — inert previews of what Pro and Ultimate will add.
+		echo '<section class="iwsl-landing__roadmap">';
 		echo '<h2>' . esc_html__( 'Roadmap', 'infraweaver-connector' ) . '</h2>';
 		echo '<p class="iwsl-lede">' . esc_html__( 'Features on the way. Nothing here is active yet — these are inert previews of what Pro and Ultimate will add.', 'infraweaver-connector' ) . '</p>';
 		self::render_coming_soon();
 		echo '</section>';
 
-		echo '</div>'; // .iwsl-panels
+		echo '</div></div>'; // .iwsl-landing .iwsl-panels
 
 		self::render_shell_script();
 		echo '</div>'; // .wrap.iwsl-shell
 	}
 
-	/** The tabs, in display order. Shared by the nav and the status dots. */
+	/** Landing status strip: tier badge + site identity, and the live gate posture table. */
+	private function render_landing_status( string $tier, array $gate ): void {
+		$name    = (string) get_bloginfo( 'name' );
+		$url     = (string) home_url();
+		$pretty  = preg_replace( '#^https?://#', '', $url );
+		$version = defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : '';
+
+		echo '<section class="iwsl-status">';
+
+		echo '<div class="iwsl-status__id">';
+		echo '<div class="iwsl-status__tier">';
+		self::render_tier_badge( $tier );
+		echo '<span class="iwsl-status__tierhint">' . esc_html__( 'Current plan', 'infraweaver-connector' ) . '</span>';
+		echo '</div>';
+		echo '<h2 class="iwsl-status__site">' . esc_html( '' !== $name ? $name : __( 'This site', 'infraweaver-connector' ) ) . '</h2>';
+		echo '<a class="iwsl-status__url" href="' . esc_url( $url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html( (string) $pretty ) . '</a>';
+		if ( '' !== $version ) {
+			echo '<p class="iwsl-status__ver"><span class="dashicons dashicons-shield" aria-hidden="true"></span> ' . esc_html( sprintf( /* translators: %s: version string. */ __( 'Connector v%s', 'infraweaver-connector' ), $version ) ) . '</p>';
+		}
+		echo '</div>';
+
+		echo '<div class="iwsl-status__gate">';
+		echo '<h3>' . esc_html__( 'Link posture', 'infraweaver-connector' ) . '</h3>';
+		echo '<p class="iwsl-lede" style="margin-bottom:6px;">' . wp_kses(
+			__( 'Every Plus feature runs only when this site is <strong>linked</strong>, shows a <strong>fresh signed heartbeat</strong>, and has the matching entitlement granted from the console.', 'infraweaver-connector' ),
+			array( 'strong' => array() )
+		) . '</p>';
+		self::render_gate_table( $gate );
+		echo '</div>';
+
+		echo '</section>';
+	}
+
+	/**
+	 * The category-card grid: one card per group linking to its sub-page, showing
+	 * the group's feature list with a per-feature unlock/lock glyph and an
+	 * active-count meter. Navigation only — no forms, no actions on the landing.
+	 */
+	private static function render_landing_cards( array $unlocked ): void {
+		echo '<nav class="iwsl-cards" aria-label="' . esc_attr__( 'Feature categories', 'infraweaver-connector' ) . '">';
+		foreach ( self::group_meta() as $group => $meta ) {
+			$tabs  = self::group_tabs( (string) $group );
+			$total = count( $tabs );
+			$open  = 0;
+			foreach ( $tabs as $tab ) {
+				$tid = $tab['id'];
+				if ( ! array_key_exists( $tid, $unlocked ) || ! empty( $unlocked[ $tid ] ) ) {
+					++$open;
+				}
+			}
+			$href = admin_url( 'admin.php?page=infraweaver-plus-' . $meta['slug'] );
+
+			echo '<a class="iwsl-card" href="' . esc_url( $href ) . '">';
+			echo '<span class="iwsl-card__go" aria-hidden="true"><span class="dashicons dashicons-arrow-right-alt"></span></span>';
+			echo '<span class="iwsl-card__icon" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '"></span></span>';
+			echo '<span class="iwsl-card__head">';
+			echo '<span class="iwsl-card__title">' . esc_html( (string) $group ) . '</span>';
+			echo '<span class="iwsl-card__count">' . esc_html( sprintf( /* translators: 1: active feature count, 2: total feature count. */ __( '%1$d of %2$d active', 'infraweaver-connector' ), $open, $total ) ) . '</span>';
+			echo '</span>';
+			echo '<span class="iwsl-card__blurb">' . esc_html( $meta['blurb'] ) . '</span>';
+			echo '<span class="iwsl-card__list">';
+			foreach ( $tabs as $tab ) {
+				$tid    = $tab['id'];
+				$locked = array_key_exists( $tid, $unlocked ) && empty( $unlocked[ $tid ] );
+				echo '<span class="iwsl-card__feat' . ( $locked ? ' is-locked' : '' ) . '">';
+				echo '<span class="dashicons dashicons-' . ( $locked ? 'lock' : 'yes' ) . '" aria-hidden="true"></span>';
+				echo esc_html( $tab['label'] );
+				echo '</span>';
+			}
+			echo '</span>';
+			echo '</a>';
+		}
+		echo '</nav>';
+	}
+
+	/**
+	 * A category sub-page: the branded shell + a scoped tab rail of ONLY this
+	 * group's feature tabs + those panels. Reuses the exact tab-nav / panel /
+	 * feature-map / toast / locked-panel machinery — the tab JS treats a
+	 * one-group tablist as a smaller tablist and needs no per-page change.
+	 */
+	private function render_group_page( string $group ): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to view this page.', 'infraweaver-connector' ) );
+		}
+		$meta = self::group_meta();
+		if ( ! isset( $meta[ $group ] ) ) {
+			return;
+		}
+		$gate     = $this->plugin->entitlements()->evaluate( 'plus' );
+		$unlocked = $this->unlocked_map();
+		$tier     = self::infer_tier( $unlocked, ! empty( $gate['unlocked'] ) );
+		$tabs     = self::group_tabs( $group );
+
+		// Default the open tab to the first AVAILABLE (unlocked or always-on) tab so
+		// the page never opens on a sealed placeholder when a usable one exists.
+		$active_id = isset( $tabs[0] ) ? $tabs[0]['id'] : '';
+		foreach ( $tabs as $tab ) {
+			$tid = $tab['id'];
+			if ( ! array_key_exists( $tid, $unlocked ) || ! empty( $unlocked[ $tid ] ) ) {
+				$active_id = $tid;
+				break;
+			}
+		}
+
+		echo '<div class="wrap iwsl-shell" data-iwsl-scope="' . esc_attr( $meta[ $group ]['slug'] ) . '">';
+		self::render_shell_styles();
+		self::render_cards_styles();
+		$this->render_group_hero( $group, $meta[ $group ], $tier, $gate );
+		$this->render_toggle_toast();
+
+		// One panel per area (no sub-tabs): a sticky jump-rail + every feature
+		// stacked as a card. Each card carries a tier-aware enable/disable switch
+		// and reveals its controls only when granted AND switched on.
+		self::render_jump_rail( $tabs, $unlocked, $this->switches() );
+
+		echo '<div class="iwsl-cards">';
+		foreach ( $tabs as $tab ) {
+			$this->render_feature_card( $tab, $unlocked );
+		}
+		echo '</div>'; // .iwsl-cards
+
+		self::render_shell_script();
+		echo '</div>'; // .wrap.iwsl-shell
+	}
+
+	/**
+	 * The sticky in-page jump-rail: one anchor per feature card, each showing a
+	 * live state marker — a green/grey dot (on/off) when granted, a lock glyph
+	 * when the tier doesn't include it.
+	 */
+	private static function render_jump_rail( array $tabs, array $unlocked, IWSL_Feature_Switches $switches ): void {
+		echo '<nav class="iwsl-jump" aria-label="' . esc_attr__( 'Jump to a feature', 'infraweaver-connector' ) . '">';
+		foreach ( $tabs as $tab ) {
+			$id      = (string) $tab['id'];
+			$flag    = self::feature_flag_for( $id );
+			$granted = null === $flag ? true : ! empty( $unlocked[ $id ] );
+			$on      = null === $flag ? true : ( $granted && $switches->is_on( $flag ) );
+			$state   = ! $granted ? 'locked' : ( $on ? 'on' : 'off' );
+			echo '<a class="iwsl-jump__item iwsl-jump__item--' . esc_attr( $state ) . '" href="#iwsl-card-' . esc_attr( $id ) . '">';
+			echo '<span class="dashicons dashicons-' . esc_attr( (string) $tab['icon'] ) . '" aria-hidden="true"></span>';
+			echo '<span class="iwsl-jump__label">' . esc_html( (string) $tab['label'] ) . '</span>';
+			if ( 'locked' === $state ) {
+				echo '<span class="dashicons dashicons-lock iwsl-jump__lock" aria-hidden="true"></span>';
+			} else {
+				echo '<span class="iwsl-jump__dot iwsl-jump__dot--' . esc_attr( $state ) . '" aria-hidden="true"></span>';
+			}
+			echo '</a>';
+		}
+		echo '</nav>';
+	}
+
+	/**
+	 * One feature card. Three states:
+	 *   - locked  : the tier doesn't grant it → toggle is a disabled lock + upgrade note, no controls.
+	 *   - off     : granted but switched off → an enable switch + "turn on to configure", no controls.
+	 *   - on      : granted and switched on  → the enable switch + the feature's full section body.
+	 * Ids with no tier gate (config) always render on with no switch.
+	 */
+	private function render_feature_card( array $tab, array $unlocked ): void {
+		$id    = (string) $tab['id'];
+		$label = (string) $tab['label'];
+		$icon  = (string) $tab['icon'];
+		$flag  = self::feature_flag_for( $id );
+
+		$granted   = null === $flag ? true : ! empty( $unlocked[ $id ] );
+		$switch_on = null === $flag ? true : $this->switches()->is_on( $flag );
+		$state     = ! $granted ? 'locked' : ( $switch_on ? 'on' : 'off' );
+
+		$state_label = array(
+			'on'     => __( 'Active', 'infraweaver-connector' ),
+			'off'    => __( 'Disabled', 'infraweaver-connector' ),
+			'locked' => __( 'Locked', 'infraweaver-connector' ),
+		);
+
+		echo '<section class="iwsl-card iwsl-card--' . esc_attr( $state ) . '" id="iwsl-card-' . esc_attr( $id ) . '" tabindex="-1">';
+
+		echo '<header class="iwsl-card__head">';
+		echo '<span class="iwsl-card__mark" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span></span>';
+		echo '<div class="iwsl-card__id">';
+		echo '<div class="iwsl-card__titlerow">';
+		echo '<h2 class="iwsl-card__title">' . esc_html( $label ) . '</h2>';
+		$help = self::feature_help( $id );
+		if ( '' !== $help ) {
+			/* translators: 1: feature name, 2: plain-english explanation. */
+			$help_label = sprintf( __( 'What is %1$s? %2$s', 'infraweaver-connector' ), $label, $help );
+			echo '<span class="iwsl-help" tabindex="0" role="note" aria-label="' . esc_attr( $help_label ) . '">';
+			echo '<span class="iwsl-help__q" aria-hidden="true">?</span>';
+			echo '<span class="iwsl-help__tip" aria-hidden="true">' . esc_html( $help ) . '</span>';
+			echo '</span>';
+		}
+		echo '</div>';
+		echo '<span class="iwsl-card__state iwsl-card__state--' . esc_attr( $state ) . '">' . esc_html( $state_label[ $state ] ) . '</span>';
+		echo '</div>';
+
+		if ( null !== $flag ) {
+			echo '<div class="iwsl-card__control">';
+			if ( $granted ) {
+				self::render_feature_switch( $flag, $label, $switch_on );
+			} else {
+				echo '<span class="iwsl-card__lock"><span class="dashicons dashicons-lock" aria-hidden="true"></span>' . esc_html__( 'Upgrade to unlock', 'infraweaver-connector' ) . '</span>';
+			}
+			echo '</div>';
+		}
+		echo '</header>';
+
+		if ( 'on' === $state ) {
+			echo '<div class="iwsl-card__body">';
+			$this->render_panel_for( $id, $unlocked );
+			echo '</div>';
+		} elseif ( 'off' === $state ) {
+			echo '<div class="iwsl-card__body iwsl-card__body--muted"><p>' . esc_html__( 'This feature is switched off. Turn it on to configure and use it.', 'infraweaver-connector' ) . '</p></div>';
+		} else {
+			echo '<div class="iwsl-card__body iwsl-card__body--muted"><p>' . esc_html__( 'Included in a higher plan. Upgrade this site from the InfraWeaver console to unlock it.', 'infraweaver-connector' ) . '</p></div>';
+		}
+
+		echo '</section>';
+	}
+
+	/** The enable/disable switch itself: a real POST toggle (works without JS). */
+	private static function render_feature_switch( string $flag, string $label, bool $on ): void {
+		$next = $on ? '0' : '1';
+		echo '<form class="iwsl-toggle" method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( self::FEATURE_TOGGLE_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::FEATURE_TOGGLE_ACTION ) . '">';
+		echo '<input type="hidden" name="feature" value="' . esc_attr( $flag ) . '">';
+		echo '<input type="hidden" name="enable" value="' . esc_attr( $next ) . '">';
+		/* translators: %s: feature name. */
+		$aria = sprintf( $on ? __( 'Disable %s', 'infraweaver-connector' ) : __( 'Enable %s', 'infraweaver-connector' ), $label );
+		echo '<button type="submit" class="iwsl-switch' . ( $on ? ' is-on' : '' ) . '" role="switch" aria-checked="' . ( $on ? 'true' : 'false' ) . '" aria-label="' . esc_attr( $aria ) . '">';
+		echo '<span class="iwsl-switch__track" aria-hidden="true"><span class="iwsl-switch__thumb"></span></span>';
+		echo '<span class="iwsl-switch__text">' . ( $on ? esc_html__( 'On', 'infraweaver-connector' ) : esc_html__( 'Off', 'infraweaver-connector' ) ) . '</span>';
+		echo '</button>';
+		echo '</form>';
+	}
+
+	/** A one-shot toast after a switch flip (or a refusal), read from a per-user transient. */
+	private function render_toggle_toast(): void {
+		if ( ! function_exists( 'get_transient' ) || ! function_exists( 'get_current_user_id' ) ) {
+			return;
+		}
+		$key = self::FEATURE_TOGGLE_RESULT . get_current_user_id();
+		$r   = get_transient( $key );
+		if ( ! is_array( $r ) ) {
+			return;
+		}
+		if ( function_exists( 'delete_transient' ) ) {
+			delete_transient( $key );
+		}
+		$ok      = ! empty( $r['ok'] );
+		$feature = isset( $r['feature'] ) ? (string) $r['feature'] : '';
+		if ( $ok ) {
+			/* translators: 1: feature name, 2: on/off. */
+			$msg = sprintf( __( '%1$s turned %2$s.', 'infraweaver-connector' ), $feature, ! empty( $r['on'] ) ? __( 'on', 'infraweaver-connector' ) : __( 'off', 'infraweaver-connector' ) );
+		} elseif ( 'not-entitled' === ( $r['reason'] ?? '' ) ) {
+			$msg = __( 'That feature is not included in this site’s plan — enable it from the InfraWeaver console first.', 'infraweaver-connector' );
+		} else {
+			$msg = __( 'Could not change that feature.', 'infraweaver-connector' );
+		}
+		echo '<div class="iwsl-toast iwsl-toast--' . ( $ok ? 'ok' : 'warn' ) . '" role="status">' . esc_html( $msg ) . '</div>';
+	}
+
+	/** Scoped styles for the consolidated card layout, jump-rail, switch + toast. Reuses the shell's --iw-* tokens. */
+	private static function render_cards_styles(): void {
+		echo '<style>
+.iwsl-shell .iwsl-jump{ position: sticky; top: 46px; z-index: 20; display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 2px; margin: 6px 0 14px; background: color-mix(in oklch, var(--iw-panel) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--iw-line); }
+.iwsl-shell .iwsl-jump__item{ display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--iw-line-2); background: var(--iw-panel-2); color: var(--iw-ink-2); text-decoration: none; font-size: 13px; line-height: 1; transition: color .15s, border-color .15s, background .15s; }
+.iwsl-shell .iwsl-jump__item:hover{ color: var(--iw-ink); border-color: var(--iw-signal); }
+.iwsl-shell .iwsl-jump__item .dashicons{ font-size: 16px; width: 16px; height: 16px; opacity: .85; }
+.iwsl-shell .iwsl-jump__item--locked{ opacity: .6; }
+.iwsl-shell .iwsl-jump__item--off .iwsl-jump__label{ opacity: .75; }
+.iwsl-shell .iwsl-jump__dot{ width: 7px; height: 7px; border-radius: 50%; }
+.iwsl-shell .iwsl-jump__dot--on{ background: var(--iw-good); box-shadow: 0 0 0 3px color-mix(in oklch, var(--iw-good) 20%, transparent); }
+.iwsl-shell .iwsl-jump__dot--off{ background: color-mix(in oklch, var(--iw-faint) 80%, transparent); }
+.iwsl-shell .iwsl-jump__lock{ font-size: 13px !important; width: 13px !important; height: 13px !important; opacity: .7; }
+
+.iwsl-shell .iwsl-cards{ display: flex; flex-direction: column; gap: 16px; }
+.iwsl-shell .iwsl-card{ border: 1px solid var(--iw-line); border-radius: var(--iw-r-sm, 12px); background: var(--iw-panel); overflow: visible; scroll-margin-top: 96px; }
+.iwsl-shell .iwsl-card__titlerow{ display: flex; align-items: center; gap: 7px; }
+.iwsl-shell .iwsl-help{ position: relative; display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--iw-line-2); background: var(--iw-panel-2); color: var(--iw-ink-2); cursor: help; flex: 0 0 auto; }
+.iwsl-shell .iwsl-help__q{ font-size: 11px; font-weight: 700; line-height: 1; }
+.iwsl-shell .iwsl-help--field{ width: 15px; height: 15px; margin-left: 5px; vertical-align: middle; }
+.iwsl-shell .iwsl-help--field .iwsl-help__q{ font-size: 10px; }
+.iwsl-shell .iwsl-help:hover, .iwsl-shell .iwsl-help:focus-visible{ color: var(--iw-ink); border-color: var(--iw-signal); outline: none; }
+.iwsl-shell .iwsl-help__tip{ position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 260px; padding: 9px 11px; border-radius: 8px; background: var(--iw-panel-2); border: 1px solid var(--iw-line-2); color: var(--iw-ink); font-size: 12.5px; font-weight: 400; line-height: 1.4; text-transform: none; letter-spacing: 0; box-shadow: 0 6px 20px rgba(0,0,0,.28); opacity: 0; visibility: hidden; transition: opacity .12s; z-index: 40; pointer-events: none; }
+.iwsl-shell .iwsl-help__tip::before{ content: ""; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-bottom-color: var(--iw-line-2); }
+.iwsl-shell .iwsl-help:hover .iwsl-help__tip, .iwsl-shell .iwsl-help:focus-visible .iwsl-help__tip{ opacity: 1; visibility: visible; }
+.iwsl-shell .iwsl-card--off{ opacity: .92; }
+.iwsl-shell .iwsl-card--locked{ opacity: .7; }
+.iwsl-shell .iwsl-card__head{ display: flex; align-items: center; gap: 13px; padding: 15px 18px; border-bottom: 1px solid transparent; }
+.iwsl-shell .iwsl-card--on .iwsl-card__head{ border-bottom-color: var(--iw-line); }
+.iwsl-shell .iwsl-card__mark{ display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: var(--iw-panel-2); border: 1px solid var(--iw-line-2); flex: 0 0 auto; }
+.iwsl-shell .iwsl-card__mark .dashicons{ font-size: 20px; width: 20px; height: 20px; color: var(--iw-ink); }
+.iwsl-shell .iwsl-card__id{ display: flex; flex-direction: column; gap: 3px; margin-right: auto; }
+.iwsl-shell .iwsl-card__title{ margin: 0; font-size: 16px; line-height: 1.1; color: var(--iw-ink); }
+.iwsl-shell .iwsl-card__state{ font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.iwsl-shell .iwsl-card__state--on{ color: var(--iw-good); }
+.iwsl-shell .iwsl-card__state--off{ color: var(--iw-faint); }
+.iwsl-shell .iwsl-card__state--locked{ color: var(--iw-faint); }
+.iwsl-shell .iwsl-card__control{ flex: 0 0 auto; }
+.iwsl-shell .iwsl-card__lock{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--iw-faint); }
+.iwsl-shell .iwsl-card__lock .dashicons{ font-size: 15px; width: 15px; height: 15px; }
+.iwsl-shell .iwsl-card__body{ padding: 16px 18px 20px; }
+.iwsl-shell .iwsl-card__body--muted{ color: var(--iw-ink-2); }
+.iwsl-shell .iwsl-card__body--muted p{ margin: 4px 0; font-size: 13px; }
+
+.iwsl-shell .iwsl-toggle{ margin: 0; }
+.iwsl-shell .iwsl-switch{ display: inline-flex; align-items: center; gap: 9px; cursor: pointer; background: none; border: 0; padding: 4px; color: var(--iw-ink-2); font-size: 13px; }
+.iwsl-shell .iwsl-switch__track{ position: relative; width: 40px; height: 22px; border-radius: 999px; background: color-mix(in oklch, var(--iw-faint) 55%, transparent); border: 1px solid var(--iw-line-2); transition: background .18s; flex: 0 0 auto; }
+.iwsl-shell .iwsl-switch.is-on .iwsl-switch__track{ background: var(--iw-good); border-color: transparent; }
+.iwsl-shell .iwsl-switch__thumb{ position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .18s; }
+.iwsl-shell .iwsl-switch.is-on .iwsl-switch__thumb{ transform: translateX(18px); }
+.iwsl-shell .iwsl-switch__text{ min-width: 22px; text-align: left; font-weight: 600; }
+.iwsl-shell .iwsl-switch.is-on .iwsl-switch__text{ color: var(--iw-good); }
+.iwsl-shell .iwsl-switch:focus-visible{ outline: 2px solid var(--iw-signal); outline-offset: 2px; border-radius: 6px; }
+
+.iwsl-shell .iwsl-toast{ margin: 0 0 14px; padding: 12px 15px; border-radius: var(--iw-r-sm, 12px); border: 1px solid var(--iw-line-2); font-size: 13px; }
+.iwsl-shell .iwsl-toast--ok{ background: color-mix(in oklch, var(--iw-good) 12%, var(--iw-panel)); border-color: color-mix(in oklch, var(--iw-good) 40%, var(--iw-line-2)); color: var(--iw-ink); }
+.iwsl-shell .iwsl-toast--warn{ background: color-mix(in oklch, var(--iw-bad, #d66) 12%, var(--iw-panel)); border-color: color-mix(in oklch, var(--iw-bad, #d66) 40%, var(--iw-line-2)); color: var(--iw-ink); }
+
+/* Primary one-click action row + progressive-disclosure "Advanced" block. */
+.iwsl-shell .iwsl-primary{ display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 14px; }
+.iwsl-shell .iwsl-primary__meta{ color: var(--iw-ink-2); font-size: 13px; margin-right: auto; }
+.iwsl-shell .iwsl-primary .button-primary{ font-size: 14px; }
+.iwsl-shell details.iwsl-adv{ margin-top: 12px; border-top: 1px solid var(--iw-line); padding-top: 4px; }
+.iwsl-shell details.iwsl-adv > summary{ cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px; padding: 9px 2px; font-size: 13px; font-weight: 600; color: var(--iw-ink-2); user-select: none; }
+.iwsl-shell details.iwsl-adv > summary::-webkit-details-marker{ display: none; }
+.iwsl-shell details.iwsl-adv > summary::before{ content: "\\203A"; display: inline-block; transition: transform .15s; font-size: 15px; }
+.iwsl-shell details.iwsl-adv[open] > summary::before{ transform: rotate(90deg); }
+.iwsl-shell details.iwsl-adv > summary:hover{ color: var(--iw-ink); }
+.iwsl-shell details.iwsl-adv[open] > summary{ color: var(--iw-ink); }
+.iwsl-shell details.iwsl-adv > .iwsl-adv__body{ padding: 6px 2px 4px; }
+@media (max-width: 782px){ .iwsl-shell .iwsl-jump{ top: 0; } .iwsl-shell .iwsl-card__head{ flex-wrap: wrap; } }
+</style>';
+	}
+
+	/** The category sub-page header: back-crumb, group identity, live posture chips + tier badge. */
+	private function render_group_hero( string $group, array $meta, string $tier, array $gate ): void {
+		$chips = array(
+			array( 'label' => 'Linked', 'ok' => ! empty( $gate['linked'] ) ),
+			array( 'label' => 'Heartbeat', 'ok' => ! empty( $gate['heartbeat_fresh'] ) ),
+			array( 'label' => 'Plus', 'ok' => ! empty( $gate['plus'] ) ),
+		);
+		$home = admin_url( 'admin.php?page=infraweaver-plus' );
+
+		echo '<header class="iwsl-hero iwsl-hero--group">';
+		echo '<div class="iwsl-hero__glow" aria-hidden="true"></div>';
+		echo '<div class="iwsl-hero__lead">';
+		echo '<span class="iwsl-hero__mark" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '"></span></span>';
+		echo '<div>';
+		echo '<a class="iwsl-hero__crumb" href="' . esc_url( $home ) . '"><span class="dashicons dashicons-arrow-left-alt2" aria-hidden="true"></span>' . esc_html__( 'InfraWeaver Plus', 'infraweaver-connector' ) . '</a>';
+		echo '<h1 class="iwsl-hero__title">' . esc_html( $group ) . '</h1>';
+		echo '<p class="iwsl-hero__sub">' . esc_html( $meta['blurb'] ) . '</p>';
+		echo '</div>';
+		echo '</div>';
+
+		echo '<div class="iwsl-hero__posture" role="group" aria-label="' . esc_attr__( 'Link posture', 'infraweaver-connector' ) . '">';
+		self::render_tier_badge( $tier );
+		foreach ( $chips as $chip ) {
+			$cls = $chip['ok'] ? 'is-ok' : 'is-off';
+			echo '<span class="iwsl-chip ' . esc_attr( $cls ) . '">';
+			echo '<span class="iwsl-chip__dot" aria-hidden="true"></span>';
+			echo esc_html( $chip['label'] );
+			echo '<span class="screen-reader-text">: ' . ( $chip['ok'] ? esc_html__( 'active', 'infraweaver-connector' ) : esc_html__( 'inactive', 'infraweaver-connector' ) ) . '</span>';
+			echo '</span>';
+		}
+		echo '</div>';
+		echo '</header>';
+	}
+
+	/**
+	 * A calm, uniform placeholder for a LOCKED feature's tab panel. The tab lock
+	 * glyph already communicates the locked state and the tab cannot be opened, so
+	 * this stays deliberately quiet — no loud per-feature "requires a plan" nag.
+	 */
+	private static function render_locked_panel( string $label ): void {
+		echo '<div style="max-width:520px;margin:28px auto;padding:26px 24px;text-align:center;border:1px solid var(--iw-line);border-radius:14px;background:color-mix(in oklch, var(--iw-panel) 60%, transparent);">';
+		echo '<span class="dashicons dashicons-lock" aria-hidden="true" style="font-size:26px;width:26px;height:26px;opacity:0.6;"></span>';
+		echo '<p style="margin:10px 0 4px;font-size:15px;"><strong>' . esc_html( $label ) . '</strong> ' . esc_html__( 'is included in a higher plan.', 'infraweaver-connector' ) . '</p>';
+		echo '<p class="description" style="margin:0;">' . esc_html__( 'Upgrade this site from the InfraWeaver console to unlock it.', 'infraweaver-connector' ) . '</p>';
+		echo '</div>';
+	}
+
+	/**
+	 * The tabs, in display order, clustered into labeled category groups so the
+	 * ~20-tab rail stays legible. `group` drives the small non-interactive rail
+	 * separators (Overview + Roadmap carry none → they stay pinned, first and
+	 * last). Shared by the nav and the per-tab status dots.
+	 */
 	private static function tab_defs(): array {
 		return array(
 			array( 'id' => 'overview', 'label' => 'Overview', 'icon' => 'shield' ),
-			array( 'id' => 'images', 'label' => 'Images', 'icon' => 'format-image' ),
-			array( 'id' => 'database', 'label' => 'Database', 'icon' => 'database' ),
-			array( 'id' => 'email', 'label' => 'Email', 'icon' => 'email-alt' ),
-			array( 'id' => 'redirects', 'label' => 'Redirects', 'icon' => 'randomize' ),
-			array( 'id' => 'whitelabel', 'label' => 'White-Label', 'icon' => 'art' ),
-			array( 'id' => 'cache', 'label' => 'Cache', 'icon' => 'performance' ),
-			array( 'id' => 'config', 'label' => 'Config', 'icon' => 'admin-generic' ),
+
+			// Performance
+			array( 'id' => 'speed', 'label' => 'Speed', 'icon' => 'superhero', 'group' => 'Performance' ),
+			array( 'id' => 'cache', 'label' => 'Cache', 'icon' => 'performance', 'group' => 'Performance' ),
+			array( 'id' => 'cdn', 'label' => 'CDN', 'icon' => 'cloud', 'group' => 'Performance' ),
+			array( 'id' => 'lazy-load', 'label' => 'Lazy Load', 'icon' => 'images-alt2', 'group' => 'Performance' ),
+			array( 'id' => 'perf-audit', 'label' => 'Load Time', 'icon' => 'dashboard', 'group' => 'Performance' ),
+
+			// Media
+			array( 'id' => 'images', 'label' => 'Images', 'icon' => 'format-image', 'group' => 'Media' ),
+			array( 'id' => 'auto-convert', 'label' => 'Auto-Convert', 'icon' => 'update', 'group' => 'Media' ),
+			array( 'id' => 'svg', 'label' => 'SVG', 'icon' => 'media-code', 'group' => 'Media' ),
+
+			// SEO & Content
+			array( 'id' => 'seo', 'label' => 'SEO', 'icon' => 'chart-area', 'group' => 'SEO & Content' ),
+			array( 'id' => 'seo-audit', 'label' => 'SEO Audit', 'icon' => 'search', 'group' => 'SEO & Content' ),
+			array( 'id' => 'duplicate', 'label' => 'Duplicate', 'icon' => 'admin-page', 'group' => 'SEO & Content' ),
+			array( 'id' => 'links', 'label' => 'Links', 'icon' => 'admin-links', 'group' => 'SEO & Content' ),
+			array( 'id' => 'redirects', 'label' => 'Redirects', 'icon' => 'randomize', 'group' => 'SEO & Content' ),
+
+			// Analytics
+			array( 'id' => 'statistics', 'label' => 'Statistics', 'icon' => 'chart-bar', 'group' => 'Analytics' ),
+			array( 'id' => 'activity-log', 'label' => 'Activity Log', 'icon' => 'list-view', 'group' => 'Analytics' ),
+
+			// Privacy & Site
+			array( 'id' => 'consent', 'label' => 'Cookie Consent', 'icon' => 'privacy', 'group' => 'Privacy & Site' ),
+			array( 'id' => 'maintenance', 'label' => 'Maintenance', 'icon' => 'hammer', 'group' => 'Privacy & Site' ),
+			array( 'id' => 'whitelabel', 'label' => 'White-Label', 'icon' => 'art', 'group' => 'Privacy & Site' ),
+
+			// System
+			array( 'id' => 'database', 'label' => 'Database', 'icon' => 'database', 'group' => 'System' ),
+			array( 'id' => 'scheduled-cleanup', 'label' => 'Scheduled Cleanup', 'icon' => 'clock', 'group' => 'System' ),
+			array( 'id' => 'email', 'label' => 'Email', 'icon' => 'email-alt', 'group' => 'System' ),
+			array( 'id' => 'config', 'label' => 'Config', 'icon' => 'admin-generic', 'group' => 'System' ),
+
 			array( 'id' => 'roadmap', 'label' => 'Roadmap', 'icon' => 'flag' ),
 		);
 	}
@@ -344,22 +1021,46 @@ final class IWSL_Admin {
 		echo '</header>';
 	}
 
-	/** The horizontal tab rail. Each feature tab carries a live locked/active dot. */
-	private static function render_tab_nav( array $gate, array $unlocked ): void {
+	/**
+	 * The horizontal tab rail. Each feature tab carries a live posture marker: a
+	 * green dot when the feature is granted, or a LOCK glyph when it is not in the
+	 * site's plan. A locked tab is marked `aria-disabled` + `data-locked` so the
+	 * shell script refuses to open it (click / keyboard / deep-link all bounce) —
+	 * the panel behind it stays sealed instead of showing an in-panel notice.
+	 */
+	private static function render_tab_nav( array $tabs, array $unlocked, string $active_id, bool $show_groups = true ): void {
 		echo '<nav class="iwsl-tabnav" role="tablist" aria-label="' . esc_attr__( 'InfraWeaver Plus sections', 'infraweaver-connector' ) . '">';
-		foreach ( self::tab_defs() as $i => $tab ) {
-			$id       = $tab['id'];
-			$is_first = 0 === $i;
+		$last_group = '';
+		foreach ( $tabs as $tab ) {
+			$id        = $tab['id'];
+			$is_active = ( $id === $active_id );
+
+			// Cluster boundary: a small uppercase label that is NOT a tab. It is
+			// role="presentation" + aria-hidden and carries no data-tab, so the
+			// shell script's `.iwsl-tab` queries never see it — click, arrow-key,
+			// Home/End, hash and restore all skip right over it. Suppressed on a
+			// single-group sub-page (the header already names the group).
+			$group = isset( $tab['group'] ) ? (string) $tab['group'] : '';
+			if ( $show_groups && '' !== $group && $group !== $last_group ) {
+				echo '<span class="iwsl-tabnav__group" role="presentation" aria-hidden="true">' . esc_html( $group ) . '</span>';
+			}
+			$last_group = $group;
 			$state    = ( 'overview' === $id || ! array_key_exists( $id, $unlocked ) ) ? 'core' : ( ! empty( $unlocked[ $id ] ) ? 'on' : 'off' );
-			echo '<button type="button" class="iwsl-tab' . ( $is_first ? ' is-active' : '' ) . '"'
+			$locked   = 'off' === $state;
+			$classes  = 'iwsl-tab' . ( $is_active ? ' is-active' : '' ) . ( $locked ? ' iwsl-tab--locked' : '' );
+			echo '<button type="button" class="' . esc_attr( $classes ) . '"'
 				. ' id="iwsl-tabbtn-' . esc_attr( $id ) . '"'
 				. ' role="tab" aria-controls="iwsl-tab-' . esc_attr( $id ) . '"'
-				. ' aria-selected="' . ( $is_first ? 'true' : 'false' ) . '"'
-				. ' tabindex="' . ( $is_first ? '0' : '-1' ) . '"'
+				. ' aria-selected="' . ( $is_active ? 'true' : 'false' ) . '"'
+				. ( $locked ? ' aria-disabled="true" data-locked="1"' : '' )
+				. ' tabindex="' . ( $is_active ? '0' : '-1' ) . '"'
 				. ' data-tab="' . esc_attr( $id ) . '">';
 			echo '<span class="dashicons dashicons-' . esc_attr( $tab['icon'] ) . '" aria-hidden="true"></span>';
 			echo '<span class="iwsl-tab__label">' . esc_html( $tab['label'] ) . '</span>';
-			if ( 'core' !== $state ) {
+			if ( $locked ) {
+				echo '<span class="dashicons dashicons-lock iwsl-tab__lock" aria-hidden="true"></span>';
+				echo '<span class="screen-reader-text"> ' . esc_html__( '(locked — not included in this plan)', 'infraweaver-connector' ) . '</span>';
+			} elseif ( 'core' !== $state ) {
 				echo '<span class="iwsl-tab__status iwsl-tab__status--' . esc_attr( $state ) . '" aria-hidden="true"></span>';
 			}
 			echo '</button>';
@@ -397,6 +1098,7 @@ final class IWSL_Admin {
 	--iw-r-sm: 10px;
 	--iw-ease: cubic-bezier(0.22, 1, 0.36, 1);
 	--iw-z-rail: 20;
+	--iw-z-toast: 60;
 	margin: 0;
 	max-width: none;
 	width: 100%;
@@ -489,8 +1191,17 @@ final class IWSL_Admin {
 	background: color-mix(in oklch, var(--iw-bg) 82%, transparent);
 	backdrop-filter: blur(10px);
 	border-bottom: 1px solid var(--iw-line);
+	scroll-behavior: smooth;
+	/* Soft edge fades signal "more tabs this way" as the rail scrolls — critical
+	   once the rail holds ~20 tabs. Fades never widen the page; the rail scrolls
+	   within itself (overflow-x:auto above, page-level overflow clipped by shell). */
+	-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+	mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
 }
 .iwsl-tabnav::-webkit-scrollbar{ display: none; }
+/* No WordPress admin bar on the page → nothing to offset under; pin the rail to
+   the very top so no empty band ever appears above it. */
+body:not(.admin-bar) .iwsl-tabnav{ top: 0; }
 .iwsl-tab{
 	position: relative; display: inline-flex; align-items: center; gap: 8px; flex: none;
 	padding: 10px 15px; border: 0; border-radius: var(--iw-r-sm); cursor: pointer;
@@ -510,9 +1221,37 @@ final class IWSL_Admin {
 .iwsl-tab__status{ width: 7px; height: 7px; border-radius: 50%; margin-left: 1px; }
 .iwsl-tab__status--on{ background: var(--iw-good); box-shadow: 0 0 0 3px color-mix(in oklch, var(--iw-good) 20%, transparent); }
 .iwsl-tab__status--off{ background: color-mix(in oklch, var(--iw-bad) 75%, var(--iw-faint)); }
+/* Locked tab: dimmed, not-allowed, sealed. The lock glyph replaces the dot. */
+.iwsl-tab--locked{ color: var(--iw-faint); cursor: not-allowed; }
+.iwsl-tab--locked .dashicons{ opacity: 0.55; }
+.iwsl-tab--locked:hover{ color: var(--iw-faint); background: transparent; }
+.iwsl-tab--locked .iwsl-tab__label{ opacity: 0.85; }
+.iwsl-tab__lock{ font-size: 14px !important; width: 14px !important; height: 14px !important; margin-left: 1px; opacity: 0.8 !important; }
+/* Cluster separators: a faint full-height rule + micro uppercase label that
+   turns the ~20-tab rail into legible groups. Presentational only — never a
+   .iwsl-tab, never focusable, never a click/arrow-key target. The leading 1px
+   rule is a divider (not a colored side-stripe), so clusters read as intentional
+   without competing with the active-tab underline. */
+.iwsl-tabnav__group{
+	display: inline-flex; align-items: center; flex: none; align-self: stretch;
+	margin-left: 7px; padding: 0 3px 0 14px;
+	font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+	line-height: 1; color: var(--iw-faint); white-space: nowrap;
+	border-left: 1px solid var(--iw-line);
+	user-select: none; pointer-events: none;
+}
+.iwsl-tabnav__group:first-of-type{ margin-left: 2px; }
 
 /* ── Panels ───────────────────────────────────────────────────────────── */
 .iwsl-panels{ padding: 26px 32px 34px; flex: 1 1 auto; }
+/* Result cards, tables and forms carry readable-width inline caps (640/720px)
+   that stranded the right half of the panel empty on the full-bleed shell.
+   Let them breathe up to a comfortable column so nothing "stops at the middle".
+   (Inputs keep their own natural width via .regular-text max-width:100%.) */
+.iwsl-tabpanel [style*="max-width:640px"],
+.iwsl-tabpanel [style*="max-width: 640px"],
+.iwsl-tabpanel [style*="max-width:720px"],
+.iwsl-tabpanel [style*="max-width: 720px"]{ max-width: 1280px !important; }
 .iwsl-tabpanel[hidden]{ display: none; }
 .iwsl-tabpanel:focus{ outline: none; }
 .iwsl-tabpanel > h2:first-child,
@@ -527,11 +1266,27 @@ final class IWSL_Admin {
 .iwsl-shell hr{ display: none; }
 .iwsl-shell .screen-reader-text{ position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-/* Tables — data (.widefat) */
+/* Tables — data (.widefat). Laid out as REAL tables that FILL their panel
+   (width:100%) up to their inline cap (raised to 1280px above), so a preview or
+   summary reads as intentional. A `display:block` table looks like it fills but
+   its row-groups form an anonymous shrink-to-fit table that never stretches to
+   the block — stranding the panel's right half (the "half-width" bug). Real
+   table layout + wrapping cells (overflow-wrap below) means a table can never
+   exceed its column, and the shell clips at the page edge, so no width from
+   320px to ultrawide ever pushes the page sideways. `overflow` is a no-op on a
+   table box, so the rounded corners are clipped per-cell instead. */
 .iwsl-shell table.widefat{
+	display: table; width: 100%; max-width: 100%; min-width: 0; table-layout: auto;
 	background: var(--iw-panel); border: 1px solid var(--iw-line); border-radius: var(--iw-r);
-	border-collapse: separate; border-spacing: 0; overflow: clip; box-shadow: none; margin-top: 14px;
+	border-collapse: separate; border-spacing: 0; margin-top: 14px;
+	box-shadow: 0 14px 36px -26px rgba(0,0,0,0.95);
 }
+/* Round the corner cells so the header fill and the last row honour the table's
+   radius (a table box cannot clip its own overflow to round them). */
+.iwsl-shell table.widefat thead th:first-child{ border-top-left-radius: var(--iw-r); }
+.iwsl-shell table.widefat thead th:last-child{ border-top-right-radius: var(--iw-r); }
+.iwsl-shell table.widefat tbody tr:last-child > :first-child{ border-bottom-left-radius: var(--iw-r); }
+.iwsl-shell table.widefat tbody tr:last-child > :last-child{ border-bottom-right-radius: var(--iw-r); }
 .iwsl-shell table.widefat thead th{
 	background: color-mix(in oklch, var(--iw-panel-2) 70%, transparent); color: var(--iw-faint);
 	font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
@@ -541,6 +1296,7 @@ final class IWSL_Admin {
 .iwsl-shell table.widefat tbody th{
 	padding: 12px 16px; border: 0; border-top: 1px solid var(--iw-line);
 	color: var(--iw-ink); font-size: 13.5px; background: transparent;
+	overflow-wrap: anywhere;
 }
 .iwsl-shell table.widefat tbody th{ color: var(--iw-muted); font-weight: 600; }
 .iwsl-shell table.widefat.striped > tbody > :nth-child(odd){ background: color-mix(in oklch, white 2.5%, transparent); }
@@ -618,7 +1374,8 @@ final class IWSL_Admin {
 /* Notices */
 .iwsl-shell .notice{
 	border: 1px solid var(--iw-line-2); border-left-width: 1px; border-radius: var(--iw-r-sm);
-	background: var(--iw-panel); color: var(--iw-ink); box-shadow: none;
+	background: var(--iw-panel); color: var(--iw-ink);
+	box-shadow: 0 10px 28px -22px rgba(0,0,0,0.9);
 }
 .iwsl-shell .notice p{ color: var(--iw-ink); }
 .iwsl-shell .notice ul{ color: var(--iw-muted); }
@@ -630,14 +1387,81 @@ final class IWSL_Admin {
 /* Checkboxes / labels inline */
 .iwsl-shell input[type="checkbox"]{ accent-color: var(--iw-signal); width: 17px; height: 17px; }
 
+/* ── Overflow containment & long-content (no element pushes the page sideways) ── */
+/* Media and form controls never exceed their column, even .regular-text (25em)
+   on a 320px screen or an oversized embedded image. */
+.iwsl-shell img,
+.iwsl-shell svg,
+.iwsl-shell canvas,
+.iwsl-shell video{ max-width: 100%; height: auto; }
+.iwsl-shell input,
+.iwsl-shell select,
+.iwsl-shell textarea{ max-width: 100%; }
+/* Long unbroken tokens (URLs, hashes, paths) wrap instead of stretching a row. */
+.iwsl-shell p,
+.iwsl-shell li,
+.iwsl-shell dd,
+.iwsl-shell .notice p,
+.iwsl-shell .iwsl-lede{ overflow-wrap: anywhere; }
+/* Monospace: legible on dark, and always breakable so a long hook name / URL in
+   a <code> chip can never force horizontal scroll of the page. */
+.iwsl-shell code,
+.iwsl-shell kbd,
+.iwsl-shell samp,
+.iwsl-shell pre{
+	font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+	font-size: 12.5px; overflow-wrap: anywhere; word-break: break-word;
+}
+.iwsl-shell code,
+.iwsl-shell kbd,
+.iwsl-shell samp{
+	padding: 1.5px 6px; border-radius: 6px;
+	background: color-mix(in oklch, var(--iw-signal) 9%, var(--iw-field));
+	border: 1px solid var(--iw-line); color: var(--iw-signal-2);
+}
+.iwsl-shell pre{
+	max-width: 100%; overflow-x: auto; margin: 12px 0; padding: 12px 14px;
+	background: var(--iw-field); border: 1px solid var(--iw-line);
+	border-radius: var(--iw-r-sm); color: var(--iw-ink); line-height: 1.5;
+}
+/* Reusable horizontal-scroll region for any future wide block (wide tables,
+   diagrams, code): contained, themed, never widening the page. */
+.iwsl-shell .iwsl-scroll-x{ max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+
+/* Themed thin scrollbars for every in-shell scroll region. */
+.iwsl-shell table.widefat,
+.iwsl-shell pre,
+.iwsl-shell .iwsl-scroll-x{ scrollbar-width: thin; scrollbar-color: var(--iw-line-2) transparent; }
+.iwsl-shell table.widefat::-webkit-scrollbar,
+.iwsl-shell pre::-webkit-scrollbar,
+.iwsl-shell .iwsl-scroll-x::-webkit-scrollbar{ height: 8px; width: 8px; }
+.iwsl-shell table.widefat::-webkit-scrollbar-thumb,
+.iwsl-shell pre::-webkit-scrollbar-thumb,
+.iwsl-shell .iwsl-scroll-x::-webkit-scrollbar-thumb{ background: var(--iw-line-2); border-radius: 999px; }
+.iwsl-shell table.widefat::-webkit-scrollbar-track,
+.iwsl-shell pre::-webkit-scrollbar-track,
+.iwsl-shell .iwsl-scroll-x::-webkit-scrollbar-track{ background: transparent; }
+
+/* ── Polish: depth, selection, micro-interaction ──────────────────────── */
+/* Elevation on the run-summary cards (depth without a heavier border). */
+.iwsl-shell .iwsl-panels div[style*="border-radius:12px"]{
+	box-shadow: 0 18px 44px -30px rgba(0,0,0,0.95);
+}
+.iwsl-shell ::selection{ background: color-mix(in oklch, var(--iw-signal) 38%, transparent); color: var(--iw-ink); }
+.iwsl-shell .iwsl-tabpanel{ scroll-margin-top: 84px; }
+.iwsl-chip{ transition: border-color .18s var(--iw-ease), color .18s var(--iw-ease), background .18s var(--iw-ease); }
+.iwsl-chip.is-ok:hover{ background: color-mix(in oklch, var(--iw-good) 10%, transparent); }
+
 /* ── Motion ───────────────────────────────────────────────────────────── */
 @keyframes iwsl-spin{ to{ transform: rotate(360deg); } }
 @keyframes iwsl-pulse{ 0%,100%{ box-shadow: 0 0 0 3px color-mix(in oklch, var(--iw-good) 24%, transparent); } 50%{ box-shadow: 0 0 0 6px color-mix(in oklch, var(--iw-good) 6%, transparent); } }
 @keyframes iwsl-rise{ from{ opacity: 0; transform: translateY(10px); } to{ opacity: 1; transform: translateY(0); } }
+@keyframes iwsl-float{ from{ transform: translate3d(-5%, 4%, 0) scale(1); opacity: 0.55; } to{ transform: translate3d(5%, -4%, 0) scale(1.08); opacity: 0.82; } }
 /* Entrance is opt-in (JS adds .is-entering on a user-initiated switch), so
    panel content is fully visible by default — never gated behind an animation
    that could stall on a headless/print render or with JS disabled. */
 @media (prefers-reduced-motion: no-preference){
+	.iwsl-hero__glow{ animation: iwsl-float 9s var(--iw-ease) infinite alternate; }
 	.iwsl-tabpanel.is-entering > *{ animation: iwsl-rise .45s var(--iw-ease) both; }
 	.iwsl-tabpanel.is-entering > *:nth-child(1){ animation-delay: .02s; }
 	.iwsl-tabpanel.is-entering > *:nth-child(2){ animation-delay: .07s; }
@@ -651,7 +1475,197 @@ final class IWSL_Admin {
 	.iwsl-shell *::after{ animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
 
+/* ── Toasts ───────────────────────────────────────────────────────────── */
+/* PRG result notices render as inert, hidden ".iwsl-toast-seed" blocks that carry
+   NO WordPress ".notice" class — so core never relocates them above the hero. The
+   shell script lifts each seed into this fixed, animated, auto-dismissing stack.
+   The stack sits ABOVE the sticky rail (z) and clear of it (offset), never widens
+   the page (its own max-width + each toast scrolls its own overflow), and is
+   pointer-transparent except on the toasts themselves. */
+.iwsl-shell .iwsl-toast-seed{ display: none !important; }
+.iwsl-toast-stack{
+	position: fixed; top: 84px; right: 20px; z-index: var(--iw-z-toast, 60);
+	display: flex; flex-direction: column; gap: 12px;
+	width: min(24rem, calc(100vw - 32px));
+	max-height: calc(100vh - 104px);
+	pointer-events: none;
+}
+.iwsl-toast{
+	pointer-events: auto; position: relative; isolation: isolate;
+	display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 11px;
+	padding: 13px 13px 15px 14px; border-radius: 14px;
+	background: color-mix(in oklch, var(--iw-panel) 88%, black);
+	border: 1px solid var(--iw-line-2); color: var(--iw-ink);
+	box-shadow: 0 24px 54px -26px rgba(0,0,0,0.92), 0 1px 0 color-mix(in oklch, white 4%, transparent) inset;
+	overflow: hidden;
+	opacity: 0; transform: translateY(-9px) scale(0.985);
+	transition: opacity .32s var(--iw-ease), transform .42s var(--iw-ease);
+}
+.iwsl-toast.is-in{ opacity: 1; transform: none; }
+.iwsl-toast.is-out{ opacity: 0; transform: translateX(14px) scale(0.985); }
+.iwsl-toast--success{ border-color: color-mix(in oklch, var(--iw-good) 46%, transparent); }
+.iwsl-toast--error{ border-color: color-mix(in oklch, var(--iw-bad) 52%, transparent); }
+.iwsl-toast--warning{ border-color: color-mix(in oklch, var(--iw-warn) 46%, transparent); }
+.iwsl-toast--info{ border-color: color-mix(in oklch, var(--iw-signal) 42%, transparent); }
+.iwsl-toast__icon{
+	display: grid; place-items: center; width: 30px; height: 30px; flex: none;
+	border-radius: 9px; font-size: 18px; line-height: 1;
+}
+.iwsl-toast__icon.dashicons{ width: 30px; height: 30px; }
+.iwsl-toast--success .iwsl-toast__icon{ color: var(--iw-good); background: color-mix(in oklch, var(--iw-good) 16%, transparent); }
+.iwsl-toast--error .iwsl-toast__icon{ color: var(--iw-bad); background: color-mix(in oklch, var(--iw-bad) 16%, transparent); }
+.iwsl-toast--warning .iwsl-toast__icon{ color: var(--iw-warn); background: color-mix(in oklch, var(--iw-warn) 16%, transparent); }
+.iwsl-toast--info .iwsl-toast__icon{ color: var(--iw-signal-2); background: color-mix(in oklch, var(--iw-signal) 15%, transparent); }
+.iwsl-toast__content{ min-width: 0; max-height: min(52vh, 460px); overflow: auto; overscroll-behavior: contain; font-size: 13.5px; line-height: 1.5; }
+.iwsl-toast__content p{ color: var(--iw-ink); margin: 0 0 6px; overflow-wrap: anywhere; }
+.iwsl-toast__content p:last-child{ margin-bottom: 0; }
+.iwsl-toast__content .iwsl-toast__sub{ color: var(--iw-muted); font-size: 12.5px; }
+.iwsl-toast__content ul{ margin: 4px 0 2px; padding-left: 18px; list-style: disc; color: var(--iw-muted); font-size: 12.5px; }
+.iwsl-toast__content li{ margin: 2px 0; overflow-wrap: anywhere; }
+.iwsl-toast__content h3{ margin: 0 0 6px; font-size: 13px; font-weight: 650; text-transform: none; letter-spacing: 0; color: var(--iw-ink); }
+.iwsl-toast__content h3::before{ display: none; }
+.iwsl-toast__content table.widefat{ margin-top: 8px; font-size: 12px; }
+.iwsl-toast__content .iwsl-toast__block{ margin-top: 6px; }
+.iwsl-toast__close{
+	flex: none; align-self: start; width: 26px; height: 26px; border-radius: 8px; padding: 0;
+	display: grid; place-items: center; cursor: pointer; font-family: inherit;
+	background: transparent; border: 1px solid transparent; color: var(--iw-faint);
+	font-size: 18px; line-height: 1;
+	transition: color .15s var(--iw-ease), background .15s var(--iw-ease);
+}
+.iwsl-toast__close:hover{ color: var(--iw-ink); background: color-mix(in oklch, white 8%, transparent); }
+.iwsl-toast__close:focus-visible{ outline: 2px solid var(--iw-signal); outline-offset: 2px; }
+.iwsl-toast__timer{
+	position: absolute; left: 0; right: 0; bottom: 0; height: 2px; transform-origin: left center;
+	background: color-mix(in oklch, var(--iw-faint) 50%, transparent);
+}
+.iwsl-toast--success .iwsl-toast__timer{ background: color-mix(in oklch, var(--iw-good) 60%, transparent); }
+.iwsl-toast--error .iwsl-toast__timer{ background: color-mix(in oklch, var(--iw-bad) 60%, transparent); }
+.iwsl-toast--warning .iwsl-toast__timer{ background: color-mix(in oklch, var(--iw-warn) 60%, transparent); }
+.iwsl-toast--info .iwsl-toast__timer{ background: color-mix(in oklch, var(--iw-signal) 60%, transparent); }
+.iwsl-toast.is-in .iwsl-toast__timer{ animation: iwsl-toast-timer var(--iwsl-toast-ttl, 6000ms) linear forwards; }
+.iwsl-toast.is-paused .iwsl-toast__timer{ animation-play-state: paused; }
+@keyframes iwsl-toast-timer{ from{ transform: scaleX(1); } to{ transform: scaleX(0); } }
+@media (max-width: 782px){
+	.iwsl-toast-stack{ top: 68px; right: 12px; left: 12px; width: auto; max-height: calc(100vh - 88px); }
+}
+@media (prefers-reduced-motion: reduce){
+	.iwsl-toast{ opacity: 1; transform: none; }
+	.iwsl-toast.is-out{ opacity: 0; }
+	.iwsl-toast__timer{ display: none; }
+}
+
+/* ── Tier badge (Free / Basic / Pro / Ultimate) ───────────────────────── */
+.iwsl-tier{
+	display: inline-flex; align-items: center; gap: 8px; flex: none;
+	padding: 6px 13px 6px 11px; border-radius: 999px;
+	font-size: 12.5px; font-weight: 700; letter-spacing: 0.01em; line-height: 1;
+	color: var(--iw-ink); border: 1px solid var(--iw-line-2);
+	background: color-mix(in oklch, black 14%, transparent);
+}
+.iwsl-tier__gem{
+	width: 9px; height: 9px; border-radius: 2px; transform: rotate(45deg); flex: none;
+	background: var(--iw-faint); box-shadow: 0 0 0 3px color-mix(in oklch, var(--iw-faint) 16%, transparent);
+}
+.iwsl-tier--free{ color: var(--iw-muted); }
+.iwsl-tier--free .iwsl-tier__gem{ background: var(--iw-faint); }
+.iwsl-tier--basic{ border-color: color-mix(in oklch, var(--iw-signal) 46%, transparent); }
+.iwsl-tier--basic .iwsl-tier__gem{ background: var(--iw-signal); box-shadow: 0 0 0 3px color-mix(in oklch, var(--iw-signal) 22%, transparent); }
+.iwsl-tier--pro{ border-color: color-mix(in oklch, var(--iw-violet) 52%, transparent); }
+.iwsl-tier--pro .iwsl-tier__gem{ background: var(--iw-violet); box-shadow: 0 0 0 3px color-mix(in oklch, var(--iw-violet) 24%, transparent); }
+.iwsl-tier--ultimate{
+	border-color: color-mix(in oklch, var(--iw-warn) 55%, transparent);
+	background: linear-gradient(150deg, color-mix(in oklch, var(--iw-warn) 22%, transparent), color-mix(in oklch, var(--iw-warn) 6%, transparent));
+}
+.iwsl-tier--ultimate .iwsl-tier__gem{ background: var(--iw-warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--iw-warn) 26%, transparent); }
+
+/* ── Group sub-page hero (back-crumb + group identity) ────────────────── */
+.iwsl-hero--group .iwsl-hero__posture{ align-items: center; }
+.iwsl-hero__crumb{
+	display: inline-flex; align-items: center; gap: 4px; margin: 0 0 7px;
+	font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
+	color: var(--iw-muted); text-decoration: none;
+	transition: color .15s var(--iw-ease);
+}
+.iwsl-hero__crumb:hover{ color: var(--iw-signal-2); }
+.iwsl-hero__crumb:focus-visible{ outline: 2px solid var(--iw-signal); outline-offset: 2px; border-radius: 4px; }
+.iwsl-hero__crumb .dashicons{ font-size: 15px; width: 15px; height: 15px; }
+
+/* ── Landing dashboard ────────────────────────────────────────────────── */
+.iwsl-landing{ display: flex; flex-direction: column; gap: 30px; }
+
+/* Status strip: site identity + live gate posture, side by side. */
+.iwsl-status{ display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 18px; align-items: stretch; }
+.iwsl-status__id,
+.iwsl-status__gate{
+	background: var(--iw-panel); border: 1px solid var(--iw-line);
+	border-radius: var(--iw-r); padding: 20px 22px; min-width: 0;
+	box-shadow: 0 14px 36px -30px rgba(0,0,0,0.9);
+}
+.iwsl-status__id{ display: flex; flex-direction: column; gap: 5px; }
+.iwsl-status__tier{ display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.iwsl-status__tierhint{ font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--iw-faint); }
+.iwsl-status__site{ margin: 0; font-size: 21px; font-weight: 750; letter-spacing: -0.015em; line-height: 1.15; color: var(--iw-ink); overflow-wrap: anywhere; }
+.iwsl-status__url{ font-size: 13px; color: var(--iw-signal-2); text-decoration: none; overflow-wrap: anywhere; }
+.iwsl-status__url:hover{ text-decoration: underline; }
+.iwsl-status__ver{ display: inline-flex; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 12px; color: var(--iw-faint); }
+.iwsl-status__ver .dashicons{ font-size: 14px; width: 14px; height: 14px; color: var(--iw-signal); }
+.iwsl-status__gate h3{ margin-top: 0; }
+.iwsl-status__gate table.widefat{ max-width: 100% !important; }
+
+/* Category cards: navigation launchers to each feature sub-page. */
+.iwsl-cards{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.iwsl-card{
+	position: relative; display: flex; flex-direction: column; gap: 12px;
+	padding: 20px 20px 18px; border-radius: var(--iw-r); text-decoration: none;
+	color: var(--iw-ink); overflow: hidden;
+	border: 1px solid var(--iw-line);
+	background: linear-gradient(180deg, var(--iw-panel), color-mix(in oklch, var(--iw-panel-2) 55%, var(--iw-panel)));
+	transition: transform .2s var(--iw-ease), border-color .2s var(--iw-ease), box-shadow .2s var(--iw-ease);
+}
+.iwsl-card::before{
+	content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+	background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--iw-signal) 65%, transparent), transparent);
+	opacity: 0; transition: opacity .2s var(--iw-ease);
+}
+.iwsl-card:hover{ transform: translateY(-3px); border-color: var(--iw-line-2); box-shadow: 0 24px 50px -30px rgba(0,0,0,0.95); }
+.iwsl-card:hover::before{ opacity: 1; }
+.iwsl-card:focus-visible{ outline: 2px solid var(--iw-signal); outline-offset: 2px; }
+.iwsl-card__icon{
+	display: grid; place-items: center; width: 44px; height: 44px; flex: none;
+	border-radius: 12px; color: var(--iw-signal-2);
+	background: color-mix(in oklch, var(--iw-signal) 12%, transparent);
+	border: 1px solid color-mix(in oklch, var(--iw-signal) 22%, transparent);
+}
+.iwsl-card__icon .dashicons{ font-size: 24px; width: 24px; height: 24px; }
+.iwsl-card__head{ display: flex; flex-direction: column; gap: 2px; }
+.iwsl-card__title{ font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--iw-ink); }
+.iwsl-card__count{ font-size: 12px; font-weight: 600; color: var(--iw-faint); }
+.iwsl-card__blurb{ font-size: 13px; line-height: 1.5; color: var(--iw-muted); }
+.iwsl-card__list{ display: flex; flex-wrap: wrap; gap: 6px 7px; margin-top: 2px; }
+.iwsl-card__feat{
+	display: inline-flex; align-items: center; gap: 4px;
+	padding: 3px 9px 3px 7px; border-radius: 999px;
+	font-size: 11.5px; font-weight: 600; color: var(--iw-muted);
+	background: color-mix(in oklch, white 4%, transparent); border: 1px solid var(--iw-line);
+}
+.iwsl-card__feat .dashicons{ font-size: 13px; width: 13px; height: 13px; color: var(--iw-good); }
+.iwsl-card__feat.is-locked{ color: var(--iw-faint); }
+.iwsl-card__feat.is-locked .dashicons{ color: var(--iw-faint); }
+.iwsl-card__go{ position: absolute; top: 19px; right: 17px; color: var(--iw-faint); transition: transform .2s var(--iw-ease), color .2s var(--iw-ease); }
+.iwsl-card__go .dashicons{ font-size: 20px; width: 20px; height: 20px; }
+.iwsl-card:hover .iwsl-card__go{ color: var(--iw-signal-2); transform: translateX(3px); }
+.iwsl-card__head{ padding-right: 26px; }
+
+.iwsl-landing__snapshot,
+.iwsl-landing__roadmap{ padding-top: 4px; border-top: 1px solid var(--iw-line); }
+.iwsl-landing__snapshot > h2,
+.iwsl-landing__roadmap > h2{ margin-top: 18px; }
+
 /* ── Responsive ───────────────────────────────────────────────────────── */
+@media (max-width: 900px){
+	.iwsl-status{ grid-template-columns: 1fr; }
+}
 @media (max-width: 782px){
 	#wpcontent .iwsl-shell{ margin: 0; min-height: calc(100vh - 46px); }
 	.iwsl-hero{ padding: 22px 18px; }
@@ -659,6 +1673,13 @@ final class IWSL_Admin {
 	.iwsl-panels{ padding: 20px 16px 28px; }
 	.iwsl-shell table.form-table th{ width: auto; display: block; padding-bottom: 4px; }
 	.iwsl-shell table.form-table td{ display: block; }
+	.iwsl-cards{ grid-template-columns: 1fr; }
+}
+/* Below 600px the WordPress admin bar stops being position:fixed and scrolls
+   away with the page — so reserving its height as a sticky offset would leave an
+   empty band above the rail. Pin the rail to the very top there instead. */
+@media screen and (max-width: 600px){
+	.iwsl-tabnav{ top: 0; }
 }
 CSS;
 		echo "\n</style>\n";
@@ -670,7 +1691,7 @@ CSS;
 	 * JS off, a <noscript> rule reveals every panel and hides the rail.
 	 */
 	private static function render_shell_script(): void {
-		echo "<noscript><style>.iwsl-shell .iwsl-tabpanel[hidden]{display:block!important}.iwsl-shell .iwsl-tabnav{display:none}</style></noscript>\n";
+		echo "<noscript><style>.iwsl-shell .iwsl-tabpanel[hidden]{display:block!important}.iwsl-shell .iwsl-tabnav{display:none}.iwsl-shell .iwsl-toast-seed{display:block!important;margin-top:12px;padding:13px 15px;border:1px solid var(--iw-line-2);border-radius:var(--iw-r-sm);background:var(--iw-panel);}</style></noscript>\n";
 		echo "<script>\n";
 		echo <<<'JS'
 (function(){
@@ -679,6 +1700,10 @@ CSS;
 	var tabs = Array.prototype.slice.call(shell.querySelectorAll('.iwsl-tab'));
 	var panels = Array.prototype.slice.call(shell.querySelectorAll('.iwsl-tabpanel'));
 	if (!tabs.length) { return; }
+	// Remembered-tab key is scoped PER PAGE (data-iwsl-scope) so each category
+	// sub-page restores its own last tab and never clobbers another's.
+	var scope = (shell.dataset && shell.dataset.iwslScope) ? shell.dataset.iwslScope : '';
+	var STORE_KEY = 'iwsl_tab_' + scope;
 
 	function enter(panel){
 		panel.classList.remove('is-entering');
@@ -690,7 +1715,21 @@ CSS;
 		});
 	}
 
+	function isLocked(tab){ return tab && tab.dataset.locked === '1'; }
+	// Next selectable (non-locked) tab index in a direction, skipping locked tabs.
+	function step(from, dir){
+		var n = from;
+		for (var k = 0; k < tabs.length; k++){
+			n = (n + dir + tabs.length) % tabs.length;
+			if (!isLocked(tabs[n])) { return n; }
+		}
+		return from;
+	}
+
 	function activate(id, focusTab, push, animate){
+		// A locked section is sealed — never open it (click, key, hash, or restore).
+		var target = tabs.filter(function(t){ return t.dataset.tab === id; })[0];
+		if (isLocked(target)) { return; }
 		var matched = false;
 		tabs.forEach(function(tab){
 			var on = tab.dataset.tab === id;
@@ -713,11 +1752,14 @@ CSS;
 		if (push && history.replaceState) { history.replaceState(null, '', '#iwsl-' + id); }
 		// Remember the tab so a full-page form POST + server redirect (which drops
 		// the hash) returns the operator to the same section, not back to Overview.
-		try { localStorage.setItem('iwsl_tab', id); } catch (e) {}
+		try { localStorage.setItem(STORE_KEY, id); } catch (e) {}
 	}
 
 	tabs.forEach(function(tab){
-		tab.addEventListener('click', function(){ activate(tab.dataset.tab, false, true, true); });
+		tab.addEventListener('click', function(){
+			if (isLocked(tab)) { return; } // sealed — a locked plan feature.
+			activate(tab.dataset.tab, false, true, true);
+		});
 	});
 
 	var rail = shell.querySelector('.iwsl-tabnav');
@@ -726,10 +1768,10 @@ CSS;
 			var i = tabs.indexOf(document.activeElement);
 			if (i < 0) { return; }
 			var n = null;
-			if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { n = (i + 1) % tabs.length; }
-			else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { n = (i - 1 + tabs.length) % tabs.length; }
-			else if (e.key === 'Home') { n = 0; }
-			else if (e.key === 'End') { n = tabs.length - 1; }
+			if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { n = step(i, 1); }
+			else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { n = step(i, -1); }
+			else if (e.key === 'Home') { n = 0; }               // overview is never locked
+			else if (e.key === 'End') { n = step(0, -1); }      // last selectable tab
 			if (n === null) { return; }
 			e.preventDefault();
 			activate(tabs[n].dataset.tab, true, true, true);
@@ -752,14 +1794,142 @@ CSS;
 		activate(hash, false, false, false);
 	} else {
 		var saved = null;
-		try { saved = localStorage.getItem('iwsl_tab'); } catch (e) {}
+		try { saved = localStorage.getItem(STORE_KEY); } catch (e) {}
 		if (saved && saved !== 'overview' && shell.querySelector('#iwsl-tab-' + saved)) {
 			activate(saved, false, false, false);
 		}
 	}
 })();
+
+// ── Result toasts ─────────────────────────────────────────────────────────
+// Lift each inert "toast seed" (a PRG result rendered with NO WordPress .notice
+// class, so core never hoists it above the hero) into a fixed, animated,
+// auto-dismissing toast. Rich content — including tables — is moved intact, so
+// only the PRESENTATION changes. Success → role=status/polite; error →
+// role=alert/assertive. Auto-dismiss ~6s, paused on hover/focus, manual close,
+// Escape-dismiss when focused. prefers-reduced-motion → instant show/hide.
+(function(){
+	var host = document.querySelector('.iwsl-shell');
+	if (!host) { return; }
+	var seeds = Array.prototype.slice.call(host.querySelectorAll('[data-iwsl-toast]'));
+	if (!seeds.length) { return; }
+
+	var reduce = false;
+	try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+	var TTL = 6000, OUT = 440;
+
+	var stack = document.createElement('div');
+	stack.className = 'iwsl-toast-stack';
+	host.appendChild(stack);
+
+	function iconClass(v){
+		if (v === 'success') { return 'dashicons-yes-alt'; }
+		if (v === 'info') { return 'dashicons-info'; }
+		return 'dashicons-warning'; // error + warning
+	}
+
+	function spawn(seed){
+		var variant = seed.getAttribute('data-iwsl-toast') || 'info';
+		var isError = (variant === 'error');
+
+		var toast = document.createElement('div');
+		toast.className = 'iwsl-toast iwsl-toast--' + variant;
+		toast.setAttribute('role', isError ? 'alert' : 'status');
+		toast.setAttribute('aria-live', isError ? 'assertive' : 'polite');
+		toast.setAttribute('aria-atomic', 'true');
+		toast.tabIndex = -1;
+
+		var icon = document.createElement('span');
+		icon.className = 'iwsl-toast__icon dashicons ' + iconClass(variant);
+		icon.setAttribute('aria-hidden', 'true');
+
+		var content = document.createElement('div');
+		content.className = 'iwsl-toast__content';
+		while (seed.firstChild) { content.appendChild(seed.firstChild); }
+
+		var close = document.createElement('button');
+		close.type = 'button';
+		close.className = 'iwsl-toast__close';
+		close.setAttribute('aria-label', 'Dismiss notification');
+		close.innerHTML = '&times;';
+
+		var timer = document.createElement('span');
+		timer.className = 'iwsl-toast__timer';
+		timer.setAttribute('aria-hidden', 'true');
+		timer.style.setProperty('--iwsl-toast-ttl', TTL + 'ms');
+
+		toast.appendChild(icon);
+		toast.appendChild(content);
+		toast.appendChild(close);
+		toast.appendChild(timer);
+		stack.appendChild(toast);
+		if (seed.parentNode) { seed.parentNode.removeChild(seed); }
+
+		var dead = false, tid = null, startedAt = 0, remaining = TTL;
+		function clearTid(){ if (tid) { clearTimeout(tid); tid = null; } }
+		function remove(){ if (toast.parentNode) { toast.parentNode.removeChild(toast); } }
+		function dismiss(){
+			if (dead) { return; }
+			dead = true; clearTid();
+			toast.classList.remove('is-in');
+			toast.classList.add('is-out');
+			if (reduce) { remove(); } else { setTimeout(remove, OUT); }
+		}
+		function startTimer(ms){ clearTid(); startedAt = Date.now(); remaining = ms; tid = setTimeout(dismiss, ms); }
+		function pause(){
+			if (dead || tid === null) { return; }
+			clearTid();
+			remaining -= (Date.now() - startedAt);
+			if (remaining < 500) { remaining = 500; }
+			toast.classList.add('is-paused');
+		}
+		function resume(){ if (dead) { return; } toast.classList.remove('is-paused'); startTimer(remaining); }
+
+		close.addEventListener('click', dismiss);
+		toast.addEventListener('mouseenter', pause);
+		toast.addEventListener('mouseleave', resume);
+		toast.addEventListener('focusin', pause);
+		toast.addEventListener('focusout', function(e){
+			if (!toast.contains(e.relatedTarget)) { resume(); }
+		});
+		toast.addEventListener('keydown', function(e){
+			if (e.key === 'Escape' || e.key === 'Esc') { e.stopPropagation(); dismiss(); }
+		});
+
+		if (reduce) {
+			toast.classList.add('is-in');
+		} else {
+			requestAnimationFrame(function(){ requestAnimationFrame(function(){ toast.classList.add('is-in'); }); });
+		}
+		startTimer(TTL);
+	}
+
+	seeds.forEach(spawn);
+})();
 JS;
 		echo "\n</script>\n";
+	}
+
+	/**
+	 * OPEN a result "toast seed": an inert, hidden container carrying NO WordPress
+	 * `.notice` class (so core never relocates it above the hero). The shell script
+	 * lifts it into a fixed, animated, auto-dismissing toast on load. Rich HTML —
+	 * paragraphs, lists, the configured-vs-effective table — is allowed inside;
+	 * ONLY the presentation changes, every message/table content is preserved.
+	 *
+	 * @param string $variant success|error|warning|info — drives accent, icon, and
+	 *                         the live-region role (error → alert/assertive).
+	 */
+	private static function toast_open( string $variant ): void {
+		if ( ! in_array( $variant, array( 'success', 'error', 'warning', 'info' ), true ) ) {
+			$variant = 'info';
+		}
+		echo '<div class="iwsl-toast-seed" data-iwsl-toast="' . esc_attr( $variant ) . '" hidden>';
+	}
+
+	/** CLOSE a toast seed opened with {@see toast_open()}. */
+	private static function toast_close(): void {
+		echo '</div>';
 	}
 
 	/** One row per gate with a pass/fail marker and the live detail. */
@@ -811,7 +1981,7 @@ JS;
 			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
 			'requires-plus'   => 'The Plus entitlement is not granted. Grant it from the console (per-site toggle).',
 		);
-		echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p><strong>🔒 Plus feature locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
+		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Plus feature locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
 		foreach ( (array) $gate['reasons'] as $reason ) {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
@@ -835,7 +2005,9 @@ JS;
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
 		if ( isset( $_GET['iwsl_mo_locked'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p><strong>' . esc_html__( 'The Image Optimization entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p></div>';
+			self::toast_open( 'error' );
+			echo '<p><strong>' . esc_html__( 'The Image Optimization entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p>';
+			self::toast_close();
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
@@ -859,7 +2031,7 @@ JS;
 			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
 			'requires-plus'   => 'The Image Optimization entitlement is not granted — assign the Pro tier from the console.',
 		);
-		echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p><strong>🔒 Image Optimization is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
+		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Image Optimization is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
 		foreach ( (array) $gate['reasons'] as $reason ) {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
@@ -896,9 +2068,18 @@ JS;
 		wp_nonce_field( self::OPTIMIZE_NONCE );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::OPTIMIZE_ACTION ) . '">';
 
+		// PRIMARY one-click action — safe defaults apply (Auto types, keep original +
+		// add WebP, only smaller results kept). Open Advanced to tune before running.
+		echo '<div class="iwsl-primary">';
+		echo '<span class="iwsl-primary__meta">' . esc_html__( 'Re-encodes to WebP — originals kept, only smaller results are saved.', 'infraweaver-connector' ) . '</span>';
+		echo '<button type="submit" name="op" value="run" class="button button-primary">' . esc_html__( 'Optimize all images', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+
+		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
+
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwsl-mo-types">' . esc_html__( 'Image types', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-mo-types">' . esc_html__( 'Image types', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Which picture kinds to shrink — Auto handles them all.' ) . '</th><td>';
 		echo '<select id="iwsl-mo-types" name="types">';
 		echo '<option value="auto">' . esc_html__( 'Auto — all types (PNG, JPEG, GIF, BMP, TIFF)', 'infraweaver-connector' ) . '</option>';
 		foreach ( array( 'image/png' => 'PNG', 'image/jpeg' => 'JPEG', 'image/gif' => 'GIF', 'image/bmp' => 'BMP', 'image/tiff' => 'TIFF' ) as $iwsl_mime => $iwsl_lbl ) {
@@ -906,14 +2087,14 @@ JS;
 		}
 		echo '</select><br><span class="description">' . esc_html__( 'Auto picks the best WebP mode per type — lossless for PNG/GIF/BMP/TIFF, near-lossless for JPEG. Only smaller results are kept.', 'infraweaver-connector' ) . '</span></td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'Pick images', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Pick images', 'infraweaver-connector' ) . iwsl_field_help( 'Optionally choose specific images instead of shrinking a batch.' ) . '</th><td>';
 		echo '<input type="hidden" name="ids" id="iwsl-mo-ids" value="">';
 		echo '<button type="button" class="button" id="iwsl-mo-pick">' . esc_html__( 'Choose images…', 'infraweaver-connector' ) . '</button> ';
 		echo '<button type="button" class="button" id="iwsl-mo-clear">' . esc_html__( 'Clear', 'infraweaver-connector' ) . '</button><br>';
 		echo '<span id="iwsl-mo-picked" class="description">' . esc_html__( 'No images selected — the count below is used instead.', 'infraweaver-connector' ) . '</span>';
 		echo '</td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-mo-count">' . esc_html__( 'Images this run', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-mo-count">' . esc_html__( 'Images this run', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'How many images to shrink in one go.' ) . '</th><td>';
 		echo '<input type="number" id="iwsl-mo-count" name="count" min="1" max="' . (int) IWSL_Media_Optimizer::MAX_REQUEST . '" value="25" style="width:100px;"> ';
 		echo '<span class="description">' . esc_html( sprintf(
 			/* translators: %d is the per-run image ceiling. */
@@ -921,18 +2102,30 @@ JS;
 			IWSL_Media_Optimizer::MAX_REQUEST
 		) ) . '</span></td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'Output', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Output', 'infraweaver-connector' ) . iwsl_field_help( 'Keep the original image too, or overwrite it with the smaller one.' ) . '</th><td>';
 		echo '<label style="display:block;margin-bottom:8px;"><input type="radio" name="mode" value="copy" checked> <strong>' . esc_html__( 'Keep original + add WebP copy', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Safe. Nothing is deleted — the WebP sits beside the original.', 'infraweaver-connector' ) . '</span></label>';
 		echo '<label style="display:block;"><input type="radio" name="mode" value="replace"> <strong>' . esc_html__( 'Replace original with WebP', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Smaller storage and faster pages. Deletes the original file — any hardcoded .png link in post content will break.', 'infraweaver-connector' ) . '</span></label>';
+		echo '</td></tr>';
+
+		echo '<tr><th scope="row">' . esc_html__( 'On your pages', 'infraweaver-connector' ) . iwsl_field_help( 'Swap the pictures shown on your pages to the smaller ones.' ) . '</th><td>';
+		echo '<label style="display:block;"><input type="checkbox" name="rewrite" value="1"> <strong>' . esc_html__( 'Replace the images on my pages with the optimized WebP', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Rewrites the image URLs in post & page content (including srcset) to point at the new WebP — even when you keep the original copy. Applies to images optimized in this run.', 'infraweaver-connector' ) . '</span></label>';
 		echo '</td></tr>';
 
 		echo '</tbody></table>';
 
 		echo '<p style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">';
 		echo '<button type="submit" name="op" value="preview" class="button">' . esc_html__( 'Estimate savings', 'infraweaver-connector' ) . '</button>';
-		echo '<button type="submit" name="op" value="run" class="button button-primary">' . esc_html__( 'Optimize now', 'infraweaver-connector' ) . '</button>';
 		echo '<span class="description">' . esc_html__( 'Estimate is a dry run — it changes nothing.', 'infraweaver-connector' ) . '</span>';
 		echo '</p>';
+
+		echo '<hr style="margin:18px 0;border-color:var(--iw-line);">';
+		echo '<p style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">';
+		$dedupe_confirm = esc_js( __( 'Delete every original image that already has an optimized WebP copy? Page references are repointed to the WebP first. This cannot be undone.', 'infraweaver-connector' ) );
+		echo '<button type="submit" name="op" value="dedupe-preview" class="button">' . esc_html__( 'Find optimized duplicates', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="submit" name="op" value="dedupe" class="button button-link-delete" onclick="return confirm(\'' . $dedupe_confirm . '\');">' . esc_html__( 'Remove optimized duplicates', 'infraweaver-connector' ) . '</button>';
+		echo '<span class="description">' . esc_html__( 'Removes originals that have already been optimized (keeps the WebP). Repoints your pages first. “Find” is a safe dry run.', 'infraweaver-connector' ) . '</span>';
+		echo '</p>';
+		echo '</div></details>';
 		echo '</form>';
 		self::render_media_picker_script();
 	}
@@ -1021,12 +2214,19 @@ JS;
 			return;
 		}
 
-		echo '<div style="border:1px solid var(--iw-line-2);background:var(--iw-panel);border-radius:12px;padding:18px;margin-top:16px;max-width:720px;">';
+		if ( isset( $summary['kind'] ) && 'dedupe' === $summary['kind'] ) {
+			$this->render_dedupe_summary( $summary );
+			return;
+		}
+
+		$variant = empty( $summary['ok'] ) ? 'error' : 'success';
+		self::toast_open( $variant );
 		$dry = ! empty( $summary['dry'] );
 		echo '<h3 style="margin-top:0;">' . esc_html( $dry ? __( 'Savings estimate', 'infraweaver-connector' ) : __( 'Last run', 'infraweaver-connector' ) ) . '</h3>';
 
 		if ( empty( $summary['ok'] ) ) {
-			echo '<p>' . esc_html( sprintf( 'Run refused: %s', (string) ( $summary['reason'] ?? 'unknown' ) ) ) . '</p></div>';
+			echo '<p>' . esc_html( sprintf( 'Run refused: %s', (string) ( $summary['reason'] ?? 'unknown' ) ) ) . '</p>';
+			self::toast_close();
 			return;
 		}
 
@@ -1067,6 +2267,14 @@ JS;
 				/* translators: %d is the number of originals replaced. */
 				$msg .= ' ' . sprintf( __( '%d original(s) replaced.', 'infraweaver-connector' ), $replaced );
 			}
+			$rewrote = (int) ( $summary['rewrote_posts'] ?? 0 );
+			if ( $rewrote > 0 ) {
+				$msg .= ' ' . sprintf(
+					/* translators: %d is the number of posts/pages whose image URLs were repointed to the WebP. */
+					_n( '%d page repointed to the WebP.', '%d pages repointed to the WebP.', $rewrote, 'infraweaver-connector' ),
+					$rewrote
+				);
+			}
 			echo '<p style="font-size:15px;">' . esc_html( $msg ) . '</p>';
 		}
 
@@ -1095,15 +2303,85 @@ JS;
 			}
 			echo '</tbody></table>';
 		}
-		echo '</div>';
+		self::toast_close();
+	}
+
+	/** Render a de-duplicate (remove-optimized-originals) run/preview summary. */
+	private function render_dedupe_summary( array $summary ): void {
+		$variant = empty( $summary['ok'] ) ? 'error' : 'success';
+		self::toast_open( $variant );
+		$dry = ! empty( $summary['dry'] );
+		echo '<h3 style="margin-top:0;">' . esc_html( $dry ? __( 'Duplicates found', 'infraweaver-connector' ) : __( 'Duplicates removed', 'infraweaver-connector' ) ) . '</h3>';
+
+		if ( empty( $summary['ok'] ) ) {
+			$reason = (string) ( $summary['reason'] ?? 'unknown' );
+			$text   = 'entitlement-locked' === $reason
+				? __( 'Image Optimization is not granted for this site.', 'infraweaver-connector' )
+				: sprintf( 'Refused: %s', $reason );
+			echo '<p>' . esc_html( $text ) . '</p>';
+			self::toast_close();
+			return;
+		}
+
+		$removed = (int) ( $summary['removed'] ?? 0 );
+		$skipped = (int) ( $summary['skipped'] ?? 0 );
+		$freed   = (int) ( $summary['freed_bytes'] ?? 0 );
+		$rewrote = (int) ( $summary['rewrote_posts'] ?? 0 );
+
+		if ( $dry ) {
+			$msg = sprintf(
+				/* translators: 1: count, 2: human size. */
+				__( '%1$d original(s) have an optimized copy and can be removed, reclaiming ~%2$s. Nothing was deleted.', 'infraweaver-connector' ),
+				$removed,
+				self::format_bytes( $freed )
+			);
+		} else {
+			$msg = sprintf(
+				/* translators: 1: removed count, 2: skipped, 3: human size. */
+				__( 'Removed %1$d original(s), skipped %2$d. Reclaimed ~%3$s.', 'infraweaver-connector' ),
+				$removed,
+				$skipped,
+				self::format_bytes( $freed )
+			);
+			if ( $rewrote > 0 ) {
+				$msg .= ' ' . sprintf(
+					/* translators: %d is the number of posts/pages repointed to the WebP. */
+					_n( '%d page repointed to the WebP.', '%d pages repointed to the WebP.', $rewrote, 'infraweaver-connector' ),
+					$rewrote
+				);
+			}
+		}
+		echo '<p style="font-size:15px;">' . esc_html( $msg ) . '</p>';
+
+		$items = isset( $summary['items'] ) && is_array( $summary['items'] ) ? $summary['items'] : array();
+		if ( array() !== $items ) {
+			echo '<table class="widefat striped" style="max-width:640px;"><thead><tr><th>File</th><th>Result</th></tr></thead><tbody>';
+			foreach ( array_slice( $items, 0, 60 ) as $item ) {
+				$basename = isset( $item['basename'] ) ? (string) $item['basename'] : '';
+				$outcome  = isset( $item['outcome'] ) ? (string) $item['outcome'] : '';
+				$detail   = isset( $item['reason'] ) && '' !== (string) $item['reason']
+					? $outcome . ' — ' . (string) $item['reason']
+					: $outcome;
+				echo '<tr><td>' . esc_html( $basename ) . '</td><td>' . esc_html( $detail ) . '</td></tr>';
+			}
+			echo '</tbody></table>';
+		}
+		self::toast_close();
 	}
 
 	/** Inert roadmap rows — greyed, "Coming soon" pill, NO form, NO handler. */
 	private static function render_coming_soon(): void {
+		// Premium-plugin-inspired features that are cheap to build on-server (no
+		// external service): each mirrors a paid plugin people normally pay for.
+		// Login/auth features are intentionally omitted — Authentik sits in front of
+		// the site as the SSO/identity layer, so login hardening lives there.
 		$rows = array(
-			array( 'Broken Link Scanner', 'Crawl posts & pages for dead internal and external links.', 'Pro' ),
-			array( 'SEO Meta Audit', 'Flag missing titles, descriptions, and thin content.', 'Pro' ),
-			array( 'Scheduled Auto-Convert', 'Automatically losslessly convert new uploads on a schedule.', 'Ultimate' ),
+			array( 'Related-Posts Engine', 'Surface relevant posts from your own content — computed on-server, no third-party widget.', 'Pro' ),
+			array( 'Product Schema Generator', 'Emit valid Product / FAQ / Article JSON-LD so listings can earn rich results.', 'Pro' ),
+			array( 'Newsletter Capture', 'Collect subscribers into a local list with a themed inline form — export any time.', 'Pro' ),
+			array( 'Comment Spam Filter', 'Score and quarantine spam comments with on-server heuristics — no external API.', 'Pro' ),
+			array( 'A/B Headline Testing', 'Rotate two titles for a post and keep the one that earns more clicks.', 'Ultimate' ),
+			array( 'Uptime & Health Monitor', 'Watch core vitals — cron, disk, PHP errors — and flag regressions early.', 'Ultimate' ),
 		);
 		echo '<ul style="list-style:none;margin:8px 0 0;padding:0;max-width:720px;">';
 		foreach ( $rows as $row ) {
@@ -1162,7 +2440,21 @@ JS;
 		$mode  = ( isset( $_POST['mode'] ) && IWSL_Media_Optimizer::MODE_REPLACE === $_POST['mode'] )
 			? IWSL_Media_Optimizer::MODE_REPLACE
 			: IWSL_Media_Optimizer::MODE_COPY;
-		$is_preview = isset( $_POST['op'] ) && 'preview' === $_POST['op'];
+		$op         = isset( $_POST['op'] ) ? sanitize_key( wp_unslash( $_POST['op'] ) ) : 'run';
+		$is_preview = 'preview' === $op;
+		// Opt-in: rewrite the image URLs on posts/pages to the WebP (copy mode too).
+		$rewrite = isset( $_POST['rewrite'] ) && '1' === (string) $_POST['rewrite'];
+
+		// De-duplicate branch: delete originals that already have an optimized copy.
+		// `dedupe-preview` is a safe dry run; `dedupe` deletes (repointing pages first).
+		if ( 'dedupe' === $op || 'dedupe-preview' === $op ) {
+			$summary = $optimizer->remove_optimized_duplicates( 'dedupe-preview' === $op, true, $count );
+			if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+				set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );
+			}
+			wp_safe_redirect( $redirect );
+			exit;
+		}
 
 		// Source-type filter: 'auto' (every accepted type) or one exact MIME,
 		// validated against a closed list before it reaches the engine.
@@ -1191,7 +2483,7 @@ JS;
 		// LAYER 3 (authoritative gate) is inside run()/preview().
 		$summary = $is_preview
 			? $optimizer->preview( $converter, $count, $types, $ids )
-			: $optimizer->run( $converter, $count, $mode, false, $types, $ids );
+			: $optimizer->run( $converter, $count, $mode, false, $types, $ids, $rewrite );
 
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );
@@ -1217,7 +2509,9 @@ JS;
 
 		// A redirect from a handler after a locked POST (layer-2 defence tripped).
 		if ( isset( $_GET['iwsl_ed_locked'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p><strong>' . esc_html__( 'The Email Delivery entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p></div>';
+			self::toast_open( 'error' );
+			echo '<p><strong>' . esc_html__( 'The Email Delivery entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p>';
+			self::toast_close();
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
@@ -1240,7 +2534,7 @@ JS;
 			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
 			'requires-plus'   => 'The Email Delivery entitlement is not granted — assign the Pro tier from the console.',
 		);
-		echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p><strong>🔒 Email Delivery is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
+		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Email Delivery is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
 		foreach ( (array) $gate['reasons'] as $reason ) {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
@@ -1273,7 +2567,9 @@ JS;
 			} else {
 				$msg = esc_html__( 'SMTP settings saved.', 'infraweaver-connector' );
 			}
-			echo '<div class="notice notice-success" style="margin-top:12px;padding:12px;"><p>' . $msg . '</p></div>';
+			self::toast_open( 'success' );
+			echo '<p>' . $msg . '</p>';
+			self::toast_close();
 		} else {
 			$reason = (string) ( $result['reason'] ?? 'unknown' );
 			if ( 'invalid-recipient' === $reason ) {
@@ -1283,7 +2579,9 @@ JS;
 			} else {
 				$err = esc_html( sprintf( 'Could not save: %s', $reason ) );
 			}
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p>' . $err . '</p></div>';
+			self::toast_open( 'error' );
+			echo '<p>' . $err . '</p>';
+			self::toast_close();
 		}
 	}
 
@@ -1293,6 +2591,8 @@ JS;
 		$host             = isset( $settings['host'] ) ? (string) $settings['host'] : '';
 		$port             = isset( $settings['port'] ) ? (int) $settings['port'] : 0;
 		$username         = isset( $settings['username'] ) ? (string) $settings['username'] : '';
+		$from_email       = isset( $settings['from_email'] ) ? (string) $settings['from_email'] : '';
+		$from_name        = isset( $settings['from_name'] ) ? (string) $settings['from_name'] : '';
 		$secure           = isset( $settings['secure'] ) ? (string) $settings['secure'] : '';
 		$auth             = ! empty( $settings['auth'] );
 		$allow_password   = ! empty( $settings['allow_option_password'] );
@@ -1305,10 +2605,10 @@ JS;
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::EMAIL_SETTINGS_ACTION ) . '">';
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ed-host">' . esc_html__( 'SMTP Host', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-host">' . esc_html__( 'SMTP Host', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The address of your email-sending service (from your provider).' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-ed-host" name="host" class="regular-text" value="' . esc_attr( $host ) . '"></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ed-port">' . esc_html__( 'Port', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-port">' . esc_html__( 'Port', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The connection number your email provider tells you to use.' ) . '</th>';
 		echo '<td><input type="number" id="iwsl-ed-port" name="port" min="1" max="65535" value="' . esc_attr( $port > 0 ? (string) $port : '' ) . '"></td></tr>';
 
 		$mode_labels = array(
@@ -1316,7 +2616,7 @@ JS;
 			'ssl' => 'SSL',
 			'tls' => 'TLS',
 		);
-		echo '<tr><th scope="row"><label for="iwsl-ed-secure">' . esc_html__( 'Encryption', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-secure">' . esc_html__( 'Encryption', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'How the connection is secured — use what your provider says.' ) . '</th><td>';
 		echo '<select id="iwsl-ed-secure" name="secure">';
 		foreach ( IWSL_Email_Delivery::SECURE_MODES as $mode ) {
 			$label = isset( $mode_labels[ $mode ] ) ? $mode_labels[ $mode ] : $mode;
@@ -1324,13 +2624,21 @@ JS;
 		}
 		echo '</select></td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'Authentication', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Authentication', 'infraweaver-connector' ) . iwsl_field_help( 'Turn on if your email service needs a login.' ) . '</th><td>';
 		echo '<label><input type="checkbox" name="auth" value="1"' . checked( $auth, true, false ) . '> ' . esc_html__( 'Server requires authentication', 'infraweaver-connector' ) . '</label></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ed-username">' . esc_html__( 'Username', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-username">' . esc_html__( 'Username', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The login name for your email-sending account.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-ed-username" name="username" class="regular-text" value="' . esc_attr( $username ) . '"></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ed-password">' . esc_html__( 'Password', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-from-email">' . esc_html__( 'From email', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The email address your site’s messages appear to come from.' ) . '</th>';
+		echo '<td><input type="text" id="iwsl-ed-from-email" name="from_email" class="regular-text" value="' . esc_attr( $from_email ) . '">';
+		echo '<p class="description">' . esc_html__( 'The address mail is sent AS. Leave blank to use the SMTP username. Strict providers (Office 365, Gmail) require this to be an address your account may send as — e.g. noreply@yourdomain.', 'infraweaver-connector' ) . '</p></td></tr>';
+
+		echo '<tr><th scope="row"><label for="iwsl-ed-from-name">' . esc_html__( 'From name', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The sender name people see on your site’s emails.' ) . '</th>';
+		echo '<td><input type="text" id="iwsl-ed-from-name" name="from_name" class="regular-text" value="' . esc_attr( $from_name ) . '">';
+		echo '<p class="description">' . esc_html__( 'Optional display name; defaults to the site name.', 'infraweaver-connector' ) . '</p></td></tr>';
+
+		echo '<tr><th scope="row"><label for="iwsl-ed-password">' . esc_html__( 'Password', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The password for your email-sending account.' ) . '</th><td>';
 		$placeholder = $has_password ? '****' : '';
 		echo '<input type="password" id="iwsl-ed-password" name="password" class="regular-text" value="" placeholder="' . esc_attr( $placeholder ) . '" autocomplete="new-password">';
 		echo '<p class="description">' . esc_html__( 'Leave blank to keep the current password. Prefer defining IWSL_SMTP_PASS in wp-config.php to keep the secret out of the database.', 'infraweaver-connector' ) . '</p>';
@@ -1339,15 +2647,22 @@ JS;
 		}
 		echo '</td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'Password storage', 'infraweaver-connector' ) . '</th><td>';
+		echo '</tbody></table>';
+
+		// Power-user knob only — all SMTP credentials above stay visible. Storing
+		// the secret in the database is opt-in and risky, so it lives in Advanced.
+		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
+		echo '<table class="form-table" role="presentation"><tbody>';
+		echo '<tr><th scope="row">' . esc_html__( 'Password storage', 'infraweaver-connector' ) . iwsl_field_help( 'Save the email password in the database (less secure).' ) . '</th><td>';
 		$disabled = $constant_defined ? ' disabled' : '';
 		echo '<label><input type="checkbox" name="allow_option_password" value="1"' . checked( $allow_password, true, false ) . $disabled . '> ' . esc_html__( 'Store password in the database (I understand the risk)', 'infraweaver-connector' ) . '</label>';
 		if ( $constant_defined ) {
 			echo '<p class="description">' . esc_html__( 'Disabled because IWSL_SMTP_PASS is defined in wp-config.php.', 'infraweaver-connector' ) . '</p>';
 		}
 		echo '</td></tr>';
-
 		echo '</tbody></table>';
+		echo '</div></details>';
+
 		echo '<p><button type="submit" class="button button-primary">' . esc_html__( 'Save SMTP settings', 'infraweaver-connector' ) . '</button></p>';
 		echo '</form>';
 	}
@@ -1501,6 +2816,8 @@ JS;
 			'secure'                => isset( $_POST['secure'] ) ? sanitize_text_field( wp_unslash( $_POST['secure'] ) ) : '',
 			'auth'                  => isset( $_POST['auth'] ),
 			'username'              => isset( $_POST['username'] ) ? sanitize_text_field( wp_unslash( $_POST['username'] ) ) : '',
+			'from_email'            => isset( $_POST['from_email'] ) ? sanitize_text_field( wp_unslash( $_POST['from_email'] ) ) : '',
+			'from_name'             => isset( $_POST['from_name'] ) ? sanitize_text_field( wp_unslash( $_POST['from_name'] ) ) : '',
 			// Password is the ONE field we must not sanitize (that would alter the
 			// secret) — unslash only; save_settings() validates + policy-gates it.
 			'password'              => isset( $_POST['password'] ) ? (string) wp_unslash( $_POST['password'] ) : '', // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
@@ -1560,7 +2877,9 @@ JS;
 
 		// A redirect from a handler after a locked POST (layer-2 defence tripped).
 		if ( isset( $_GET['iwsl_rd_locked'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p><strong>' . esc_html__( 'The Redirect Manager entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p></div>';
+			self::toast_open( 'error' );
+			echo '<p><strong>' . esc_html__( 'The Redirect Manager entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p>';
+			self::toast_close();
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
@@ -1571,7 +2890,12 @@ JS;
 		$this->render_redirects_result_notice();
 		$this->render_redirects_table();
 		$this->render_redirects_add_form();
+
+		// The 404 log + its logging toggle are secondary extras — the rules table
+		// and add form above stay visible; only the log is progressively disclosed.
+		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
 		$this->render_redirects_404_log();
+		echo '</div></details>';
 	}
 
 	/** Reason lines for a locked redirect-manager gate (no forms). */
@@ -1583,7 +2907,7 @@ JS;
 			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
 			'requires-plus'   => 'The Redirect Manager entitlement is not granted — assign the Pro tier from the console.',
 		);
-		echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p><strong>🔒 Redirect Manager is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
+		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Redirect Manager is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
 		foreach ( (array) $gate['reasons'] as $reason ) {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
@@ -1612,9 +2936,13 @@ JS;
 			} else {
 				$msg = esc_html__( 'Rule saved.', 'infraweaver-connector' );
 			}
-			echo '<div class="notice notice-success" style="margin-top:12px;padding:12px;"><p>' . $msg . '</p></div>';
+			self::toast_open( 'success' );
+			echo '<p>' . $msg . '</p>';
+			self::toast_close();
 		} else {
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p>' . esc_html( sprintf( 'Rule refused: %s', (string) ( $result['reason'] ?? 'unknown' ) ) ) . '</p></div>';
+			self::toast_open( 'error' );
+			echo '<p>' . esc_html( sprintf( 'Rule refused: %s', (string) ( $result['reason'] ?? 'unknown' ) ) ) . '</p>';
+			self::toast_close();
 		}
 	}
 
@@ -1671,11 +2999,11 @@ JS;
 		wp_nonce_field( self::REDIRECT_ADD_NONCE );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::REDIRECT_ADD_ACTION ) . '">';
 		echo '<table class="form-table" role="presentation"><tbody>';
-		echo '<tr><th scope="row"><label for="iwsl-rd-source">' . esc_html__( 'Source path', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-rd-source">' . esc_html__( 'Source path', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The old web address you want to send visitors away from.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-rd-source" name="source" class="regular-text" placeholder="/old-page" value=""></td></tr>';
-		echo '<tr><th scope="row"><label for="iwsl-rd-target">' . esc_html__( 'Target', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-rd-target">' . esc_html__( 'Target', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The new web address visitors should land on instead.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-rd-target" name="target" class="regular-text" placeholder="' . esc_attr__( '/new-page or https://…', 'infraweaver-connector' ) . '" value=""></td></tr>';
-		echo '<tr><th scope="row"><label for="iwsl-rd-type">' . esc_html__( 'Type', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-rd-type">' . esc_html__( 'Type', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Permanent moves for good; temporary is just for now.' ) . '</th><td>';
 		echo '<select id="iwsl-rd-type" name="type">';
 		echo '<option value="301">' . esc_html__( '301 (permanent)', 'infraweaver-connector' ) . '</option>';
 		echo '<option value="302">' . esc_html__( '302 (temporary)', 'infraweaver-connector' ) . '</option>';
@@ -1837,7 +3165,9 @@ JS;
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
 		if ( isset( $_GET['iwsl_wl_locked'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p><strong>' . esc_html__( 'The White-Label entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p></div>';
+			self::toast_open( 'error' );
+			echo '<p><strong>' . esc_html__( 'The White-Label entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p>';
+			self::toast_close();
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
@@ -1859,7 +3189,7 @@ JS;
 			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
 			'requires-plus'   => 'The White-Label entitlement is not granted — assign the Ultimate tier from the console.',
 		);
-		echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p><strong>🔒 White-Label is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
+		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 White-Label is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
 		foreach ( (array) $gate['reasons'] as $reason ) {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
@@ -1881,9 +3211,13 @@ JS;
 			return;
 		}
 		if ( ! empty( $result['ok'] ) ) {
-			echo '<div class="notice notice-success" style="margin-top:12px;padding:12px;"><p>' . esc_html__( 'White-label settings saved.', 'infraweaver-connector' ) . '</p></div>';
+			self::toast_open( 'success' );
+			echo '<p>' . esc_html__( 'White-label settings saved.', 'infraweaver-connector' ) . '</p>';
+			self::toast_close();
 		} else {
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p>' . esc_html( sprintf( 'Could not save: %s', (string) ( $result['reason'] ?? 'unknown' ) ) ) . '</p></div>';
+			self::toast_open( 'error' );
+			echo '<p>' . esc_html( sprintf( 'Could not save: %s', (string) ( $result['reason'] ?? 'unknown' ) ) ) . '</p>';
+			self::toast_close();
 		}
 	}
 
@@ -1915,29 +3249,36 @@ JS;
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::WHITE_LABEL_ACTION ) . '">';
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwsl-wl-logo">' . esc_html__( 'Login logo URL', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-wl-logo">' . esc_html__( 'Login logo URL', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'A link to your own logo for the login screen.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-wl-logo" name="login_logo_url" class="regular-text" value="' . esc_attr( $logo ) . '" placeholder="/wp-content/uploads/brand/logo.png">';
 		echo '<p class="description">' . esc_html__( 'A same-site path or https URL to your logo image. Leave blank for the WordPress logo.', 'infraweaver-connector' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-wl-hdr-url">' . esc_html__( 'Logo link URL', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-wl-hdr-url">' . esc_html__( 'Logo link URL', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Where clicking the login logo takes people.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-wl-hdr-url" name="login_header_url" class="regular-text" value="' . esc_attr( $hdr_url ) . '" placeholder="https://example.com">';
 		echo '<p class="description">' . esc_html__( 'Where the login logo links to. Leave blank for your site home.', 'infraweaver-connector' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-wl-hdr-text">' . esc_html__( 'Logo link text', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-wl-hdr-text">' . esc_html__( 'Logo link text', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The hidden text describing where the logo links.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-wl-hdr-text" name="login_header_text" class="regular-text" value="' . esc_attr( $hdr_text ) . '"></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-wl-message">' . esc_html__( 'Login message', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-wl-message">' . esc_html__( 'Login message', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'A short note shown above the login form.' ) . '</th>';
 		echo '<td><textarea id="iwsl-wl-message" name="login_message" class="large-text" rows="2">' . esc_textarea( $message ) . '</textarea>';
 		echo '<p class="description">' . esc_html__( 'Shown above the login form. Plain text only.', 'infraweaver-connector' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-wl-footer">' . esc_html__( 'Admin footer text', 'infraweaver-connector' ) . '</label></th>';
+		echo '</tbody></table>';
+
+		// Advanced: optional admin-chrome extras beyond the core login branding.
+		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
+		echo '<table class="form-table" role="presentation"><tbody>';
+
+		echo '<tr><th scope="row"><label for="iwsl-wl-footer">' . esc_html__( 'Admin footer text', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Your own text for the dashboard footer credit.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-wl-footer" name="admin_footer_text" class="regular-text" value="' . esc_attr( $footer ) . '">';
 		echo '<p class="description">' . esc_html__( 'Replaces the "Thank you for creating with WordPress" credit.', 'infraweaver-connector' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'Admin bar', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Admin bar', 'infraweaver-connector' ) . iwsl_field_help( 'Hide the WordPress logo from the top admin bar.' ) . '</th><td>';
 		echo '<label><input type="checkbox" name="hide_wp_logo" value="1"' . checked( $hide, true, false ) . '> ' . esc_html__( 'Remove the WordPress logo from the admin bar', 'infraweaver-connector' ) . '</label></td></tr>';
 
 		echo '</tbody></table>';
+		echo '</div></details>';
 		echo '<p><button type="submit" class="button button-primary">' . esc_html__( 'Save white-label settings', 'infraweaver-connector' ) . '</button></p>';
 		echo '</form>';
 	}
@@ -2002,11 +3343,15 @@ JS;
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
 		if ( isset( $_GET['iwsl_db_locked'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p><strong>' . esc_html__( 'The Database Optimization entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p></div>';
+			self::toast_open( 'error' );
+			echo '<p><strong>' . esc_html__( 'The Database Optimization entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p>';
+			self::toast_close();
 		}
 		// A redirect from the handler when Clean now was submitted without confirming.
 		if ( isset( $_GET['iwsl_db_confirm'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p>' . esc_html__( 'Tick the confirmation box before running Clean now.', 'infraweaver-connector' ) . '</p></div>';
+			self::toast_open( 'warning' );
+			echo '<p>' . esc_html__( 'Tick the confirmation box before running Clean now.', 'infraweaver-connector' ) . '</p>';
+			self::toast_close();
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
@@ -2030,7 +3375,7 @@ JS;
 			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
 			'requires-plus'   => 'The Database Optimization entitlement is not granted — assign the Pro tier from the console.',
 		);
-		echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p><strong>🔒 Database Cleanup & Optimization is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
+		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Database Cleanup & Optimization is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
 		foreach ( (array) $gate['reasons'] as $reason ) {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
@@ -2066,22 +3411,29 @@ JS;
 	private function render_db_forms(): void {
 		$action = esc_url( admin_url( 'admin-post.php' ) );
 
-		// Preview: a harmless re-scan (mode=preview).
-		echo '<form method="post" action="' . $action . '" style="margin-top:16px;display:inline-block;">';
+		// PRIMARY: Clean now is the ONLY mutating path — gated behind an explicit
+		// confirmation (kept visible, it is a required safety control). The
+		// per-cleaner counts are surfaced in the Preview table above.
+		echo '<form method="post" action="' . $action . '" style="margin-top:16px;">';
+		wp_nonce_field( self::DB_OPTIMIZE_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::DB_OPTIMIZE_ACTION ) . '">';
+		echo '<input type="hidden" name="iwsl_db_mode" value="run">';
+		echo '<p><label><input type="checkbox" name="iwsl_db_confirm" value="1"> ' . esc_html__( 'Yes, permanently delete the items counted above.', 'infraweaver-connector' ) . iwsl_field_help( 'Tick to confirm you really want these items deleted.' ) . '</label></p>';
+		echo '<div class="iwsl-primary">';
+		echo '<span class="iwsl-primary__meta">' . esc_html__( 'Deletes the items counted in Preview above.', 'infraweaver-connector' ) . '</span>';
+		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Clean database now', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+		echo '</form>';
+
+		// Secondary: a harmless re-scan (mode=preview) — a power-user knob.
+		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
+		echo '<form method="post" action="' . $action . '" style="margin-top:8px;display:inline-block;">';
 		wp_nonce_field( self::DB_OPTIMIZE_NONCE );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::DB_OPTIMIZE_ACTION ) . '">';
 		echo '<input type="hidden" name="iwsl_db_mode" value="preview">';
 		echo '<button type="submit" class="button">' . esc_html__( 'Refresh preview', 'infraweaver-connector' ) . '</button>';
 		echo '</form>';
-
-		// Clean now: the ONLY mutating path — gated behind an explicit confirmation.
-		echo '<form method="post" action="' . $action . '" style="margin-top:16px;">';
-		wp_nonce_field( self::DB_OPTIMIZE_NONCE );
-		echo '<input type="hidden" name="action" value="' . esc_attr( self::DB_OPTIMIZE_ACTION ) . '">';
-		echo '<input type="hidden" name="iwsl_db_mode" value="run">';
-		echo '<p><label><input type="checkbox" name="iwsl_db_confirm" value="1"> ' . esc_html__( 'Yes, permanently delete the items counted above.', 'infraweaver-connector' ) . '</label></p>';
-		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Clean now', 'infraweaver-connector' ) . '</button>';
-		echo '</form>';
+		echo '</div></details>';
 	}
 
 	/** Render (then clear) the current user's last-run summary transient. */
@@ -2099,7 +3451,9 @@ JS;
 		}
 
 		if ( empty( $summary['ok'] ) ) {
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p>' . esc_html( sprintf( 'Run refused: %s', (string) ( $summary['reason'] ?? 'unknown' ) ) ) . '</p></div>';
+			self::toast_open( 'error' );
+			echo '<p>' . esc_html( sprintf( 'Run refused: %s', (string) ( $summary['reason'] ?? 'unknown' ) ) ) . '</p>';
+			self::toast_close();
 			return;
 		}
 
@@ -2115,7 +3469,7 @@ JS;
 			? sprintf( 'Removed %d rows.', $total )
 			: sprintf( 'Found %d rows to clean.', $total );
 
-		echo '<div style="border:1px solid #c3e6cb;background:#f4fbf6;border-radius:8px;padding:16px;margin-top:16px;max-width:640px;">';
+		self::toast_open( 'success' );
 		echo '<h3 style="margin-top:0;">' . $title . '</h3>';
 		echo '<p>' . esc_html( $lead ) . '</p>';
 
@@ -2129,7 +3483,7 @@ JS;
 			}
 			echo '</tbody></table>';
 		}
-		echo '</div>';
+		self::toast_close();
 	}
 
 	/**
@@ -2192,7 +3546,9 @@ JS;
 
 		// A redirect from a handler after a locked POST (layer-2 defence tripped).
 		if ( isset( $_GET['iwsl_pc_locked'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p><strong>' . esc_html__( 'The Page Cache entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p></div>';
+			self::toast_open( 'error' );
+			echo '<p><strong>' . esc_html__( 'The Page Cache entitlement is not granted.', 'infraweaver-connector' ) . '</strong></p>';
+			self::toast_close();
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
@@ -2213,7 +3569,7 @@ JS;
 			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
 			'requires-plus'   => 'The Page Cache entitlement is not granted — assign the Pro tier from the console.',
 		);
-		echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p><strong>🔒 Page Cache is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
+		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Page Cache is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
 		foreach ( (array) $gate['reasons'] as $reason ) {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
@@ -2242,12 +3598,16 @@ JS;
 			} else {
 				$msg = esc_html__( 'Page cache disabled.', 'infraweaver-connector' );
 			}
-			echo '<div class="notice notice-success" style="margin-top:12px;padding:12px;"><p>' . $msg . '</p></div>';
+			self::toast_open( 'success' );
+			echo '<p>' . $msg . '</p>';
 			if ( ! empty( $result['manual_step'] ) ) {
-				echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p>' . esc_html( (string) $result['manual_step'] ) . '</p></div>';
+				echo '<p class="iwsl-toast__sub">' . esc_html( (string) $result['manual_step'] ) . '</p>';
 			}
+			self::toast_close();
 		} else {
-			echo '<div class="notice notice-error" style="margin-top:12px;padding:12px;"><p>' . esc_html( sprintf( 'Action failed: %s', (string) ( $result['reason'] ?? 'unknown' ) ) ) . '</p></div>';
+			self::toast_open( 'error' );
+			echo '<p>' . esc_html( sprintf( 'Action failed: %s', (string) ( $result['reason'] ?? 'unknown' ) ) ) . '</p>';
+			self::toast_close();
 		}
 	}
 
@@ -2255,7 +3615,50 @@ JS;
 	private function render_page_cache_status_and_controls(): void {
 		$status  = $this->page_cache()->status();
 		$enabled = ! empty( $status['enabled'] );
+		$action  = esc_url( admin_url( 'admin-post.php' ) );
 
+		// PRIMARY one-click row: current state + enable/disable toggle + purge-all.
+		$state_meta = $enabled
+			? sprintf(
+				/* translators: 1: number of cached pages, 2: human-readable cache size. */
+				esc_html__( 'Active — %1$d cached page(s), %2$s.', 'infraweaver-connector' ),
+				(int) $status['entries'],
+				self::format_bytes( (int) $status['total_bytes'] )
+			)
+			: esc_html__( 'Inactive — enable to start serving cached pages.', 'infraweaver-connector' );
+
+		echo '<div class="iwsl-primary">';
+		echo '<span class="iwsl-primary__meta">' . esc_html( $state_meta ) . '</span>';
+
+		// Enable / disable toggle.
+		echo '<form method="post" action="' . $action . '" style="display:inline-block;margin:0;">';
+		wp_nonce_field( self::PAGE_CACHE_TOGGLE_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::PAGE_CACHE_TOGGLE_ACTION ) . '">';
+		echo '<input type="hidden" name="enable" value="' . esc_attr( $enabled ? '0' : '1' ) . '">';
+		$label = $enabled
+			? esc_html__( 'Disable page cache', 'infraweaver-connector' )
+			: esc_html__( 'Enable page cache', 'infraweaver-connector' );
+		echo '<button type="submit" class="button button-primary">' . $label . '</button>';
+		echo iwsl_field_help( 'Turn saved-page speed-up on or off.' );
+		echo '</form> ';
+
+		// Purge-all button.
+		echo '<form method="post" action="' . $action . '" style="display:inline-block;margin:0;">';
+		wp_nonce_field( self::PAGE_CACHE_PURGE_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::PAGE_CACHE_PURGE_ACTION ) . '">';
+		echo '<button type="submit" class="button">' . esc_html__( 'Purge all', 'infraweaver-connector' ) . '</button>';
+		echo iwsl_field_help( 'Clear all saved pages so visitors get fresh ones.' );
+		echo '</form>';
+		echo '</div>';
+
+		// If WP_CACHE cannot be set automatically, show the exact manual step
+		// (kept VISIBLE — it is an important activation warning, not a knob).
+		if ( empty( $status['wp_cache_defined'] ) && empty( $status['wp_config_writable'] ) ) {
+			echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p>' . esc_html__( "wp-config.php is not writable. Add define('WP_CACHE', true); near the top of wp-config.php to activate the cache; the drop-in stays inert until then.", 'infraweaver-connector' ) . '</p></div>';
+		}
+
+		// Diagnostic status + freshness (TTL) — secondary detail.
+		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
 		echo '<table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
 		echo '<th>' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Value', 'infraweaver-connector' ) . '</th></tr></thead><tbody>';
 		self::render_page_cache_status_row( esc_html__( 'Cache active', 'infraweaver-connector' ), $enabled );
@@ -2266,31 +3669,8 @@ JS;
 		echo '<tr><th scope="row">' . esc_html__( 'Cache size', 'infraweaver-connector' ) . '</th><td>' . esc_html( self::format_bytes( (int) $status['total_bytes'] ) ) . '</td></tr>';
 		echo '<tr><th scope="row">' . esc_html__( 'Freshness (TTL)', 'infraweaver-connector' ) . '</th><td>' . esc_html( sprintf( '%d seconds', (int) $status['ttl'] ) ) . '</td></tr>';
 		echo '</tbody></table>';
-
-		// If WP_CACHE cannot be set automatically, show the exact manual step.
-		if ( empty( $status['wp_cache_defined'] ) && empty( $status['wp_config_writable'] ) ) {
-			echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p>' . esc_html__( "wp-config.php is not writable. Add define('WP_CACHE', true); near the top of wp-config.php to activate the cache; the drop-in stays inert until then.", 'infraweaver-connector' ) . '</p></div>';
-		}
-
-		// Enable / disable toggle.
-		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:16px;display:inline-block;">';
-		wp_nonce_field( self::PAGE_CACHE_TOGGLE_NONCE );
-		echo '<input type="hidden" name="action" value="' . esc_attr( self::PAGE_CACHE_TOGGLE_ACTION ) . '">';
-		echo '<input type="hidden" name="enable" value="' . esc_attr( $enabled ? '0' : '1' ) . '">';
-		$label = $enabled
-			? esc_html__( 'Disable page cache', 'infraweaver-connector' )
-			: esc_html__( 'Enable page cache', 'infraweaver-connector' );
-		echo '<button type="submit" class="button button-primary">' . $label . '</button>';
-		echo '</form> ';
-
-		// Purge-all button.
-		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:16px;display:inline-block;">';
-		wp_nonce_field( self::PAGE_CACHE_PURGE_NONCE );
-		echo '<input type="hidden" name="action" value="' . esc_attr( self::PAGE_CACHE_PURGE_ACTION ) . '">';
-		echo '<button type="submit" class="button">' . esc_html__( 'Purge all', 'infraweaver-connector' ) . '</button>';
-		echo '</form>';
-
 		echo '<p class="description" style="margin-top:8px;">' . esc_html__( 'Only anonymous visitors are served cached pages; logged-in users and carts always bypass. Content changes purge the cache automatically.', 'infraweaver-connector' ) . '</p>';
+		echo '</div></details>';
 	}
 
 	/** One yes/no status row. */
@@ -2385,31 +3765,60 @@ JS;
 	 * Render the Config section. Unlike the Plus features this carries NO
 	 * entitlement gate — it is the site's own administrator editing their own
 	 * wp-config constants and PHP limits, so the required gate is `manage_options`
-	 * (enforced by render_page()/the handler) plus the form nonce. Only the
+	 * (enforced by the System sub-page/the handler) plus the form nonce. Only the
 	 * hard-coded allow-list is ever shown, and each field is pre-filled with its
 	 * effective current value. If a write target is not writable, a notice makes
 	 * clear the change cannot be applied automatically.
 	 */
+	/**
+	 * Render the FREE Load-Time Audit section. No entitlement gate — this feature is
+	 * available on every plan, so it is built with only the site's own store (mirrors
+	 * the config editor). The engine self-renders its status, controls, and table.
+	 */
+	private function render_perf_audit_section(): void {
+		( new IWSL_Perf_Audit( new IWSL_WP_Store() ) )->render_section();
+	}
+
 	private function render_config_section(): void {
 		$editor  = $this->config_editor();
 		$current = $editor->current();
 		$allow   = IWSL_Config_Editor::allowlist();
 
+		// The PHP-limits target depends on the RUNNING SAPI: Apache mod_php honors
+		// php_value in .htaccess and IGNORES .user.ini; FastCGI/FPM reads .user.ini.
+		// The engine resolves this per request — the UI just mirrors what it chose
+		// so we never claim a file that would do nothing.
+		$php_mech      = $editor->php_limits_mechanism();
+		$php_file      = ( 'htaccess' === $php_mech ) ? '.htaccess (Apache mod_php)' : '.user.ini (PHP-FPM)';
+		$php_file_bare = ( 'htaccess' === $php_mech ) ? '.htaccess' : '.user.ini';
+
 		echo '<hr style="margin:24px 0;">';
 		echo '<h2>' . esc_html__( 'Configuration', 'infraweaver-connector' ) . '</h2>';
-		echo '<p>' . esc_html__( 'Edit a curated allow-list of WordPress and PHP settings. Constants are written to a managed block in wp-config.php; PHP limits to a managed .user.ini in the site root. Only these known keys can ever be written — nothing else, and no raw PHP.', 'infraweaver-connector' ) . '</p>';
+		echo '<p>' . esc_html(
+			sprintf(
+				/* translators: %s: the per-directory PHP-limits file for the running server, e.g. ".htaccess (Apache mod_php)". */
+				__( 'Edit a curated allow-list of WordPress and PHP settings. Constants are written to a managed block in wp-config.php; PHP limits to a managed %s. Only these known keys can ever be written — nothing else, and no raw PHP.', 'infraweaver-connector' ),
+				$php_file
+			)
+		) . '</p>';
 
 		$this->render_config_result_notice();
 
 		$wp_writable  = $editor->wp_config_writable();
-		$ini_writable = $editor->user_ini_writable();
+		$ini_writable = $editor->php_limits_writable();
 		if ( ! $wp_writable || ! $ini_writable ) {
-			echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p>';
+			echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p>';
 			if ( ! $wp_writable ) {
 				echo esc_html__( 'wp-config.php is not writable — constant changes cannot be applied automatically and will be reported as a manual step.', 'infraweaver-connector' ) . ' ';
 			}
 			if ( ! $ini_writable ) {
-				echo esc_html__( 'The .user.ini in the site root is not writable — PHP limit changes cannot be applied automatically.', 'infraweaver-connector' );
+				echo esc_html(
+					sprintf(
+						/* translators: %s: the PHP-limits file for the running server, e.g. ".htaccess". */
+						__( 'The %s in the site root is not writable — PHP limit changes cannot be applied automatically.', 'infraweaver-connector' ),
+						$php_file_bare
+					)
+				);
 			}
 			echo '</p></div>';
 		}
@@ -2428,7 +3837,13 @@ JS;
 		}
 		echo '</tbody></table>';
 
-		echo '<h3>' . esc_html__( 'PHP limits (.user.ini)', 'infraweaver-connector' ) . '</h3>';
+		echo '<h3>' . esc_html(
+			sprintf(
+				/* translators: %s: the PHP-limits file for the running server, e.g. ".htaccess (Apache mod_php)". */
+				__( 'PHP limits (%s)', 'infraweaver-connector' ),
+				$php_file
+			)
+		) . '</h3>';
 		echo '<table class="form-table" role="presentation"><tbody>';
 		foreach ( $allow as $key => $spec ) {
 			if ( 'userini' !== $spec['group'] ) {
@@ -2440,7 +3855,13 @@ JS;
 
 		echo '<p><button type="submit" class="button button-primary">' . esc_html__( 'Apply configuration', 'infraweaver-connector' ) . '</button></p>';
 		echo '</form>';
-		echo '<p class="description" style="margin-top:8px;">' . esc_html__( 'Every value is validated against a per-key allow-list; anything that fails is rejected, never written. Constant changes take effect on the next request; PHP limits when PHP-FPM re-reads .user.ini.', 'infraweaver-connector' ) . '</p>';
+		echo '<p class="description" style="margin-top:8px;">' . esc_html(
+			sprintf(
+				/* translators: %1$s: mechanism label, e.g. "PHP-FPM re-reads .user.ini"; the sentence explains when PHP limits take effect. */
+				__( 'Every value is validated against a per-key allow-list; anything that fails is rejected, never written. Constant changes take effect on the next request; PHP limits when %1$s.', 'infraweaver-connector' ),
+				( 'htaccess' === $php_mech ) ? __( 'Apache re-reads .htaccess (next request)', 'infraweaver-connector' ) : __( 'PHP-FPM re-reads .user.ini', 'infraweaver-connector' )
+			)
+		) . '</p>';
 	}
 
 	/** One form-table row: a checkbox for a bool key, otherwise a text input pre-filled with the current value. */
@@ -2449,7 +3870,7 @@ JS;
 		$type  = (string) $spec['type'];
 		$id    = 'iwsl-cfg-' . strtolower( str_replace( '_', '-', $key ) );
 
-		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label>' . iwsl_field_help( self::config_field_help( $key ) ) . '</th><td>';
 		if ( 'bool' === $type ) {
 			$checked = ! empty( $value ) ? ' checked' : '';
 			echo '<input type="checkbox" id="' . esc_attr( $id ) . '" name="' . esc_attr( $key ) . '" value="1"' . $checked . '>';
@@ -2494,6 +3915,25 @@ JS;
 		return isset( $hints[ $key ] ) ? $hints[ $key ] : '';
 	}
 
+	/** A plain-English, non-technical sentence for the "?" help badge on each config field. */
+	private static function config_field_help( string $key ): string {
+		$help = array(
+			'WP_MEMORY_LIMIT'     => 'How much memory your site may use for normal pages.',
+			'WP_MAX_MEMORY_LIMIT' => 'How much memory heavier admin tasks may use.',
+			'WP_POST_REVISIONS'   => 'How many past versions of each post to keep.',
+			'EMPTY_TRASH_DAYS'    => 'How many days deleted items wait before being emptied.',
+			'AUTOSAVE_INTERVAL'   => 'How often the editor auto-saves your work, in seconds.',
+			'WP_DEBUG'            => 'Turn on developer error reporting to troubleshoot problems.',
+			'WP_DEBUG_LOG'        => 'Save errors to a log file instead of showing them.',
+			'WP_DEBUG_DISPLAY'    => 'Show errors on the page (only while fixing issues).',
+			'DISALLOW_FILE_EDIT'  => 'Block editing theme and plugin files from the dashboard.',
+			'upload_max_filesize' => 'The largest single file that may be uploaded.',
+			'post_max_size'       => 'The largest amount of data a form may submit.',
+			'max_execution_time'  => 'How many seconds a task may run before stopping.',
+		);
+		return isset( $help[ $key ] ) ? $help[ $key ] : '';
+	}
+
 	/** Render (then clear) the current user's PRG apply result. */
 	private function render_config_result_notice(): void {
 		if ( ! function_exists( 'get_transient' ) || ! function_exists( 'get_current_user_id' ) ) {
@@ -2510,26 +3950,102 @@ JS;
 		$applied = ( isset( $result['applied'] ) && is_array( $result['applied'] ) ) ? $result['applied'] : array();
 		$skipped = ( isset( $result['skipped'] ) && is_array( $result['skipped'] ) ) ? $result['skipped'] : array();
 
+		// Presentation only: ONE toast carries the whole apply result — the summary
+		// line, the skipped list, deferred/manual notes, and the configured-vs-
+		// effective PHP table. Semantics are unchanged: a warning accent when any
+		// setting was skipped, success otherwise. (The seed carries no .notice
+		// class, so WordPress never hoists it above the hero.)
+		$variant = ! empty( $skipped ) ? 'warning' : 'success';
+		self::toast_open( $variant );
+
 		if ( ! empty( $applied ) ) {
 			$count = count( $applied );
-			echo '<div class="notice notice-success" style="margin-top:12px;padding:12px;"><p>'
+			echo '<p><strong>'
 				. esc_html( sprintf( _n( 'Applied %d setting:', 'Applied %d settings:', $count, 'infraweaver-connector' ), $count ) )
-				. ' ' . esc_html( implode( ', ', array_map( 'strval', $applied ) ) ) . '</p></div>';
+				. '</strong> ' . esc_html( implode( ', ', array_map( 'strval', $applied ) ) ) . '</p>';
 		} elseif ( empty( $skipped ) ) {
-			echo '<div class="notice notice-success" style="margin-top:12px;padding:12px;"><p>' . esc_html__( 'No changes to apply.', 'infraweaver-connector' ) . '</p></div>';
+			echo '<p>' . esc_html__( 'No changes to apply.', 'infraweaver-connector' ) . '</p>';
 		}
 
 		if ( ! empty( $skipped ) ) {
-			echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p><strong>' . esc_html__( 'Some settings were not applied:', 'infraweaver-connector' ) . '</strong></p><ul style="list-style:disc;margin-left:20px;">';
+			echo '<p class="iwsl-toast__sub"><strong>' . esc_html__( 'Some settings were not applied:', 'infraweaver-connector' ) . '</strong></p><ul>';
 			foreach ( $skipped as $k => $reason ) {
 				echo '<li>' . esc_html( (string) $k . ' — ' . (string) $reason ) . '</li>';
 			}
-			echo '</ul></div>';
+			echo '</ul>';
 		}
 
 		if ( ! empty( $result['manual_step'] ) ) {
-			echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p>' . esc_html( (string) $result['manual_step'] ) . '</p></div>';
+			echo '<p class="iwsl-toast__sub">' . esc_html( (string) $result['manual_step'] ) . '</p>';
 		}
+
+		// Engine-supplied notes explain deferred effects (e.g. "PHP limits take
+		// effect on the next request…") so a successful apply never implies an
+		// instant change that hasn't actually landed yet.
+		if ( ! empty( $result['notes'] ) && is_array( $result['notes'] ) ) {
+			foreach ( $result['notes'] as $note ) {
+				if ( '' === (string) $note ) {
+					continue;
+				}
+				echo '<p class="iwsl-toast__sub">' . esc_html( (string) $note ) . '</p>';
+			}
+		}
+
+		// Configured-vs-effective PHP limits: what we last WROTE to the managed
+		// block next to the live ini_get() value. When they differ the change is
+		// pending (PHP re-reads the file on the next request) — spell that out
+		// instead of showing the old effective value as if nothing happened.
+		$this->render_config_php_limits_state();
+
+		self::toast_close();
+	}
+
+	/**
+	 * A small info panel comparing the PHP limits we CONFIGURED (read back from the
+	 * managed .htaccess/.user.ini block) against the live effective ini_get()
+	 * values, flagging any that are still pending a PHP re-read. Rendered only when
+	 * at least one PHP limit has actually been written. Read-only; side-effect free.
+	 */
+	private function render_config_php_limits_state(): void {
+		$editor     = $this->config_editor();
+		$configured = $editor->configured_php_limits();
+		$configured = array_filter( $configured, static function ( $v ) {
+			return '' !== (string) $v;
+		} );
+		if ( empty( $configured ) ) {
+			return;
+		}
+		$current = $editor->current();
+		$pending = false;
+
+		$rows = '';
+		foreach ( $configured as $key => $written ) {
+			$effective = self::config_value_to_string( $current[ $key ] ?? '' );
+			$is_diff   = ( (string) $written !== (string) $effective );
+			$pending   = $pending || $is_diff;
+			$state     = $is_diff
+				? '<span style="color:var(--iw-warn);font-weight:650;">' . esc_html__( 'pending', 'infraweaver-connector' ) . '</span>'
+				: '<span style="color:var(--iw-good);font-weight:650;">' . esc_html__( 'live', 'infraweaver-connector' ) . '</span>';
+			$rows     .= '<tr><td><code>' . esc_html( (string) $key ) . '</code></td>'
+				. '<td>' . esc_html( (string) $written ) . '</td>'
+				. '<td>' . esc_html( '' === $effective ? '—' : $effective ) . '</td>'
+				. '<td>' . $state . '</td></tr>';
+		}
+
+		$note = $pending
+			? esc_html__( 'These PHP limits are written but not yet live — PHP applies them on its next request.', 'infraweaver-connector' )
+			: esc_html__( 'All configured PHP limits are live.', 'infraweaver-connector' );
+
+		echo '<div class="iwsl-toast__block">';
+		echo '<p class="iwsl-toast__sub" style="margin-top:0;"><strong>' . esc_html__( 'PHP limits — configured vs. effective', 'infraweaver-connector' ) . '</strong></p>';
+		echo '<table class="widefat striped"><thead><tr>'
+			. '<th>' . esc_html__( 'Setting', 'infraweaver-connector' ) . '</th>'
+			. '<th>' . esc_html__( 'Configured', 'infraweaver-connector' ) . '</th>'
+			. '<th>' . esc_html__( 'Effective now', 'infraweaver-connector' ) . '</th>'
+			. '<th>' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th>'
+			. '</tr></thead><tbody>' . $rows . '</tbody></table>';
+		echo '<p class="iwsl-toast__sub" style="margin-bottom:0;">' . $note . '</p>';
+		echo '</div>';
 	}
 
 	/**
