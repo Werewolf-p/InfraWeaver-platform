@@ -233,6 +233,12 @@ final class IWSL_Admin {
 		$this->render_page_cache_section();
 		echo '</section>';
 
+		echo '<section class="iwsl-tabpanel" id="iwsl-tab-roadmap" role="tabpanel" aria-labelledby="iwsl-tabbtn-roadmap" tabindex="0" hidden>';
+		echo '<h2>' . esc_html__( 'Roadmap', 'infraweaver-connector' ) . '</h2>';
+		echo '<p class="iwsl-lede">' . esc_html__( 'Features on the way. Nothing here is active yet — these are inert previews of what Pro and Ultimate will add.', 'infraweaver-connector' ) . '</p>';
+		self::render_coming_soon();
+		echo '</section>';
+
 		echo '</div>'; // .iwsl-panels
 
 		self::render_shell_script();
@@ -249,6 +255,7 @@ final class IWSL_Admin {
 			array( 'id' => 'redirects', 'label' => 'Redirects', 'icon' => 'randomize' ),
 			array( 'id' => 'whitelabel', 'label' => 'White-Label', 'icon' => 'art' ),
 			array( 'id' => 'cache', 'label' => 'Cache', 'icon' => 'performance' ),
+			array( 'id' => 'roadmap', 'label' => 'Roadmap', 'icon' => 'flag' ),
 		);
 	}
 
@@ -294,7 +301,7 @@ final class IWSL_Admin {
 		foreach ( self::tab_defs() as $i => $tab ) {
 			$id       = $tab['id'];
 			$is_first = 0 === $i;
-			$state    = 'overview' === $id ? 'core' : ( ! empty( $unlocked[ $id ] ) ? 'on' : 'off' );
+			$state    = ( 'overview' === $id || ! array_key_exists( $id, $unlocked ) ) ? 'core' : ( ! empty( $unlocked[ $id ] ) ? 'on' : 'off' );
 			echo '<button type="button" class="iwsl-tab' . ( $is_first ? ' is-active' : '' ) . '"'
 				. ' id="iwsl-tabbtn-' . esc_attr( $id ) . '"'
 				. ' role="tab" aria-controls="iwsl-tab-' . esc_attr( $id ) . '"'
@@ -341,20 +348,30 @@ final class IWSL_Admin {
 	--iw-r-sm: 10px;
 	--iw-ease: cubic-bezier(0.22, 1, 0.36, 1);
 	--iw-z-rail: 20;
-	margin: 10px 16px 14px 0;
+	margin: 0;
 	max-width: none;
-	min-height: calc(100vh - 56px);
+	width: 100%;
+	min-height: calc(100vh - 32px);
 	display: flex;
 	flex-direction: column;
 	color: var(--iw-ink);
 	background: var(--iw-bg);
-	border: 1px solid var(--iw-line);
-	border-radius: calc(var(--iw-r) + 6px);
+	border: 0;
+	border-radius: 0;
 	overflow: clip;
-	box-shadow: 0 1px 0 color-mix(in oklch, white 6%, transparent) inset, 0 24px 60px -30px oklch(0 0 0 / 0.7);
+	box-shadow: none;
+	color-scheme: dark;
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", sans-serif;
 	-webkit-font-smoothing: antialiased;
 }
+/* Full-bleed: eat the wp-admin content padding + drop the footer + the sample
+   "Hello Dolly" lyric so the dark surface reaches every edge. Every rule here is
+   safe globally because this whole sheet is printed ONLY on the Plus admin page. */
+#wpcontent{ padding-left: 0 !important; }
+#wpbody-content{ padding-bottom: 0 !important; }
+#wpfooter{ display: none !important; }
+#dolly{ display: none !important; }
+
 #wpcontent .iwsl-shell *,
 #wpcontent .iwsl-shell *::before,
 #wpcontent .iwsl-shell *::after{ box-sizing: border-box; }
@@ -504,7 +521,9 @@ final class IWSL_Admin {
 	transition: border-color .15s var(--iw-ease), box-shadow .15s var(--iw-ease);
 }
 .iwsl-shell textarea{ min-height: 72px; }
-.iwsl-shell select{ padding-right: 30px; }
+.iwsl-shell select{ padding-right: 30px; color-scheme: dark; }
+.iwsl-shell select option,
+.iwsl-shell select optgroup{ background: var(--iw-panel-2); color: var(--iw-ink); }
 .iwsl-shell input::placeholder,
 .iwsl-shell textarea::placeholder{ color: var(--iw-faint); }
 .iwsl-shell input:focus,
@@ -585,7 +604,7 @@ final class IWSL_Admin {
 
 /* ── Responsive ───────────────────────────────────────────────────────── */
 @media (max-width: 782px){
-	#wpcontent .iwsl-shell{ margin: 12px 10px 40px 0; }
+	#wpcontent .iwsl-shell{ margin: 0; min-height: calc(100vh - 46px); }
 	.iwsl-hero{ padding: 22px 18px; }
 	.iwsl-tabnav{ top: 46px; }
 	.iwsl-panels{ padding: 20px 16px 28px; }
@@ -762,8 +781,8 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>Lossless Image Optimization</h2>';
-		echo '<p>Losslessly re-encode this site&#8217;s PNG uploads to WebP — smaller files, identical pixels. Runs entirely on this server; no external service is called.</p>';
+		echo '<h2>Image Optimization</h2>';
+		echo '<p>Re-encode this site&#8217;s images to WebP — lossless for PNG, GIF, BMP and TIFF; near-lossless for JPEG. Smaller files, identical-looking pixels, run entirely on this server — no external service is called.</p>';
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
 		if ( isset( $_GET['iwsl_mo_locked'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -772,7 +791,6 @@ JS;
 
 		if ( empty( $gate['unlocked'] ) ) {
 			self::render_optimization_locked_notice( $gate );
-			self::render_coming_soon();
 			return;
 		}
 
@@ -781,8 +799,6 @@ JS;
 		$this->render_last_run_summary();
 
 		echo '<p class="description" style="margin-top:8px;">' . esc_html__( 'Originals are never modified; derivatives are written alongside them.', 'infraweaver-connector' ) . '</p>';
-
-		self::render_coming_soon();
 	}
 
 	/** Reason lines for a locked image-optimization gate (no form). */
@@ -827,19 +843,19 @@ JS;
 
 	/** The nonce-protected run form (POST → admin-post.php). */
 	private function render_optimization_form(): void {
-		$ids = $this->optimizer()->converter_ids();
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="iwsl-mo-form" style="margin-top:16px;max-width:640px;">';
 		wp_nonce_field( self::OPTIMIZE_NONCE );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::OPTIMIZE_ACTION ) . '">';
 
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwsl-mo-converter">' . esc_html__( 'Converter', 'infraweaver-connector' ) . '</label></th><td>';
-		echo '<select id="iwsl-mo-converter" name="converter">';
-		foreach ( $ids as $id ) {
-			echo '<option value="' . esc_attr( (string) $id ) . '">' . esc_html( (string) $id ) . '</option>';
+		echo '<tr><th scope="row"><label for="iwsl-mo-types">' . esc_html__( 'Image types', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<select id="iwsl-mo-types" name="types">';
+		echo '<option value="auto">' . esc_html__( 'Auto — all types (PNG, JPEG, GIF, BMP, TIFF)', 'infraweaver-connector' ) . '</option>';
+		foreach ( array( 'image/png' => 'PNG', 'image/jpeg' => 'JPEG', 'image/gif' => 'GIF', 'image/bmp' => 'BMP', 'image/tiff' => 'TIFF' ) as $iwsl_mime => $iwsl_lbl ) {
+			echo '<option value="' . esc_attr( $iwsl_mime ) . '">' . esc_html( $iwsl_lbl ) . '</option>';
 		}
-		echo '</select></td></tr>';
+		echo '</select><br><span class="description">' . esc_html__( 'Auto picks the best WebP mode per type — lossless for PNG/GIF/BMP/TIFF, near-lossless for JPEG. Only smaller results are kept.', 'infraweaver-connector' ) . '</span></td></tr>';
 
 		echo '<tr><th scope="row"><label for="iwsl-mo-count">' . esc_html__( 'Images this run', 'infraweaver-connector' ) . '</label></th><td>';
 		echo '<input type="number" id="iwsl-mo-count" name="count" min="1" max="' . (int) IWSL_Media_Optimizer::MAX_REQUEST . '" value="25" style="width:100px;"> ';
@@ -962,7 +978,6 @@ JS;
 			array( 'SEO Meta Audit', 'Flag missing titles, descriptions, and thin content.', 'Pro' ),
 			array( 'Scheduled Auto-Convert', 'Automatically losslessly convert new uploads on a schedule.', 'Ultimate' ),
 		);
-		echo '<h3 style="margin-top:24px;">' . esc_html__( 'Coming soon', 'infraweaver-connector' ) . '</h3>';
 		echo '<ul style="list-style:none;margin:8px 0 0;padding:0;max-width:720px;">';
 		foreach ( $rows as $row ) {
 			list( $title, $desc, $tier ) = $row;
@@ -1021,10 +1036,18 @@ JS;
 			: IWSL_Media_Optimizer::MODE_COPY;
 		$is_preview = isset( $_POST['op'] ) && 'preview' === $_POST['op'];
 
+		// Source-type filter: 'auto' (every accepted type) or one exact MIME,
+		// validated against a closed list before it reaches the engine.
+		$allowed_types = array( 'auto', 'image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/tiff' );
+		$types         = isset( $_POST['types'] ) ? sanitize_text_field( wp_unslash( $_POST['types'] ) ) : 'auto';
+		if ( ! in_array( $types, $allowed_types, true ) ) {
+			$types = 'auto';
+		}
+
 		// LAYER 3 (authoritative gate) is inside run()/preview().
 		$summary = $is_preview
-			? $optimizer->preview( $converter, $count )
-			: $optimizer->run( $converter, $count, $mode );
+			? $optimizer->preview( $converter, $count, $types )
+			: $optimizer->run( $converter, $count, $mode, false, $types );
 
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );

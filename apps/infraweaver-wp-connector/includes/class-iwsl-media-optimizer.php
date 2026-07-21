@@ -154,7 +154,7 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @return array Immutable run summary.
 	 */
-	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false ): array {
+	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false, string $types = 'auto' ): array {
 		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
 		$mode  = self::MODE_REPLACE === $mode ? self::MODE_REPLACE : self::MODE_COPY;
 		$gate  = $this->entitlements->evaluate( self::FEATURE );
@@ -177,6 +177,14 @@ final class IWSL_Media_Optimizer {
 			return self::refusal( 'engine-unavailable', array( 'engine_reason' => (string) $avail['reason'] ) );
 		}
 
+		// Resolve the source-type filter to a concrete MIME allow-list. 'auto'
+		// means every type the converter accepts; a specific value narrows to it
+		// (and is intersected with accepts() so an unknown value selects nothing).
+		$accepted = $converter->accepts();
+		$mimes    = ( 'auto' === $types )
+			? $accepted
+			: array_values( array_intersect( $accepted, array( $types ) ) );
+
 		if ( ! $this->acquire_lock() ) {
 			return self::refusal( 'busy' );
 		}
@@ -187,6 +195,7 @@ final class IWSL_Media_Optimizer {
 			'mode'        => $mode,
 			'dry'         => $dry,
 			'requested'   => $limit,
+			'types'       => $types,
 			'converter'   => $converter->id(),
 			'engine'      => (string) $avail['engine'],
 			'converted'   => 0,
@@ -201,12 +210,12 @@ final class IWSL_Media_Optimizer {
 		);
 
 		try {
-			foreach ( $this->select_batch( $converter, $limit ) as $attachment_id ) {
+			foreach ( $this->select_batch( $converter, $limit, $mimes ) as $attachment_id ) {
 				if ( ( ( $this->now_ms )() - $started ) >= self::TIME_BUDGET_MS ) {
 					$summary['partial'] = true;
 					break;
 				}
-				$result  = $this->convert_one( (int) $attachment_id, $converter, $mode, $dry );
+				$result  = $this->convert_one( (int) $attachment_id, $converter, $mode, $dry, $mimes );
 				$summary = self::fold_result( $summary, $result );
 			}
 		} finally {
@@ -223,8 +232,8 @@ final class IWSL_Media_Optimizer {
 	 * file is kept and no attachment is touched. Same gate + time budget as run(),
 	 * so a large request is bounded and reports `partial` when the clock runs out.
 	 */
-	public function preview( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH ): array {
-		return $this->run( $converter_id, $limit, self::MODE_COPY, true );
+	public function preview( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $types = 'auto' ): array {
+		return $this->run( $converter_id, $limit, self::MODE_COPY, true, $types );
 	}
 
 	/**
@@ -234,16 +243,22 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @return int[]
 	 */
-	private function select_batch( IWSL_Media_Converter $converter, int $limit = self::MAX_BATCH ): array {
+	private function select_batch( IWSL_Media_Converter $converter, int $limit = self::MAX_BATCH, array $mimes = array() ): array {
 		if ( ! function_exists( 'get_posts' ) ) {
 			return array();
+		}
+		if ( array() === $mimes ) {
+			$mimes = $converter->accepts();
+		}
+		if ( array() === $mimes ) {
+			return array(); // A type filter that matched nothing selects nothing.
 		}
 		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
 		$ids   = get_posts(
 			array(
 				'post_type'        => 'attachment',
 				'post_status'      => 'inherit',
-				'post_mime_type'   => $converter->accepts(),
+				'post_mime_type'   => $mimes,
 				'fields'           => 'ids',
 				'posts_per_page'   => $limit,
 				'orderby'          => 'ID',
@@ -264,14 +279,14 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @return array{ id:int, basename:string, outcome:string, reason?:string, saving?:int, bytes_in?:int, bytes_out?:int }
 	 */
-	private function convert_one( int $attachment_id, IWSL_Media_Converter $converter, string $mode = self::MODE_COPY, bool $dry = false ): array {
+	private function convert_one( int $attachment_id, IWSL_Media_Converter $converter, string $mode = self::MODE_COPY, bool $dry = false, array $mimes = array() ): array {
 		$source = $this->resolve_source_path( $attachment_id );
 		$basename = '' === $source ? '' : basename( $source );
 		if ( '' === $source ) {
 			return self::item( $attachment_id, $basename, 'refused', 'no-source-path' );
 		}
 
-		$guard = $this->guard_source( $source );
+		$guard = $this->guard_source( $source, array() === $mimes ? $converter->accepts() : $mimes );
 		if ( empty( $guard['ok'] ) ) {
 			return self::item( $attachment_id, basename( $source ), 'refused', (string) $guard['reason'] );
 		}
@@ -415,7 +430,7 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @return array{ ok:bool, reason:string, filesize:int, mtime:int, width:int, height:int }
 	 */
-	private function guard_source( string $path ): array {
+	private function guard_source( string $path, array $accepted_mimes ): array {
 		if ( function_exists( 'wp_raise_memory_limit' ) ) {
 			wp_raise_memory_limit( 'image' );
 		}
@@ -447,7 +462,7 @@ final class IWSL_Media_Optimizer {
 		if ( false === $info || ! isset( $info[0], $info[1], $info[2] ) ) {
 			return self::guard_fail( 'unreadable-image' );
 		}
-		if ( IMAGETYPE_PNG !== (int) $info[2] ) {
+		if ( ! in_array( (int) $info[2], self::accepted_imagetypes( $accepted_mimes ), true ) ) {
 			return self::guard_fail( 'mime-mismatch' );
 		}
 
@@ -470,7 +485,7 @@ final class IWSL_Media_Optimizer {
 			if ( false !== $finfo ) {
 				$mime = finfo_file( $finfo, $real );
 				finfo_close( $finfo );
-				if ( 'image/png' !== $mime ) {
+				if ( ! in_array( (string) $mime, self::accepted_finfo_mimes( $accepted_mimes ), true ) ) {
 					return self::guard_fail( 'mime-mismatch' );
 				}
 			}
@@ -657,6 +672,62 @@ final class IWSL_Media_Optimizer {
 			$next['items'] = array_merge( $next['items'], array( $item ) );
 		}
 		return $next;
+	}
+
+	/**
+	 * The getimagesize IMAGETYPE_* constants that correspond to a MIME allow-list.
+	 * This is the AUTHORITATIVE content-type check — the extension is never
+	 * trusted. Constants that a given PHP build lacks are simply omitted.
+	 *
+	 * @return int[]
+	 */
+	private static function accepted_imagetypes( array $mimes ): array {
+		$map = array(
+			'image/png'  => array( IMAGETYPE_PNG ),
+			'image/jpeg' => array( IMAGETYPE_JPEG ),
+			'image/gif'  => array( IMAGETYPE_GIF ),
+			'image/bmp'  => defined( 'IMAGETYPE_BMP' ) ? array( IMAGETYPE_BMP ) : array(),
+			'image/tiff' => array_values(
+				array_filter(
+					array(
+						defined( 'IMAGETYPE_TIFF_II' ) ? IMAGETYPE_TIFF_II : null,
+						defined( 'IMAGETYPE_TIFF_MM' ) ? IMAGETYPE_TIFF_MM : null,
+					),
+					'is_int'
+				)
+			),
+		);
+		$out = array();
+		foreach ( $mimes as $mime ) {
+			if ( isset( $map[ $mime ] ) ) {
+				$out = array_merge( $out, $map[ $mime ] );
+			}
+		}
+		return array_values( array_unique( $out ) );
+	}
+
+	/**
+	 * finfo MIME strings accepted for a given allow-list, including the common
+	 * libmagic variants (x-ms-bmp, pjpeg, x-tiff) so the belt-and-braces finfo
+	 * check tolerates build differences without weakening to "any image/*".
+	 *
+	 * @return string[]
+	 */
+	private static function accepted_finfo_mimes( array $mimes ): array {
+		$variants = array(
+			'image/png'  => array( 'image/png' ),
+			'image/jpeg' => array( 'image/jpeg', 'image/pjpeg' ),
+			'image/gif'  => array( 'image/gif' ),
+			'image/bmp'  => array( 'image/bmp', 'image/x-ms-bmp', 'image/x-bmp' ),
+			'image/tiff' => array( 'image/tiff', 'image/x-tiff' ),
+		);
+		$out = array();
+		foreach ( $mimes as $mime ) {
+			if ( isset( $variants[ $mime ] ) ) {
+				$out = array_merge( $out, $variants[ $mime ] );
+			}
+		}
+		return array_values( array_unique( $out ) );
 	}
 
 	/** A failed-guard record with the byte/mtime fields zeroed. */

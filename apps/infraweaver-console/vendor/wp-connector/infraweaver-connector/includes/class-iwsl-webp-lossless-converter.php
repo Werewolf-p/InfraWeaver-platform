@@ -37,13 +37,27 @@ final class IWSL_WebP_Lossless_Converter implements IWSL_Media_Converter {
 	}
 
 	public function label(): string {
-		return 'PNG → WebP (lossless)';
+		return 'Smart WebP (lossless + near-lossless)';
 	}
 
-	/** PNG only — see the class docblock for why JPEG is excluded. */
+	/**
+	 * Every raster type this engine can re-encode to WebP. Lossless sources
+	 * (PNG/GIF/BMP/TIFF) become lossless WebP; JPEG becomes high-quality
+	 * (near-lossless) WebP so it actually shrinks instead of growing. The
+	 * optimizer keeps a derivative ONLY if it is strictly smaller, so any type
+	 * that fails to win is simply skipped — never written.
+	 */
 	public function accepts(): array {
-		return array( 'image/png' );
+		return array( 'image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/tiff' );
 	}
+
+	/** Source MIMEs that map to LOSSLESS WebP. Everything else → quality WebP. */
+	public static function lossless_mimes(): array {
+		return array( 'image/png', 'image/gif', 'image/bmp', 'image/tiff' );
+	}
+
+	/** Near-lossless quality for lossy sources (JPEG) — high enough to look identical. */
+	const QUALITY_WEBP = 82;
 
 	/**
 	 * Side-effect-free capability probe. Imagick wins when it advertises the WEBP
@@ -99,10 +113,17 @@ final class IWSL_WebP_Lossless_Converter implements IWSL_Media_Converter {
 		if ( empty( $avail['ok'] ) ) {
 			return array( 'ok' => false, 'bytes_in' => $bytes_in, 'bytes_out' => 0, 'reason' => (string) $avail['reason'] );
 		}
+		// Decide the encode mode from the ACTUAL sniffed type (never the
+		// extension): lossless for PNG/GIF/BMP/TIFF, quality WebP for JPEG.
+		$info     = @getimagesize( $source_path );
+		$itype    = is_array( $info ) && isset( $info[2] ) ? (int) $info[2] : 0;
+		$mime     = $itype > 0 && function_exists( 'image_type_to_mime_type' ) ? (string) image_type_to_mime_type( $itype ) : '';
+		$lossless = in_array( $mime, self::lossless_mimes(), true );
+
 		if ( 'imagick-webp' === $avail['engine'] ) {
-			return $this->convert_imagick( $source_path, $dest_path, $bytes_in );
+			return $this->convert_imagick( $source_path, $dest_path, $bytes_in, $lossless );
 		}
-		return $this->convert_gd( $source_path, $dest_path, $bytes_in );
+		return $this->convert_gd( $source_path, $dest_path, $bytes_in, $itype, $lossless );
 	}
 
 	/**
@@ -112,7 +133,7 @@ final class IWSL_WebP_Lossless_Converter implements IWSL_Media_Converter {
 	 *
 	 * @return array{ ok:bool, bytes_in:int, bytes_out:int, reason:string }
 	 */
-	private function convert_imagick( string $source_path, string $dest_path, int $bytes_in ): array {
+	private function convert_imagick( string $source_path, string $dest_path, int $bytes_in, bool $lossless ): array {
 		$img = null;
 		try {
 			$img = new Imagick();
@@ -121,10 +142,16 @@ final class IWSL_WebP_Lossless_Converter implements IWSL_Media_Converter {
 			$img->pingImage( $source_path );
 			$img->readImage( $source_path );
 			$img->setImageFormat( 'webp' );
-			$img->setOption( 'webp:lossless', 'true' );
-			// Preserve RGB under fully-transparent pixels — without this libwebp
-			// may rewrite them, breaking a strict pixel-for-pixel comparison.
-			$img->setOption( 'webp:exact', 'true' );
+			if ( $lossless ) {
+				$img->setOption( 'webp:lossless', 'true' );
+				// Preserve RGB under fully-transparent pixels — without this libwebp
+				// may rewrite them, breaking a strict pixel-for-pixel comparison.
+				$img->setOption( 'webp:exact', 'true' );
+			} else {
+				// Lossy source (JPEG): high-quality WebP that still shrinks.
+				$img->setOption( 'webp:lossless', 'false' );
+				$img->setImageCompressionQuality( self::QUALITY_WEBP );
+			}
 			// Intentionally NO stripImage(): keep the ICC colour profile.
 			$written = $img->writeImage( $dest_path );
 			$img->clear();
@@ -155,9 +182,10 @@ final class IWSL_WebP_Lossless_Converter implements IWSL_Media_Converter {
 	 *
 	 * @return array{ ok:bool, bytes_in:int, bytes_out:int, reason:string }
 	 */
-	private function convert_gd( string $source_path, string $dest_path, int $bytes_in ): array {
-		$im = @imagecreatefrompng( $source_path );
+	private function convert_gd( string $source_path, string $dest_path, int $bytes_in, int $itype, bool $lossless ): array {
+		$im = self::gd_decode( $source_path, $itype );
 		if ( false === $im ) {
+			// GD cannot decode this type (e.g. TIFF) — Imagick is required for it.
 			return array( 'ok' => false, 'bytes_in' => $bytes_in, 'bytes_out' => 0, 'reason' => 'gd-decode-failed' );
 		}
 		if ( ! imageistruecolor( $im ) ) {
@@ -165,7 +193,9 @@ final class IWSL_WebP_Lossless_Converter implements IWSL_Media_Converter {
 		}
 		imagealphablending( $im, false );
 		imagesavealpha( $im, true );
-		$ok = imagewebp( $im, $dest_path, IMG_WEBP_LOSSLESS );
+		$ok = $lossless
+			? imagewebp( $im, $dest_path, IMG_WEBP_LOSSLESS )
+			: imagewebp( $im, $dest_path, self::QUALITY_WEBP );
 		imagedestroy( $im );
 		if ( ! $ok ) {
 			return array( 'ok' => false, 'bytes_in' => $bytes_in, 'bytes_out' => 0, 'reason' => 'gd-encode-failed' );
@@ -177,6 +207,28 @@ final class IWSL_WebP_Lossless_Converter implements IWSL_Media_Converter {
 			'bytes_out' => (int) @filesize( $dest_path ),
 			'reason'    => '',
 		);
+	}
+
+	/**
+	 * GD decoder dispatch by sniffed IMAGETYPE. Returns a GD resource/GdImage or
+	 * false when GD has no decoder for that type (TIFF, or a missing build).
+	 *
+	 * @return resource|\GdImage|false
+	 */
+	private static function gd_decode( string $path, int $itype ) {
+		if ( defined( 'IMAGETYPE_PNG' ) && IMAGETYPE_PNG === $itype && function_exists( 'imagecreatefrompng' ) ) {
+			return @imagecreatefrompng( $path );
+		}
+		if ( defined( 'IMAGETYPE_JPEG' ) && IMAGETYPE_JPEG === $itype && function_exists( 'imagecreatefromjpeg' ) ) {
+			return @imagecreatefromjpeg( $path );
+		}
+		if ( defined( 'IMAGETYPE_GIF' ) && IMAGETYPE_GIF === $itype && function_exists( 'imagecreatefromgif' ) ) {
+			return @imagecreatefromgif( $path );
+		}
+		if ( defined( 'IMAGETYPE_BMP' ) && IMAGETYPE_BMP === $itype && function_exists( 'imagecreatefrombmp' ) ) {
+			return @imagecreatefrombmp( $path );
+		}
+		return false;
 	}
 
 	/**

@@ -471,7 +471,8 @@ iwsl_assert( in_array( 'already-current', $reasons7b2, true ), 'idempotency: rea
 $registry = IWSL_Media_Optimizer::converters();
 iwsl_assert( array_key_exists( 'webp_lossless', $registry ), 'registry: webp_lossless is registered' );
 iwsl_assert( $registry['webp_lossless'] instanceof IWSL_Media_Converter, 'registry: entry implements IWSL_Media_Converter' );
-iwsl_assert_same( array( 'image/png' ), $registry['webp_lossless']->accepts(), 'webp_lossless accepts image/png ONLY (JPEG excluded)' );
+iwsl_assert_same( array( 'image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/tiff' ), $registry['webp_lossless']->accepts(), 'webp_lossless accepts the full smart-WebP source set' );
+iwsl_assert_same( array( 'image/png', 'image/gif', 'image/bmp', 'image/tiff' ), IWSL_WebP_Lossless_Converter::lossless_mimes(), 'lossless_mimes excludes JPEG (JPEG uses quality WebP)' );
 iwsl_assert_same( 'webp_lossless', $registry['webp_lossless']->id(), 'webp_lossless id shape is stable' );
 
 // Unknown converter id is refused without any conversion (gate already unlocked).
