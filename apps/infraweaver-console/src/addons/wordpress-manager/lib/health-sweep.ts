@@ -1,5 +1,6 @@
 import "server-only";
 import { listExternalSites, type ExternalSiteRecord } from "./iwsl-link-store";
+import { validateSiteOidc } from "./provision";
 import {
   connectorHealthCheck,
   externalConnectorHealthCheck,
@@ -193,7 +194,58 @@ export async function sweepTargets(targets: SweepTarget[]): Promise<HealthSweepS
   };
 }
 
+/** Summary of one fleet OIDC self-heal pass. */
+export interface OidcReconcileSummary {
+  readonly checked: number;
+  readonly healed: number;
+  readonly unhealthy: number;
+  readonly errored: number;
+}
+
+/**
+ * Best-effort OIDC self-heal across managed sites. The reconcile loop only re-runs
+ * SSO for a site it considers UNSETTLED, so a site that settled but whose login is
+ * actually broken (missing/empty settings — the hi2 class of bug) is never
+ * re-checked. This makes "is the login actually configured?" a first-class periodic
+ * check that re-provisions when broken. Each site is isolated; the whole pass is
+ * best-effort and never affects the connector health sweep. Healthy sites cost only
+ * one cheap in-pod `wp option get` — a re-provision runs only when genuinely broken.
+ */
+export async function reconcileManagedOidc(sites: readonly string[]): Promise<OidcReconcileSummary> {
+  const settled = await Promise.allSettled(sites.map((site) => validateSiteOidc(site, { reprovision: true })));
+  let healed = 0;
+  let unhealthy = 0;
+  let errored = 0;
+  settled.forEach((outcome, i) => {
+    if (outcome.status === "rejected") {
+      errored += 1;
+      return;
+    }
+    const r = outcome.value;
+    if (r.reprovisioned && r.healthy) {
+      healed += 1;
+      console.warn(`[wordpress] OIDC self-heal: re-provisioned ${sites[i]} (was ${r.reason || "broken"})`);
+    } else if (!r.healthy) {
+      unhealthy += 1;
+      console.warn(`[wordpress] OIDC self-heal: ${sites[i]} still unhealthy (${r.reason})${r.error ? ` — ${r.error}` : ""}`);
+    }
+  });
+  if (healed || unhealthy || errored) {
+    console.warn(`[wordpress] OIDC reconcile: ${sites.length} checked, ${healed} healed, ${unhealthy} unhealthy, ${errored} errored`);
+  }
+  return { checked: sites.length, healed, unhealthy, errored };
+}
+
 export async function runHealthSweep(): Promise<HealthSweepSummary> {
   const sites = await listExternalSites();
-  return sweepTargets(buildTargets(sites));
+  const summary = await sweepTargets(buildTargets(sites));
+  // Piggy-back a fleet OIDC self-heal on the same hourly cron — isolated so a
+  // failure here never affects the connector health result.
+  try {
+    const managed = sites.filter(isSweepableManaged).map((s) => s.siteName).filter((n): n is string => Boolean(n));
+    await reconcileManagedOidc(managed);
+  } catch (err) {
+    console.warn(`[wordpress] OIDC reconcile pass failed:`, err instanceof Error ? err.message : err);
+  }
+  return summary;
 }
