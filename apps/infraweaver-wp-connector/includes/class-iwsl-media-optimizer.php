@@ -46,6 +46,8 @@ final class IWSL_Media_Optimizer {
 	 * This is the "queue it as a batch" behaviour without any async surface.
 	 */
 	const MAX_REQUEST = 200;
+	/** Upper bound on posts a single reference-rewrite / dedupe pass will touch. */
+	const MAX_REWRITE_POSTS = 500;
 	/** Modes: keep the original beside the WebP, or swap the original out for it. */
 	const MODE_COPY = 'copy';
 	const MODE_REPLACE = 'replace';
@@ -162,7 +164,7 @@ final class IWSL_Media_Optimizer {
 	 *                    to the auto-selected batch (unchanged prior behaviour).
 	 * @return array Immutable run summary.
 	 */
-	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false, string $types = 'auto', array $ids = array() ): array {
+	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false, string $types = 'auto', array $ids = array(), bool $rewrite = false ): array {
 		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
 		$mode  = self::MODE_REPLACE === $mode ? self::MODE_REPLACE : self::MODE_COPY;
 		$gate  = $this->entitlements->evaluate( self::FEATURE );
@@ -213,10 +215,16 @@ final class IWSL_Media_Optimizer {
 			'bytes_in'    => 0,
 			'bytes_out'   => 0,
 			'saved_bytes' => 0,
-			'items'       => array(),
-			'partial'     => false,
-			'elapsed_ms'  => 0,
+			'items'        => array(),
+			'partial'      => false,
+			'rewrote_posts' => 0,
+			'elapsed_ms'   => 0,
 		);
+
+		// Rewriting page references is a copy-mode-only, live-run-only extra: a dry
+		// preview must never touch post content, and replace mode already repoints
+		// the canonical attachment (no dangling original URL to rewrite).
+		$do_rewrite = $rewrite && ! $dry && self::MODE_COPY === $mode;
 
 		$batch = array() !== $ids
 			? $this->select_batch_from_ids( $ids, $mimes, $limit )
@@ -228,8 +236,11 @@ final class IWSL_Media_Optimizer {
 					$summary['partial'] = true;
 					break;
 				}
-				$result  = $this->convert_one( (int) $attachment_id, $converter, $mode, $dry, $mimes );
+				$result  = $this->convert_one( (int) $attachment_id, $converter, $mode, $dry, $mimes, $do_rewrite );
 				$summary = self::fold_result( $summary, $result );
+				if ( isset( $result['rewrote'] ) ) {
+					$summary['rewrote_posts'] += (int) $result['rewrote'];
+				}
 			}
 		} finally {
 			$this->release_lock();
@@ -338,7 +349,7 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @return array{ id:int, basename:string, outcome:string, reason?:string, saving?:int, bytes_in?:int, bytes_out?:int }
 	 */
-	private function convert_one( int $attachment_id, IWSL_Media_Converter $converter, string $mode = self::MODE_COPY, bool $dry = false, array $mimes = array() ): array {
+	private function convert_one( int $attachment_id, IWSL_Media_Converter $converter, string $mode = self::MODE_COPY, bool $dry = false, array $mimes = array(), bool $rewrite = false ): array {
 		$source = $this->resolve_source_path( $attachment_id );
 		$basename = '' === $source ? '' : basename( $source );
 		if ( '' === $source ) {
@@ -364,7 +375,19 @@ final class IWSL_Media_Optimizer {
 		// previews always proceed so a swap actually happens / an estimate is shown.
 		if ( ! $dry && self::MODE_COPY === $mode
 			&& $this->is_current( $attachment_id, $converter, $src_size, $src_mtime, $dest ) ) {
-			return self::item( $attachment_id, basename( $source ), 'skipped', 'already-current' );
+			// Self-heal: an up-to-date derivative on disk may predate attachment
+			// registration (or its copy attachment was deleted). Ensure it is in
+			// the Media Library before reporting the skip — idempotent, so a copy
+			// that already exists is reused, not duplicated.
+			$copy_id = $this->register_copy_attachment( $attachment_id, $dest );
+			$item    = self::item( $attachment_id, basename( $source ), 'skipped', 'already-current' );
+			if ( $copy_id > 0 ) {
+				$item['copy_id'] = $copy_id;
+				if ( $rewrite ) {
+					$item['rewrote'] = $this->rewrite_post_references( $attachment_id, $copy_id );
+				}
+			}
+			return $item;
 		}
 
 		$tmp = $dest . '.iwsltmp';
@@ -423,8 +446,317 @@ final class IWSL_Media_Optimizer {
 			if ( empty( $rep['ok'] ) ) {
 				$item['replace_reason'] = (string) ( $rep['reason'] ?? 'replace-failed' );
 			}
+			return $item;
+		}
+
+		// Copy mode: the WebP sits beside the original AND is registered as its
+		// own Media Library attachment, so it is visible and reusable — the "add
+		// WebP copy" the UI promises. Without this the derivative is an orphan file
+		// WordPress never lists. Idempotent: a copy already registered is reused.
+		$copy_id = $this->register_copy_attachment( $attachment_id, $dest );
+		if ( $copy_id > 0 ) {
+			$item['copy_id'] = $copy_id;
+			if ( $rewrite ) {
+				$item['rewrote'] = $this->rewrite_post_references( $attachment_id, $copy_id );
+			}
 		}
 		return $item;
+	}
+
+	/**
+	 * COPY-mode publication: register the derivative WebP as its own Media Library
+	 * attachment so operators can see and reuse it. Idempotent — if a live copy
+	 * attachment already points at this exact file, it is reused (never duplicated
+	 * on re-runs or source changes). Fully WordPress-guarded: returns 0 outside a
+	 * WP context (the no-WP test harness), leaving behaviour there unchanged.
+	 *
+	 * @return int New or existing attachment id, or 0 when none could be created.
+	 */
+	private function register_copy_attachment( int $source_id, string $dest_webp ): int {
+		if ( ! function_exists( 'wp_insert_attachment' ) || ! is_file( $dest_webp ) ) {
+			return 0;
+		}
+
+		$existing = $this->existing_copy_id( $source_id, $dest_webp );
+		if ( $existing > 0 ) {
+			return $existing;
+		}
+
+		$parent = function_exists( 'get_post_field' ) ? (int) get_post_field( 'post_parent', $source_id ) : 0;
+		$title  = pathinfo( $dest_webp, PATHINFO_FILENAME );
+		$new_id = wp_insert_attachment(
+			array(
+				'post_mime_type' => 'image/webp',
+				'post_title'     => '' !== $title ? $title : basename( $dest_webp ),
+				'post_content'   => '',
+				'post_status'    => 'inherit',
+				'post_parent'    => $parent,
+			),
+			$dest_webp,
+			$parent,
+			true
+		);
+		if ( ( function_exists( 'is_wp_error' ) && is_wp_error( $new_id ) ) || ! is_int( $new_id ) || $new_id <= 0 ) {
+			return 0;
+		}
+
+		// Generate sub-sizes + metadata for the new WebP attachment (best-effort).
+		if ( ! function_exists( 'wp_generate_attachment_metadata' ) && defined( 'ABSPATH' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/image.php';
+		}
+		if ( function_exists( 'wp_generate_attachment_metadata' ) && function_exists( 'wp_update_attachment_metadata' ) ) {
+			$meta = wp_generate_attachment_metadata( $new_id, $dest_webp );
+			if ( is_array( $meta ) && array() !== $meta ) {
+				wp_update_attachment_metadata( $new_id, $meta );
+			}
+		}
+
+		$this->remember_copy_id( $source_id, $new_id );
+		return (int) $new_id;
+	}
+
+	/**
+	 * The live copy attachment recorded for a source, or 0. A recorded id counts
+	 * only if it is still a real `attachment` whose file is exactly our derivative
+	 * — so a deleted or repointed copy is treated as absent and re-created.
+	 */
+	private function existing_copy_id( int $source_id, string $dest_webp ): int {
+		$meta = $this->read_meta( $source_id );
+		if ( ! is_array( $meta ) || empty( $meta['copy_id'] ) ) {
+			return 0;
+		}
+		$cid = (int) $meta['copy_id'];
+		if ( $cid <= 0 || ! function_exists( 'get_post' ) ) {
+			return 0;
+		}
+		$post = get_post( $cid );
+		if ( ! $post || 'attachment' !== $post->post_type ) {
+			return 0;
+		}
+		if ( function_exists( 'get_attached_file' ) ) {
+			$file = get_attached_file( $cid );
+			$real = ( is_string( $file ) && '' !== $file ) ? realpath( $file ) : false;
+			if ( false === $real || $real !== realpath( $dest_webp ) ) {
+				return 0;
+			}
+		}
+		return $cid;
+	}
+
+	/** Record the copy attachment id on the source's derivative meta (merge-in). */
+	private function remember_copy_id( int $source_id, int $copy_id ): void {
+		if ( ! function_exists( 'update_post_meta' ) ) {
+			return;
+		}
+		$meta = $this->read_meta( $source_id );
+		if ( ! is_array( $meta ) ) {
+			$meta = array();
+		}
+		$meta['copy_id'] = $copy_id;
+		update_post_meta( $source_id, self::META_KEY, $meta );
+	}
+
+	/**
+	 * Rewrite every reference to a source image's URLs in post content over to its
+	 * WebP copy — the "replace the images on my pages too" companion to copy mode.
+	 * The URL map is built server-side from BOTH attachments' metadata (full size +
+	 * every shared-dimension sub-size), so `src` and `srcset` entries flip together.
+	 * Bounded to MAX_REWRITE_POSTS posts; parameterised LIKE anchor + PHP str_replace
+	 * (no user input reaches SQL). Returns the number of posts actually changed.
+	 */
+	private function rewrite_post_references( int $source_id, int $copy_id, int $max = self::MAX_REWRITE_POSTS ): int {
+		if ( $copy_id <= 0 || ! function_exists( 'wp_get_attachment_url' ) ) {
+			return 0;
+		}
+		$map = $this->url_replacement_map( $source_id, $copy_id );
+		if ( array() === $map ) {
+			return 0;
+		}
+
+		global $wpdb;
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_results' ) ) {
+			return 0;
+		}
+
+		// Anchor the scan on the source's filename stem (basename without extension):
+		// it appears in every size variant's URL, so one LIKE catches src + srcset.
+		$src_url = (string) wp_get_attachment_url( $source_id );
+		$stem    = pathinfo( $src_url, PATHINFO_FILENAME );
+		if ( '' === $stem ) {
+			return 0;
+		}
+		$like = '%' . $wpdb->esc_like( $stem ) . '%';
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT ID, post_content FROM {$wpdb->posts}
+				 WHERE post_status NOT IN ('trash','auto-draft')
+				   AND post_content LIKE %s
+				 LIMIT %d",
+				$like,
+				max( 1, min( self::MAX_REWRITE_POSTS, $max ) )
+			)
+		);
+		if ( ! is_array( $rows ) ) {
+			return 0;
+		}
+
+		$search  = array_keys( $map );
+		$replace = array_values( $map );
+		$changed = 0;
+		foreach ( $rows as $row ) {
+			$content = (string) $row->post_content;
+			$updated = str_replace( $search, $replace, $content );
+			if ( $updated === $content ) {
+				continue; // stem matched but no exact URL present — leave untouched.
+			}
+			$ok = $wpdb->update( $wpdb->posts, array( 'post_content' => $updated ), array( 'ID' => (int) $row->ID ) );
+			if ( false !== $ok ) {
+				++$changed;
+				if ( function_exists( 'clean_post_cache' ) ) {
+					clean_post_cache( (int) $row->ID );
+				}
+			}
+		}
+		return $changed;
+	}
+
+	/**
+	 * old-URL => new-URL map from a source attachment to its WebP copy: the full
+	 * size plus every sub-size the two share by exact WxH dimension (so a rewrite
+	 * never points at a size the WebP does not have). URLs are derived from WP,
+	 * never from the request. Empty outside a WP context.
+	 *
+	 * @return array<string,string>
+	 */
+	private function url_replacement_map( int $source_id, int $copy_id ): array {
+		if ( ! function_exists( 'wp_get_attachment_url' ) ) {
+			return array();
+		}
+		$src_full = (string) wp_get_attachment_url( $source_id );
+		$dst_full = (string) wp_get_attachment_url( $copy_id );
+		if ( '' === $src_full || '' === $dst_full ) {
+			return array();
+		}
+		$map          = array( $src_full => $dst_full );
+		$src_meta     = function_exists( 'wp_get_attachment_metadata' ) ? wp_get_attachment_metadata( $source_id ) : array();
+		$dst_meta     = function_exists( 'wp_get_attachment_metadata' ) ? wp_get_attachment_metadata( $copy_id ) : array();
+		$src_base_url = self::url_dir( $src_full );
+		$dst_base_url = self::url_dir( $dst_full );
+
+		if ( is_array( $src_meta ) && ! empty( $src_meta['sizes'] ) && is_array( $src_meta['sizes'] )
+			&& is_array( $dst_meta ) && ! empty( $dst_meta['sizes'] ) && is_array( $dst_meta['sizes'] ) ) {
+			foreach ( $src_meta['sizes'] as $s ) {
+				if ( ! is_array( $s ) || ! isset( $s['file'], $s['width'], $s['height'] ) ) {
+					continue;
+				}
+				$dim = (int) $s['width'] . 'x' . (int) $s['height'];
+				foreach ( $dst_meta['sizes'] as $d ) {
+					if ( is_array( $d ) && isset( $d['file'], $d['width'], $d['height'] )
+						&& $dim === (int) $d['width'] . 'x' . (int) $d['height'] ) {
+						$map[ $src_base_url . basename( (string) $s['file'] ) ] = $dst_base_url . basename( (string) $d['file'] );
+						break;
+					}
+				}
+			}
+		}
+		return $map;
+	}
+
+	/** The directory portion of a URL, trailing slash included ('' if none). */
+	private static function url_dir( string $url ): string {
+		$pos = strrpos( $url, '/' );
+		return false === $pos ? '' : substr( $url, 0, $pos + 1 );
+	}
+
+	/**
+	 * Remove originals that already have an up-to-date optimized WebP copy — the
+	 * "de-duplicate what I optimized" cleanup for copy mode. For each such source
+	 * the page references are repointed to the WebP FIRST (unless $rewrite is
+	 * false), THEN the original attachment (and its files) is deleted, so no page
+	 * is left pointing at a removed file. Entitlement-gated + single-flight locked
+	 * like run(); bounded by $limit; `$dry` counts without deleting anything.
+	 *
+	 * @return array Immutable summary ({ kind:'dedupe', removed, skipped, ... }).
+	 */
+	public function remove_optimized_duplicates( bool $dry = false, bool $rewrite = true, int $limit = self::MAX_REQUEST ): array {
+		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
+		$gate  = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'kind' => 'dedupe', 'reason' => 'entitlement-locked', 'gate' => $gate, 'removed' => 0 );
+		}
+		if ( ! function_exists( 'get_posts' ) || ! function_exists( 'wp_delete_attachment' ) ) {
+			return array( 'ok' => false, 'kind' => 'dedupe', 'reason' => 'no-wp-context', 'removed' => 0 );
+		}
+		if ( ! $this->acquire_lock() ) {
+			return array( 'ok' => false, 'kind' => 'dedupe', 'reason' => 'busy', 'removed' => 0 );
+		}
+
+		$summary = array(
+			'ok'            => true,
+			'kind'          => 'dedupe',
+			'dry'           => $dry,
+			'removed'       => 0,
+			'skipped'       => 0,
+			'rewrote_posts' => 0,
+			'freed_bytes'   => 0,
+			'items'         => array(),
+		);
+
+		try {
+			$candidates = get_posts(
+				array(
+					'post_type'        => 'attachment',
+					'post_status'      => 'inherit',
+					'fields'           => 'ids',
+					'posts_per_page'   => $limit,
+					'meta_key'         => self::META_KEY, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+					'orderby'          => 'ID',
+					'order'            => 'ASC',
+					'suppress_filters' => true,
+				)
+			);
+			$candidates = is_array( $candidates ) ? $candidates : array();
+
+			foreach ( $candidates as $source_id ) {
+				$source_id = (int) $source_id;
+				$src_path  = $this->resolve_source_path( $source_id );
+				$dest      = '' === $src_path ? '' : $this->derivative_path( $src_path );
+				$copy_id   = ( '' === $dest ) ? 0 : $this->existing_copy_id( $source_id, $dest );
+				$basename  = '' === $src_path ? (string) $source_id : basename( $src_path );
+
+				if ( $copy_id <= 0 ) {
+					++$summary['skipped'];
+					$summary['items'][] = self::item( $source_id, $basename, 'skipped', 'no-optimized-copy' );
+					continue;
+				}
+
+				$src_size = ( '' !== $src_path && is_file( $src_path ) ) ? (int) filesize( $src_path ) : 0;
+
+				if ( $dry ) {
+					++$summary['removed'];
+					$summary['freed_bytes'] += $src_size;
+					$summary['items'][]      = self::item( $source_id, $basename, 'removed', 'would-remove' );
+					continue;
+				}
+
+				if ( $rewrite ) {
+					$summary['rewrote_posts'] += $this->rewrite_post_references( $source_id, $copy_id );
+				}
+
+				$deleted = wp_delete_attachment( $source_id, true );
+				if ( false === $deleted || null === $deleted ) {
+					++$summary['skipped'];
+					$summary['items'][] = self::item( $source_id, $basename, 'refused', 'delete-failed' );
+					continue;
+				}
+				++$summary['removed'];
+				$summary['freed_bytes'] += $src_size;
+				$summary['items'][]      = self::item( $source_id, $basename, 'removed', '' );
+			}
+		} finally {
+			$this->release_lock();
+		}
+		return $summary;
 	}
 
 	/**
@@ -580,13 +912,21 @@ final class IWSL_Media_Optimizer {
 	}
 
 	/**
-	 * The contained sibling derivative path for a source, foo.png → foo.webp.
+	 * The contained sibling derivative path for a source, foo.png → foo-png.webp.
+	 * The source EXTENSION is folded into the derivative filename so two originals
+	 * that share a stem but differ by extension (logo.png + logo.jpg, both accepted
+	 * by webp_lossless) map to DISTINCT derivatives — otherwise the second run's
+	 * atomic rename would overwrite the first, and two copy attachments could end up
+	 * pointing at one file. Deterministic: the same source always resolves to the
+	 * same dest, so idempotency (is_current / existing_copy_id) still round-trips.
 	 * Returns '' when the destination directory is not inside the base dir.
 	 */
 	private function derivative_path( string $source ): string {
 		$dir  = dirname( $source );
 		$name = pathinfo( $source, PATHINFO_FILENAME );
-		$dest = $dir . '/' . $name . '.webp';
+		$ext  = strtolower( pathinfo( $source, PATHINFO_EXTENSION ) );
+		$stem = '' !== $ext ? $name . '-' . $ext : $name;
+		$dest = $dir . '/' . $stem . '.webp';
 
 		// Containment on the destination DIRECTORY (the file may not exist yet,
 		// so realpath the dir, not the file).

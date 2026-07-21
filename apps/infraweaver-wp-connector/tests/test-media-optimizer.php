@@ -241,7 +241,7 @@ $r2 = $opt2->run();
 iwsl_assert_same( true, $r2['ok'], 'unlock: run proceeds (ok=true)' );
 iwsl_assert_same( 1, $r2['converted'], 'unlock: one image converted' );
 iwsl_assert_same( 1, $fake2->convert_calls, 'unlock: fake convert() called exactly once' );
-iwsl_assert( is_file( $dir2 . '/photo.webp' ), 'unlock: derivative written alongside the original' );
+iwsl_assert( is_file( $dir2 . '/photo-png.webp' ), 'unlock: derivative written alongside the original (ext folded into name)' );
 iwsl_assert( is_file( $png2 ), 'unlock: original still present' );
 iwsl_assert_same( $hash_before, hash_file( 'sha256', $png2 ), 'unlock: original bytes unchanged (never modified)' );
 
@@ -351,8 +351,8 @@ iwsl_assert_same( 0, $r4['converted'], 'path escape: nothing converted' );
 iwsl_assert_same( 2, $r4['refused'], 'path escape: both sources refused' );
 iwsl_assert_same( 0, $fake4->convert_calls, 'path escape: convert() NEVER called' );
 iwsl_assert( in_array( 'path-escape', $reasons, true ), 'path escape: refused with reason path-escape' );
-iwsl_assert( ! is_file( $base4 . '/link.webp' ), 'path escape: no derivative written for the symlink' );
-iwsl_assert( ! is_file( $outside_dir . '/evil.webp' ), 'path escape: no derivative written outside base' );
+iwsl_assert( ! is_file( $base4 . '/link-png.webp' ), 'path escape: no derivative written for the symlink' );
+iwsl_assert( ! is_file( $outside_dir . '/evil-png.webp' ), 'path escape: no derivative written outside base' );
 
 // ── 5. Decompression bomb + oversize refused BEFORE decode ────────────────────
 
@@ -387,8 +387,8 @@ iwsl_assert(
 	'bomb: 20000×20000 refused on MAX_PIXELS / MAX_DIMENSION'
 );
 iwsl_assert( in_array( 'too-large', $reasons5, true ), 'bomb: > 25 MB source refused on MAX_SOURCE_BYTES' );
-iwsl_assert( ! is_file( $base5 . '/bomb.webp' ), 'bomb: no derivative written for the pixel bomb' );
-iwsl_assert( ! is_file( $base5 . '/big.webp' ), 'bomb: no derivative written for the oversize source' );
+iwsl_assert( ! is_file( $base5 . '/bomb-png.webp' ), 'bomb: no derivative written for the pixel bomb' );
+iwsl_assert( ! is_file( $base5 . '/big-png.webp' ), 'bomb: no derivative written for the oversize source' );
 
 // ── 6. MIME spoof refused (extension is not trusted) ──────────────────────────
 
@@ -413,7 +413,7 @@ iwsl_assert(
 	in_array( 'unreadable-image', $reasons6, true ) || in_array( 'mime-mismatch', $reasons6, true ),
 	'mime spoof: a .png-named text file is refused on content sniff'
 );
-iwsl_assert( ! is_file( $base6 . '/notreally.webp' ), 'mime spoof: no derivative written' );
+iwsl_assert( ! is_file( $base6 . '/notreally-png.webp' ), 'mime spoof: no derivative written' );
 
 // ── 7. Keep-only-if-smaller + idempotency ─────────────────────────────────────
 
@@ -437,8 +437,8 @@ iwsl_assert_same( 1, $fake_big->convert_calls, 'keep-if-smaller: converter ran o
 iwsl_assert_same( 0, $r7a['converted'], 'keep-if-smaller: nothing kept (no savings)' );
 iwsl_assert_same( 1, $r7a['skipped'], 'keep-if-smaller: one skipped' );
 iwsl_assert( in_array( 'no-savings', $reasons7a, true ), 'keep-if-smaller: reason no-savings' );
-iwsl_assert( ! is_file( $base7a . '/keep.webp' ), 'keep-if-smaller: oversized derivative removed' );
-iwsl_assert( ! is_file( $base7a . '/keep.webp.iwsltmp' ), 'keep-if-smaller: temp file cleaned up' );
+iwsl_assert( ! is_file( $base7a . '/keep-png.webp' ), 'keep-if-smaller: oversized derivative removed' );
+iwsl_assert( ! is_file( $base7a . '/keep-png.webp.iwsltmp' ), 'keep-if-smaller: temp file cleaned up' );
 
 // (b) idempotency: a successful conversion then a second run skips via meta.
 iwsl_mo_reset();
@@ -457,7 +457,7 @@ $opt7b      = new IWSL_Media_Optimizer(
 $r7b1 = $opt7b->run();
 iwsl_assert_same( 1, $r7b1['converted'], 'idempotency: first run converts' );
 iwsl_assert_same( 1, $fake_small->convert_calls, 'idempotency: converter ran once on the first run' );
-iwsl_assert( is_file( $base7b . '/idem.webp' ), 'idempotency: derivative present after the first run' );
+iwsl_assert( is_file( $base7b . '/idem-png.webp' ), 'idempotency: derivative present after the first run' );
 
 $r7b2       = $opt7b->run();
 $reasons7b2 = iwsl_mo_reasons( $r7b2 );
@@ -485,3 +485,317 @@ $optU = new IWSL_Media_Optimizer(
 );
 $rU = $optU->run( 'does_not_exist' );
 iwsl_assert_same( 'unknown-converter', $rU['reason'], 'unknown converter id → refused unknown-converter' );
+
+// ── 9. COPY mode registers the WebP as a Media Library attachment ─────────────
+//
+// Stubs for the attachment layer are declared HERE (not at the top) so every
+// section above still exercises the no-WP path where wp_insert_attachment is
+// absent — this section is the only one that proves the registration + idempotent
+// self-heal behaviour.
+
+$GLOBALS['iwsl_mo_next_id'] = 900;
+if ( ! function_exists( 'wp_insert_attachment' ) ) {
+	function wp_insert_attachment( array $args, $file = false, $parent = 0, $wp_error = false ) {
+		$id                                    = ++$GLOBALS['iwsl_mo_next_id'];
+		$GLOBALS['iwsl_mo_attachments'][ $id ] = array(
+			'path' => (string) $file,
+			'mime' => isset( $args['post_mime_type'] ) ? (string) $args['post_mime_type'] : '',
+		);
+		return $id;
+	}
+}
+if ( ! function_exists( 'get_post' ) ) {
+	function get_post( int $id ) {
+		return isset( $GLOBALS['iwsl_mo_attachments'][ $id ] )
+			? (object) array( 'ID' => $id, 'post_type' => 'attachment' )
+			: null;
+	}
+}
+if ( ! function_exists( 'get_post_field' ) ) {
+	function get_post_field( string $field, int $id ) {
+		return 0;
+	}
+}
+if ( ! function_exists( 'wp_generate_attachment_metadata' ) ) {
+	function wp_generate_attachment_metadata( int $id, string $file ) {
+		return array();
+	}
+}
+if ( ! function_exists( 'wp_update_attachment_metadata' ) ) {
+	function wp_update_attachment_metadata( int $id, $data ) {
+		return true;
+	}
+}
+if ( ! function_exists( 'is_wp_error' ) ) {
+	function is_wp_error( $thing ) {
+		return false;
+	}
+}
+
+// (a) a fresh conversion registers a new webp attachment and records its id.
+iwsl_mo_reset();
+$base9 = iwsl_mo_tempdir();
+$png9  = $base9 . '/reg.png';
+file_put_contents( $png9, iwsl_mo_valid_png( 8, 8 ) );
+$GLOBALS['iwsl_mo_attachments'][701] = array( 'path' => $png9, 'mime' => 'image/png' );
+$fake9                               = new IWSL_Recording_Converter( 0.4 );
+$opt9                                = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base9,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => $fake9 )
+);
+$r9   = $opt9->run( 'webp_lossless', 200, 'copy' );
+$copy = $r9['items'][0]['copy_id'] ?? 0;
+iwsl_assert_same( 1, $r9['converted'], 'copy-register: image converted' );
+iwsl_assert( $copy > 0, 'copy-register: a copy attachment id is reported' );
+iwsl_assert( isset( $GLOBALS['iwsl_mo_attachments'][ $copy ] ), 'copy-register: the copy exists in the media registry' );
+iwsl_assert_same( 'image/webp', $GLOBALS['iwsl_mo_attachments'][ $copy ]['mime'], 'copy-register: copy MIME is image/webp' );
+iwsl_assert_same( $base9 . '/reg-png.webp', $GLOBALS['iwsl_mo_attachments'][ $copy ]['path'], 'copy-register: copy points at the derivative file' );
+iwsl_assert_same( $copy, (int) $GLOBALS['iwsl_mo_meta'][701]['_iwsl_media_optimizer']['copy_id'], 'copy-register: copy_id persisted on the source meta' );
+
+// (b) idempotency: a second copy run reuses the existing copy — NO duplicate.
+$before = count( $GLOBALS['iwsl_mo_attachments'] );
+$r9b    = $opt9->run( 'webp_lossless', 200, 'copy' );
+iwsl_assert_same( 'already-current', $r9b['items'][0]['reason'], 'copy-register: second run is already-current' );
+iwsl_assert_same( $copy, (int) ( $r9b['items'][0]['copy_id'] ?? 0 ), 'copy-register: second run reuses the same copy id' );
+iwsl_assert_same( $before, count( $GLOBALS['iwsl_mo_attachments'] ), 'copy-register: no duplicate attachment created on re-run' );
+
+// (c) self-heal: a derivative on disk whose copy attachment was deleted is
+// re-registered on the next run (models an orphan from a pre-fix conversion).
+unset( $GLOBALS['iwsl_mo_attachments'][ $copy ] );          // copy attachment gone
+$GLOBALS['iwsl_mo_meta'][701]['_iwsl_media_optimizer']['copy_id'] = $copy; // stale id
+iwsl_assert( is_file( $base9 . '/reg-png.webp' ), 'copy-register: derivative still on disk (orphan)' );
+$r9c     = $opt9->run( 'webp_lossless', 200, 'copy' );
+$healed  = $r9c['items'][0]['copy_id'] ?? 0;
+iwsl_assert( $healed > 0 && $healed !== $copy, 'copy-register: self-heal re-registers the orphan under a new id' );
+iwsl_assert( isset( $GLOBALS['iwsl_mo_attachments'][ $healed ] ), 'copy-register: healed copy is back in the media registry' );
+
+// ── 10. Rewrite page references + remove optimized duplicates ─────────────────
+//
+// Extra WP stubs (URL/metadata/delete + a tiny $wpdb) declared HERE so the
+// sections above keep exercising the no-WP path. These prove the copy-mode
+// companions: repoint page <img> URLs to the WebP, and delete originals that
+// already have an optimized copy.
+
+$GLOBALS['iwsl_mo_urls']    = array(); // id => full attachment URL
+$GLOBALS['iwsl_mo_attmeta'] = array(); // id => attachment metadata (sizes[])
+$GLOBALS['iwsl_mo_posts']   = array(); // id => post_content
+
+if ( ! function_exists( 'wp_get_attachment_url' ) ) {
+	function wp_get_attachment_url( int $id ) {
+		return $GLOBALS['iwsl_mo_urls'][ $id ] ?? '';
+	}
+}
+if ( ! function_exists( 'wp_get_attachment_metadata' ) ) {
+	function wp_get_attachment_metadata( int $id ) {
+		return $GLOBALS['iwsl_mo_attmeta'][ $id ] ?? array();
+	}
+}
+if ( ! function_exists( 'wp_delete_attachment' ) ) {
+	function wp_delete_attachment( int $id, bool $force = false ) {
+		if ( ! isset( $GLOBALS['iwsl_mo_attachments'][ $id ] ) ) {
+			return false;
+		}
+		unset(
+			$GLOBALS['iwsl_mo_attachments'][ $id ],
+			$GLOBALS['iwsl_mo_meta'][ $id ],
+			$GLOBALS['iwsl_mo_urls'][ $id ],
+			$GLOBALS['iwsl_mo_attmeta'][ $id ]
+		);
+		return (object) array( 'ID' => $id );
+	}
+}
+if ( ! function_exists( 'clean_post_cache' ) ) {
+	function clean_post_cache( int $id ) {}
+}
+if ( ! class_exists( 'IWSL_Fake_WPDB' ) ) {
+	final class IWSL_Fake_WPDB {
+		public $posts = 'wp_posts';
+		public function esc_like( $s ) {
+			return addcslashes( (string) $s, '_%\\' );
+		}
+		public function prepare( $q, ...$args ) {
+			foreach ( $args as $a ) {
+				$rep = is_int( $a ) ? (string) (int) $a : "'" . str_replace( "'", "''", (string) $a ) . "'";
+				$q   = preg_replace( '/%[sd]/', $rep, $q, 1 );
+			}
+			return $q;
+		}
+		public function get_results( $q ) {
+			$out = array();
+			foreach ( $GLOBALS['iwsl_mo_posts'] as $id => $content ) {
+				$out[] = (object) array( 'ID' => $id, 'post_content' => $content );
+			}
+			return $out;
+		}
+		public function update( $table, $data, $where ) {
+			$GLOBALS['iwsl_mo_posts'][ (int) $where['ID'] ] = (string) $data['post_content'];
+			return 1;
+		}
+	}
+}
+$GLOBALS['wpdb'] = new IWSL_Fake_WPDB();
+
+// (a) rewrite_post_references: full-size + shared sub-size URLs flip to the WebP.
+iwsl_mo_reset();
+$GLOBALS['iwsl_mo_urls']    = array();
+$GLOBALS['iwsl_mo_attmeta'] = array();
+$GLOBALS['iwsl_mo_posts']   = array();
+$base10                          = iwsl_mo_tempdir();
+$GLOBALS['iwsl_mo_attachments'][801] = array( 'path' => $base10 . '/hero.png', 'mime' => 'image/png' );
+$GLOBALS['iwsl_mo_attachments'][802] = array( 'path' => $base10 . '/hero.webp', 'mime' => 'image/webp' );
+$GLOBALS['iwsl_mo_urls'][801]    = 'http://site/u/hero.png';
+$GLOBALS['iwsl_mo_urls'][802]    = 'http://site/u/hero.webp';
+$GLOBALS['iwsl_mo_attmeta'][801] = array( 'sizes' => array( 'medium' => array( 'file' => 'hero-300x200.png', 'width' => 300, 'height' => 200 ) ) );
+$GLOBALS['iwsl_mo_attmeta'][802] = array( 'sizes' => array( 'medium' => array( 'file' => 'hero-300x200.webp', 'width' => 300, 'height' => 200 ) ) );
+$GLOBALS['iwsl_mo_posts'][1]     = '<img src="http://site/u/hero-300x200.png" srcset="http://site/u/hero.png 400w, http://site/u/hero-300x200.png 300w">';
+
+$opt10 = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base10,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) )
+);
+$rw = new ReflectionMethod( 'IWSL_Media_Optimizer', 'rewrite_post_references' );
+$rw->setAccessible( true );
+$posts_changed = $rw->invoke( $opt10, 801, 802, 500 );
+iwsl_assert_same( 1, $posts_changed, 'rewrite: one post updated' );
+iwsl_assert( false === strpos( $GLOBALS['iwsl_mo_posts'][1], '.png' ), 'rewrite: no .png URL remains in the post' );
+iwsl_assert( false !== strpos( $GLOBALS['iwsl_mo_posts'][1], 'hero.webp' ), 'rewrite: full-size URL flipped to WebP' );
+iwsl_assert( false !== strpos( $GLOBALS['iwsl_mo_posts'][1], 'hero-300x200.webp' ), 'rewrite: sub-size srcset URL flipped to WebP' );
+
+// (b) remove_optimized_duplicates: original with a live copy is deleted; the
+//     WebP copy survives; page references are repointed first.
+iwsl_mo_reset();
+$GLOBALS['iwsl_mo_urls']    = array();
+$GLOBALS['iwsl_mo_attmeta'] = array();
+$GLOBALS['iwsl_mo_posts']   = array();
+$base11 = iwsl_mo_tempdir();
+file_put_contents( $base11 . '/pic.png', iwsl_mo_valid_png( 8, 8 ) );
+// The optimized copy lives at derivative_path(pic.png) = pic-png.webp (ext folded
+// into the name), which is what remove_optimized_duplicates reconstructs + matches.
+file_put_contents( $base11 . '/pic-png.webp', str_repeat( 'w', 128 ) );
+$GLOBALS['iwsl_mo_attachments'][811] = array( 'path' => $base11 . '/pic.png', 'mime' => 'image/png' );
+$GLOBALS['iwsl_mo_attachments'][812] = array( 'path' => $base11 . '/pic-png.webp', 'mime' => 'image/webp' );
+$GLOBALS['iwsl_mo_meta'][811]['_iwsl_media_optimizer'] = array(
+	'converter' => 'webp_lossless', 'source_size' => 100, 'source_mtime' => 1, 'copy_id' => 812,
+);
+$GLOBALS['iwsl_mo_urls'][811]    = 'http://site/u/pic.png';
+$GLOBALS['iwsl_mo_urls'][812]    = 'http://site/u/pic.webp';
+$GLOBALS['iwsl_mo_posts'][2]     = '<img src="http://site/u/pic.png">';
+
+$opt11 = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base11,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) )
+);
+// Dry run first — counts, deletes nothing.
+$dd_dry = $opt11->remove_optimized_duplicates( true, true );
+iwsl_assert_same( 1, $dd_dry['removed'], 'dedupe(dry): one original would be removed' );
+iwsl_assert( isset( $GLOBALS['iwsl_mo_attachments'][811] ), 'dedupe(dry): original still present' );
+
+// Live run — rewrites the page, deletes the original, keeps the WebP.
+$dd = $opt11->remove_optimized_duplicates( false, true );
+iwsl_assert_same( 1, $dd['removed'], 'dedupe: one original removed' );
+iwsl_assert( ! isset( $GLOBALS['iwsl_mo_attachments'][811] ), 'dedupe: original attachment deleted' );
+iwsl_assert( isset( $GLOBALS['iwsl_mo_attachments'][812] ), 'dedupe: WebP copy survives' );
+iwsl_assert_same( 1, $dd['rewrote_posts'], 'dedupe: page reference repointed before delete' );
+iwsl_assert( false !== strpos( $GLOBALS['iwsl_mo_posts'][2], 'pic.webp' ), 'dedupe: post now points at the WebP' );
+
+// (c) an attachment with NO optimized copy is skipped, never deleted.
+iwsl_mo_reset();
+$GLOBALS['iwsl_mo_posts'] = array();
+$base12 = iwsl_mo_tempdir();
+file_put_contents( $base12 . '/lonely.png', iwsl_mo_valid_png( 4, 4 ) );
+$GLOBALS['iwsl_mo_attachments'][821] = array( 'path' => $base12 . '/lonely.png', 'mime' => 'image/png' );
+$opt12 = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base12,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) )
+);
+$dd2 = $opt12->remove_optimized_duplicates( false, true );
+iwsl_assert_same( 0, $dd2['removed'], 'dedupe: nothing removed without an optimized copy' );
+iwsl_assert( isset( $GLOBALS['iwsl_mo_attachments'][821] ), 'dedupe: un-optimized original left intact' );
+
+// (d) gate blocks dedupe for a locked site — no deletion path runs.
+iwsl_mo_reset();
+$store_dd = new IWSL_Memory_Store();
+$store_dd->set( 'state', 'active' );
+$store_dd->set( 'last_verified_at', $NOW - 60000 );
+$store_dd->set( 'entitlements', array( 'plus' => true ) ); // image_optimization absent
+$ent_dd = new IWSL_Entitlements( $store_dd, static function () use ( $NOW ): int {
+	return $NOW; } );
+$opt_dd = new IWSL_Media_Optimizer( $ent_dd, iwsl_mo_tempdir(), static function () use ( $NOW ): int {
+	return $NOW; }, array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) ) );
+$dd_locked = $opt_dd->remove_optimized_duplicates( false, true );
+iwsl_assert_same( false, $dd_locked['ok'], 'dedupe: locked gate refuses' );
+iwsl_assert_same( 'entitlement-locked', $dd_locked['reason'], 'dedupe: reason entitlement-locked' );
+
+// ── 11. Stem-collision fix: distinct derivative per source extension ──────────
+//
+// Regression: derivative_path() used to map every accepted source to <stem>.webp,
+// so two originals sharing a stem but differing by extension (logo.png + logo.jpg,
+// both accepted by webp_lossless) collided onto ONE derivative — the 2nd run's
+// atomic rename overwrote the 1st, and two copy attachments could point at one
+// file. The fix folds the extension into the name (logo.png → logo-png.webp,
+// logo.jpg → logo-jpg.webp) so each source maps to its own dest, while staying
+// deterministic so idempotency (is_current / existing_copy_id) still round-trips.
+
+iwsl_mo_reset();
+$GLOBALS['iwsl_mo_urls']    = array();
+$GLOBALS['iwsl_mo_attmeta'] = array();
+$GLOBALS['iwsl_mo_posts']   = array();
+$base13 = iwsl_mo_tempdir();
+
+$opt13 = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base13,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) )
+);
+
+// (a) derivative_path() maps same-stem/different-extension sources to DISTINCT,
+//     contained .webp dests — and is deterministic on re-resolve.
+$dp = new ReflectionMethod( 'IWSL_Media_Optimizer', 'derivative_path' );
+$dp->setAccessible( true );
+$dest_png = $dp->invoke( $opt13, $base13 . '/logo.png' );
+$dest_jpg = $dp->invoke( $opt13, $base13 . '/logo.jpg' );
+$base_prefix = rtrim( $base13, '/' ) . '/';
+iwsl_assert( '' !== $dest_png && '' !== $dest_jpg, 'stem-collision: both derivative paths resolve (dest dir inside base)' );
+iwsl_assert( $dest_png !== $dest_jpg, 'stem-collision: same stem, different extension → DIFFERENT derivative paths' );
+iwsl_assert_same( '.webp', substr( $dest_png, -5 ), 'stem-collision: png derivative ends .webp' );
+iwsl_assert_same( '.webp', substr( $dest_jpg, -5 ), 'stem-collision: jpg derivative ends .webp' );
+iwsl_assert( 0 === strpos( $dest_png, $base_prefix ), 'stem-collision: png derivative stays inside the uploads base' );
+iwsl_assert( 0 === strpos( $dest_jpg, $base_prefix ), 'stem-collision: jpg derivative stays inside the uploads base' );
+iwsl_assert_same( $dest_png, $dp->invoke( $opt13, $base13 . '/logo.png' ), 'stem-collision: re-resolving the same source yields the SAME derivative (deterministic)' );
+
+// (b) end-to-end idempotency with the ext-folded name: a copy run of logo.png
+//     registers one copy at logo-png.webp; re-running is already-current, reuses
+//     the same copy id, and creates NO duplicate attachment.
+$png13 = $base13 . '/logo.png';
+file_put_contents( $png13, iwsl_mo_valid_png( 8, 8 ) );
+$GLOBALS['iwsl_mo_attachments'][ 851 ] = array( 'path' => $png13, 'mime' => 'image/png' );
+$r13a = $opt13->run( 'webp_lossless', 200, 'copy' );
+$copy13 = $r13a['items'][0]['copy_id'] ?? 0;
+iwsl_assert_same( 1, $r13a['converted'], 'stem-collision: logo.png copy run converts' );
+iwsl_assert( is_file( $base13 . '/logo-png.webp' ), 'stem-collision: derivative written at the ext-folded path' );
+iwsl_assert( $copy13 > 0, 'stem-collision: a copy attachment id is reported' );
+iwsl_assert_same( $base13 . '/logo-png.webp', $GLOBALS['iwsl_mo_attachments'][ $copy13 ]['path'], 'stem-collision: copy attachment points at the ext-folded derivative' );
+
+$attach_before = count( $GLOBALS['iwsl_mo_attachments'] );
+$r13b = $opt13->run( 'webp_lossless', 200, 'copy' );
+iwsl_assert_same( 'already-current', $r13b['items'][0]['reason'], 'stem-collision: re-run of the same source is already-current (idempotent)' );
+iwsl_assert_same( $copy13, (int) ( $r13b['items'][0]['copy_id'] ?? 0 ), 'stem-collision: re-run reuses the same copy id' );
+iwsl_assert_same( $attach_before, count( $GLOBALS['iwsl_mo_attachments'] ), 'stem-collision: re-run creates NO duplicate copy attachment' );
+
+// This suite is the only one that installs a global $wpdb; other suites bring
+// their own recording fake. Remove it so it never leaks across the shared runner.
+unset( $GLOBALS['wpdb'] );

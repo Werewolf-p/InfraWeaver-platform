@@ -20,9 +20,16 @@
  *      `// BEGIN InfraWeaver Config` … `// END InfraWeaver Config`, inserted right
  *      after the opening <?php (before wp-settings.php loads). Re-applying strips
  *      the existing block and re-inserts, so the block never duplicates.
- *   2. PHP ini limits → written inside an analogous `; BEGIN InfraWeaver Config`
- *      … `; END InfraWeaver Config` block in a managed `.user.ini` in ABSPATH.
- *      These pods run PHP-FPM, so `.user.ini` is honored.
+ *   2. PHP ini limits → written to whichever per-directory mechanism the RUNNING
+ *      SAPI actually honors (see php_limits_mechanism()). Apache mod_php
+ *      (`apache2handler`) IGNORES `.user.ini` entirely — that file is a
+ *      CGI/FastCGI feature — but honors `php_value` in `.htaccess`, so under
+ *      mod_php a `# BEGIN InfraWeaver Config` block of `php_value` directives is
+ *      written to `.htaccess` (prepended ABOVE WordPress's own markers, guarded by
+ *      `<IfModule mod_php*.c>`). Every FastCGI/FPM SAPI instead reads a
+ *      `; BEGIN InfraWeaver Config` block in a managed `.user.ini` in ABSPATH.
+ *      Picking the wrong file is the whole difference between the limit changing
+ *      and silently doing nothing — which is the bug this class exists to avoid.
  *
  * FAIL-SAFE. Every write path is best-effort and non-fatal. If a target is not
  * writable, NOTHING destructive happens: the keys for that target are reported
@@ -49,22 +56,35 @@ final class IWSL_Config_Editor {
 	const USERINI_BEGIN = '; BEGIN InfraWeaver Config';
 	const USERINI_END   = '; END InfraWeaver Config';
 
-	/** The managed PHP-FPM per-directory ini file, relative to ABSPATH. */
+	/** The managed FastCGI/FPM per-directory ini file, relative to ABSPATH. */
 	const USER_INI = '.user.ini';
 
-	/** @var string ABSPATH (WordPress root); base for the .user.ini. */
+	/** Managed-block markers in .htaccess (Apache line comments). */
+	const HTACCESS_BEGIN = '# BEGIN InfraWeaver Config';
+	const HTACCESS_END   = '# END InfraWeaver Config';
+
+	/** The managed Apache per-directory config, relative to ABSPATH (mod_php). */
+	const HTACCESS = '.htaccess';
+
+	/** @var string ABSPATH (WordPress root); base for the .user.ini / .htaccess. */
 	private $abspath;
 
 	/** @var string wp-config.php path (ABSPATH.'wp-config.php'). */
 	private $config_path;
 
+	/** @var string PHP SAPI name; decides the PHP-limits mechanism (mod_php→.htaccess, FastCGI→.user.ini). */
+	private $sapi;
+
 	/**
 	 * @param string|null $abspath     WordPress root; defaults ABSPATH. Injectable in the harness.
 	 * @param string|null $config_path wp-config path; defaults ABSPATH.'wp-config.php'. Injectable.
+	 * @param string|null $sapi        PHP SAPI name; defaults php_sapi_name(). Injectable so the harness can
+	 *                                 exercise both the mod_php (.htaccess) and FastCGI (.user.ini) paths.
 	 */
-	public function __construct( ?string $abspath = null, ?string $config_path = null ) {
+	public function __construct( ?string $abspath = null, ?string $config_path = null, ?string $sapi = null ) {
 		$this->abspath     = null !== $abspath ? $abspath : self::default_abspath();
 		$this->config_path = null !== $config_path ? $config_path : self::default_config_path();
+		$this->sapi        = null !== $sapi ? $sapi : (string) php_sapi_name();
 	}
 
 	// ── the allow-list (the ONLY keys that can ever be written) ─────────────────
@@ -128,14 +148,18 @@ final class IWSL_Config_Editor {
 	/**
 	 * Validate every submitted key against the allow-list + its validator, then
 	 * write the valid wp-config constants (managed block, only if wp-config
-	 * writable) and the valid .user.ini limits (managed block, only if writable).
-	 * A key that is unknown or fails validation is REJECTED into `skipped`, never
-	 * written. An unwritable target is non-fatal: its keys are reported in
-	 * `skipped` with a `*-unwritable` reason and a `manual_step`, and ok stays
-	 * true. Returns a fresh immutable result (no input mutation).
+	 * writable) and the valid PHP limits (to whichever file the running SAPI
+	 * honors — `.htaccess` under mod_php, `.user.ini` under FastCGI/FPM — only if
+	 * that target is writable). A key that is unknown or fails validation is
+	 * REJECTED into `skipped`, never written. An unwritable target is non-fatal:
+	 * its keys are reported in `skipped` with an `*-unwritable` reason and a
+	 * `manual_step`, and ok stays true. On a successful PHP-limits write the result
+	 * carries `php_limits_mechanism`, the live `effective` ini_get() values (which
+	 * only refresh on the NEXT request), and an honest `notes` entry saying so.
+	 * Returns a fresh immutable result (no input mutation).
 	 *
 	 * @param array $input Map of allow-list key => raw submitted value.
-	 * @return array{ok:bool,applied:array<int,string>,skipped:array<string,string>,wp_config_writable:bool,user_ini_writable:bool,manual_step?:string}
+	 * @return array{ok:bool,applied:array<int,string>,skipped:array<string,string>,wp_config_writable:bool,user_ini_writable:bool,php_limits_mechanism:string,php_limits_writable:bool,effective?:array<string,string>,notes?:array<int,string>,manual_step?:string}
 	 */
 	public function apply( array $input ): array {
 		$applied         = array();
@@ -167,9 +191,13 @@ final class IWSL_Config_Editor {
 			}
 		}
 
-		$wp_writable  = $this->wp_config_writable();
-		$ini_writable = $this->user_ini_writable();
-		$manual       = array();
+		$wp_writable     = $this->wp_config_writable();
+		$ini_writable    = $this->user_ini_writable();
+		$mechanism       = $this->php_limits_mechanism();
+		$limits_writable = $this->php_limits_writable();
+		$manual          = array();
+		$notes           = array();
+		$effective       = array();
 
 		if ( ! empty( $wpconfig_keys ) ) {
 			if ( $wp_writable && $this->write_wpconfig_block( $wpconfig_values ) ) {
@@ -186,26 +214,43 @@ final class IWSL_Config_Editor {
 		}
 
 		if ( ! empty( $userini_keys ) ) {
-			if ( $ini_writable && $this->write_userini_block( $userini_values ) ) {
+			$wrote = false;
+			if ( $limits_writable ) {
+				$wrote = ( 'htaccess' === $mechanism )
+					? $this->write_htaccess_block( $userini_values )
+					: $this->write_userini_block( $userini_values );
+			}
+			if ( $wrote ) {
 				foreach ( $userini_keys as $k ) {
-					$applied[] = $k;
+					$applied[]       = $k;
+					$live            = ini_get( $k );
+					$effective[ $k ] = ( false === $live ) ? '' : (string) $live;
 				}
+				$notes[] = $this->php_limits_effect_note( $mechanism );
 			} else {
-				$reason = $ini_writable ? 'user-ini-write-failed' : 'user-ini-unwritable';
+				$reason = $this->php_limits_skip_reason( $mechanism, $limits_writable );
 				foreach ( $userini_keys as $k ) {
 					$skipped[ $k ] = $reason;
 				}
-				$manual[] = $this->user_ini_manual_step();
+				$manual[] = $this->php_limits_manual_step( $mechanism );
 			}
 		}
 
 		$result = array(
-			'ok'                 => true,
-			'applied'            => $applied,
-			'skipped'            => $skipped,
-			'wp_config_writable' => $wp_writable,
-			'user_ini_writable'  => $ini_writable,
+			'ok'                   => true,
+			'applied'              => $applied,
+			'skipped'              => $skipped,
+			'wp_config_writable'   => $wp_writable,
+			'user_ini_writable'    => $ini_writable,
+			'php_limits_mechanism' => $mechanism,
+			'php_limits_writable'  => $limits_writable,
 		);
+		if ( ! empty( $effective ) ) {
+			$result['effective'] = $effective;
+		}
+		if ( ! empty( $notes ) ) {
+			$result['notes'] = $notes;
+		}
 		if ( ! empty( $manual ) ) {
 			$result['manual_step'] = implode( ' ', $manual );
 		}
@@ -396,6 +441,59 @@ final class IWSL_Config_Editor {
 		return implode( "\n", $lines ) . "\n";
 	}
 
+	// ── .htaccess managed block (mod_php php_value; strip-then-prepend; atomic) ──
+
+	/**
+	 * Replace the managed .htaccess block with `php_value` directives (mod_php).
+	 * Creates the file if absent (backing up only when it already existed). The
+	 * block is PREPENDED at the very top so it always sits OUTSIDE WordPress's own
+	 * `# BEGIN WordPress` … `# END WordPress` markers (which WP rewrites in place),
+	 * and each directive is wrapped in `<IfModule mod_php*.c>` so a server without
+	 * mod_php loaded never chokes on it. Non-fatal on any failure.
+	 */
+	private function write_htaccess_block( array $values ): bool {
+		$path = $this->htaccess_path();
+		if ( '' === $path ) {
+			return false;
+		}
+		$existing = '';
+		$had_file = is_file( $path );
+		if ( $had_file ) {
+			if ( ! is_readable( $path ) ) {
+				return false;
+			}
+			$raw = @file_get_contents( $path );
+			if ( false === $raw ) {
+				return false;
+			}
+			$existing = $raw;
+		}
+		$stripped = self::strip_block( $existing, self::HTACCESS_BEGIN, self::HTACCESS_END );
+		$block    = self::build_htaccess_block( $values );
+		$sep      = ( '' !== $stripped ) ? "\n" : '';
+		$new      = $block . $sep . $stripped;
+		return $this->write_atomic( $path, $existing, $new, $had_file );
+	}
+
+	/**
+	 * Build the .htaccess managed block: BEGIN, then the `php_value` directives
+	 * guarded by BOTH historic mod_php module tokens (`mod_php.c`, `mod_php7.c`) so
+	 * exactly one guard matches on any given build, then END. Every allow-listed
+	 * ini key is size/int, so `php_value` (not `php_flag`) is always correct.
+	 */
+	private static function build_htaccess_block( array $values ): string {
+		$lines = array( self::HTACCESS_BEGIN );
+		foreach ( array( 'mod_php.c', 'mod_php7.c' ) as $module ) {
+			$lines[] = '<IfModule ' . $module . '>';
+			foreach ( $values as $key => $literal ) {
+				$lines[] = 'php_value ' . $key . ' ' . $literal;
+			}
+			$lines[] = '</IfModule>';
+		}
+		$lines[] = self::HTACCESS_END;
+		return implode( "\n", $lines ) . "\n";
+	}
+
 	// ── shared block + write helpers ────────────────────────────────────────────
 
 	/** Remove the managed block (BEGIN…END + its own trailing newline). Idempotent. */
@@ -475,6 +573,113 @@ final class IWSL_Config_Editor {
 
 	private function user_ini_manual_step(): string {
 		return 'The .user.ini in the WordPress root is not writable — add the InfraWeaver Config block there by hand to apply the PHP limits.';
+	}
+
+	// ── PHP-limits mechanism: mod_php (.htaccess) vs FastCGI/FPM (.user.ini) ─────
+
+	/**
+	 * Which per-directory file actually controls PHP limits for the RUNNING SAPI.
+	 * Apache mod_php (`apache2handler`) IGNORES `.user.ini` — that file is a
+	 * CGI/FastCGI feature — but honors `php_value` in `.htaccess`. Every other SAPI
+	 * (php-fpm, php-cgi, LiteSpeed, CLI, …) either reads `.user.ini` or would FATAL
+	 * on a `php_value` in `.htaccess` if it sits behind Apache, so they all keep the
+	 * safe `.user.ini` path. `apache2handler` is thus the ONLY SAPI switched to
+	 * `.htaccess` — precisely the case where `.user.ini` silently does nothing.
+	 *
+	 * @return string 'htaccess' | 'user_ini'
+	 */
+	public function php_limits_mechanism(): string {
+		return ( 'apache2handler' === $this->sapi ) ? 'htaccess' : 'user_ini';
+	}
+
+	/** Whether the resolved PHP-limits target (.htaccess or .user.ini) is writable. */
+	public function php_limits_writable(): bool {
+		return ( 'htaccess' === $this->php_limits_mechanism() )
+			? $this->htaccess_writable()
+			: $this->user_ini_writable();
+	}
+
+	/** Whether the managed .htaccess (or ABSPATH, if the file is absent) is writable. */
+	public function htaccess_writable(): bool {
+		$path = $this->htaccess_path();
+		if ( '' === $path ) {
+			return false;
+		}
+		if ( is_file( $path ) ) {
+			return is_writable( $path );
+		}
+		$dir = rtrim( $this->abspath, '/\\' );
+		return '' !== $dir && is_dir( $dir ) && is_writable( $dir );
+	}
+
+	/** The path to the managed .htaccess, or '' when no ABSPATH is known. */
+	private function htaccess_path(): string {
+		if ( '' === $this->abspath ) {
+			return '';
+		}
+		return rtrim( $this->abspath, '/\\' ) . '/' . self::HTACCESS;
+	}
+
+	/**
+	 * The PHP limits currently CONFIGURED by the managed block (what we last wrote),
+	 * read back from the active mechanism's file. Distinct from current() — which
+	 * reports the live effective ini_get() — so a caller can show "configured 64M,
+	 * effective still 2M (pending next request)" and never silently lie. Missing
+	 * keys report ''. Side-effect free.
+	 *
+	 * @return array<string,string>
+	 */
+	public function configured_php_limits(): array {
+		$out = array();
+		foreach ( self::allowlist() as $key => $spec ) {
+			if ( 'userini' === $spec['group'] ) {
+				$out[ $key ] = '';
+			}
+		}
+		$mechanism = $this->php_limits_mechanism();
+		$path      = ( 'htaccess' === $mechanism ) ? $this->htaccess_path() : $this->user_ini_path();
+		if ( '' === $path || ! is_file( $path ) || ! is_readable( $path ) ) {
+			return $out;
+		}
+		$raw = @file_get_contents( $path );
+		if ( false === $raw ) {
+			return $out;
+		}
+		foreach ( $out as $key => $ignored ) {
+			$q = preg_quote( $key, '/' );
+			if ( 'htaccess' === $mechanism ) {
+				if ( 1 === preg_match( '/php_value\s+' . $q . '\s+(\S+)/i', $raw, $m ) ) {
+					$out[ $key ] = $m[1];
+				}
+			} elseif ( 1 === preg_match( '/^\s*' . $q . '\s*=\s*(\S+)/mi', $raw, $m ) ) {
+				$out[ $key ] = $m[1];
+			}
+		}
+		return $out;
+	}
+
+	/** An honest note about WHEN — and whether — a just-written PHP limit takes effect. */
+	private function php_limits_effect_note( string $mechanism ): string {
+		if ( 'htaccess' === $mechanism ) {
+			return 'PHP limits were written to .htaccess (Apache mod_php) and take effect on the NEXT request. This needs the site to permit php_value overrides (AllowOverride Options or All); a front web server that caps the request body (nginx client_max_body_size / Apache LimitRequestBody) still applies on top.';
+		}
+		return 'PHP limits were written to .user.ini (FastCGI/PHP-FPM) and take effect on the NEXT request — and up to user_ini.cache_ttl (' . (string) ini_get( 'user_ini.cache_ttl' ) . 's) later while FPM re-reads the file. A php.ini / pool php_admin_value pin or a front web-server body cap, if present, still overrides this.';
+	}
+
+	/** Skip reason for a PHP-limits write that could not happen (mechanism-accurate). */
+	private function php_limits_skip_reason( string $mechanism, bool $writable ): string {
+		if ( 'htaccess' === $mechanism ) {
+			return $writable ? 'htaccess-write-failed' : 'htaccess-unwritable';
+		}
+		return $writable ? 'user-ini-write-failed' : 'user-ini-unwritable';
+	}
+
+	/** Manual-remediation hint for an unwritable PHP-limits target (mechanism-accurate). */
+	private function php_limits_manual_step( string $mechanism ): string {
+		if ( 'htaccess' === $mechanism ) {
+			return 'The .htaccess in the WordPress root is not writable — add a `php_value upload_max_filesize …` block (Apache mod_php) there by hand to apply the PHP limits.';
+		}
+		return $this->user_ini_manual_step();
 	}
 
 	// ── defaults (WordPress-derived, guarded for the harness) ──────────────────

@@ -38,6 +38,7 @@ require __DIR__ . '/../includes/class-iwsl-rotation.php';
 require __DIR__ . '/../includes/class-iwsl-responder.php';
 require __DIR__ . '/../includes/class-iwsl-command-handler.php';
 require __DIR__ . '/../includes/class-iwsl-entitlements.php';
+require __DIR__ . '/../includes/class-iwsl-feature-switches.php';
 require __DIR__ . '/../includes/class-iwsl-plugin.php';
 require __DIR__ . '/../includes/class-iwsl-media-converter.php';
 require __DIR__ . '/../includes/class-iwsl-webp-lossless-converter.php';
@@ -58,6 +59,26 @@ require __DIR__ . '/../includes/class-iwsl-db-cleaner.php';
 require __DIR__ . '/../includes/class-iwsl-db-cleaners.php';
 require __DIR__ . '/../includes/class-iwsl-db-optimizer.php';
 require __DIR__ . '/../includes/class-iwsl-config-editor.php';
+// Plus feature engines (wave 2) — classifiers/helpers before their engines.
+require __DIR__ . '/../includes/class-iwsl-lazy-load.php';
+require __DIR__ . '/../includes/class-iwsl-cdn-rewrite.php';
+require __DIR__ . '/../includes/class-iwsl-duplicate-post.php';
+require __DIR__ . '/../includes/class-iwsl-seo-audit.php';
+require __DIR__ . '/../includes/class-iwsl-svg-upload.php';
+require __DIR__ . '/../includes/class-iwsl-broken-link-scan.php';
+require __DIR__ . '/../includes/class-iwsl-maintenance-mode.php';
+require __DIR__ . '/../includes/class-iwsl-scheduled-db-cleanup.php';
+require __DIR__ . '/../includes/class-iwsl-activity-log.php';
+require __DIR__ . '/../includes/class-iwsl-auto-convert.php';
+require __DIR__ . '/../includes/class-iwsl-speed-pack.php';
+require __DIR__ . '/../includes/class-iwsl-stats-classifier.php';
+require __DIR__ . '/../includes/class-iwsl-statistics.php';
+require __DIR__ . '/../includes/class-iwsl-consent-classifier.php';
+require __DIR__ . '/../includes/class-iwsl-cookie-consent.php';
+require __DIR__ . '/../includes/class-iwsl-seo-analyzer.php';
+require __DIR__ . '/../includes/class-iwsl-seo-head.php';
+require __DIR__ . '/../includes/class-iwsl-seo-sitemap.php';
+require __DIR__ . '/../includes/class-iwsl-seo-suite.php';
 
 $GLOBALS['iwsl_pass'] = 0;
 $GLOBALS['iwsl_fail'] = 0;
@@ -129,11 +150,54 @@ function iwsl_now_t0( int $offset_ms = 5000 ): callable {
 	};
 }
 
-$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache', 'config-editor' );
-foreach ( $suites as $suite ) {
-	echo "== {$suite}\n";
+$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements', 'feature-switches', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache', 'config-editor',
+	// Wave 2 feature suites. broken-link-scan runs after media-optimizer (whose
+	// global stubs it is designed around); speed-pack MUST be last (it defines
+	// remove_action/remove_filter recorder stubs).
+	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'speed-pack' );
+// CHILD MODE: `php run-tests.php <suite>` runs exactly ONE suite in this process.
+// Each suite is self-contained (it defines its own guarded WP-function stubs), so
+// running it in isolation is authoritative and free of cross-suite global leakage.
+if ( isset( $argv[1] ) && '' !== $argv[1] ) {
+	$suite = (string) $argv[1];
 	require __DIR__ . '/test-' . $suite . '.php';
+	echo "\n{$GLOBALS['iwsl_pass']} passed, {$GLOBALS['iwsl_fail']} failed\n";
+	exit( $GLOBALS['iwsl_fail'] > 0 ? 1 : 0 );
 }
 
-echo "\n{$GLOBALS['iwsl_pass']} passed, {$GLOBALS['iwsl_fail']} failed\n";
-exit( $GLOBALS['iwsl_fail'] > 0 ? 1 : 0 );
+// PARENT MODE: run every suite in its OWN php process and aggregate. Process
+// isolation is the fix for suites that (legitimately) define global function
+// stubs which would otherwise collide when required into one shared process.
+$total_pass = 0;
+$total_fail = 0;
+$had_crash  = false;
+foreach ( $suites as $suite ) {
+	$out = array();
+	$rc  = 0;
+	exec( escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __FILE__ ) . ' ' . escapeshellarg( $suite ) . ' 2>&1', $out, $rc );
+	$joined = implode( "\n", $out );
+	if ( preg_match( '/(\d+) passed, (\d+) failed/', $joined, $m ) ) {
+		$p = (int) $m[1];
+		$f = (int) $m[2];
+		$total_pass += $p;
+		$total_fail += $f;
+		if ( $f > 0 ) {
+			echo "== {$suite}: {$p} passed, {$f} FAILED\n";
+			foreach ( $out as $line ) {
+				if ( false !== strpos( $line, '[FAIL]' ) || false !== stripos( $line, 'fail' ) ) {
+					echo "     {$line}\n";
+				}
+			}
+		} else {
+			echo "== {$suite}: {$p} passed\n";
+		}
+	} else {
+		$had_crash   = true;
+		$total_fail += 1;
+		echo "== {$suite}: CRASH (rc={$rc})\n";
+		echo implode( "\n", array_slice( $out, -12 ) ) . "\n";
+	}
+}
+
+echo "\n{$total_pass} passed, {$total_fail} failed" . ( $had_crash ? ' (with crashes)' : '' ) . "\n";
+exit( $total_fail > 0 || $had_crash ? 1 : 0 );

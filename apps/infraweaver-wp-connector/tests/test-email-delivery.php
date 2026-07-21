@@ -78,9 +78,20 @@ function iwsl_ed_const( string $secret ): callable {
 	};
 }
 
-/** Engine wired to an injected transport registry (the real SMTP transport). */
-function iwsl_ed_engine( IWSL_Entitlements $ent, IWSL_Store $store, callable $clock, callable $constant ): IWSL_Email_Delivery {
-	return new IWSL_Email_Delivery( $ent, $store, $clock, $constant, array( 'smtp' => new IWSL_SMTP_Transport() ) );
+/** A fixed 64-char salt provider so at-rest encryption is deterministic under the harness. */
+function iwsl_ed_salt(): callable {
+	return static function (): string {
+		return 'iwsl-harness-fixed-salt-material-0123456789abcdef-ABCDEF-9876543210';
+	};
+}
+
+/**
+ * Engine wired to an injected transport registry (the real SMTP transport) plus a
+ * salt provider. Pass $salt to exercise the fail-closed path (e.g. an empty-string
+ * provider → no derivable key); defaults to the fixed harness salt.
+ */
+function iwsl_ed_engine( IWSL_Entitlements $ent, IWSL_Store $store, callable $clock, callable $constant, ?callable $salt = null ): IWSL_Email_Delivery {
+	return new IWSL_Email_Delivery( $ent, $store, $clock, $constant, array( 'smtp' => new IWSL_SMTP_Transport() ), $salt ?? iwsl_ed_salt() );
 }
 
 /** A complete, valid stored-settings array (optionally with an opted-in password). */
@@ -289,12 +300,25 @@ $base9   = array(
 	'allow_option_password' => true,
 );
 
+// The stored value is now ENCRYPTED at rest (ciphertext marker, never plaintext); the
+// EFFECTIVE (decrypted) secret is verified by what configure_mailer applies to a mailer.
 $engine9->save_settings( $base9 + array( 'password' => 'first' ) );
-iwsl_assert_same( 'first', $store9->get( 'email_smtp_settings' )['password'], 'empty-submit: initial secret stored' );
+$stored9a = $store9->get( 'email_smtp_settings' )['password'];
+iwsl_assert( 0 === strpos( $stored9a, IWSL_Email_Delivery::ENC_MARKER ), 'empty-submit: stored secret is ciphertext (marker prefix)' );
+iwsl_assert( false === strpos( $stored9a, 'first' ), 'empty-submit: plaintext never appears in the stored option' );
+$m9 = new IWSL_ED_Recording_PHPMailer();
+$engine9->configure_mailer( $m9 );
+iwsl_assert_same( 'first', $m9->Password, 'empty-submit: initial secret decrypts back to plaintext' );
+
 $engine9->save_settings( $base9 + array( 'password' => '' ) );
-iwsl_assert_same( 'first', $store9->get( 'email_smtp_settings' )['password'], 'empty-submit: blank submit keeps the prior secret' );
+$m9b = new IWSL_ED_Recording_PHPMailer();
+$engine9->configure_mailer( $m9b );
+iwsl_assert_same( 'first', $m9b->Password, 'empty-submit: blank submit keeps the prior secret' );
+
 $engine9->save_settings( $base9 + array( 'password' => 'second' ) );
-iwsl_assert_same( 'second', $store9->get( 'email_smtp_settings' )['password'], 'empty-submit: a non-blank submit replaces the secret' );
+$m9c = new IWSL_ED_Recording_PHPMailer();
+$engine9->configure_mailer( $m9c );
+iwsl_assert_same( 'second', $m9c->Password, 'empty-submit: a non-blank submit replaces the secret' );
 
 $render9 = $engine9->settings_for_render();
 iwsl_assert( ! array_key_exists( 'password', $render9 ), 'render: settings_for_render has NO password key' );
@@ -363,3 +387,116 @@ iwsl_assert( $transports['smtp'] instanceof IWSL_Mail_Transport, 'registry: entr
 iwsl_assert_same( 'smtp', $transports['smtp']->id(), 'registry: smtp id is stable' );
 $avail12 = $transports['smtp']->availability();
 iwsl_assert_same( true, $avail12['ok'], 'registry: smtp availability ok (in-process)' );
+
+// ── 13. At-rest encryption round-trip — ciphertext in the store, plaintext in use ─
+
+$secret13 = 'pla1n-smtp-secret-!@#';
+$store13  = new IWSL_Memory_Store();
+$engine13 = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store13, $ed_clock, $ed_const_none );
+$save13   = $engine13->save_settings( iwsl_ed_valid_settings( true, '' ) + array( 'password' => $secret13 ) );
+iwsl_assert_same( true, $save13['ok'], 'encryption: opted-in save with a password succeeds' );
+
+$blob13 = $store13->get( 'email_smtp_settings' )['password'];
+iwsl_assert( is_string( $blob13 ) && 0 === strpos( $blob13, IWSL_Email_Delivery::ENC_MARKER ), 'encryption: stored secret carries the ciphertext marker' );
+iwsl_assert( $blob13 !== $secret13, 'encryption: ciphertext differs from plaintext' );
+iwsl_assert( false === strpos( (string) json_encode( $store13->get( 'email_smtp_settings' ) ), $secret13 ), 'encryption: plaintext absent from the entire stored settings option' );
+
+// A fresh engine over the SAME store + salt decrypts it back for delivery.
+$engine13b = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store13, $ed_clock, $ed_const_none );
+$m13       = new IWSL_ED_Recording_PHPMailer();
+$engine13b->configure_mailer( $m13 );
+iwsl_assert_same( $secret13, $m13->Password, 'encryption: decrypts back to the exact plaintext for the mailer' );
+
+// A DIFFERENT salt (wrong key) must NOT decrypt — fail closed to no usable secret.
+$wrong_salt = static function (): string {
+	return 'a-totally-different-salt-value-that-derives-another-key';
+};
+$engine13c  = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store13, $ed_clock, $ed_const_none, $wrong_salt );
+$m13c       = new IWSL_ED_Recording_PHPMailer();
+$engine13c->configure_mailer( $m13c );
+iwsl_assert_same( '', $m13c->Password, 'encryption: wrong key fails authenticated decryption → no secret leaked' );
+
+// ── 14. Legacy plaintext migration — read as-is, re-encrypt on next save ───────
+
+$legacy14 = 'legacy-plaintext-pw';
+$store14  = new IWSL_Memory_Store();
+$store14->set( 'email_smtp_settings', iwsl_ed_valid_settings( true, $legacy14 ) ); // seeded WITHOUT marker.
+$engine14 = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store14, $ed_clock, $ed_const_none );
+
+// Legacy value has no marker → used verbatim (keeps working).
+$m14 = new IWSL_ED_Recording_PHPMailer();
+$engine14->configure_mailer( $m14 );
+iwsl_assert_same( $legacy14, $m14->Password, 'migration: legacy plaintext still delivers' );
+
+// Re-save (blank submit keeps the secret) → it is now encrypted at rest.
+$engine14->save_settings( iwsl_ed_valid_settings( true, '' ) + array( 'password' => '' ) );
+$blob14 = $store14->get( 'email_smtp_settings' )['password'];
+iwsl_assert( 0 === strpos( $blob14, IWSL_Email_Delivery::ENC_MARKER ), 'migration: legacy secret re-encrypted on next save' );
+iwsl_assert( false === strpos( $blob14, $legacy14 ), 'migration: plaintext gone from the store after re-save' );
+$m14b = new IWSL_ED_Recording_PHPMailer();
+$engine14->configure_mailer( $m14b );
+iwsl_assert_same( $legacy14, $m14b->Password, 'migration: re-encrypted secret still decrypts to the same plaintext' );
+
+// ── 15. Fail closed when no key material is derivable ─────────────────────────
+
+$empty_salt = static function (): string {
+	return '';
+};
+$store15  = new IWSL_Memory_Store();
+$engine15 = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store15, $ed_clock, $ed_const_none, $empty_salt );
+$res15    = $engine15->save_settings( iwsl_ed_valid_settings( true, '' ) + array( 'password' => 'must-not-persist' ) );
+iwsl_assert_same( 'password-encryption-unavailable', $res15['reason'], 'fail-closed: refuses to persist when no key can be derived' );
+iwsl_assert( false === strpos( (string) json_encode( $store15->get( 'email_smtp_settings', array() ) ), 'must-not-persist' ), 'fail-closed: plaintext secret NEVER written' );
+
+// ── 16. Log accuracy — single row per send; SMTP-vs-mail transport selection ──
+
+// (a) NOT configured: capture_mail's optimistic "sent" is RETRACTED by the failure,
+// leaving one honest "failed" (no confusing sent+failed pair, no opaque error).
+$store16a  = new IWSL_Memory_Store(); // empty → not configured.
+$engine16a = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store16a, $ed_clock, $ed_const_none );
+$engine16a->capture_mail( array( 'to' => 'a@x.test', 'subject' => 'InfraWeaver SMTP test' ) );
+$engine16a->capture_failure( new IWSL_ED_WP_Error_Stub( 'Could not instantiate mail function.', array( 'to' => 'a@x.test', 'subject' => 'InfraWeaver SMTP test' ) ) );
+$log16a = $engine16a->log();
+iwsl_assert_same( 1, count( $log16a ), 'log accuracy (unconfigured): exactly ONE entry, no phantom sent+failed pair' );
+iwsl_assert_same( 'failed', $log16a[0]['type'], 'log accuracy (unconfigured): the single entry is the failure' );
+iwsl_assert( false !== strpos( $log16a[0]['error'], 'not configured' ), 'log accuracy (unconfigured): honest actionable reason, not just the opaque PHPMailer string' );
+
+// (b) CONFIGURED but the send fails: phantom "sent" still retracted; the REAL SMTP
+// error is preserved (not overwritten by the unconfigured hint).
+$store16b  = new IWSL_Memory_Store();
+$engine16b = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store16b, $ed_clock, $ed_const_none );
+$engine16b->save_settings( iwsl_ed_valid_settings() );
+$engine16b->capture_mail( array( 'to' => 'b@x.test', 'subject' => 'Hi' ) );
+$engine16b->capture_failure( new IWSL_ED_WP_Error_Stub( 'SMTP connect() failed.', array( 'to' => 'b@x.test', 'subject' => 'Hi' ) ) );
+$log16b = $engine16b->log();
+iwsl_assert_same( 1, count( $log16b ), 'log accuracy (configured-fail): one entry, phantom sent retracted' );
+iwsl_assert( false !== strpos( $log16b[0]['error'], 'SMTP connect' ), 'log accuracy (configured-fail): real SMTP error preserved' );
+iwsl_assert( false === strpos( $log16b[0]['error'], 'not configured' ), 'log accuracy (configured-fail): unconfigured hint NOT applied when configured' );
+
+// (c) Configured + successful send: capture_mail alone → a single accurate "sent";
+// and configure_mailer routes through SMTP (isSMTP set) so mail() is never reached.
+$store16c  = new IWSL_Memory_Store();
+$engine16c = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store16c, $ed_clock, $ed_const_none );
+$engine16c->save_settings( iwsl_ed_valid_settings() );
+$m16c = new IWSL_ED_Recording_PHPMailer();
+$engine16c->configure_mailer( $m16c );
+iwsl_assert_same( 1, $m16c->is_smtp_called, 'transport selection: enabled+configured → isSMTP (never PHP mail())' );
+$engine16c->capture_mail( array( 'to' => 'c@x.test', 'subject' => 'Delivered' ) );
+$log16c = $engine16c->log();
+iwsl_assert_same( 1, count( $log16c ), 'log accuracy (success): a delivered send is a single "sent" row' );
+iwsl_assert_same( 'sent', $log16c[0]['type'], 'log accuracy (success): recorded as sent' );
+
+// (d) Ordering robustness: a prior SUCCESS is not clobbered by a LATER unrelated
+// failure — capture_mail always re-arms the retraction target.
+$store16d  = new IWSL_Memory_Store();
+$engine16d = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store16d, $ed_clock, $ed_const_none );
+$engine16d->save_settings( iwsl_ed_valid_settings() );
+$engine16d->capture_mail( array( 'to' => 'ok@x.test', 'subject' => 'Success' ) );          // success, no failure.
+$engine16d->capture_mail( array( 'to' => 'bad@x.test', 'subject' => 'Fails' ) );            // next send…
+$engine16d->capture_failure( new IWSL_ED_WP_Error_Stub( 'SMTP error', array( 'to' => 'bad@x.test', 'subject' => 'Fails' ) ) ); // …fails.
+$log16d = $engine16d->log();
+iwsl_assert_same( 2, count( $log16d ), 'ordering: success kept + failure recorded = two rows' );
+iwsl_assert_same( 'sent', $log16d[0]['type'], 'ordering: the earlier success survives' );
+iwsl_assert_same( 'Success', $log16d[0]['subject'], 'ordering: earlier success is the right row' );
+iwsl_assert_same( 'failed', $log16d[1]['type'], 'ordering: the later send is the failure' );
+iwsl_assert_same( 'Fails', $log16d[1]['subject'], 'ordering: failure is the right row' );

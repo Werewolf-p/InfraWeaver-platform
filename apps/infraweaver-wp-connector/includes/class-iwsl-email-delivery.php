@@ -32,12 +32,27 @@
  * FIRST; (2) database storage happens ONLY when the operator explicitly opts in
  * ("store password in the database, I understand the risk"), and save_settings()
  * refuses to persist a password otherwise (reason `password-storage-not-allowed`);
+ * (2b) any DB-stored secret is ENCRYPTED AT REST with AES-256-GCM (authenticated
+ * encryption) under a per-site key derived via HKDF from WordPress's own secret
+ * salts (wp_salt()/AUTH_KEY+SECURE_AUTH_KEY) — the key is never invented, hardcoded,
+ * or stored; encrypt_secret()/decrypt_secret() round-trip it, a marker prefix
+ * distinguishes ciphertext from a legacy plaintext value (which is re-encrypted on
+ * the next save), and if no authenticated cipher/key material exists the save FAILS
+ * CLOSED (reason `password-encryption-unavailable`) rather than write plaintext;
  * (3) the secret is NEVER echoed — settings_for_render() strips it wholesale and
  * the admin form always renders an empty value; (4) the secret is NEVER logged —
  * every log entry is a strict whitelist and capture_failure() runs the error string
  * through redact() so a PHPMailer error that quotes the password stores `****`;
  * (5) when the constant is defined it always wins and any submitted DB password is
  * discarded.
+ *
+ * LOG ACCURACY. The `wp_mail` filter fires BEFORE the send, so capture_mail() records
+ * an OPTIMISTIC "sent" and remembers it for the request; if that same send then fails
+ * (WordPress emits no success hook on this path), capture_failure() RETRACTS the
+ * phantom "sent" and stores a single accurate "failed" — never a confusing sent+failed
+ * pair. When SMTP is not configured, the send falls back to PHP mail() (absent in the
+ * container → "Could not instantiate mail function."); the failed entry then leads with
+ * an honest, actionable reason instead of that opaque PHPMailer string.
  *
  * SAFETY. No message body, headers, or attachments are ever stored — capture_mail()
  * reads ONLY `to` + `subject`, and capture_failure() extracts ONLY `to`/`subject`
@@ -67,6 +82,19 @@ final class IWSL_Email_Delivery {
 	/** Preferred password source — a wp-config constant keeps the secret out of the DB. */
 	const PASS_CONSTANT = 'IWSL_SMTP_PASS';
 
+	/** Ciphertext marker prefixing an at-rest-encrypted stored secret (distinguishes it from legacy plaintext). */
+	const ENC_MARKER = 'IWSLENCv1:';
+	/** Authenticated cipher for at-rest secret encryption — AEAD, never unauthenticated CBC. */
+	const ENC_CIPHER = 'aes-256-gcm';
+	/** GCM IV length (bytes). */
+	const ENC_IV_LEN = 12;
+	/** GCM auth-tag length (bytes). */
+	const ENC_TAG_LEN = 16;
+	/** HKDF domain-separation label for the per-site key derived from WP secret salts. */
+	const ENC_HKDF_INFO = 'IWSL-email-smtp-secret-v1';
+	/** Honest log detail when a send fell back to PHP mail() because SMTP is unconfigured. */
+	const UNCONFIGURED_HINT = 'SMTP is not configured, so WordPress used PHP mail() (unavailable in this environment). Save SMTP host and port to route mail through SMTP.';
+
 	/** Per-entry subject cap (chars). */
 	const MAX_SUBJECT_CHARS = 200;
 	/** Per-entry error cap (chars). */
@@ -93,6 +121,16 @@ final class IWSL_Email_Delivery {
 	/** @var array<string, IWSL_Mail_Transport> id-keyed transport registry. */
 	private $transports;
 
+	/** @var callable():string WP secret-salt material — the encryption-key IKM; NEVER stored. */
+	private $salt;
+
+	/**
+	 * @var array|null The optimistic "sent" entry recorded for the in-flight wp_mail()
+	 * (at the `wp_mail` filter, before the actual send), kept in memory for THIS request
+	 * so `capture_failure()` can retract it if the very same send then fails.
+	 */
+	private $pending_sent = null;
+
 	/**
 	 * @param IWSL_Entitlements                        $entitlements The gate.
 	 * @param IWSL_Store                               $store        Settings + log store.
@@ -101,13 +139,17 @@ final class IWSL_Email_Delivery {
 	 *                                                                source; defaults to defined()/constant().
 	 * @param array<string, IWSL_Mail_Transport>|null  $transports   Registry override (tests inject);
 	 *                                                                defaults to self::transports().
+	 * @param callable|null                            $salt         fn(): string — WP secret-salt material
+	 *                                                                (the encryption-key IKM); defaults to a
+	 *                                                                wp_salt()/AUTH_KEY reader. Injected by tests.
 	 */
 	public function __construct(
 		IWSL_Entitlements $entitlements,
 		IWSL_Store $store,
 		?callable $now_ms = null,
 		?callable $constant = null,
-		?array $transports = null
+		?array $transports = null,
+		?callable $salt = null
 	) {
 		$this->entitlements = $entitlements;
 		$this->store        = $store;
@@ -118,6 +160,24 @@ final class IWSL_Email_Delivery {
 			return defined( $name ) ? (string) constant( $name ) : null;
 		};
 		$this->transports = null !== $transports ? $transports : self::transports();
+		$this->salt       = $salt ?? static function (): string {
+			// Derive the key-material IKM from WordPress's own per-site secret salts.
+			// wp_salt() concatenates the KEY + SALT constants; combining the auth and
+			// secure_auth realms binds the IKM to two independent secrets. We NEVER
+			// store this — the key is re-derived on demand and lives only in memory.
+			$ikm = '';
+			if ( function_exists( 'wp_salt' ) ) {
+				$ikm = (string) wp_salt( 'auth' ) . (string) wp_salt( 'secure_auth' );
+			}
+			if ( '' === $ikm ) {
+				foreach ( array( 'AUTH_KEY', 'SECURE_AUTH_KEY', 'AUTH_SALT', 'SECURE_AUTH_SALT' ) as $const ) {
+					if ( defined( $const ) ) {
+						$ikm .= (string) constant( $const );
+					}
+				}
+			}
+			return $ikm;
+		};
 	}
 
 	/**
@@ -178,6 +238,28 @@ final class IWSL_Email_Delivery {
 			$this->strip_password( $settings ),
 			$this->effective_password( $settings )
 		);
+
+		// Force the From to an address the SMTP account is allowed to send AS.
+		// WordPress otherwise defaults to wordpress@<site-domain>, which strict
+		// providers (Office 365 / Gmail) reject ("not authenticated to send as" /
+		// 5.7.57). Prefer the operator-set From; fall back to the auth username
+		// (the authenticated mailbox — the address O365 expects). setFrom overrides
+		// the header From for THIS send; Sender sets the envelope MAIL FROM /
+		// Return-Path so it matches too. Applies to every wp_mail on the site.
+		$from_email = '' !== (string) $settings['from_email'] ? (string) $settings['from_email'] : (string) $settings['username'];
+		$valid_from = '' !== $from_email && ( function_exists( 'is_email' ) ? (bool) is_email( $from_email ) : 1 === preg_match( '/^[^@\s]+@[^@\s]+\.[^@\s]+$/', $from_email ) );
+		if ( $valid_from && is_object( $phpmailer ) && method_exists( $phpmailer, 'setFrom' ) ) {
+			$from_name = '' !== (string) $settings['from_name']
+				? (string) $settings['from_name']
+				: ( function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'name' ) : '' );
+			try {
+				$phpmailer->setFrom( $from_email, $from_name, false );
+			} catch ( \Exception $e ) {
+				$phpmailer->From = $from_email; // best-effort fallback.
+			}
+			$phpmailer->Sender = $from_email;
+		}
+
 		return is_array( $result ) ? $result : array( 'ok' => false, 'reason' => 'configure-failed' );
 	}
 
@@ -207,16 +289,18 @@ final class IWSL_Email_Delivery {
 			return array( 'ok' => false, 'reason' => 'bad-password' );
 		}
 
+		// $this->settings() decrypts any at-rest secret, so $prev_password is plaintext.
 		$previous      = $this->settings();
 		$prev_password = isset( $previous['password'] ) ? (string) $previous['password'] : '';
 		$constant_wins = null !== $this->constant_password();
 
+		// Resolve the PLAINTEXT secret to persist ('' = store none), then encrypt it
+		// below. Nothing is written to the store in plaintext.
+		$plain = '';
 		if ( $constant_wins ) {
-			// wp-config constant is authoritative: never write a DB password and
-			// discard whatever was submitted. Preserve any prior stored secret.
-			if ( '' !== $prev_password ) {
-				$next['password'] = $prev_password;
-			}
+			// wp-config constant is authoritative: never write a submitted DB password
+			// and discard whatever was submitted. Preserve any prior stored secret.
+			$plain = $prev_password;
 		} elseif ( ! $next['allow_option_password'] ) {
 			// DB storage not opted in: refuse an attempt to store a password. A blank
 			// submit is fine and drops any previously stored secret.
@@ -225,10 +309,21 @@ final class IWSL_Email_Delivery {
 			}
 		} elseif ( '' !== $submitted ) {
 			// Opted in with a new secret — set/replace it.
-			$next['password'] = $submitted;
+			$plain = $submitted;
 		} elseif ( '' !== $prev_password ) {
 			// Opted in, blank submit — keep the previous secret (masked-placeholder).
-			$next['password'] = $prev_password;
+			$plain = $prev_password;
+		}
+
+		if ( '' !== $plain ) {
+			// Encrypt at rest (AES-256-GCM, key derived from WP salts). FAIL CLOSED:
+			// if no authenticated cipher / key material is available we refuse to
+			// persist rather than silently store the secret in plaintext.
+			$ciphertext = $this->encrypt_secret( $plain );
+			if ( ! is_string( $ciphertext ) || '' === $ciphertext ) {
+				return array( 'ok' => false, 'reason' => 'password-encryption-unavailable' );
+			}
+			$next['password'] = $ciphertext;
 		}
 
 		$this->store->set( self::SETTINGS_KEY, $next );
@@ -269,7 +364,11 @@ final class IWSL_Email_Delivery {
 
 		try {
 			if ( is_array( $args ) ) {
-				$this->append_entry(
+				// The `wp_mail` filter fires BEFORE the send, so this is an OPTIMISTIC
+				// "sent": remember it in memory so capture_failure() can retract it if
+				// this very send then fails (WordPress emits no `wp_mail_succeeded` hook
+				// here, so a delivered mail must be recorded now and un-recorded on error).
+				$this->pending_sent = $this->append_entry(
 					array(
 						'at'      => $this->now_seconds(),
 						'type'    => 'sent',
@@ -299,22 +398,40 @@ final class IWSL_Email_Delivery {
 			return;
 		}
 
+		// Consume the in-flight optimistic "sent" (set by capture_mail for THIS send).
+		$pending            = $this->pending_sent;
+		$this->pending_sent = null;
+
 		try {
 			$data    = self::error_data( $error );
 			$to      = self::normalize_recipients( is_array( $data ) && isset( $data['to'] ) ? $data['to'] : array() );
 			$subject = is_array( $data ) && isset( $data['subject'] ) ? (string) $data['subject'] : '';
 			$secret  = $this->effective_password( $this->settings() );
-			$message = self::truncate( self::redact( self::error_message( $error ), $secret ), self::MAX_ERROR_CHARS );
 
-			$this->append_entry(
-				array(
-					'at'      => $this->now_seconds(),
-					'type'    => 'failed',
-					'to'      => $to,
-					'subject' => self::truncate( self::strip_crlf( $subject ), self::MAX_SUBJECT_CHARS ),
-					'error'   => $message,
-				)
+			// If SMTP is not configured the send could not have used SMTP — it fell back
+			// to PHP mail(). Lead with an honest, actionable reason instead of leaving the
+			// operator with PHPMailer's cryptic "Could not instantiate mail function.".
+			$raw = self::error_message( $error );
+			if ( ! $this->is_configured() ) {
+				$raw = self::UNCONFIGURED_HINT . ( '' !== $raw ? ' (' . $raw . ')' : '' );
+			}
+			$message = self::truncate( self::redact( $raw, $secret ), self::MAX_ERROR_CHARS );
+
+			$failed = array(
+				'at'      => $this->now_seconds(),
+				'type'    => 'failed',
+				'to'      => $to,
+				'subject' => self::truncate( self::strip_crlf( $subject ), self::MAX_SUBJECT_CHARS ),
+				'error'   => $message,
 			);
+
+			// A failed send must be ONE accurate row, never a confusing "sent"+"failed"
+			// pair: retract the phantom "sent" this send recorded, then store the failure.
+			if ( is_array( $pending ) ) {
+				$this->replace_last_entry( $pending, $failed );
+			} else {
+				$this->append_entry( $failed );
+			}
 		} catch ( \Throwable $e ) {
 			// Never let logging escape into the mail path — swallow.
 		}
@@ -385,12 +502,22 @@ final class IWSL_Email_Delivery {
 			'port'                  => isset( $stored['port'] ) ? (int) $stored['port'] : 0,
 			'auth'                  => isset( $stored['auth'] ) ? (bool) $stored['auth'] : false,
 			'username'              => isset( $stored['username'] ) ? (string) $stored['username'] : '',
+			'from_email'            => isset( $stored['from_email'] ) ? (string) $stored['from_email'] : '',
+			'from_name'             => isset( $stored['from_name'] ) ? (string) $stored['from_name'] : '',
 			'secure'                => ( isset( $stored['secure'] ) && in_array( $stored['secure'], self::SECURE_MODES, true ) )
 				? (string) $stored['secure'] : '',
 			'allow_option_password' => isset( $stored['allow_option_password'] ) ? (bool) $stored['allow_option_password'] : false,
 		);
 		if ( isset( $stored['password'] ) && is_string( $stored['password'] ) && '' !== $stored['password'] ) {
-			$merged['password'] = $stored['password'];
+			// Decrypt transparently. A legacy plaintext value (no ciphertext marker) is
+			// returned as-is and re-encrypted on the next save (migration). A value that
+			// carries our marker but fails authenticated decryption (tampered / rotated
+			// salts / crypto removed) is dropped — the site has no usable secret rather
+			// than a wrong one (fail closed).
+			$plain = $this->decrypt_secret( $stored['password'] );
+			if ( is_string( $plain ) && '' !== $plain ) {
+				$merged['password'] = $plain;
+			}
 		}
 		return $merged;
 	}
@@ -416,6 +543,96 @@ final class IWSL_Email_Delivery {
 		return null;
 	}
 
+	// ── at-rest secret encryption (AES-256-GCM; key derived from WP salts) ─────────
+
+	/** True when an authenticated cipher we can use is actually available in this runtime. */
+	private static function crypto_available(): bool {
+		return function_exists( 'openssl_encrypt' )
+			&& function_exists( 'openssl_decrypt' )
+			&& function_exists( 'random_bytes' )
+			&& function_exists( 'openssl_get_cipher_methods' )
+			&& in_array( self::ENC_CIPHER, openssl_get_cipher_methods(), true );
+	}
+
+	/**
+	 * Derive the 32-byte per-site AES key from the WP secret-salt IKM. HKDF-SHA-256
+	 * when available (domain-separated by ENC_HKDF_INFO), else a hashed fallback. The
+	 * key is NEVER stored — re-derived on demand, in memory only. Returns null when
+	 * there is no salt material to derive from (→ callers fail closed).
+	 */
+	private function encryption_key(): ?string {
+		$ikm = ( $this->salt )();
+		if ( ! is_string( $ikm ) || '' === $ikm ) {
+			return null;
+		}
+		if ( function_exists( 'hash_hkdf' ) ) {
+			return hash_hkdf( 'sha256', $ikm, 32, self::ENC_HKDF_INFO, '' );
+		}
+		return substr( hash( 'sha256', self::ENC_HKDF_INFO . "\x00" . $ikm, true ), 0, 32 );
+	}
+
+	/**
+	 * Encrypt a plaintext secret to `MARKER || base64(iv || tag || ciphertext)` with
+	 * AES-256-GCM and a random IV. Returns '' for '' input, and null when encryption
+	 * is not possible (no cipher or no key material) so the caller can FAIL CLOSED
+	 * rather than persist plaintext.
+	 */
+	private function encrypt_secret( string $plaintext ): ?string {
+		if ( '' === $plaintext ) {
+			return '';
+		}
+		if ( ! self::crypto_available() ) {
+			return null;
+		}
+		$key = $this->encryption_key();
+		if ( null === $key ) {
+			return null;
+		}
+		try {
+			$iv  = random_bytes( self::ENC_IV_LEN );
+			$tag = '';
+			$ct  = openssl_encrypt( $plaintext, self::ENC_CIPHER, $key, OPENSSL_RAW_DATA, $iv, $tag, '', self::ENC_TAG_LEN );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+		if ( ! is_string( $ct ) || '' === $ct || ! is_string( $tag ) || self::ENC_TAG_LEN !== strlen( $tag ) ) {
+			return null;
+		}
+		return self::ENC_MARKER . base64_encode( $iv . $tag . $ct );
+	}
+
+	/**
+	 * Decrypt a stored secret. A value WITHOUT the ciphertext marker is legacy
+	 * plaintext and returned unchanged (migration — it is re-encrypted on next save).
+	 * A marked value is authenticated-decrypted; null on any failure (bad crypto,
+	 * corrupt blob, wrong key, tamper) so the caller treats it as "no usable secret".
+	 */
+	private function decrypt_secret( string $stored ): ?string {
+		if ( 0 !== strpos( $stored, self::ENC_MARKER ) ) {
+			return $stored; // legacy plaintext.
+		}
+		if ( ! self::crypto_available() ) {
+			return null;
+		}
+		$key = $this->encryption_key();
+		if ( null === $key ) {
+			return null;
+		}
+		$blob = base64_decode( substr( $stored, strlen( self::ENC_MARKER ) ), true );
+		if ( false === $blob || strlen( $blob ) <= self::ENC_IV_LEN + self::ENC_TAG_LEN ) {
+			return null;
+		}
+		$iv  = substr( $blob, 0, self::ENC_IV_LEN );
+		$tag = substr( $blob, self::ENC_IV_LEN, self::ENC_TAG_LEN );
+		$ct  = substr( $blob, self::ENC_IV_LEN + self::ENC_TAG_LEN );
+		try {
+			$pt = openssl_decrypt( $ct, self::ENC_CIPHER, $key, OPENSSL_RAW_DATA, $iv, $tag );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+		return is_string( $pt ) ? $pt : null;
+	}
+
 	/** The transport to configure with — the 'smtp' registry entry, else the first. */
 	private function default_transport(): ?IWSL_Mail_Transport {
 		$transport = $this->transports['smtp'] ?? null;
@@ -432,12 +649,33 @@ final class IWSL_Email_Delivery {
 	 * field is scrubbed of CR/LF and of the live secret before storage, so no code
 	 * path can leak a password (or inject an SMTP header) into the log.
 	 */
-	private function append_entry( array $entry ): void {
+	private function append_entry( array $entry ): array {
 		$secret   = $this->effective_password( $this->settings() );
 		$scrubbed = self::scrub_entry( $entry, $secret );
 
 		$appended = array_merge( $this->log(), array( $scrubbed ) );
 		$this->store->set( self::LOG_KEY, array_slice( $appended, -self::MAX_LOG ) );
+		return $scrubbed;
+	}
+
+	/**
+	 * Retract the phantom "sent" recorded for THIS wp_mail() (if it is still the last
+	 * log entry) and store a single accurate replacement, immutably. Guarded by an
+	 * exact-equality check against the remembered "sent" entry so an unrelated log
+	 * write is never clobbered; if the phantom is gone, the replacement is just
+	 * appended. Never mutates the stored log in place.
+	 */
+	private function replace_last_entry( array $expected_last, array $replacement ): void {
+		$secret = $this->effective_password( $this->settings() );
+		$repl   = self::scrub_entry( $replacement, $secret );
+
+		$log  = $this->log();
+		$last = end( $log );
+		if ( false !== $last && $last === $expected_last ) {
+			array_pop( $log );
+		}
+		$log[] = $repl;
+		$this->store->set( self::LOG_KEY, array_slice( $log, -self::MAX_LOG ) );
 	}
 
 	/** Redact + CR/LF-strip every string in an entry, returning a NEW entry. */
@@ -498,6 +736,23 @@ final class IWSL_Email_Delivery {
 		}
 		$username = self::truncate( trim( $username ), self::MAX_FIELD_CHARS );
 
+		// From address: what the message is sent AS. Strict providers (Office 365,
+		// Gmail) refuse WordPress's default wordpress@<domain> — the From must be an
+		// address the authenticated mailbox may send as. Empty is allowed (falls back
+		// to the auth username at send time). CRLF is rejected (header injection).
+		$from_email = isset( $input['from_email'] ) ? trim( (string) $input['from_email'] ) : '';
+		if ( '' !== $from_email ) {
+			if ( self::has_crlf( $from_email ) || ( function_exists( 'is_email' ) ? ! is_email( $from_email ) : 1 !== preg_match( '/^[^@\s]+@[^@\s]+\.[^@\s]+$/', $from_email ) ) ) {
+				return array( 'ok' => false, 'reason' => 'bad-from-email' );
+			}
+			$from_email = self::truncate( $from_email, self::MAX_FIELD_CHARS );
+		}
+		$from_name = isset( $input['from_name'] ) ? (string) $input['from_name'] : '';
+		if ( self::has_crlf( $from_name ) ) {
+			return array( 'ok' => false, 'reason' => 'bad-from-name' );
+		}
+		$from_name = self::truncate( trim( $from_name ), self::MAX_FIELD_CHARS );
+
 		return array(
 			'ok'       => true,
 			'reason'   => '',
@@ -506,6 +761,8 @@ final class IWSL_Email_Delivery {
 				'port'                  => $port,
 				'auth'                  => ! empty( $input['auth'] ),
 				'username'              => $username,
+				'from_email'            => $from_email,
+				'from_name'             => $from_name,
 				'secure'                => $secure,
 				'allow_option_password' => ! empty( $input['allow_option_password'] ),
 			),
