@@ -27,11 +27,18 @@ final class IWSL_Plugin {
 	/** @var IWSL_Entitlements */
 	private $entitlements;
 
+	/** @var IWSL_Email_Delivery|null lazily built from the plugin's store + entitlements. */
+	private $email_delivery;
+
+	/** @var callable|null shared clock, threaded into lazily-built payloads. */
+	private $now_ms;
+
 	/** @var array<string, IWSL_Command_Handler> the command registry (§7), method-keyed. */
 	private $handlers;
 
 	public function __construct( IWSL_Store $store, ?callable $now_ms = null ) {
 		$this->store        = $store;
+		$this->now_ms       = $now_ms;
 		$this->enrollment   = new IWSL_Enrollment( $store, $now_ms );
 		$this->rotation     = new IWSL_Rotation( $store );
 		$this->responder    = new IWSL_Responder( $store, $this->rotation, $now_ms );
@@ -51,6 +58,18 @@ final class IWSL_Plugin {
 
 	public function entitlements(): IWSL_Entitlements {
 		return $this->entitlements;
+	}
+
+	/**
+	 * The SMTP delivery & email-log engine (gate flag `email_delivery`), built once
+	 * from the plugin's own entitlement gate + store and the shared clock. Lazy so a
+	 * request that never sends mail forces no object graph.
+	 */
+	public function email_delivery(): IWSL_Email_Delivery {
+		if ( null === $this->email_delivery ) {
+			$this->email_delivery = new IWSL_Email_Delivery( $this->entitlements, $this->store, $this->now_ms );
+		}
+		return $this->email_delivery;
 	}
 
 	public function rotation(): IWSL_Rotation {

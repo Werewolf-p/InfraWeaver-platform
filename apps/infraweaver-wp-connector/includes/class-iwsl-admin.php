@@ -103,12 +103,17 @@ final class IWSL_Admin {
 	}
 
 	public function add_menu(): void {
-		add_management_page(
+		// Top-level sidebar entry so operators can find the Plus features
+		// (image optimization, DB cleanup, email, redirects, white-label,
+		// page cache) directly, rather than buried under Tools.
+		add_menu_page(
 			'InfraWeaver Plus',
 			'InfraWeaver Plus',
 			'manage_options',
 			'infraweaver-plus',
-			array( $this, 'render_page' )
+			array( $this, 'render_page' ),
+			'dashicons-shield',
+			81
 		);
 	}
 
@@ -166,31 +171,515 @@ final class IWSL_Admin {
 		}
 		$gate = $this->plugin->entitlements()->evaluate( 'plus' );
 
-		echo '<div class="wrap">';
-		echo '<h1>InfraWeaver Plus</h1>';
-		echo '<p>Client-side feature gates — evaluated entirely from local plugin state. A gated feature runs only when the site is <strong>linked</strong>, has a <strong>fresh signed heartbeat</strong>, and has the matching entitlement granted from the console.</p>';
+		// Per-feature unlock state drives the live status dot on each tab.
+		$feature_map = array(
+			'images'     => IWSL_Media_Optimizer::FEATURE,
+			'database'   => IWSL_DB_Optimizer::FEATURE,
+			'email'      => IWSL_Email_Delivery::FEATURE,
+			'redirects'  => IWSL_Redirects::FEATURE,
+			'whitelabel' => IWSL_White_Label::FEATURE,
+			'cache'      => IWSL_Page_Cache::FEATURE,
+		);
+		$unlocked = array();
+		foreach ( $feature_map as $key => $feature ) {
+			$fg              = $this->plugin->entitlements()->evaluate( $feature );
+			$unlocked[ $key ] = ! empty( $fg['unlocked'] );
+		}
 
+		echo '<div class="wrap iwsl-shell">';
+		self::render_shell_styles();
+		$this->render_hero( $gate );
+		self::render_tab_nav( $gate, $unlocked );
+
+		echo '<div class="iwsl-panels">';
+
+		// ── Overview ──────────────────────────────────────────────────────────
+		echo '<section class="iwsl-tabpanel is-active" id="iwsl-tab-overview" role="tabpanel" aria-labelledby="iwsl-tabbtn-overview" tabindex="0">';
+		echo '<h2>' . esc_html__( 'Connection & entitlements', 'infraweaver-connector' ) . '</h2>';
+		echo '<p class="iwsl-lede">' . wp_kses(
+			__( 'Every Plus feature is gated locally. It runs only when this site is <strong>linked</strong>, shows a <strong>fresh signed heartbeat</strong>, and has the matching entitlement granted from the console — no standing WordPress&rarr;InfraWeaver path.', 'infraweaver-connector' ),
+			array( 'strong' => array() )
+		) . '</p>';
 		self::render_gate_table( $gate );
-
 		if ( ! empty( $gate['unlocked'] ) ) {
 			IWSL_Plus_Feature::render();
 		} else {
 			self::render_locked_notice( $gate );
 		}
+		echo '</section>';
 
+		// ── Feature panels (each existing renderer, wrapped as a tab panel) ───
+		echo '<section class="iwsl-tabpanel" id="iwsl-tab-images" role="tabpanel" aria-labelledby="iwsl-tabbtn-images" tabindex="0" hidden>';
 		$this->render_image_optimization_section();
+		echo '</section>';
 
-		$this->render_email_delivery_section();
-
-		$this->render_redirects_section();
-
-		$this->render_white_label_section();
-
+		echo '<section class="iwsl-tabpanel" id="iwsl-tab-database" role="tabpanel" aria-labelledby="iwsl-tabbtn-database" tabindex="0" hidden>';
 		$this->render_db_optimizer_section();
+		echo '</section>';
 
+		echo '<section class="iwsl-tabpanel" id="iwsl-tab-email" role="tabpanel" aria-labelledby="iwsl-tabbtn-email" tabindex="0" hidden>';
+		$this->render_email_delivery_section();
+		echo '</section>';
+
+		echo '<section class="iwsl-tabpanel" id="iwsl-tab-redirects" role="tabpanel" aria-labelledby="iwsl-tabbtn-redirects" tabindex="0" hidden>';
+		$this->render_redirects_section();
+		echo '</section>';
+
+		echo '<section class="iwsl-tabpanel" id="iwsl-tab-whitelabel" role="tabpanel" aria-labelledby="iwsl-tabbtn-whitelabel" tabindex="0" hidden>';
+		$this->render_white_label_section();
+		echo '</section>';
+
+		echo '<section class="iwsl-tabpanel" id="iwsl-tab-cache" role="tabpanel" aria-labelledby="iwsl-tabbtn-cache" tabindex="0" hidden>';
 		$this->render_page_cache_section();
+		echo '</section>';
 
+		echo '</div>'; // .iwsl-panels
+
+		self::render_shell_script();
+		echo '</div>'; // .wrap.iwsl-shell
+	}
+
+	/** The seven tabs, in display order. Shared by the nav and the status dots. */
+	private static function tab_defs(): array {
+		return array(
+			array( 'id' => 'overview', 'label' => 'Overview', 'icon' => 'shield' ),
+			array( 'id' => 'images', 'label' => 'Images', 'icon' => 'format-image' ),
+			array( 'id' => 'database', 'label' => 'Database', 'icon' => 'database' ),
+			array( 'id' => 'email', 'label' => 'Email', 'icon' => 'email-alt' ),
+			array( 'id' => 'redirects', 'label' => 'Redirects', 'icon' => 'randomize' ),
+			array( 'id' => 'whitelabel', 'label' => 'White-Label', 'icon' => 'art' ),
+			array( 'id' => 'cache', 'label' => 'Cache', 'icon' => 'performance' ),
+		);
+	}
+
+	/** The branded header: identity, connector version, and three live posture chips. */
+	private function render_hero( array $gate ): void {
+		$chips = array(
+			array( 'label' => 'Linked', 'ok' => ! empty( $gate['linked'] ) ),
+			array( 'label' => 'Heartbeat', 'ok' => ! empty( $gate['heartbeat_fresh'] ) ),
+			array( 'label' => 'Plus', 'ok' => ! empty( $gate['plus'] ) ),
+		);
+		$version = defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : '';
+
+		echo '<header class="iwsl-hero">';
+		echo '<div class="iwsl-hero__glow" aria-hidden="true"></div>';
+		echo '<div class="iwsl-hero__lead">';
+		echo '<span class="iwsl-hero__mark" aria-hidden="true"><span class="dashicons dashicons-shield"></span></span>';
+		echo '<div>';
+		echo '<h1 class="iwsl-hero__title">InfraWeaver <span>Plus</span></h1>';
+		echo '<p class="iwsl-hero__sub">' . esc_html__( 'Signed, console-granted power features for this site.', 'infraweaver-connector' );
+		if ( '' !== $version ) {
+			echo ' <span class="iwsl-hero__ver">Connector v' . esc_html( $version ) . '</span>';
+		}
+		echo '</p>';
 		echo '</div>';
+		echo '</div>';
+
+		echo '<div class="iwsl-hero__posture" role="group" aria-label="' . esc_attr__( 'Link posture', 'infraweaver-connector' ) . '">';
+		foreach ( $chips as $chip ) {
+			$cls = $chip['ok'] ? 'is-ok' : 'is-off';
+			echo '<span class="iwsl-chip ' . esc_attr( $cls ) . '">';
+			echo '<span class="iwsl-chip__dot" aria-hidden="true"></span>';
+			echo esc_html( $chip['label'] );
+			echo '<span class="screen-reader-text">: ' . ( $chip['ok'] ? esc_html__( 'active', 'infraweaver-connector' ) : esc_html__( 'inactive', 'infraweaver-connector' ) ) . '</span>';
+			echo '</span>';
+		}
+		echo '</div>';
+		echo '</header>';
+	}
+
+	/** The horizontal tab rail. Each feature tab carries a live locked/active dot. */
+	private static function render_tab_nav( array $gate, array $unlocked ): void {
+		echo '<nav class="iwsl-tabnav" role="tablist" aria-label="' . esc_attr__( 'InfraWeaver Plus sections', 'infraweaver-connector' ) . '">';
+		foreach ( self::tab_defs() as $i => $tab ) {
+			$id       = $tab['id'];
+			$is_first = 0 === $i;
+			$state    = 'overview' === $id ? 'core' : ( ! empty( $unlocked[ $id ] ) ? 'on' : 'off' );
+			echo '<button type="button" class="iwsl-tab' . ( $is_first ? ' is-active' : '' ) . '"'
+				. ' id="iwsl-tabbtn-' . esc_attr( $id ) . '"'
+				. ' role="tab" aria-controls="iwsl-tab-' . esc_attr( $id ) . '"'
+				. ' aria-selected="' . ( $is_first ? 'true' : 'false' ) . '"'
+				. ' tabindex="' . ( $is_first ? '0' : '-1' ) . '"'
+				. ' data-tab="' . esc_attr( $id ) . '">';
+			echo '<span class="dashicons dashicons-' . esc_attr( $tab['icon'] ) . '" aria-hidden="true"></span>';
+			echo '<span class="iwsl-tab__label">' . esc_html( $tab['label'] ) . '</span>';
+			if ( 'core' !== $state ) {
+				echo '<span class="iwsl-tab__status iwsl-tab__status--' . esc_attr( $state ) . '" aria-hidden="true"></span>';
+			}
+			echo '</button>';
+		}
+		echo '</nav>';
+	}
+
+	/**
+	 * The scoped design system for the whole page. Everything is namespaced
+	 * under `.iwsl-shell` so it restyles the sections' native markup
+	 * (.widefat, .form-table, .button*, .notice*, inputs) without leaking into
+	 * the rest of wp-admin. Ships inline — no external asset, no CDN, no build.
+	 */
+	private static function render_shell_styles(): void {
+		echo "<style id='iwsl-plus-css'>\n";
+		echo <<<'CSS'
+#wpcontent .iwsl-shell{
+	--iw-bg: oklch(0.205 0.021 264);
+	--iw-panel: oklch(0.248 0.023 264);
+	--iw-panel-2: oklch(0.288 0.025 264);
+	--iw-field: oklch(0.262 0.021 264);
+	--iw-line: color-mix(in oklch, white 11%, transparent);
+	--iw-line-2: color-mix(in oklch, white 20%, transparent);
+	--iw-ink: oklch(0.965 0.004 264);
+	--iw-muted: oklch(0.79 0.014 264);
+	--iw-faint: oklch(0.66 0.015 264);
+	--iw-signal: oklch(0.83 0.128 196);
+	--iw-signal-2: oklch(0.9 0.09 196);
+	--iw-signal-ink: oklch(0.24 0.03 220);
+	--iw-violet: oklch(0.72 0.15 300);
+	--iw-warn: oklch(0.84 0.13 85);
+	--iw-bad: oklch(0.74 0.16 25);
+	--iw-good: oklch(0.82 0.15 156);
+	--iw-r: 16px;
+	--iw-r-sm: 10px;
+	--iw-ease: cubic-bezier(0.22, 1, 0.36, 1);
+	--iw-z-rail: 20;
+	margin: 18px 20px 48px 0;
+	max-width: 1180px;
+	color: var(--iw-ink);
+	background: var(--iw-bg);
+	border: 1px solid var(--iw-line);
+	border-radius: calc(var(--iw-r) + 6px);
+	overflow: clip;
+	box-shadow: 0 1px 0 color-mix(in oklch, white 6%, transparent) inset, 0 24px 60px -30px oklch(0 0 0 / 0.7);
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", sans-serif;
+	-webkit-font-smoothing: antialiased;
+}
+#wpcontent .iwsl-shell *,
+#wpcontent .iwsl-shell *::before,
+#wpcontent .iwsl-shell *::after{ box-sizing: border-box; }
+.iwsl-shell a{ color: var(--iw-signal-2); }
+.iwsl-shell strong{ color: var(--iw-ink); font-weight: 650; }
+
+/* ── Hero ─────────────────────────────────────────────────────────────── */
+.iwsl-hero{
+	position: relative;
+	display: flex; flex-wrap: wrap; gap: 20px;
+	align-items: center; justify-content: space-between;
+	padding: 30px 32px;
+	background:
+		radial-gradient(120% 140% at 12% -10%, color-mix(in oklch, var(--iw-violet) 26%, transparent), transparent 55%),
+		radial-gradient(120% 160% at 108% 130%, color-mix(in oklch, var(--iw-signal) 20%, transparent), transparent 52%),
+		var(--iw-panel);
+	border-bottom: 1px solid var(--iw-line);
+	overflow: clip;
+}
+.iwsl-hero__glow{
+	position: absolute; inset: auto -10% -60% 40%; height: 200px;
+	background: radial-gradient(closest-side, color-mix(in oklch, var(--iw-signal) 34%, transparent), transparent);
+	filter: blur(30px); opacity: 0.7; pointer-events: none;
+}
+.iwsl-hero__lead{ display: flex; align-items: center; gap: 18px; position: relative; z-index: 1; }
+.iwsl-hero__mark{
+	display: grid; place-items: center; width: 52px; height: 52px; flex: none;
+	border-radius: 14px; color: var(--iw-signal-ink);
+	background: linear-gradient(155deg, var(--iw-signal-2), var(--iw-signal));
+	box-shadow: 0 8px 22px -8px color-mix(in oklch, var(--iw-signal) 70%, transparent), 0 0 0 1px color-mix(in oklch, white 22%, transparent) inset;
+}
+.iwsl-hero__mark .dashicons{ font-size: 30px; width: 30px; height: 30px; }
+.iwsl-hero__title{
+	margin: 0; padding: 0; font-size: clamp(1.6rem, 1.1rem + 1.4vw, 2.1rem);
+	font-weight: 750; letter-spacing: -0.02em; line-height: 1.05; color: var(--iw-ink);
+}
+.iwsl-hero__title span{ color: var(--iw-signal-2); font-weight: 750; }
+.iwsl-hero__sub{ margin: 6px 0 0; color: var(--iw-muted); font-size: 13.5px; }
+.iwsl-hero__ver{
+	display: inline-block; margin-left: 4px; padding: 2px 8px; border-radius: 999px;
+	font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em; color: var(--iw-signal-2);
+	background: color-mix(in oklch, var(--iw-signal) 15%, transparent);
+	border: 1px solid color-mix(in oklch, var(--iw-signal) 30%, transparent);
+}
+.iwsl-hero__posture{ position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; }
+.iwsl-chip{
+	display: inline-flex; align-items: center; gap: 8px;
+	padding: 7px 13px 7px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+	border: 1px solid var(--iw-line-2); background: color-mix(in oklch, black 14%, transparent);
+	color: var(--iw-muted);
+}
+.iwsl-chip__dot{ width: 8px; height: 8px; border-radius: 50%; background: var(--iw-faint); flex: none; }
+.iwsl-chip.is-ok{ color: var(--iw-ink); border-color: color-mix(in oklch, var(--iw-good) 40%, transparent); }
+.iwsl-chip.is-ok .iwsl-chip__dot{
+	background: var(--iw-good);
+	box-shadow: 0 0 0 4px color-mix(in oklch, var(--iw-good) 22%, transparent);
+	animation: iwsl-pulse 2.4s var(--iw-ease) infinite;
+}
+.iwsl-chip.is-off{ opacity: 0.72; }
+.iwsl-chip.is-off .iwsl-chip__dot{ background: var(--iw-bad); }
+
+/* ── Tab rail ─────────────────────────────────────────────────────────── */
+.iwsl-tabnav{
+	position: sticky; top: 32px; z-index: var(--iw-z-rail);
+	display: flex; gap: 4px; padding: 8px; overflow-x: auto; scrollbar-width: none;
+	background: color-mix(in oklch, var(--iw-bg) 82%, transparent);
+	backdrop-filter: blur(10px);
+	border-bottom: 1px solid var(--iw-line);
+}
+.iwsl-tabnav::-webkit-scrollbar{ display: none; }
+.iwsl-tab{
+	position: relative; display: inline-flex; align-items: center; gap: 8px; flex: none;
+	padding: 10px 15px; border: 0; border-radius: var(--iw-r-sm); cursor: pointer;
+	background: transparent; color: var(--iw-muted); font-size: 13.5px; font-weight: 600;
+	font-family: inherit; white-space: nowrap;
+	transition: color .18s var(--iw-ease), background .18s var(--iw-ease);
+}
+.iwsl-tab .dashicons{ font-size: 18px; width: 18px; height: 18px; opacity: 0.85; }
+.iwsl-tab:hover{ color: var(--iw-ink); background: color-mix(in oklch, white 5%, transparent); }
+.iwsl-tab.is-active{ color: var(--iw-ink); background: var(--iw-panel-2); box-shadow: 0 1px 0 var(--iw-line-2) inset; }
+.iwsl-tab.is-active::after{
+	content: ""; position: absolute; left: 14px; right: 14px; bottom: -8px; height: 2px;
+	border-radius: 2px; background: var(--iw-signal);
+	box-shadow: 0 0 10px color-mix(in oklch, var(--iw-signal) 70%, transparent);
+}
+.iwsl-tab:focus-visible{ outline: 2px solid var(--iw-signal); outline-offset: 2px; }
+.iwsl-tab__status{ width: 7px; height: 7px; border-radius: 50%; margin-left: 1px; }
+.iwsl-tab__status--on{ background: var(--iw-good); box-shadow: 0 0 0 3px color-mix(in oklch, var(--iw-good) 20%, transparent); }
+.iwsl-tab__status--off{ background: color-mix(in oklch, var(--iw-bad) 75%, var(--iw-faint)); }
+
+/* ── Panels ───────────────────────────────────────────────────────────── */
+.iwsl-panels{ padding: 26px 32px 34px; }
+.iwsl-tabpanel[hidden]{ display: none; }
+.iwsl-tabpanel:focus{ outline: none; }
+.iwsl-tabpanel > h2:first-child,
+.iwsl-tabpanel > .iwsl-lede + h2{ margin-top: 0; }
+.iwsl-lede{ max-width: 68ch; color: var(--iw-muted); font-size: 14px; line-height: 1.6; margin: 0 0 20px; }
+
+/* Section chrome emitted by the renderers */
+.iwsl-shell h2{ font-size: 19px; font-weight: 700; letter-spacing: -0.01em; color: var(--iw-ink); margin: 4px 0 14px; }
+.iwsl-shell h3{ font-size: 14px; font-weight: 650; color: var(--iw-ink); margin: 26px 0 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.iwsl-shell h3::before{ content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 9px; border-radius: 2px; background: var(--iw-signal); transform: translateY(-1px); }
+.iwsl-shell p{ color: var(--iw-muted); font-size: 13.5px; line-height: 1.6; }
+.iwsl-shell hr{ display: none; }
+.iwsl-shell .screen-reader-text{ position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* Tables — data (.widefat) */
+.iwsl-shell table.widefat{
+	background: var(--iw-panel); border: 1px solid var(--iw-line); border-radius: var(--iw-r);
+	border-collapse: separate; border-spacing: 0; overflow: clip; box-shadow: none; margin-top: 14px;
+}
+.iwsl-shell table.widefat thead th{
+	background: color-mix(in oklch, var(--iw-panel-2) 70%, transparent); color: var(--iw-faint);
+	font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+	padding: 11px 16px; border: 0; border-bottom: 1px solid var(--iw-line-2);
+}
+.iwsl-shell table.widefat td,
+.iwsl-shell table.widefat tbody th{
+	padding: 12px 16px; border: 0; border-top: 1px solid var(--iw-line);
+	color: var(--iw-ink); font-size: 13.5px; background: transparent;
+}
+.iwsl-shell table.widefat tbody th{ color: var(--iw-muted); font-weight: 600; }
+.iwsl-shell table.widefat.striped > tbody > :nth-child(odd){ background: color-mix(in oklch, white 2.5%, transparent); }
+.iwsl-shell table.widefat tbody tr:hover td,
+.iwsl-shell table.widefat tbody tr:hover th{ background: color-mix(in oklch, var(--iw-signal) 7%, transparent); }
+.iwsl-shell td span[style*="1a7f37"]{ color: var(--iw-good) !important; font-weight: 650 !important; }
+.iwsl-shell td span[style*="b3261e"]{ color: var(--iw-bad) !important; font-weight: 650 !important; }
+
+/* Tables — forms (.form-table) */
+.iwsl-shell table.form-table{ margin-top: 8px; max-width: 640px; }
+.iwsl-shell .form-table th{ color: var(--iw-muted); font-weight: 600; font-size: 13px; padding: 14px 16px 14px 0; width: 190px; vertical-align: top; }
+.iwsl-shell .form-table td{ padding: 10px 0; }
+.iwsl-shell .form-table td p.description,
+.iwsl-shell .form-table td .description{ color: var(--iw-faint); font-size: 12.5px; }
+
+/* Inputs */
+.iwsl-shell input[type="text"],
+.iwsl-shell input[type="number"],
+.iwsl-shell input[type="password"],
+.iwsl-shell input[type="url"],
+.iwsl-shell input[type="email"],
+.iwsl-shell select,
+.iwsl-shell textarea{
+	background: var(--iw-field); color: var(--iw-ink);
+	border: 1px solid var(--iw-line-2); border-radius: var(--iw-r-sm);
+	padding: 9px 12px; font-size: 13.5px; line-height: 1.4; min-height: 40px; box-shadow: none;
+	transition: border-color .15s var(--iw-ease), box-shadow .15s var(--iw-ease);
+}
+.iwsl-shell textarea{ min-height: 72px; }
+.iwsl-shell select{ padding-right: 30px; }
+.iwsl-shell input::placeholder,
+.iwsl-shell textarea::placeholder{ color: var(--iw-faint); }
+.iwsl-shell input:focus,
+.iwsl-shell select:focus,
+.iwsl-shell textarea:focus{
+	border-color: var(--iw-signal); outline: none;
+	box-shadow: 0 0 0 3px color-mix(in oklch, var(--iw-signal) 26%, transparent);
+}
+.iwsl-shell label{ color: var(--iw-muted); font-size: 13px; }
+
+/* Buttons */
+.iwsl-shell .button,
+.iwsl-shell .button-primary,
+.iwsl-shell .button-secondary{
+	display: inline-flex; align-items: center; gap: 7px; height: auto; min-height: 40px;
+	padding: 9px 17px; border-radius: var(--iw-r-sm); font-size: 13.5px; font-weight: 600;
+	line-height: 1.2; border: 1px solid var(--iw-line-2); background: var(--iw-panel-2);
+	color: var(--iw-ink); text-shadow: none; box-shadow: none; cursor: pointer;
+	transition: transform .12s var(--iw-ease), background .16s var(--iw-ease), border-color .16s var(--iw-ease), box-shadow .16s var(--iw-ease);
+}
+.iwsl-shell .button:hover{ background: color-mix(in oklch, white 9%, var(--iw-panel-2)); border-color: var(--iw-line-2); color: var(--iw-ink); transform: translateY(-1px); }
+.iwsl-shell .button-primary{
+	background: linear-gradient(155deg, var(--iw-signal-2), var(--iw-signal));
+	color: var(--iw-signal-ink); border-color: transparent;
+	box-shadow: 0 8px 20px -10px color-mix(in oklch, var(--iw-signal) 80%, transparent);
+}
+.iwsl-shell .button-primary:hover{ color: var(--iw-signal-ink); transform: translateY(-1px); box-shadow: 0 12px 26px -10px color-mix(in oklch, var(--iw-signal) 90%, transparent); filter: brightness(1.04); }
+.iwsl-shell .button:active,
+.iwsl-shell .button-primary:active{ transform: translateY(0); }
+.iwsl-shell .button:focus-visible,
+.iwsl-shell .button-primary:focus-visible{ outline: 2px solid var(--iw-signal); outline-offset: 2px; box-shadow: none; }
+.iwsl-shell .button-link-delete{
+	background: transparent; border-color: transparent; color: var(--iw-bad); min-height: 0; padding: 4px 8px; box-shadow: none;
+}
+.iwsl-shell .button-link-delete:hover{ background: color-mix(in oklch, var(--iw-bad) 16%, transparent); color: var(--iw-bad); transform: none; }
+.iwsl-shell .button.is-busy{ pointer-events: none; opacity: 0.75; }
+.iwsl-shell .button.is-busy::after{
+	content: ""; width: 14px; height: 14px; border-radius: 50%; margin-left: 2px;
+	border: 2px solid color-mix(in oklch, currentColor 35%, transparent); border-top-color: currentColor;
+	animation: iwsl-spin .7s linear infinite;
+}
+
+/* Notices */
+.iwsl-shell .notice{
+	border: 1px solid var(--iw-line-2); border-left-width: 1px; border-radius: var(--iw-r-sm);
+	background: var(--iw-panel); color: var(--iw-ink); box-shadow: none;
+}
+.iwsl-shell .notice p{ color: var(--iw-ink); }
+.iwsl-shell .notice ul{ color: var(--iw-muted); }
+.iwsl-shell .notice-success{ background: color-mix(in oklch, var(--iw-good) 12%, var(--iw-panel)); border-color: color-mix(in oklch, var(--iw-good) 45%, transparent); }
+.iwsl-shell .notice-warning{ background: color-mix(in oklch, var(--iw-warn) 11%, var(--iw-panel)); border-color: color-mix(in oklch, var(--iw-warn) 42%, transparent); }
+.iwsl-shell .notice-error{ background: color-mix(in oklch, var(--iw-bad) 12%, var(--iw-panel)); border-color: color-mix(in oklch, var(--iw-bad) 45%, transparent); }
+.iwsl-shell .notice-warning ul{ margin-top: 6px; }
+
+/* Checkboxes / labels inline */
+.iwsl-shell input[type="checkbox"]{ accent-color: var(--iw-signal); width: 17px; height: 17px; }
+
+/* ── Motion ───────────────────────────────────────────────────────────── */
+@keyframes iwsl-spin{ to{ transform: rotate(360deg); } }
+@keyframes iwsl-pulse{ 0%,100%{ box-shadow: 0 0 0 3px color-mix(in oklch, var(--iw-good) 24%, transparent); } 50%{ box-shadow: 0 0 0 6px color-mix(in oklch, var(--iw-good) 6%, transparent); } }
+@keyframes iwsl-rise{ from{ opacity: 0; transform: translateY(10px); } to{ opacity: 1; transform: translateY(0); } }
+/* Entrance is opt-in (JS adds .is-entering on a user-initiated switch), so
+   panel content is fully visible by default — never gated behind an animation
+   that could stall on a headless/print render or with JS disabled. */
+@media (prefers-reduced-motion: no-preference){
+	.iwsl-tabpanel.is-entering > *{ animation: iwsl-rise .45s var(--iw-ease) both; }
+	.iwsl-tabpanel.is-entering > *:nth-child(1){ animation-delay: .02s; }
+	.iwsl-tabpanel.is-entering > *:nth-child(2){ animation-delay: .07s; }
+	.iwsl-tabpanel.is-entering > *:nth-child(3){ animation-delay: .12s; }
+	.iwsl-tabpanel.is-entering > *:nth-child(4){ animation-delay: .17s; }
+	.iwsl-tabpanel.is-entering > *:nth-child(n+5){ animation-delay: .2s; }
+}
+@media (prefers-reduced-motion: reduce){
+	.iwsl-shell *,
+	.iwsl-shell *::before,
+	.iwsl-shell *::after{ animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+
+/* ── Responsive ───────────────────────────────────────────────────────── */
+@media (max-width: 782px){
+	#wpcontent .iwsl-shell{ margin: 12px 10px 40px 0; }
+	.iwsl-hero{ padding: 22px 18px; }
+	.iwsl-tabnav{ top: 46px; }
+	.iwsl-panels{ padding: 20px 16px 28px; }
+	.iwsl-shell table.form-table th{ width: auto; display: block; padding-bottom: 4px; }
+	.iwsl-shell table.form-table td{ display: block; }
+}
+CSS;
+		echo "\n</style>\n";
+	}
+
+	/**
+	 * Tab interaction: WAI-ARIA tablist keyboard model, hash deep-linking, and
+	 * a lightweight busy state on form submit. Progressive enhancement — with
+	 * JS off, a <noscript> rule reveals every panel and hides the rail.
+	 */
+	private static function render_shell_script(): void {
+		echo "<noscript><style>.iwsl-shell .iwsl-tabpanel[hidden]{display:block!important}.iwsl-shell .iwsl-tabnav{display:none}</style></noscript>\n";
+		echo "<script>\n";
+		echo <<<'JS'
+(function(){
+	var shell = document.querySelector('.iwsl-shell');
+	if (!shell) { return; }
+	var tabs = Array.prototype.slice.call(shell.querySelectorAll('.iwsl-tab'));
+	var panels = Array.prototype.slice.call(shell.querySelectorAll('.iwsl-tabpanel'));
+	if (!tabs.length) { return; }
+
+	function enter(panel){
+		panel.classList.remove('is-entering');
+		void panel.offsetWidth; // restart the stagger
+		panel.classList.add('is-entering');
+		panel.addEventListener('animationend', function done(){
+			panel.classList.remove('is-entering');
+			panel.removeEventListener('animationend', done);
+		});
+	}
+
+	function activate(id, focusTab, push, animate){
+		var matched = false;
+		tabs.forEach(function(tab){
+			var on = tab.dataset.tab === id;
+			tab.classList.toggle('is-active', on);
+			tab.setAttribute('aria-selected', on ? 'true' : 'false');
+			tab.tabIndex = on ? 0 : -1;
+			if (on) {
+				matched = true;
+				if (focusTab) { tab.focus(); }
+				tab.scrollIntoView({ block: 'nearest', inline: 'center' });
+			}
+		});
+		if (!matched) { return; }
+		panels.forEach(function(panel){
+			var on = panel.id === 'iwsl-tab-' + id;
+			panel.hidden = !on;
+			panel.classList.toggle('is-active', on);
+			if (on && animate) { enter(panel); }
+		});
+		if (push && history.replaceState) { history.replaceState(null, '', '#iwsl-' + id); }
+	}
+
+	tabs.forEach(function(tab){
+		tab.addEventListener('click', function(){ activate(tab.dataset.tab, false, true, true); });
+	});
+
+	var rail = shell.querySelector('.iwsl-tabnav');
+	if (rail) {
+		rail.addEventListener('keydown', function(e){
+			var i = tabs.indexOf(document.activeElement);
+			if (i < 0) { return; }
+			var n = null;
+			if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { n = (i + 1) % tabs.length; }
+			else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { n = (i - 1 + tabs.length) % tabs.length; }
+			else if (e.key === 'Home') { n = 0; }
+			else if (e.key === 'End') { n = tabs.length - 1; }
+			if (n === null) { return; }
+			e.preventDefault();
+			activate(tabs[n].dataset.tab, true, true, true);
+		});
+	}
+
+	// Busy state on any submit inside a panel (visual only; never blocks POST).
+	shell.addEventListener('submit', function(e){
+		var btn = e.submitter || e.target.querySelector('[type="submit"]');
+		if (btn && btn.classList && !btn.classList.contains('button-link-delete')) {
+			btn.classList.add('is-busy');
+		}
+	});
+
+	// Deep-link: open the tab named in the URL hash (#iwsl-images) without an
+	// entrance animation, so the first paint is always the visible content.
+	// No hash → the default Overview panel is already shown in the markup.
+	var hash = (location.hash || '').replace(/^#iwsl-/, '');
+	if (hash && shell.querySelector('#iwsl-tab-' + hash)) {
+		activate(hash, false, false, false);
+	}
+})();
+JS;
+		echo "\n</script>\n";
 	}
 
 	/** One row per gate with a pass/fail marker and the live detail. */
