@@ -12,6 +12,16 @@ import { SsoConfigError, SsoUnavailableError } from "./errors";
 
 const REQUEST_TIMEOUT_MS = Number(process.env.AUTHENTIK_TIMEOUT_MS) || 10_000;
 
+/**
+ * True when an Authentik error is a create-conflict — the object already exists
+ * (400/409). `request()` surfaces only the status in the message, so match on that.
+ * Used to make create-else-update idempotent when the fuzzy `?search=` missed a
+ * stale object left by an earlier timed-out setup.
+ */
+function isAuthentikConflict(err: unknown): boolean {
+  return err instanceof SsoConfigError && /failed: (400|409)$/.test(err.message);
+}
+
 export interface RedirectUri {
   matching_mode: "strict";
   url: string;
@@ -122,15 +132,25 @@ export class AuthentikClient {
     return list.find((p) => p.name === name);
   }
 
-  /** Upsert a provider: PATCH when it already exists (matched by name), else POST. */
+  /** Upsert a provider: PATCH when it already exists (matched by name), else POST.
+   * On a create-conflict (a provider with that name exists but the fuzzy search
+   * missed it), re-find and PATCH so re-provisioning stays idempotent. */
   async upsertProvider(kind: ProviderKind, name: string, attrs: Record<string, unknown>): Promise<number> {
     const existing = await this.findProvider(kind, name);
     if (existing) {
       await this.request("PATCH", `/api/v3/providers/${kind}/${existing.pk}/`, attrs);
       return existing.pk;
     }
-    const created = await this.request<{ pk: number }>("POST", `/api/v3/providers/${kind}/`, { name, ...attrs });
-    return created.pk;
+    try {
+      const created = await this.request<{ pk: number }>("POST", `/api/v3/providers/${kind}/`, { name, ...attrs });
+      return created.pk;
+    } catch (err) {
+      if (!isAuthentikConflict(err)) throw err;
+      const again = await this.findProvider(kind, name);
+      if (!again) throw err;
+      await this.request("PATCH", `/api/v3/providers/${kind}/${again.pk}/`, attrs);
+      return again.pk;
+    }
   }
 
   async findApplication(slug: string): Promise<{ pk: string; slug: string } | undefined> {
@@ -138,18 +158,28 @@ export class AuthentikClient {
     // nothing), so match via `?search=` and pick the exact slug — same approach as
     // findProvider. Using `?slug=` made upsert always POST (→ 400 on re-run) and
     // delete never find its target (→ stale Authentik apps left behind).
-    const list = await this.results<{ pk: string; slug: string }>(`/api/v3/core/applications/?search=${encodeURIComponent(slug)}`);
+    // Paginated (`allResults`): a busy instance can push the match past page 1, and a
+    // first-page-only read would miss it → a spurious POST → 400 "already exists".
+    const list = await this.allResults<{ pk: string; slug: string }>(`/api/v3/core/applications/?search=${encodeURIComponent(slug)}`);
     return list.find((a) => a.slug === slug);
   }
 
-  /** Upsert the Application bound to the provider(s); matched by stable slug. */
+  /** Upsert the Application bound to the provider(s); matched by stable slug. Adopts
+   * an existing app on a create-conflict so re-provisioning is idempotent even when
+   * the fuzzy search missed a stale app left by an earlier timed-out setup. */
   async upsertApplication(slug: string, attrs: Record<string, unknown>): Promise<void> {
     const existing = await this.findApplication(slug);
     if (existing) {
       await this.request("PATCH", `/api/v3/core/applications/${slug}/`, attrs);
       return;
     }
-    await this.request("POST", `/api/v3/core/applications/`, { slug, ...attrs });
+    try {
+      await this.request("POST", `/api/v3/core/applications/`, { slug, ...attrs });
+    } catch (err) {
+      if (!isAuthentikConflict(err)) throw err;
+      // The app already exists (search missed it) — adopt it instead of failing.
+      await this.request("PATCH", `/api/v3/core/applications/${slug}/`, attrs);
+    }
   }
 
   /**
