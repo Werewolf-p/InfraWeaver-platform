@@ -22,11 +22,39 @@ export interface ConnectorPackage {
   filename: string;
 }
 
-function connectorDir(): string {
-  return (
-    process.env.IWSL_CONNECTOR_DIR
-    || path.join(process.cwd(), "vendor", "wp-connector", PLUGIN_DIR_NAME)
-  );
+/** The always-present copy baked into the image (the safe fallback). */
+function bakedDir(): string {
+  return path.join(process.cwd(), "vendor", "wp-connector", PLUGIN_DIR_NAME);
+}
+
+/** A dir is a usable plugin source only if it holds the plugin header file. */
+async function isValidPluginDir(dir: string): Promise<boolean> {
+  return fs
+    .stat(path.join(dir, `${PLUGIN_DIR_NAME}.php`))
+    .then((s) => s.isFile())
+    .catch(() => false);
+}
+
+/**
+ * Resolve the plugin source. Prefer IWSL_CONNECTOR_DIR (e.g. a git-sync sidecar
+ * volume) when it currently holds a valid plugin; otherwise fall back to the
+ * baked vendor copy. This makes the dynamic source fail-safe: a missing or
+ * mid-swap sync dir degrades to the baked copy instead of breaking the route.
+ */
+async function resolveDir(): Promise<string> {
+  const override = process.env.IWSL_CONNECTOR_DIR;
+  if (override && (await isValidPluginDir(override))) {
+    return override;
+  }
+  return bakedDir();
+}
+
+/** Cheap version peek from the plugin header — used as the cache key. */
+async function peekVersion(dir: string): Promise<string> {
+  const header = await fs
+    .readFile(path.join(dir, `${PLUGIN_DIR_NAME}.php`), "utf8")
+    .catch(() => "");
+  return parseVersion(header);
 }
 
 async function collectFiles(root: string, rel = ""): Promise<string[]> {
@@ -46,10 +74,9 @@ function parseVersion(headerFile: string): string {
   return match ? match[1] : "0.0.0";
 }
 
-let cached: Promise<ConnectorPackage> | null = null;
+let cached: { key: string; pkg: Promise<ConnectorPackage> } | null = null;
 
-async function build(): Promise<ConnectorPackage> {
-  const root = connectorDir();
+async function build(root: string): Promise<ConnectorPackage> {
   const exists = await fs.stat(root).then((s) => s.isDirectory()).catch(() => false);
   if (!exists) {
     throw new Error(
@@ -71,15 +98,24 @@ async function build(): Promise<ConnectorPackage> {
 }
 
 export async function buildConnectorPackage(): Promise<ConnectorPackage> {
-  if (!cached) {
-    cached = build().catch((err) => {
-      // Don't cache a failure — a missing dir at first call (e.g. mid-deploy)
-      // must not brick the route until restart.
-      cached = null;
-      throw err;
-    });
+  const root = await resolveDir();
+  const version = await peekVersion(root);
+  const key = `${root}@${version}`;
+  // Re-zip only when the resolved source or its version changes — so a git-sync
+  // update goes live without a restart, but a steady source stays fully cached.
+  if (cached && cached.key === key) {
+    return cached.pkg;
   }
-  return cached;
+  const pkg = build(root).catch((err) => {
+    // Don't cache a failure — a missing dir at first call (e.g. mid-deploy or a
+    // mid-swap sync) must not brick the route until restart.
+    if (cached && cached.key === key) {
+      cached = null;
+    }
+    throw err;
+  });
+  cached = { key, pkg };
+  return pkg;
 }
 
 /** Test hook — the cache is process-wide by design. */
