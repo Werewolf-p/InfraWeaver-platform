@@ -11,6 +11,7 @@ import { writeSecret, readSecret, deleteSecret } from "./openbao";
 import { buildPluginSyncPlan, listPluginsCommand, installPluginCommand, removePluginCommand, updateAllPluginsCommand, parsePluginUpdateResult, AUTHENTIK_PLUGIN_SLUG, type PluginUpdateResult } from "./plugins";
 import { installMaintenancePluginCommand, maintenancePluginContents, setMaintenanceCommand, maintenanceStatusCommand, parseMaintenanceStatus, type MaintenanceStatus } from "./maintenance";
 import { redirectUri, buildOidcSettings, pluginInstallCommand, optionUpdateFromStdinCommand, OIDC_SETTINGS_OPTION } from "./authentik";
+import { isOidcHealthy } from "./oidc-health";
 import { ensureSsoGate, removeSsoGate } from "@/lib/sso/sso-gate";
 import { ensureSiteAccess, removeSiteAccess } from "./access";
 import { loadUsersConfig } from "@/lib/users-config";
@@ -532,6 +533,61 @@ export async function enableSso(site: string, opts: { issuerBase: string }): Pro
   const pod = await runningWpPod(core, site);
   await execInWpPod(pod, pluginInstallCommand());
   await execInWpPod(pod, optionUpdateFromStdinCommand(OIDC_SETTINGS_OPTION), { stdin: JSON.stringify(buildOidcSettings(result.oidc)) });
+}
+
+/** The outcome of an OIDC health check (+ optional self-heal). */
+export interface OidcValidation {
+  readonly site: string;
+  readonly healthy: boolean;
+  /** Machine token describing WHY it is unhealthy (empty when healthy). */
+  readonly reason: string;
+  /** True when a re-provision was attempted this call. */
+  readonly reprovisioned: boolean;
+  /** Present when a re-provision was attempted but threw (e.g. Authentik down). */
+  readonly error?: string;
+}
+
+/**
+ * Check a site's live OIDC configuration and, when broken and `reprovision` is set,
+ * self-heal by re-running the (idempotent) SSO provisioning. This is the durable
+ * answer to the hi2 class of bug: SSO reconcile can silently fail (e.g. Authentik
+ * times out) and leave a site with a dead login; this makes "is SSO actually
+ * working?" a first-class, on-demand check that repairs itself when it can. A
+ * re-provision that throws (Authentik unavailable) is reported, not swallowed —
+ * the site stays flagged unhealthy so the operator/next run retries.
+ */
+export async function validateSiteOidc(site: string, opts: { reprovision: boolean }): Promise<OidcValidation> {
+  assertValidSiteId(site);
+  if (!(await siteExists(site))) throw new SiteNotFoundError(site);
+  const { core } = clients();
+
+  const read = async (): Promise<{ ok: boolean; reason: string }> => {
+    const pod = await runningWpPod(core, site);
+    // `wp option get` exits non-zero when the option is absent — treat that (and any
+    // read error) as an empty/missing settings blob rather than throwing.
+    const { stdout } = await execInWpPod(pod, `wp --allow-root option get ${OIDC_SETTINGS_OPTION} --format=json`).catch(
+      () => ({ stdout: "", stderr: "" }),
+    );
+    return isOidcHealthy(stdout);
+  };
+
+  const before = await read();
+  if (before.ok) return { site, healthy: true, reason: "", reprovisioned: false };
+  if (!opts.reprovision) return { site, healthy: false, reason: before.reason, reprovisioned: false };
+
+  try {
+    await enableSso(site, { issuerBase: authentikIssuerBase() });
+  } catch (err) {
+    return {
+      site,
+      healthy: false,
+      reason: before.reason,
+      reprovisioned: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  const after = await read();
+  return { site, healthy: after.ok, reason: after.ok ? "" : after.reason, reprovisioned: true };
 }
 
 /**

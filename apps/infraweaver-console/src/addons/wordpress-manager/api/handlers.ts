@@ -15,7 +15,7 @@ import {
 import { isValidSiteName, isValidSiteId } from "../lib/naming";
 import { PLUGIN_CATALOG } from "../lib/plugins";
 import { listDomains, internalSubdomain, isAllowedDomain } from "../lib/config";
-import { createSite, listSites, listSitePods, listInstalledPlugins, setPlugins, updateAllPlugins, getMaintenanceMode, setMaintenanceMode, enableSso, setProtection, getSiteHealth, syncSiteWpUsers } from "../lib/provision";
+import { createSite, listSites, listSitePods, listInstalledPlugins, setPlugins, updateAllPlugins, getMaintenanceMode, setMaintenanceMode, enableSso, validateSiteOidc, setProtection, getSiteHealth, syncSiteWpUsers } from "../lib/provision";
 import { teardownSite } from "../lib/site-teardown";
 import { summarizeTeardown } from "../lib/teardown-step";
 import { auditLog } from "@/lib/audit-log";
@@ -300,6 +300,24 @@ export async function enableSsoHandler(req: NextRequest, site: string): Promise<
     await enableSso(site, { issuerBase: parsed.data.issuerBase });
     return json({ ok: true });
   });
+}
+
+/**
+ * Check whether a site's OpenID Connect login is actually configured, and — when
+ * `reprovision` is requested — self-heal by re-running the idempotent SSO setup.
+ * This is the durable guard against the hi2 failure mode (SSO reconcile silently
+ * failed, leaving a dead login). GET is a read-only check; POST { reprovision:true }
+ * repairs. Both need write access to the site.
+ */
+export async function validateOidcHandler(req: NextRequest, site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:write", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("sso", gate.ctx.username, 10);
+  if (limited) return limited;
+  const reprovision =
+    req.method === "POST" && (await req.json().catch(() => null))?.reprovision === true;
+  return guard(async () => json(await validateSiteOidc(site, { reprovision })));
 }
 
 /**
