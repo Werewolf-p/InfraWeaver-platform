@@ -29,6 +29,20 @@ export const ENTITLEMENT_FLAGS = [
   "email_delivery",
   "redirect_manager",
   "page_cache",
+  "lazy_load",
+  "duplicate_post",
+  "svg_upload",
+  "maintenance_mode",
+  "scheduled_db_cleanup",
+  "broken_link_scan",
+  "seo_audit",
+  "auto_convert",
+  "activity_log",
+  "cdn_rewrite",
+  "speed_pack",
+  "statistics",
+  "cookie_consent",
+  "seo_suite",
 ] as const;
 export type EntitlementFlag = (typeof ENTITLEMENT_FLAGS)[number];
 
@@ -93,6 +107,90 @@ export const ENTITLEMENT_FLAG_META: Readonly<Record<EntitlementFlag, Entitlement
     label: "Page cache",
     description:
       "Safe-by-default full-page cache via a native WordPress drop-in — anonymous visitors only, auto-purged on content change. Never caches logged-in or session pages.",
+  },
+  lazy_load: {
+    flag: "lazy_load",
+    label: "Lazy-load media",
+    description:
+      "Defers off-screen images and iframes so pages paint faster, while protecting the first images for LCP.",
+  },
+  duplicate_post: {
+    flag: "duplicate_post",
+    label: "One-click duplicate",
+    description:
+      "Clone any post or page — content, taxonomies, and meta — as a new draft from the posts list.",
+  },
+  svg_upload: {
+    flag: "svg_upload",
+    label: "SVG uploads (sanitized)",
+    description:
+      "Allows SVG media, sanitized server-side (scripts, event handlers, and external entities stripped) before it is stored.",
+  },
+  maintenance_mode: {
+    flag: "maintenance_mode",
+    label: "Maintenance mode",
+    description:
+      "Shows a branded 503 holding page to visitors while you work; administrators bypass it automatically.",
+  },
+  scheduled_db_cleanup: {
+    flag: "scheduled_db_cleanup",
+    label: "Scheduled database cleanup",
+    description:
+      "Runs the bounded database optimizer automatically on a daily or weekly schedule.",
+  },
+  broken_link_scan: {
+    flag: "broken_link_scan",
+    label: "Broken link scanner",
+    description:
+      "Crawls posts and pages for dead internal and external links and reports what to fix — read-only and time-bounded.",
+  },
+  seo_audit: {
+    flag: "seo_audit",
+    label: "SEO meta audit",
+    description:
+      "Flags missing titles and meta descriptions, thin content, and other on-page SEO gaps. Read-only.",
+  },
+  auto_convert: {
+    flag: "auto_convert",
+    label: "Scheduled auto-convert",
+    description:
+      "Losslessly converts new uploads to WebP automatically, with an optional backlog sweep.",
+  },
+  activity_log: {
+    flag: "activity_log",
+    label: "Activity log",
+    description:
+      "Records administrator actions — content edits, logins, plugin and setting changes — in a bounded local log.",
+  },
+  cdn_rewrite: {
+    flag: "cdn_rewrite",
+    label: "CDN URL rewrite",
+    description:
+      "Serves static assets (images, CSS, JS, fonts) from your CDN host automatically. Same-origin static URLs only.",
+  },
+  speed_pack: {
+    flag: "speed_pack",
+    label: "Speed pack",
+    description:
+      "WP-Rocket-style front-end speed: minify/defer CSS & JS, GZIP + browser-cache headers, DNS-prefetch, emoji/embed cleanup, heartbeat control, and hover preloading — each individually toggleable and fail-safe.",
+  },
+  statistics: {
+    flag: "statistics",
+    label: "Site statistics",
+    description:
+      "Self-hosted, privacy-respecting analytics — views/visits over time, top pages & posts, referrers, search engines, browser/OS/device, and country — with charts. No external service; no raw IPs stored.",
+  },
+  cookie_consent: {
+    flag: "cookie_consent",
+    label: "Cookie consent (GDPR/CCPA)",
+    description:
+      "Automatic, geo-aware cookie-consent banner with prior blocking of known third-party trackers, Google Consent Mode v2, opt-in (GDPR) / opt-out (CCPA/GPC) models, and a compliance consent log. Fully self-hosted.",
+  },
+  seo_suite: {
+    flag: "seo_suite",
+    label: "SEO suite",
+    description:
+      "Full on-page SEO suite — focus-keyphrase & readability analysis with live scoring, Google snippet preview, meta/title templates, Open Graph & Twitter cards, JSON-LD schema, XML sitemaps, breadcrumbs, robots/canonical controls, and internal-link suggestions.",
   },
 };
 
