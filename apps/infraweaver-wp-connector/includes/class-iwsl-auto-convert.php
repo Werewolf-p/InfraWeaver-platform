@@ -345,16 +345,16 @@ final class IWSL_Auto_Convert {
 			wp_nonce_field( self::NONCE_SAVE );
 		}
 		echo '<p><label><input type="checkbox" name="enabled" value="1" ' . self::checked( ! empty( $settings['enabled'] ) ) . '/> ';
-		echo self::esc_html_safe( 'Automatically convert new uploads to WebP' ) . '</label></p>';
+		echo self::esc_html_safe( 'Automatically convert new uploads to WebP' ) . iwsl_field_help( 'Turn each newly uploaded image into a faster WebP copy.' ) . '</label></p>';
 
-		echo '<p><label>' . self::esc_html_safe( 'Mode' ) . ' ';
+		echo '<p><label>' . self::esc_html_safe( 'Mode' ) . iwsl_field_help( 'Choose whether to keep the original image or replace it.' ) . ' ';
 		echo '<select name="mode">';
 		echo '<option value="' . self::esc_attr_safe( self::MODE_COPY ) . '" ' . self::selected( self::MODE_COPY === $settings['mode'] ) . '>' . self::esc_html_safe( 'Copy (keep original)' ) . '</option>';
 		echo '<option value="' . self::esc_attr_safe( self::MODE_REPLACE ) . '" ' . self::selected( self::MODE_REPLACE === $settings['mode'] ) . '>' . self::esc_html_safe( 'Replace (remove original)' ) . '</option>';
 		echo '</select></label></p>';
 
 		echo '<p><label><input type="checkbox" name="rewrite" value="1" ' . self::checked( ! empty( $settings['rewrite'] ) ) . '/> ';
-		echo self::esc_html_safe( 'Rewrite page references to the WebP copy (copy mode only)' ) . '</label></p>';
+		echo self::esc_html_safe( 'Rewrite page references to the WebP copy (copy mode only)' ) . iwsl_field_help( 'Point your pages at the new WebP copies automatically.' ) . '</label></p>';
 
 		echo '<button type="submit" class="button button-primary">' . self::esc_html_safe( 'Save settings' ) . '</button>';
 		echo '</form>';

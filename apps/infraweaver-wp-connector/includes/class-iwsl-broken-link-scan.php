@@ -597,7 +597,7 @@ final class IWSL_Broken_Link_Scan {
 			wp_nonce_field( self::NONCE );
 		}
 		echo '<input type="hidden" name="action" value="' . self::esc_attr_s( self::ACTION ) . '">';
-		echo '<button type="submit" class="button button-primary">' . self::esc_html_s( 'Scan now' ) . '</button>';
+		echo '<button type="submit" class="button button-primary">' . self::esc_html_s( 'Scan now' ) . '</button>' . iwsl_field_help( 'Check all your content for links that no longer work.' );
 		echo '</form>';
 		echo '</div>';
 

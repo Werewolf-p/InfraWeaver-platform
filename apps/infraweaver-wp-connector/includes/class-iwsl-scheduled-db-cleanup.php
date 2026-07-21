@@ -443,9 +443,9 @@ final class IWSL_Scheduled_DB_Cleanup {
 		echo '<table class="form-table" role="presentation"><tbody>';
 
 		echo '<tr><th scope="row">' . esc_html__( 'Automation', 'infraweaver-connector' ) . '</th><td>';
-		echo '<label><input type="checkbox" name="iwsl_sdc_enabled" value="1"' . checked( $on, true, false ) . '> ' . esc_html__( 'Run the database cleanup automatically', 'infraweaver-connector' ) . '</label></td></tr>';
+		echo '<label><input type="checkbox" name="iwsl_sdc_enabled" value="1"' . checked( $on, true, false ) . '> ' . esc_html__( 'Run the database cleanup automatically', 'infraweaver-connector' ) . iwsl_field_help( 'Automatically tidy your database on a set schedule.' ) . '</label></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-sdc-frequency">' . esc_html__( 'Frequency', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-sdc-frequency">' . esc_html__( 'Frequency', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'How often the automatic database cleanup runs.' ) . '</th><td>';
 		echo '<select id="iwsl-sdc-frequency" name="iwsl_sdc_frequency">';
 		echo '<option value="daily"' . selected( $freq, 'daily', false ) . '>' . esc_html__( 'Daily', 'infraweaver-connector' ) . '</option>';
 		echo '<option value="weekly"' . selected( $freq, 'weekly', false ) . '>' . esc_html__( 'Weekly', 'infraweaver-connector' ) . '</option>';

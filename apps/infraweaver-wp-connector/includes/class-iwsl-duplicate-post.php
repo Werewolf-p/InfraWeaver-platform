@@ -378,9 +378,9 @@ final class IWSL_Duplicate_Post {
 		echo '<span class="iwsl-primary__meta">' . esc_html__( 'A “Duplicate” action now appears beneath each entry in the Posts and Pages lists. Selecting it creates a draft copy you can edit freely.', 'infraweaver-connector' ) . '</span>';
 		if ( function_exists( 'admin_url' ) ) {
 			echo '<a class="button" href="' . esc_url( admin_url( 'edit.php' ) ) . '">'
-				. esc_html__( 'Go to Posts', 'infraweaver-connector' ) . '</a> ';
+				. esc_html__( 'Go to Posts', 'infraweaver-connector' ) . '</a>' . iwsl_field_help( 'Open your posts list, where each row has a Duplicate link.' ) . ' ';
 			echo '<a class="button" href="' . esc_url( admin_url( 'edit.php?post_type=page' ) ) . '">'
-				. esc_html__( 'Go to Pages', 'infraweaver-connector' ) . '</a>';
+				. esc_html__( 'Go to Pages', 'infraweaver-connector' ) . '</a>' . iwsl_field_help( 'Open your pages list, where each row has a Duplicate link.' );
 		}
 		echo '</div>';
 	}

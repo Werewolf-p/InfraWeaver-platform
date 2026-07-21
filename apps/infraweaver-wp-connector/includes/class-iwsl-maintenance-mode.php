@@ -476,7 +476,7 @@ final class IWSL_Maintenance_Mode {
 
 		// Primary: the enable toggle — the one thing most operators come here to flip.
 		echo '<table class="form-table" role="presentation"><tbody>';
-		echo '<tr><th scope="row">' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Status', 'infraweaver-connector' ) . ' ' . iwsl_field_help( 'Turns the “be right back” page on or off for visitors.' ) . '</th><td>';
 		echo '<label><input type="checkbox" name="iwsl_mm_enabled" value="1"' . checked( $enabled, true, false ) . '> ' . esc_html__( 'Enable maintenance mode', 'infraweaver-connector' ) . '</label></td></tr>';
 		echo '</tbody></table>';
 
@@ -484,14 +484,14 @@ final class IWSL_Maintenance_Mode {
 		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwsl-mm-headline">' . esc_html__( 'Headline', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-mm-headline">' . esc_html__( 'Headline', 'infraweaver-connector' ) . '</label> ' . iwsl_field_help( 'The big title shown on the “be right back” page.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-mm-headline" name="iwsl_mm_headline" class="regular-text" value="' . esc_attr( $headline ) . '" placeholder="' . esc_attr( self::DEFAULT_HEADLINE ) . '"></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-mm-message">' . esc_html__( 'Message', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-mm-message">' . esc_html__( 'Message', 'infraweaver-connector' ) . '</label> ' . iwsl_field_help( 'The short note telling visitors why the site is offline.' ) . '</th>';
 		echo '<td><textarea id="iwsl-mm-message" name="iwsl_mm_message" class="large-text" rows="3" placeholder="' . esc_attr( self::DEFAULT_MESSAGE ) . '">' . esc_textarea( $message ) . '</textarea>';
 		echo '<p class="description">' . esc_html__( 'Shown on the holding page. Plain text only; line breaks are kept.', 'infraweaver-connector' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'Retry-After', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Retry-After', 'infraweaver-connector' ) . ' ' . iwsl_field_help( 'Politely tells Google to check back later, not to drop your pages.' ) . '</th><td>';
 		echo '<label><input type="checkbox" name="iwsl_mm_retry_after" value="1"' . checked( $retry, true, false ) . '> ' . esc_html( sprintf( 'Send a Retry-After header (%d seconds) so crawlers know to come back', self::RETRY_AFTER_SECONDS ) ) . '</label></td></tr>';
 
 		echo '</tbody></table>';

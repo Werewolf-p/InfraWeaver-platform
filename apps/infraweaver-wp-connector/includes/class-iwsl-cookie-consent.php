@@ -1011,9 +1011,9 @@ final class IWSL_Cookie_Consent {
 		echo '<input type="hidden" name="action" value="' . self::esc_attr_safe( self::SAVE_ACTION ) . '">';
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		$this->row_checkbox( 'iwsl_cc_enabled', 'Status', 'Enable the consent banner + prior-blocking on the front end', ! empty( $s['enabled'] ) );
+		$this->row_checkbox( 'iwsl_cc_enabled', 'Status', 'Enable the consent banner + prior-blocking on the front end', ! empty( $s['enabled'] ), 'Turns the cookie notice on for visitors.' );
 
-		echo '<tr><th scope="row">' . self::esc_html_safe( 'Default legal model' ) . '</th><td>';
+		echo '<tr><th scope="row">' . self::esc_html_safe( 'Default legal model' ) . ' ' . iwsl_field_help( 'How visitors are treated before choosing: ask first, or allow by default.' ) . '</th><td>';
 		echo '<select name="iwsl_cc_model">';
 		foreach ( array(
 			IWSL_Consent_Classifier::MODEL_OPT_IN  => 'Opt-in (GDPR — block until consent)',
@@ -1025,28 +1025,28 @@ final class IWSL_Cookie_Consent {
 		}
 		echo '</select><p class="description">' . self::esc_html_safe( 'Applied to visitors outside the EU/EEA/UK (always opt-in) and the US (always opt-out).' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row">' . self::esc_html_safe( 'Categories used' ) . '</th><td>';
+		echo '<tr><th scope="row">' . self::esc_html_safe( 'Categories used' ) . ' ' . iwsl_field_help( 'Which kinds of cookies visitors can allow or refuse.' ) . '</th><td>';
 		foreach ( array( 'preferences' => 'Preferences', 'statistics' => 'Statistics', 'marketing' => 'Marketing' ) as $cat => $label ) {
 			echo '<label style="margin-right:16px;"><input type="checkbox" name="iwsl_cc_cat[' . self::esc_attr_safe( $cat ) . ']" value="1"'
 				. ( ! empty( $s['categories'][ $cat ] ) ? ' checked' : '' ) . '> ' . self::esc_html_safe( $label ) . '</label>';
 		}
 		echo '<p class="description">' . self::esc_html_safe( 'Necessary cookies are always shown and cannot be rejected.' ) . '</p></td></tr>';
 
-		$this->row_checkbox( 'iwsl_cc_consent_mode', 'Google Consent Mode v2', 'Emit gtag consent default/update signals', ! empty( $s['consent_mode'] ) );
-		$this->row_checkbox( 'iwsl_cc_gpc', 'Global Privacy Control', 'Honor the Sec-GPC "do not sell/share" browser signal', ! empty( $s['respect_gpc'] ) );
-		$this->row_checkbox( 'iwsl_cc_dnt', 'Do Not Track', 'Honor the legacy DNT browser signal', ! empty( $s['respect_dnt'] ) );
+		$this->row_checkbox( 'iwsl_cc_consent_mode', 'Google Consent Mode v2', 'Emit gtag consent default/update signals', ! empty( $s['consent_mode'] ), 'Tells Google tools whether the visitor agreed to tracking.' );
+		$this->row_checkbox( 'iwsl_cc_gpc', 'Global Privacy Control', 'Honor the Sec-GPC "do not sell/share" browser signal', ! empty( $s['respect_gpc'] ), 'Respects a browser’s built-in “do not sell my data” setting.' );
+		$this->row_checkbox( 'iwsl_cc_dnt', 'Do Not Track', 'Honor the legacy DNT browser signal', ! empty( $s['respect_dnt'] ), 'Respects a browser’s older “do not track me” request.' );
 
-		echo '<tr><th scope="row">' . self::esc_html_safe( 'Banner layout' ) . '</th><td>';
+		echo '<tr><th scope="row">' . self::esc_html_safe( 'Banner layout' ) . ' ' . iwsl_field_help( 'Show the notice as a full-width bar or a small corner box.' ) . '</th><td>';
 		echo '<select name="iwsl_cc_layout"><option value="bar"' . ( 'box' !== $s['banner_layout'] ? ' selected' : '' ) . '>Bar (full width)</option>'
 			. '<option value="box"' . ( 'box' === $s['banner_layout'] ? ' selected' : '' ) . '>Box (corner card)</option></select></td></tr>';
 
-		$this->row_text( 'iwsl_cc_title', 'Banner title', (string) $s['title'], 'We value your privacy' );
-		echo '<tr><th scope="row"><label for="iwsl_cc_message">' . self::esc_html_safe( 'Banner message' ) . '</label></th><td>'
+		$this->row_text( 'iwsl_cc_title', 'Banner title', (string) $s['title'], 'We value your privacy', 'The heading shown at the top of the cookie notice.' );
+		echo '<tr><th scope="row"><label for="iwsl_cc_message">' . self::esc_html_safe( 'Banner message' ) . '</label> ' . iwsl_field_help( 'The message shown to visitors in the cookie notice.' ) . '</th><td>'
 			. '<textarea id="iwsl_cc_message" name="iwsl_cc_message" class="large-text" rows="3">' . self::esc_textarea_safe( (string) $s['message'] ) . '</textarea></td></tr>';
-		$this->row_text( 'iwsl_cc_policy_url', 'Privacy / cookie policy URL', (string) $s['policy_url'], '/privacy-policy' );
-		echo '<tr><th scope="row"><label for="iwsl_cc_accent">' . self::esc_html_safe( 'Accent color' ) . '</label></th><td>'
+		$this->row_text( 'iwsl_cc_policy_url', 'Privacy / cookie policy URL', (string) $s['policy_url'], '/privacy-policy', 'Link to your privacy page shown inside the notice.' );
+		echo '<tr><th scope="row"><label for="iwsl_cc_accent">' . self::esc_html_safe( 'Accent color' ) . '</label> ' . iwsl_field_help( 'The button and highlight color of your cookie notice.' ) . '</th><td>'
 			. '<input type="text" id="iwsl_cc_accent" name="iwsl_cc_accent" value="' . self::esc_attr_safe( (string) $s['accent'] ) . '" placeholder="#2a6df0" style="width:120px;"></td></tr>';
-		echo '<tr><th scope="row"><label for="iwsl_cc_version">' . self::esc_html_safe( 'Policy version' ) . '</label></th><td>'
+		echo '<tr><th scope="row"><label for="iwsl_cc_version">' . self::esc_html_safe( 'Policy version' ) . '</label> ' . iwsl_field_help( 'Raise this number to ask every visitor again after a policy change.' ) . '</th><td>'
 			. '<input type="number" min="1" id="iwsl_cc_version" name="iwsl_cc_version" value="' . self::esc_attr_safe( (string) $s['policy_version'] ) . '" style="width:90px;">'
 			. '<p class="description">' . self::esc_html_safe( 'Increment to re-prompt every visitor after a policy change.' ) . '</p></td></tr>';
 
@@ -1104,13 +1104,13 @@ final class IWSL_Cookie_Consent {
 
 	// ── small render helpers ─────────────────────────────────────────────────────
 
-	private function row_checkbox( string $name, string $label, string $help, bool $checked ): void {
-		echo '<tr><th scope="row">' . self::esc_html_safe( $label ) . '</th><td><label><input type="checkbox" name="' . self::esc_attr_safe( $name ) . '" value="1"'
+	private function row_checkbox( string $name, string $label, string $help, bool $checked, string $tip = '' ): void {
+		echo '<tr><th scope="row">' . self::esc_html_safe( $label ) . ' ' . iwsl_field_help( $tip ) . '</th><td><label><input type="checkbox" name="' . self::esc_attr_safe( $name ) . '" value="1"'
 			. ( $checked ? ' checked' : '' ) . '> ' . self::esc_html_safe( $help ) . '</label></td></tr>';
 	}
 
-	private function row_text( string $name, string $label, string $value, string $placeholder ): void {
-		echo '<tr><th scope="row"><label for="' . self::esc_attr_safe( $name ) . '">' . self::esc_html_safe( $label ) . '</label></th><td>'
+	private function row_text( string $name, string $label, string $value, string $placeholder, string $tip = '' ): void {
+		echo '<tr><th scope="row"><label for="' . self::esc_attr_safe( $name ) . '">' . self::esc_html_safe( $label ) . '</label> ' . iwsl_field_help( $tip ) . '</th><td>'
 			. '<input type="text" id="' . self::esc_attr_safe( $name ) . '" name="' . self::esc_attr_safe( $name ) . '" class="regular-text" value="'
 			. self::esc_attr_safe( $value ) . '" placeholder="' . self::esc_attr_safe( $placeholder ) . '"></td></tr>';
 	}

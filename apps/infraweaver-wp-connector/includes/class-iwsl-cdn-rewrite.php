@@ -337,7 +337,7 @@ final class IWSL_CDN_Rewrite {
 
 		// CONFIG-needed: the CDN host stays visible — the feature cannot work without it.
 		echo '<table class="form-table" role="presentation"><tbody>';
-		echo '<tr><th scope="row"><label for="iwsl-cdn-host">' . esc_html__( 'CDN host', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-cdn-host">' . esc_html__( 'CDN host', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The address of your CDN (from your CDN provider) that will serve files.' ) . '</th><td>';
 		echo '<input type="text" id="iwsl-cdn-host" name="host" class="regular-text" placeholder="cdn.example.com" value="' . esc_attr( $settings['host'] ) . '">';
 		echo '<p class="description">' . esc_html__( 'Hostname only — no https://, no trailing path. Leave blank to disable.', 'infraweaver-connector' ) . '</p>';
 		echo '</td></tr>';
@@ -348,7 +348,7 @@ final class IWSL_CDN_Rewrite {
 			? __( 'Serving static assets from the CDN host.', 'infraweaver-connector' )
 			: __( 'CDN rewriting is off.', 'infraweaver-connector' ) ) . '</span>';
 		echo '<label><input type="checkbox" name="enabled" value="1"' . ( ! empty( $settings['enabled'] ) ? ' checked' : '' ) . '> '
-			. esc_html__( 'Serve static assets from the CDN host', 'infraweaver-connector' ) . '</label> ';
+			. esc_html__( 'Serve static assets from the CDN host', 'infraweaver-connector' ) . iwsl_field_help( 'Turn on serving your images, CSS and scripts from the CDN.' ) . '</label> ';
 		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Save changes', 'infraweaver-connector' ) . '</button>';
 		echo '</div>';
 

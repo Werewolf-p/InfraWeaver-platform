@@ -2074,7 +2074,7 @@ JS;
 
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwsl-mo-types">' . esc_html__( 'Image types', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-mo-types">' . esc_html__( 'Image types', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Which picture kinds to shrink — Auto handles them all.' ) . '</th><td>';
 		echo '<select id="iwsl-mo-types" name="types">';
 		echo '<option value="auto">' . esc_html__( 'Auto — all types (PNG, JPEG, GIF, BMP, TIFF)', 'infraweaver-connector' ) . '</option>';
 		foreach ( array( 'image/png' => 'PNG', 'image/jpeg' => 'JPEG', 'image/gif' => 'GIF', 'image/bmp' => 'BMP', 'image/tiff' => 'TIFF' ) as $iwsl_mime => $iwsl_lbl ) {
@@ -2082,14 +2082,14 @@ JS;
 		}
 		echo '</select><br><span class="description">' . esc_html__( 'Auto picks the best WebP mode per type — lossless for PNG/GIF/BMP/TIFF, near-lossless for JPEG. Only smaller results are kept.', 'infraweaver-connector' ) . '</span></td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'Pick images', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Pick images', 'infraweaver-connector' ) . iwsl_field_help( 'Optionally choose specific images instead of shrinking a batch.' ) . '</th><td>';
 		echo '<input type="hidden" name="ids" id="iwsl-mo-ids" value="">';
 		echo '<button type="button" class="button" id="iwsl-mo-pick">' . esc_html__( 'Choose images…', 'infraweaver-connector' ) . '</button> ';
 		echo '<button type="button" class="button" id="iwsl-mo-clear">' . esc_html__( 'Clear', 'infraweaver-connector' ) . '</button><br>';
 		echo '<span id="iwsl-mo-picked" class="description">' . esc_html__( 'No images selected — the count below is used instead.', 'infraweaver-connector' ) . '</span>';
 		echo '</td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-mo-count">' . esc_html__( 'Images this run', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-mo-count">' . esc_html__( 'Images this run', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'How many images to shrink in one go.' ) . '</th><td>';
 		echo '<input type="number" id="iwsl-mo-count" name="count" min="1" max="' . (int) IWSL_Media_Optimizer::MAX_REQUEST . '" value="25" style="width:100px;"> ';
 		echo '<span class="description">' . esc_html( sprintf(
 			/* translators: %d is the per-run image ceiling. */
@@ -2097,12 +2097,12 @@ JS;
 			IWSL_Media_Optimizer::MAX_REQUEST
 		) ) . '</span></td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'Output', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Output', 'infraweaver-connector' ) . iwsl_field_help( 'Keep the original image too, or overwrite it with the smaller one.' ) . '</th><td>';
 		echo '<label style="display:block;margin-bottom:8px;"><input type="radio" name="mode" value="copy" checked> <strong>' . esc_html__( 'Keep original + add WebP copy', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Safe. Nothing is deleted — the WebP sits beside the original.', 'infraweaver-connector' ) . '</span></label>';
 		echo '<label style="display:block;"><input type="radio" name="mode" value="replace"> <strong>' . esc_html__( 'Replace original with WebP', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Smaller storage and faster pages. Deletes the original file — any hardcoded .png link in post content will break.', 'infraweaver-connector' ) . '</span></label>';
 		echo '</td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'On your pages', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'On your pages', 'infraweaver-connector' ) . iwsl_field_help( 'Swap the pictures shown on your pages to the smaller ones.' ) . '</th><td>';
 		echo '<label style="display:block;"><input type="checkbox" name="rewrite" value="1"> <strong>' . esc_html__( 'Replace the images on my pages with the optimized WebP', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Rewrites the image URLs in post & page content (including srcset) to point at the new WebP — even when you keep the original copy. Applies to images optimized in this run.', 'infraweaver-connector' ) . '</span></label>';
 		echo '</td></tr>';
 
@@ -2600,10 +2600,10 @@ JS;
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::EMAIL_SETTINGS_ACTION ) . '">';
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ed-host">' . esc_html__( 'SMTP Host', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-host">' . esc_html__( 'SMTP Host', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The address of your email-sending service (from your provider).' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-ed-host" name="host" class="regular-text" value="' . esc_attr( $host ) . '"></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ed-port">' . esc_html__( 'Port', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-port">' . esc_html__( 'Port', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The connection number your email provider tells you to use.' ) . '</th>';
 		echo '<td><input type="number" id="iwsl-ed-port" name="port" min="1" max="65535" value="' . esc_attr( $port > 0 ? (string) $port : '' ) . '"></td></tr>';
 
 		$mode_labels = array(
@@ -2611,7 +2611,7 @@ JS;
 			'ssl' => 'SSL',
 			'tls' => 'TLS',
 		);
-		echo '<tr><th scope="row"><label for="iwsl-ed-secure">' . esc_html__( 'Encryption', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-secure">' . esc_html__( 'Encryption', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'How the connection is secured — use what your provider says.' ) . '</th><td>';
 		echo '<select id="iwsl-ed-secure" name="secure">';
 		foreach ( IWSL_Email_Delivery::SECURE_MODES as $mode ) {
 			$label = isset( $mode_labels[ $mode ] ) ? $mode_labels[ $mode ] : $mode;
@@ -2619,21 +2619,21 @@ JS;
 		}
 		echo '</select></td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'Authentication', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Authentication', 'infraweaver-connector' ) . iwsl_field_help( 'Turn on if your email service needs a login.' ) . '</th><td>';
 		echo '<label><input type="checkbox" name="auth" value="1"' . checked( $auth, true, false ) . '> ' . esc_html__( 'Server requires authentication', 'infraweaver-connector' ) . '</label></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ed-username">' . esc_html__( 'Username', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-username">' . esc_html__( 'Username', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The login name for your email-sending account.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-ed-username" name="username" class="regular-text" value="' . esc_attr( $username ) . '"></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ed-from-email">' . esc_html__( 'From email', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-from-email">' . esc_html__( 'From email', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The email address your site’s messages appear to come from.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-ed-from-email" name="from_email" class="regular-text" value="' . esc_attr( $from_email ) . '">';
 		echo '<p class="description">' . esc_html__( 'The address mail is sent AS. Leave blank to use the SMTP username. Strict providers (Office 365, Gmail) require this to be an address your account may send as — e.g. noreply@yourdomain.', 'infraweaver-connector' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ed-from-name">' . esc_html__( 'From name', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-from-name">' . esc_html__( 'From name', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The sender name people see on your site’s emails.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-ed-from-name" name="from_name" class="regular-text" value="' . esc_attr( $from_name ) . '">';
 		echo '<p class="description">' . esc_html__( 'Optional display name; defaults to the site name.', 'infraweaver-connector' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ed-password">' . esc_html__( 'Password', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-ed-password">' . esc_html__( 'Password', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The password for your email-sending account.' ) . '</th><td>';
 		$placeholder = $has_password ? '****' : '';
 		echo '<input type="password" id="iwsl-ed-password" name="password" class="regular-text" value="" placeholder="' . esc_attr( $placeholder ) . '" autocomplete="new-password">';
 		echo '<p class="description">' . esc_html__( 'Leave blank to keep the current password. Prefer defining IWSL_SMTP_PASS in wp-config.php to keep the secret out of the database.', 'infraweaver-connector' ) . '</p>';
@@ -2648,7 +2648,7 @@ JS;
 		// the secret in the database is opt-in and risky, so it lives in Advanced.
 		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
 		echo '<table class="form-table" role="presentation"><tbody>';
-		echo '<tr><th scope="row">' . esc_html__( 'Password storage', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Password storage', 'infraweaver-connector' ) . iwsl_field_help( 'Save the email password in the database (less secure).' ) . '</th><td>';
 		$disabled = $constant_defined ? ' disabled' : '';
 		echo '<label><input type="checkbox" name="allow_option_password" value="1"' . checked( $allow_password, true, false ) . $disabled . '> ' . esc_html__( 'Store password in the database (I understand the risk)', 'infraweaver-connector' ) . '</label>';
 		if ( $constant_defined ) {
@@ -2994,11 +2994,11 @@ JS;
 		wp_nonce_field( self::REDIRECT_ADD_NONCE );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::REDIRECT_ADD_ACTION ) . '">';
 		echo '<table class="form-table" role="presentation"><tbody>';
-		echo '<tr><th scope="row"><label for="iwsl-rd-source">' . esc_html__( 'Source path', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-rd-source">' . esc_html__( 'Source path', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The old web address you want to send visitors away from.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-rd-source" name="source" class="regular-text" placeholder="/old-page" value=""></td></tr>';
-		echo '<tr><th scope="row"><label for="iwsl-rd-target">' . esc_html__( 'Target', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-rd-target">' . esc_html__( 'Target', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The new web address visitors should land on instead.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-rd-target" name="target" class="regular-text" placeholder="' . esc_attr__( '/new-page or https://…', 'infraweaver-connector' ) . '" value=""></td></tr>';
-		echo '<tr><th scope="row"><label for="iwsl-rd-type">' . esc_html__( 'Type', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-rd-type">' . esc_html__( 'Type', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Permanent moves for good; temporary is just for now.' ) . '</th><td>';
 		echo '<select id="iwsl-rd-type" name="type">';
 		echo '<option value="301">' . esc_html__( '301 (permanent)', 'infraweaver-connector' ) . '</option>';
 		echo '<option value="302">' . esc_html__( '302 (temporary)', 'infraweaver-connector' ) . '</option>';
@@ -3244,18 +3244,18 @@ JS;
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::WHITE_LABEL_ACTION ) . '">';
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwsl-wl-logo">' . esc_html__( 'Login logo URL', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-wl-logo">' . esc_html__( 'Login logo URL', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'A link to your own logo for the login screen.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-wl-logo" name="login_logo_url" class="regular-text" value="' . esc_attr( $logo ) . '" placeholder="/wp-content/uploads/brand/logo.png">';
 		echo '<p class="description">' . esc_html__( 'A same-site path or https URL to your logo image. Leave blank for the WordPress logo.', 'infraweaver-connector' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-wl-hdr-url">' . esc_html__( 'Logo link URL', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-wl-hdr-url">' . esc_html__( 'Logo link URL', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Where clicking the login logo takes people.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-wl-hdr-url" name="login_header_url" class="regular-text" value="' . esc_attr( $hdr_url ) . '" placeholder="https://example.com">';
 		echo '<p class="description">' . esc_html__( 'Where the login logo links to. Leave blank for your site home.', 'infraweaver-connector' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-wl-hdr-text">' . esc_html__( 'Logo link text', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-wl-hdr-text">' . esc_html__( 'Logo link text', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The hidden text describing where the logo links.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-wl-hdr-text" name="login_header_text" class="regular-text" value="' . esc_attr( $hdr_text ) . '"></td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-wl-message">' . esc_html__( 'Login message', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-wl-message">' . esc_html__( 'Login message', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'A short note shown above the login form.' ) . '</th>';
 		echo '<td><textarea id="iwsl-wl-message" name="login_message" class="large-text" rows="2">' . esc_textarea( $message ) . '</textarea>';
 		echo '<p class="description">' . esc_html__( 'Shown above the login form. Plain text only.', 'infraweaver-connector' ) . '</p></td></tr>';
 
@@ -3265,11 +3265,11 @@ JS;
 		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwsl-wl-footer">' . esc_html__( 'Admin footer text', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwsl-wl-footer">' . esc_html__( 'Admin footer text', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Your own text for the dashboard footer credit.' ) . '</th>';
 		echo '<td><input type="text" id="iwsl-wl-footer" name="admin_footer_text" class="regular-text" value="' . esc_attr( $footer ) . '">';
 		echo '<p class="description">' . esc_html__( 'Replaces the "Thank you for creating with WordPress" credit.', 'infraweaver-connector' ) . '</p></td></tr>';
 
-		echo '<tr><th scope="row">' . esc_html__( 'Admin bar', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Admin bar', 'infraweaver-connector' ) . iwsl_field_help( 'Hide the WordPress logo from the top admin bar.' ) . '</th><td>';
 		echo '<label><input type="checkbox" name="hide_wp_logo" value="1"' . checked( $hide, true, false ) . '> ' . esc_html__( 'Remove the WordPress logo from the admin bar', 'infraweaver-connector' ) . '</label></td></tr>';
 
 		echo '</tbody></table>';
@@ -3413,7 +3413,7 @@ JS;
 		wp_nonce_field( self::DB_OPTIMIZE_NONCE );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::DB_OPTIMIZE_ACTION ) . '">';
 		echo '<input type="hidden" name="iwsl_db_mode" value="run">';
-		echo '<p><label><input type="checkbox" name="iwsl_db_confirm" value="1"> ' . esc_html__( 'Yes, permanently delete the items counted above.', 'infraweaver-connector' ) . '</label></p>';
+		echo '<p><label><input type="checkbox" name="iwsl_db_confirm" value="1"> ' . esc_html__( 'Yes, permanently delete the items counted above.', 'infraweaver-connector' ) . iwsl_field_help( 'Tick to confirm you really want these items deleted.' ) . '</label></p>';
 		echo '<div class="iwsl-primary">';
 		echo '<span class="iwsl-primary__meta">' . esc_html__( 'Deletes the items counted in Preview above.', 'infraweaver-connector' ) . '</span>';
 		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Clean database now', 'infraweaver-connector' ) . '</button>';
@@ -3634,6 +3634,7 @@ JS;
 			? esc_html__( 'Disable page cache', 'infraweaver-connector' )
 			: esc_html__( 'Enable page cache', 'infraweaver-connector' );
 		echo '<button type="submit" class="button button-primary">' . $label . '</button>';
+		echo iwsl_field_help( 'Turn saved-page speed-up on or off.' );
 		echo '</form> ';
 
 		// Purge-all button.
@@ -3641,6 +3642,7 @@ JS;
 		wp_nonce_field( self::PAGE_CACHE_PURGE_NONCE );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::PAGE_CACHE_PURGE_ACTION ) . '">';
 		echo '<button type="submit" class="button">' . esc_html__( 'Purge all', 'infraweaver-connector' ) . '</button>';
+		echo iwsl_field_help( 'Clear all saved pages so visitors get fresh ones.' );
 		echo '</form>';
 		echo '</div>';
 
@@ -3854,7 +3856,7 @@ JS;
 		$type  = (string) $spec['type'];
 		$id    = 'iwsl-cfg-' . strtolower( str_replace( '_', '-', $key ) );
 
-		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label>' . iwsl_field_help( self::config_field_help( $key ) ) . '</th><td>';
 		if ( 'bool' === $type ) {
 			$checked = ! empty( $value ) ? ' checked' : '';
 			echo '<input type="checkbox" id="' . esc_attr( $id ) . '" name="' . esc_attr( $key ) . '" value="1"' . $checked . '>';
@@ -3897,6 +3899,25 @@ JS;
 			'max_execution_time'  => 'Max script run time in seconds.',
 		);
 		return isset( $hints[ $key ] ) ? $hints[ $key ] : '';
+	}
+
+	/** A plain-English, non-technical sentence for the "?" help badge on each config field. */
+	private static function config_field_help( string $key ): string {
+		$help = array(
+			'WP_MEMORY_LIMIT'     => 'How much memory your site may use for normal pages.',
+			'WP_MAX_MEMORY_LIMIT' => 'How much memory heavier admin tasks may use.',
+			'WP_POST_REVISIONS'   => 'How many past versions of each post to keep.',
+			'EMPTY_TRASH_DAYS'    => 'How many days deleted items wait before being emptied.',
+			'AUTOSAVE_INTERVAL'   => 'How often the editor auto-saves your work, in seconds.',
+			'WP_DEBUG'            => 'Turn on developer error reporting to troubleshoot problems.',
+			'WP_DEBUG_LOG'        => 'Save errors to a log file instead of showing them.',
+			'WP_DEBUG_DISPLAY'    => 'Show errors on the page (only while fixing issues).',
+			'DISALLOW_FILE_EDIT'  => 'Block editing theme and plugin files from the dashboard.',
+			'upload_max_filesize' => 'The largest single file that may be uploaded.',
+			'post_max_size'       => 'The largest amount of data a form may submit.',
+			'max_execution_time'  => 'How many seconds a task may run before stopping.',
+		);
+		return isset( $help[ $key ] ) ? $help[ $key ] : '';
 	}
 
 	/** Render (then clear) the current user's PRG apply result. */

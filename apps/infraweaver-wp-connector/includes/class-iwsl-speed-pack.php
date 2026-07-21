@@ -1247,10 +1247,10 @@ final class IWSL_Speed_Pack {
 	private function render_group_html_css_js( array $s ): void {
 		echo '<h3>' . esc_html__( 'HTML, CSS & JavaScript', 'infraweaver-connector' ) . '</h3>';
 		echo '<table class="form-table widefat" role="presentation"><tbody>';
-		$this->toggle_row( 'iwsl_sp_minify_html', __( 'Minify HTML', 'infraweaver-connector' ), ! empty( $s['minify_html'] ), __( 'Collapse whitespace and strip comments in the final front-end page (anonymous visitors only). The contents of pre, textarea, script, style and code are preserved byte-for-byte.', 'infraweaver-connector' ) );
-		$this->toggle_row( 'iwsl_sp_defer_js', __( 'Defer JavaScript', 'infraweaver-connector' ), ! empty( $s['defer_js'] ), __( 'Add defer to non-critical local scripts so they no longer block rendering. Use the exclusion list below for scripts that must run early (e.g. jQuery on legacy themes).', 'infraweaver-connector' ) );
-		$this->toggle_row( 'iwsl_sp_delay_js', __( 'Delay JavaScript until interaction', 'infraweaver-connector' ), ! empty( $s['delay_js'] ), __( 'Advanced: hold local scripts until the first scroll, tap or keypress. Big speed win, but can break scripts that must run on load — test carefully and exclude anything above the fold. Takes precedence over Defer.', 'infraweaver-connector' ) );
-		echo '<tr><th scope="row"><label for="iwsl-sp-excl">' . esc_html__( 'JS exclusions', 'infraweaver-connector' ) . '</label></th><td>';
+		$this->toggle_row( 'iwsl_sp_minify_html', __( 'Minify HTML', 'infraweaver-connector' ), ! empty( $s['minify_html'] ), __( 'Collapse whitespace and strip comments in the final front-end page (anonymous visitors only). The contents of pre, textarea, script, style and code are preserved byte-for-byte.', 'infraweaver-connector' ), 'Shrinks page code by removing spaces and comments to load faster.' );
+		$this->toggle_row( 'iwsl_sp_defer_js', __( 'Defer JavaScript', 'infraweaver-connector' ), ! empty( $s['defer_js'] ), __( 'Add defer to non-critical local scripts so they no longer block rendering. Use the exclusion list below for scripts that must run early (e.g. jQuery on legacy themes).', 'infraweaver-connector' ), 'Loads non-essential scripts after the page shows, so it appears sooner.' );
+		$this->toggle_row( 'iwsl_sp_delay_js', __( 'Delay JavaScript until interaction', 'infraweaver-connector' ), ! empty( $s['delay_js'] ), __( 'Advanced: hold local scripts until the first scroll, tap or keypress. Big speed win, but can break scripts that must run on load — test carefully and exclude anything above the fold. Takes precedence over Defer.', 'infraweaver-connector' ), 'Wait to load scripts until the visitor interacts, so pages feel faster.' );
+		echo '<tr><th scope="row"><label for="iwsl-sp-excl">' . esc_html__( 'JS exclusions', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'List scripts here that should never be delayed or deferred.' ) . '</th><td>';
 		echo '<textarea id="iwsl-sp-excl" name="iwsl_sp_defer_exclusions" class="large-text code" rows="3" placeholder="jquery&#10;/wp-includes/js/jquery/">' . esc_textarea( implode( "\n", (array) $s['defer_exclusions'] ) ) . '</textarea>';
 		echo '<p class="description">' . esc_html__( 'One match per line; a script whose URL contains any of these is never deferred or delayed.', 'infraweaver-connector' ) . '</p></td></tr>';
 		echo '</tbody></table>';
@@ -1261,7 +1261,7 @@ final class IWSL_Speed_Pack {
 		$status = $this->status();
 		echo '<h3>' . esc_html__( 'Server (compression & browser cache)', 'infraweaver-connector' ) . '</h3>';
 		echo '<table class="form-table widefat" role="presentation"><tbody>';
-		$this->toggle_row( 'iwsl_sp_server_headers', __( 'GZIP/Brotli + Expires headers', 'infraweaver-connector' ), ! empty( $s['server_headers'] ), __( 'Write an Apache .htaccess block that turns on mod_deflate/mod_brotli compression and long browser-cache (Expires + Cache-Control) headers for static assets. Every directive is IfModule-guarded, so a missing module is skipped harmlessly. Removed automatically if the feature is revoked.', 'infraweaver-connector' ) );
+		$this->toggle_row( 'iwsl_sp_server_headers', __( 'GZIP/Brotli + Expires headers', 'infraweaver-connector' ), ! empty( $s['server_headers'] ), __( 'Write an Apache .htaccess block that turns on mod_deflate/mod_brotli compression and long browser-cache (Expires + Cache-Control) headers for static assets. Every directive is IfModule-guarded, so a missing module is skipped harmlessly. Removed automatically if the feature is revoked.', 'infraweaver-connector' ), 'Compresses files and tells browsers to cache them for speed.' );
 		echo '<tr><th scope="row">' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th><td>';
 		if ( ! empty( $status['block_present'] ) ) {
 			echo '<span class="description">' . esc_html__( 'Managed .htaccess block is written and active.', 'infraweaver-connector' ) . '</span>';
@@ -1278,8 +1278,8 @@ final class IWSL_Speed_Pack {
 	private function render_group_hints( array $s ): void {
 		echo '<h3>' . esc_html__( 'Resource hints', 'infraweaver-connector' ) . '</h3>';
 		echo '<table class="form-table widefat" role="presentation"><tbody>';
-		$this->toggle_row( 'iwsl_sp_resource_hints', __( 'DNS-prefetch / preconnect', 'infraweaver-connector' ), ! empty( $s['resource_hints'] ), __( 'Warm up the connection to third-party hosts (fonts, analytics, CDNs) so their assets load sooner.', 'infraweaver-connector' ) );
-		echo '<tr><th scope="row"><label for="iwsl-sp-hosts">' . esc_html__( 'Hosts', 'infraweaver-connector' ) . '</label></th><td>';
+		$this->toggle_row( 'iwsl_sp_resource_hints', __( 'DNS-prefetch / preconnect', 'infraweaver-connector' ), ! empty( $s['resource_hints'] ), __( 'Warm up the connection to third-party hosts (fonts, analytics, CDNs) so their assets load sooner.', 'infraweaver-connector' ), 'Connects early to other sites so their files arrive sooner.' );
+		echo '<tr><th scope="row"><label for="iwsl-sp-hosts">' . esc_html__( 'Hosts', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Other sites to connect to early, one per line.' ) . '</th><td>';
 		echo '<textarea id="iwsl-sp-hosts" name="iwsl_sp_prefetch_hosts" class="large-text code" rows="3" placeholder="fonts.gstatic.com&#10;cdn.example.com">' . esc_textarea( implode( "\n", (array) $s['prefetch_hosts'] ) ) . '</textarea>';
 		echo '<p class="description">' . esc_html__( 'One hostname per line (no scheme). Added to both dns-prefetch and preconnect.', 'infraweaver-connector' ) . '</p></td></tr>';
 		echo '</tbody></table>';
@@ -1289,13 +1289,13 @@ final class IWSL_Speed_Pack {
 	private function render_group_cleanup( array $s ): void {
 		echo '<h3>' . esc_html__( 'Cleanup', 'infraweaver-connector' ) . '</h3>';
 		echo '<table class="form-table widefat" role="presentation"><tbody>';
-		$this->toggle_row( 'iwsl_sp_remove_query_strings', __( 'Remove query strings from static assets', 'infraweaver-connector' ), ! empty( $s['remove_query_strings'] ), __( 'Strip the ?ver= cache-buster from CSS/JS URLs so more proxies and CDNs will cache them.', 'infraweaver-connector' ) );
-		$this->toggle_row( 'iwsl_sp_disable_emojis', __( 'Disable emojis', 'infraweaver-connector' ), ! empty( $s['disable_emojis'] ), __( 'Remove the wp-emoji detection script and styles that load on every page.', 'infraweaver-connector' ) );
-		$this->toggle_row( 'iwsl_sp_disable_embeds', __( 'Disable embeds', 'infraweaver-connector' ), ! empty( $s['disable_embeds'] ), __( 'Remove the oEmbed discovery links and host JavaScript. Existing embeds still render.', 'infraweaver-connector' ) );
-		$this->toggle_row( 'iwsl_sp_heartbeat_control', __( 'Throttle Heartbeat', 'infraweaver-connector' ), ! empty( $s['heartbeat_control'] ), __( 'Slow down the admin-ajax Heartbeat that polls in the background, reducing server load.', 'infraweaver-connector' ) );
-		echo '<tr><th scope="row"><label for="iwsl-sp-hb">' . esc_html__( 'Heartbeat interval', 'infraweaver-connector' ) . '</label></th><td>';
+		$this->toggle_row( 'iwsl_sp_remove_query_strings', __( 'Remove query strings from static assets', 'infraweaver-connector' ), ! empty( $s['remove_query_strings'] ), __( 'Strip the ?ver= cache-buster from CSS/JS URLs so more proxies and CDNs will cache them.', 'infraweaver-connector' ), 'Cleans asset links so more caches will store them.' );
+		$this->toggle_row( 'iwsl_sp_disable_emojis', __( 'Disable emojis', 'infraweaver-connector' ), ! empty( $s['disable_emojis'] ), __( 'Remove the wp-emoji detection script and styles that load on every page.', 'infraweaver-connector' ), 'Stops loading the extra emoji code on every page.' );
+		$this->toggle_row( 'iwsl_sp_disable_embeds', __( 'Disable embeds', 'infraweaver-connector' ), ! empty( $s['disable_embeds'] ), __( 'Remove the oEmbed discovery links and host JavaScript. Existing embeds still render.', 'infraweaver-connector' ), 'Stops loading link-preview code; existing embeds still show.' );
+		$this->toggle_row( 'iwsl_sp_heartbeat_control', __( 'Throttle Heartbeat', 'infraweaver-connector' ), ! empty( $s['heartbeat_control'] ), __( 'Slow down the admin-ajax Heartbeat that polls in the background, reducing server load.', 'infraweaver-connector' ), 'Slows the background admin check to reduce server load.' );
+		echo '<tr><th scope="row"><label for="iwsl-sp-hb">' . esc_html__( 'Heartbeat interval', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'How often the background admin check runs, in seconds.' ) . '</th><td>';
 		echo '<input type="number" id="iwsl-sp-hb" name="iwsl_sp_heartbeat_frequency" min="' . esc_attr( (string) self::HEARTBEAT_MIN ) . '" max="' . esc_attr( (string) self::HEARTBEAT_MAX ) . '" value="' . esc_attr( (string) $s['heartbeat_frequency'] ) . '" class="small-text"> ' . esc_html__( 'seconds', 'infraweaver-connector' );
-		echo '<label style="display:block;margin-top:6px;"><input type="checkbox" name="iwsl_sp_heartbeat_disable_frontend" value="1"' . ( ! empty( $s['heartbeat_disable_frontend'] ) ? ' checked' : '' ) . '> ' . esc_html__( 'Also disable Heartbeat entirely on the front end', 'infraweaver-connector' ) . '</label>';
+		echo '<label style="display:block;margin-top:6px;"><input type="checkbox" name="iwsl_sp_heartbeat_disable_frontend" value="1"' . ( ! empty( $s['heartbeat_disable_frontend'] ) ? ' checked' : '' ) . '> ' . esc_html__( 'Also disable Heartbeat entirely on the front end', 'infraweaver-connector' ) . iwsl_field_help( 'Turn the background check off completely for visitors.' ) . '</label>';
 		echo '</td></tr>';
 		echo '</tbody></table>';
 	}
@@ -1304,13 +1304,13 @@ final class IWSL_Speed_Pack {
 	private function render_group_loading( array $s ): void {
 		echo '<h3>' . esc_html__( 'Loading', 'infraweaver-connector' ) . '</h3>';
 		echo '<table class="form-table widefat" role="presentation"><tbody>';
-		$this->toggle_row( 'iwsl_sp_instant_page', __( 'Instant-load links on hover', 'infraweaver-connector' ), ! empty( $s['instant_page'] ), __( 'Prefetch same-origin pages when a visitor hovers or starts to tap a link, so the next page feels instant. Front-end only.', 'infraweaver-connector' ) );
+		$this->toggle_row( 'iwsl_sp_instant_page', __( 'Instant-load links on hover', 'infraweaver-connector' ), ! empty( $s['instant_page'] ), __( 'Prefetch same-origin pages when a visitor hovers or starts to tap a link, so the next page feels instant. Front-end only.', 'infraweaver-connector' ), 'Preloads the next page when a visitor hovers a link.' );
 		echo '</tbody></table>';
 	}
 
 	/** One checkbox row with a description. */
-	private function toggle_row( string $name, string $label, bool $checked, string $description ): void {
-		echo '<tr><th scope="row">' . esc_html( $label ) . '</th><td>';
+	private function toggle_row( string $name, string $label, bool $checked, string $description, string $help = '' ): void {
+		echo '<tr><th scope="row">' . esc_html( $label ) . iwsl_field_help( $help ) . '</th><td>';
 		echo '<label><input type="checkbox" name="' . esc_attr( $name ) . '" value="1"' . ( $checked ? ' checked' : '' ) . '> ' . esc_html__( 'Enable', 'infraweaver-connector' ) . '</label>';
 		echo '<p class="description">' . esc_html( $description ) . '</p>';
 		echo '</td></tr>';

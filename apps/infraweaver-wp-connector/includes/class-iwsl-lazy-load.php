@@ -291,7 +291,7 @@ final class IWSL_Lazy_Load {
 			? __( 'Lazy-loading is on.', 'infraweaver-connector' )
 			: __( 'Lazy-loading is off.', 'infraweaver-connector' ) ) . '</span>';
 		echo '<label><input type="checkbox" name="enabled" value="1"' . ( ! empty( $settings['enabled'] ) ? ' checked' : '' ) . '> '
-			. esc_html__( 'Defer off-screen images', 'infraweaver-connector' ) . '</label> ';
+			. esc_html__( 'Defer off-screen images', 'infraweaver-connector' ) . iwsl_field_help( 'Waits to load images below the screen until you scroll to them.' ) . '</label> ';
 		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Save changes', 'infraweaver-connector' ) . '</button>';
 		echo '</div>';
 
@@ -300,10 +300,10 @@ final class IWSL_Lazy_Load {
 
 		echo '<tr><th scope="row">' . esc_html__( 'Iframes', 'infraweaver-connector' ) . '</th><td>';
 		echo '<label><input type="checkbox" name="lazy_iframes" value="1"' . ( ! empty( $settings['lazy_iframes'] ) ? ' checked' : '' ) . '> '
-			. esc_html__( 'Also lazy-load iframes (embeds, maps, videos)', 'infraweaver-connector' ) . '</label>';
+			. esc_html__( 'Also lazy-load iframes (embeds, maps, videos)', 'infraweaver-connector' ) . iwsl_field_help( 'Also delay embeds like maps and videos until you scroll near.' ) . '</label>';
 		echo '</td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-ll-skip">' . esc_html__( 'Skip first images', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-ll-skip">' . esc_html__( 'Skip first images', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'How many top images to load normally so the page top isn’t blank.' ) . '</th><td>';
 		echo '<input type="number" id="iwsl-ll-skip" name="skip_images" min="0" max="' . esc_attr( (string) self::MAX_SKIP ) . '" value="' . esc_attr( (string) $settings['skip_images'] ) . '" class="small-text">';
 		echo ' <span class="description">' . esc_html__( 'Leave this many leading images eager to protect LCP (default 1).', 'infraweaver-connector' ) . '</span>';
 		echo '</td></tr>';

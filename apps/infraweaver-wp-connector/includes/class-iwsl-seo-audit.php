@@ -424,7 +424,7 @@ final class IWSL_SEO_Audit {
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:8px;">';
 		wp_nonce_field( self::NONCE );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::ACTION ) . '">';
-		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Run audit', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Run audit', 'infraweaver-connector' ) . '</button>' . iwsl_field_help( 'Check every post and page for common SEO problems now.' );
 		echo ' <span class="description">' . esc_html( sprintf( 'Scans at most %d published posts and pages.', self::MAX_ITEMS ) ) . '</span>';
 		echo '</form>';
 	}

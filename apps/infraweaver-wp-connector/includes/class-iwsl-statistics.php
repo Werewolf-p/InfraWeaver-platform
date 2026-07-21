@@ -749,6 +749,7 @@ final class IWSL_Statistics {
 			wp_nonce_field( self::RESET_NONCE );
 		}
 		echo '<button type="submit" class="button button-secondary">' . self::esc_html_safe( 'Reset statistics' ) . '</button>';
+		echo ' ' . iwsl_field_help( 'Permanently deletes all recorded visits and starts counting fresh.' );
 		echo '</form>';
 	}
 

@@ -393,6 +393,7 @@ final class IWSL_Activity_Log {
 			wp_nonce_field( self::NONCE_CLEAR );
 		}
 		echo '<button type="submit" class="button button-secondary">' . self::esc_html_safe( 'Clear log' ) . '</button>';
+		echo ' ' . iwsl_field_help( 'Permanently erases the recorded list of admin actions.' );
 		echo '</form>';
 	}
 

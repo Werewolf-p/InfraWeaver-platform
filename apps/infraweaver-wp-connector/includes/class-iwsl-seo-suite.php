@@ -1243,20 +1243,20 @@ final class IWSL_SEO_Suite {
 		echo '<input type="hidden" name="action" value="' . self::eattr( self::SAVE_ACTION ) . '">';
 		echo '<table class="form-table" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwseo_separator">' . esc_html__( 'Title separator', 'infraweaver-connector' ) . '</label></th>';
+		echo '<tr><th scope="row"><label for="iwseo_separator">' . esc_html__( 'Title separator', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'The little symbol shown between your title and site name in Google.' ) . '</th>';
 		echo '<td><input type="text" id="iwseo_separator" name="iwseo_separator" value="' . self::eattr( (string) $s['separator'] ) . '" class="small-text"> <span class="description">' . esc_html__( 'Used for %%sep%% in templates.', 'infraweaver-connector' ) . '</span></td></tr>';
 
 		foreach ( array( 'post' => 'Posts', 'page' => 'Pages', 'home' => 'Homepage' ) as $type => $label ) {
 			$t = isset( $s['title_templates'][ $type ] ) ? (string) $s['title_templates'][ $type ] : '';
 			$d = isset( $s['meta_templates'][ $type ] ) ? (string) $s['meta_templates'][ $type ] : '';
 			echo '<tr><th scope="row">' . self::ehtml( $label ) . '</th><td>';
-			echo '<label>' . esc_html__( 'SEO title template', 'infraweaver-connector' ) . '<input type="text" name="iwseo_title_tpl[' . self::eattr( $type ) . ']" value="' . self::eattr( $t ) . '" class="widefat" placeholder="' . self::eattr( self::DEFAULT_TITLE_TEMPLATE ) . '"></label>';
-			echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Meta description template', 'infraweaver-connector' ) . '<input type="text" name="iwseo_meta_tpl[' . self::eattr( $type ) . ']" value="' . self::eattr( $d ) . '" class="widefat"></label>';
+			echo '<label>' . esc_html__( 'SEO title template', 'infraweaver-connector' ) . iwsl_field_help( 'The pattern used to build each page’s Google headline.' ) . '<input type="text" name="iwseo_title_tpl[' . self::eattr( $type ) . ']" value="' . self::eattr( $t ) . '" class="widefat" placeholder="' . self::eattr( self::DEFAULT_TITLE_TEMPLATE ) . '"></label>';
+			echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Meta description template', 'infraweaver-connector' ) . iwsl_field_help( 'The pattern for the summary shown under your Google result.' ) . '<input type="text" name="iwseo_meta_tpl[' . self::eattr( $type ) . ']" value="' . self::eattr( $d ) . '" class="widefat"></label>';
 			echo '</td></tr>';
 		}
 
 		// Core toggle stays visible with the templates.
-		echo '<tr><th scope="row">' . esc_html__( 'XML sitemap', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'XML sitemap', 'infraweaver-connector' ) . iwsl_field_help( 'Give search engines a map of your pages so they get found.' ) . '</th><td>';
 		echo '<label><input type="checkbox" name="iwseo_sitemap_enabled" value="1"' . self::checked( ! empty( $s['sitemap_enabled'] ) ) . '> ' . esc_html__( 'Serve /sitemap_index.xml (noindex URLs excluded)', 'infraweaver-connector' ) . '</label></td></tr>';
 
 		echo '</tbody></table>';
@@ -1267,24 +1267,24 @@ final class IWSL_SEO_Suite {
 		echo '<table class="form-table" role="presentation"><tbody>';
 
 		$org = $s['org'];
-		echo '<tr><th scope="row">' . esc_html__( 'Site represented by', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Site represented by', 'infraweaver-connector' ) . iwsl_field_help( 'Whether your site stands for a company or a single person.' ) . '</th><td>';
 		echo '<label><input type="radio" name="iwseo_org_type" value="organization"' . self::checked( 'organization' === $org['type'] ) . '> ' . esc_html__( 'Organization', 'infraweaver-connector' ) . '</label> ';
 		echo '<label><input type="radio" name="iwseo_org_type" value="person"' . self::checked( 'person' === $org['type'] ) . '> ' . esc_html__( 'Person', 'infraweaver-connector' ) . '</label>';
-		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Name', 'infraweaver-connector' ) . '<input type="text" name="iwseo_org_name" value="' . self::eattr( (string) $org['name'] ) . '" class="widefat"></label>';
-		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Logo URL', 'infraweaver-connector' ) . '<input type="text" name="iwseo_org_logo" value="' . self::eattr( (string) $org['logo'] ) . '" class="widefat"></label>';
-		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Social profile URLs (one per line)', 'infraweaver-connector' ) . '<textarea name="iwseo_org_same_as" rows="3" class="widefat">' . self::ehtml( implode( "\n", (array) $org['same_as'] ) ) . '</textarea></label>';
+		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Name', 'infraweaver-connector' ) . iwsl_field_help( 'The name of your company or yourself shown to search engines.' ) . '<input type="text" name="iwseo_org_name" value="' . self::eattr( (string) $org['name'] ) . '" class="widefat"></label>';
+		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Logo URL', 'infraweaver-connector' ) . iwsl_field_help( 'Your logo, shown when your pages are shared or in Google.' ) . '<input type="text" name="iwseo_org_logo" value="' . self::eattr( (string) $org['logo'] ) . '" class="widefat"></label>';
+		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Social profile URLs (one per line)', 'infraweaver-connector' ) . iwsl_field_help( 'Links to your social media pages, one on each line.' ) . '<textarea name="iwseo_org_same_as" rows="3" class="widefat">' . self::ehtml( implode( "\n", (array) $org['same_as'] ) ) . '</textarea></label>';
 		echo '</td></tr>';
 
 		echo '<tr><th scope="row">' . esc_html__( 'Social defaults', 'infraweaver-connector' ) . '</th><td>';
-		echo '<label>' . esc_html__( 'Default share image URL', 'infraweaver-connector' ) . '<input type="text" name="iwseo_default_social_image" value="' . self::eattr( (string) $s['default_social_image'] ) . '" class="widefat"></label>';
-		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'X / Twitter site handle', 'infraweaver-connector' ) . '<input type="text" name="iwseo_twitter_site" value="' . self::eattr( (string) $s['twitter_site'] ) . '" class="regular-text" placeholder="@site"></label>';
+		echo '<label>' . esc_html__( 'Default share image URL', 'infraweaver-connector' ) . iwsl_field_help( 'The picture shown when someone shares your pages on social media.' ) . '<input type="text" name="iwseo_default_social_image" value="' . self::eattr( (string) $s['default_social_image'] ) . '" class="widefat"></label>';
+		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'X / Twitter site handle', 'infraweaver-connector' ) . iwsl_field_help( 'Your X (Twitter) username, credited when pages are shared there.' ) . '<input type="text" name="iwseo_twitter_site" value="' . self::eattr( (string) $s['twitter_site'] ) . '" class="regular-text" placeholder="@site"></label>';
 		echo '</td></tr>';
 
 		$bc = $s['breadcrumbs'];
-		echo '<tr><th scope="row">' . esc_html__( 'Breadcrumbs', 'infraweaver-connector' ) . '</th><td>';
+		echo '<tr><th scope="row">' . esc_html__( 'Breadcrumbs', 'infraweaver-connector' ) . iwsl_field_help( 'Show a little trail of links so visitors know where they are.' ) . '</th><td>';
 		echo '<label><input type="checkbox" name="iwseo_bc_enabled" value="1"' . self::checked( ! empty( $bc['enabled'] ) ) . '> ' . esc_html__( 'Enable the [iwseo_breadcrumb] shortcode + schema', 'infraweaver-connector' ) . '</label>';
-		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Home label', 'infraweaver-connector' ) . '<input type="text" name="iwseo_bc_home_label" value="' . self::eattr( (string) $bc['home_label'] ) . '" class="regular-text"></label>';
-		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Separator', 'infraweaver-connector' ) . '<input type="text" name="iwseo_bc_separator" value="' . self::eattr( (string) $bc['separator'] ) . '" class="small-text"></label>';
+		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Home label', 'infraweaver-connector' ) . iwsl_field_help( 'The word used for your front page in that trail of links.' ) . '<input type="text" name="iwseo_bc_home_label" value="' . self::eattr( (string) $bc['home_label'] ) . '" class="regular-text"></label>';
+		echo '<label style="display:block;margin-top:6px;">' . esc_html__( 'Separator', 'infraweaver-connector' ) . iwsl_field_help( 'The small symbol shown between each step in that trail.' ) . '<input type="text" name="iwseo_bc_separator" value="' . self::eattr( (string) $bc['separator'] ) . '" class="small-text"></label>';
 		echo '</td></tr>';
 
 		echo '</tbody></table>';
