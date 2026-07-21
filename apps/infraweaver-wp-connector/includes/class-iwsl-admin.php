@@ -13,9 +13,14 @@
  * The image-optimization action is gated at THREE layers, innermost
  * authoritative: this page (UX), the admin-post handler (before doing work), and
  * IWSL_Media_Optimizer::run() itself (survives any future caller). The action is
- * POST → admin-post.php → redirect back (PRG); NO attachment ids ever cross the
- * request boundary — the only inputs are the nonce and an allow-listed converter
- * id validated against the registry.
+ * POST → admin-post.php → redirect back (PRG). The inputs are the nonce, an
+ * allow-listed converter id validated against the registry, and — when the
+ * operator uses the media-library picker — a comma-separated list of attachment
+ * ids. Any picked ids are treated as UNTRUSTED: they are re-validated
+ * server-side (real `attachment` post + accepted MIME) before ever reaching
+ * IWSL_Media_Optimizer::convert_one(), which resolves the file path itself and
+ * still runs its full guard_source() gauntlet — no attachment path ever comes
+ * from the request, picker or not.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -59,6 +64,10 @@ final class IWSL_Admin {
 	const PAGE_CACHE_PURGE_ACTION  = 'iwsl_page_cache_purge';
 	const PAGE_CACHE_PURGE_NONCE   = 'iwsl_page_cache_purge';
 
+	/** admin-post action + nonce for the Configuration editor save (manage_options + nonce gated). */
+	const CONFIG_SAVE_ACTION = 'iwsl_config_save';
+	const CONFIG_SAVE_NONCE  = 'iwsl_config_save';
+
 	/** @var IWSL_Plugin */
 	private $plugin;
 
@@ -80,7 +89,13 @@ final class IWSL_Admin {
 	/** @var IWSL_Page_Cache|null lazily built from the plugin's entitlements. */
 	private $page_cache;
 
-	public function __construct( IWSL_Plugin $plugin, ?IWSL_Media_Optimizer $optimizer = null, ?IWSL_Email_Delivery $email_delivery = null, ?IWSL_Redirects $redirects = null, ?IWSL_White_Label $white_label = null, ?IWSL_DB_Optimizer $db_optimizer = null, ?IWSL_Page_Cache $page_cache = null ) {
+	/** @var IWSL_Config_Editor|null lazily built; no entitlement — manage_options + nonce gated. */
+	private $config_editor;
+
+	/** @var string The hook suffix returned by add_menu_page(), used to scope wp_enqueue_media() to this page only. */
+	private $page_hook = '';
+
+	public function __construct( IWSL_Plugin $plugin, ?IWSL_Media_Optimizer $optimizer = null, ?IWSL_Email_Delivery $email_delivery = null, ?IWSL_Redirects $redirects = null, ?IWSL_White_Label $white_label = null, ?IWSL_DB_Optimizer $db_optimizer = null, ?IWSL_Page_Cache $page_cache = null, ?IWSL_Config_Editor $config_editor = null ) {
 		$this->plugin         = $plugin;
 		$this->optimizer      = $optimizer;
 		$this->email_delivery = $email_delivery;
@@ -88,11 +103,13 @@ final class IWSL_Admin {
 		$this->white_label    = $white_label;
 		$this->db_optimizer   = $db_optimizer;
 		$this->page_cache     = $page_cache;
+		$this->config_editor  = $config_editor;
 	}
 
 	/** Hook the admin menu + the image-optimization + email-delivery + redirect + db-optimize admin-post handlers. */
 	public function register(): void {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'admin_post_' . self::OPTIMIZE_ACTION, array( $this, 'handle_media_optimize' ) );
 		add_action( 'admin_post_' . self::EMAIL_SETTINGS_ACTION, array( $this, 'handle_email_settings_save' ) );
 		add_action( 'admin_post_' . self::EMAIL_LOG_CLEAR_ACTION, array( $this, 'handle_email_log_clear' ) );
@@ -104,13 +121,14 @@ final class IWSL_Admin {
 		add_action( 'admin_post_' . self::DB_OPTIMIZE_ACTION, array( $this, 'handle_db_optimize' ) );
 		add_action( 'admin_post_' . self::PAGE_CACHE_TOGGLE_ACTION, array( $this, 'handle_page_cache_toggle' ) );
 		add_action( 'admin_post_' . self::PAGE_CACHE_PURGE_ACTION, array( $this, 'handle_page_cache_purge' ) );
+		add_action( 'admin_post_' . self::CONFIG_SAVE_ACTION, array( $this, 'handle_config_save' ) );
 	}
 
 	public function add_menu(): void {
 		// Top-level sidebar entry so operators can find the Plus features
 		// (image optimization, DB cleanup, email, redirects, white-label,
 		// page cache) directly, rather than buried under Tools.
-		add_menu_page(
+		$this->page_hook = (string) add_menu_page(
 			'InfraWeaver Plus',
 			'InfraWeaver Plus',
 			'manage_options',
@@ -119,6 +137,20 @@ final class IWSL_Admin {
 			'dashicons-shield',
 			81
 		);
+	}
+
+	/**
+	 * Enqueue the WordPress media library JS ONLY on this plugin's own admin
+	 * page — never globally — so the image-optimizer's "Choose images…"
+	 * picker can open `wp.media()`.
+	 */
+	public function enqueue_assets( $hook ): void {
+		if ( $hook !== $this->page_hook ) {
+			return;
+		}
+		if ( function_exists( 'wp_enqueue_media' ) ) {
+			wp_enqueue_media();
+		}
 	}
 
 	/** The optimizer, built once from the plugin's entitlement gate. */
@@ -167,6 +199,14 @@ final class IWSL_Admin {
 			$this->page_cache = new IWSL_Page_Cache( $this->plugin->entitlements() );
 		}
 		return $this->page_cache;
+	}
+
+	/** The config editor, built once. No entitlement — the site's own admin edits their own config. */
+	private function config_editor(): IWSL_Config_Editor {
+		if ( null === $this->config_editor ) {
+			$this->config_editor = new IWSL_Config_Editor();
+		}
+		return $this->config_editor;
 	}
 
 	public function render_page(): void {
@@ -237,6 +277,10 @@ final class IWSL_Admin {
 		$this->render_page_cache_section();
 		echo '</section>';
 
+		echo '<section class="iwsl-tabpanel" id="iwsl-tab-config" role="tabpanel" aria-labelledby="iwsl-tabbtn-config" tabindex="0" hidden>';
+		$this->render_config_section();
+		echo '</section>';
+
 		echo '<section class="iwsl-tabpanel" id="iwsl-tab-roadmap" role="tabpanel" aria-labelledby="iwsl-tabbtn-roadmap" tabindex="0" hidden>';
 		echo '<h2>' . esc_html__( 'Roadmap', 'infraweaver-connector' ) . '</h2>';
 		echo '<p class="iwsl-lede">' . esc_html__( 'Features on the way. Nothing here is active yet — these are inert previews of what Pro and Ultimate will add.', 'infraweaver-connector' ) . '</p>';
@@ -249,7 +293,7 @@ final class IWSL_Admin {
 		echo '</div>'; // .wrap.iwsl-shell
 	}
 
-	/** The seven tabs, in display order. Shared by the nav and the status dots. */
+	/** The tabs, in display order. Shared by the nav and the status dots. */
 	private static function tab_defs(): array {
 		return array(
 			array( 'id' => 'overview', 'label' => 'Overview', 'icon' => 'shield' ),
@@ -259,6 +303,7 @@ final class IWSL_Admin {
 			array( 'id' => 'redirects', 'label' => 'Redirects', 'icon' => 'randomize' ),
 			array( 'id' => 'whitelabel', 'label' => 'White-Label', 'icon' => 'art' ),
 			array( 'id' => 'cache', 'label' => 'Cache', 'icon' => 'performance' ),
+			array( 'id' => 'config', 'label' => 'Config', 'icon' => 'admin-generic' ),
 			array( 'id' => 'roadmap', 'label' => 'Roadmap', 'icon' => 'flag' ),
 		);
 	}
@@ -861,11 +906,18 @@ JS;
 		}
 		echo '</select><br><span class="description">' . esc_html__( 'Auto picks the best WebP mode per type — lossless for PNG/GIF/BMP/TIFF, near-lossless for JPEG. Only smaller results are kept.', 'infraweaver-connector' ) . '</span></td></tr>';
 
+		echo '<tr><th scope="row">' . esc_html__( 'Pick images', 'infraweaver-connector' ) . '</th><td>';
+		echo '<input type="hidden" name="ids" id="iwsl-mo-ids" value="">';
+		echo '<button type="button" class="button" id="iwsl-mo-pick">' . esc_html__( 'Choose images…', 'infraweaver-connector' ) . '</button> ';
+		echo '<button type="button" class="button" id="iwsl-mo-clear">' . esc_html__( 'Clear', 'infraweaver-connector' ) . '</button><br>';
+		echo '<span id="iwsl-mo-picked" class="description">' . esc_html__( 'No images selected — the count below is used instead.', 'infraweaver-connector' ) . '</span>';
+		echo '</td></tr>';
+
 		echo '<tr><th scope="row"><label for="iwsl-mo-count">' . esc_html__( 'Images this run', 'infraweaver-connector' ) . '</label></th><td>';
 		echo '<input type="number" id="iwsl-mo-count" name="count" min="1" max="' . (int) IWSL_Media_Optimizer::MAX_REQUEST . '" value="25" style="width:100px;"> ';
 		echo '<span class="description">' . esc_html( sprintf(
 			/* translators: %d is the per-run image ceiling. */
-			__( 'Up to %d. Bigger requests self-queue across batches (each run is time-bounded — just run again to continue).', 'infraweaver-connector' ),
+			__( 'Up to %d. Used only when no images are picked above. Bigger requests self-queue across batches (each run is time-bounded — just run again to continue).', 'infraweaver-connector' ),
 			IWSL_Media_Optimizer::MAX_REQUEST
 		) ) . '</span></td></tr>';
 
@@ -882,6 +934,77 @@ JS;
 		echo '<span class="description">' . esc_html__( 'Estimate is a dry run — it changes nothing.', 'infraweaver-connector' ) . '</span>';
 		echo '</p>';
 		echo '</form>';
+		self::render_media_picker_script();
+	}
+
+	/**
+	 * Media-library picker JS for the "Choose images…" button. `wp.media` is
+	 * only referenced inside the click handler (it is loaded by the time the
+	 * user clicks, via wp_enqueue_media() on this page). No new external
+	 * assets — this is the only script tied to the picker UI.
+	 */
+	private static function render_media_picker_script(): void {
+		echo "<script>\n";
+		echo <<<'JS'
+(function(){
+	var pickBtn = document.getElementById('iwsl-mo-pick');
+	var clearBtn = document.getElementById('iwsl-mo-clear');
+	var idsField = document.getElementById('iwsl-mo-ids');
+	var label = document.getElementById('iwsl-mo-picked');
+	if (!pickBtn || !clearBtn || !idsField || !label) { return; }
+
+	var defaultLabel = label.textContent;
+	var frame = null;
+
+	function setPicked(ids){
+		idsField.value = ids.join(',');
+		if (ids.length > 0) {
+			label.textContent = ids.length + ' image' + (ids.length === 1 ? '' : 's') + ' selected';
+		} else {
+			label.textContent = defaultLabel;
+		}
+	}
+
+	pickBtn.addEventListener('click', function(e){
+		e.preventDefault();
+		if (typeof wp === 'undefined' || !wp.media) { return; }
+
+		if (frame) {
+			frame.open();
+			return;
+		}
+
+		frame = wp.media({
+			title: 'Select images to optimize',
+			multiple: true,
+			library: {
+				type: ['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/tiff']
+			},
+			button: { text: 'Use these images' }
+		});
+
+		frame.on('select', function(){
+			var selection = frame.state().get('selection');
+			var ids = [];
+			selection.each(function(attachment){
+				ids.push(attachment.id);
+			});
+			setPicked(ids);
+		});
+
+		frame.open();
+	});
+
+	clearBtn.addEventListener('click', function(e){
+		e.preventDefault();
+		if (frame) {
+			frame.state().get('selection').reset();
+		}
+		setPicked([]);
+	});
+})();
+JS;
+		echo "\n</script>\n";
 	}
 
 	/** Render (then clear) the current user's last-run summary transient. */
@@ -1026,9 +1149,10 @@ JS;
 			exit;
 		}
 
-		// Only inputs that cross the boundary: nonce + an allow-listed converter
-		// id validated against the registry keys, an integer count, and two closed
-		// enums (mode, op). NO attachment ids ever cross the request boundary.
+		// Inputs that cross the boundary: nonce + an allow-listed converter id
+		// validated against the registry keys, an integer count, two closed
+		// enums (mode, op), and — optionally — a picker-supplied id list
+		// (validated further below, never trusted as-is).
 		$requested = isset( $_POST['converter'] ) ? sanitize_key( wp_unslash( $_POST['converter'] ) ) : 'webp_lossless';
 		$optimizer = $this->optimizer();
 		$converter = in_array( $requested, $optimizer->converter_ids(), true ) ? $requested : 'webp_lossless';
@@ -1048,10 +1172,26 @@ JS;
 			$types = 'auto';
 		}
 
+		// Optional explicit selection from the media-library picker. This is the
+		// ONLY place an attachment id crosses the request boundary, and it is
+		// treated as UNTRUSTED: the optimizer re-validates every id server-side
+		// (real attachment + accepted MIME) before it is ever handed to
+		// convert_one(), which itself still runs the full guard_source() gauntlet.
+		// An empty list falls back to the existing count-driven auto-selection.
+		$ids_raw = isset( $_POST['ids'] ) ? sanitize_text_field( wp_unslash( $_POST['ids'] ) ) : '';
+		$ids     = array();
+		if ( '' !== $ids_raw ) {
+			$ids = array_map( 'intval', explode( ',', $ids_raw ) );
+			$ids = array_values( array_unique( array_filter( $ids, static function ( $id ) {
+				return $id > 0;
+			} ) ) );
+			$ids = array_slice( $ids, 0, IWSL_Media_Optimizer::MAX_REQUEST );
+		}
+
 		// LAYER 3 (authoritative gate) is inside run()/preview().
 		$summary = $is_preview
-			? $optimizer->preview( $converter, $count, $types )
-			: $optimizer->run( $converter, $count, $mode, false, $types );
+			? $optimizer->preview( $converter, $count, $types, $ids )
+			: $optimizer->run( $converter, $count, $mode, false, $types, $ids );
 
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );
@@ -2234,6 +2374,205 @@ JS;
 
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( 'iwsl_pc_result_' . (int) get_current_user_id(), $result, 60 );
+		}
+		wp_safe_redirect( $redirect );
+		exit;
+	}
+
+	// ── Section 8: Config editor ───────────────────────────────────────────────
+
+	/**
+	 * Render the Config section. Unlike the Plus features this carries NO
+	 * entitlement gate — it is the site's own administrator editing their own
+	 * wp-config constants and PHP limits, so the required gate is `manage_options`
+	 * (enforced by render_page()/the handler) plus the form nonce. Only the
+	 * hard-coded allow-list is ever shown, and each field is pre-filled with its
+	 * effective current value. If a write target is not writable, a notice makes
+	 * clear the change cannot be applied automatically.
+	 */
+	private function render_config_section(): void {
+		$editor  = $this->config_editor();
+		$current = $editor->current();
+		$allow   = IWSL_Config_Editor::allowlist();
+
+		echo '<hr style="margin:24px 0;">';
+		echo '<h2>' . esc_html__( 'Configuration', 'infraweaver-connector' ) . '</h2>';
+		echo '<p>' . esc_html__( 'Edit a curated allow-list of WordPress and PHP settings. Constants are written to a managed block in wp-config.php; PHP limits to a managed .user.ini in the site root. Only these known keys can ever be written — nothing else, and no raw PHP.', 'infraweaver-connector' ) . '</p>';
+
+		$this->render_config_result_notice();
+
+		$wp_writable  = $editor->wp_config_writable();
+		$ini_writable = $editor->user_ini_writable();
+		if ( ! $wp_writable || ! $ini_writable ) {
+			echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p>';
+			if ( ! $wp_writable ) {
+				echo esc_html__( 'wp-config.php is not writable — constant changes cannot be applied automatically and will be reported as a manual step.', 'infraweaver-connector' ) . ' ';
+			}
+			if ( ! $ini_writable ) {
+				echo esc_html__( 'The .user.ini in the site root is not writable — PHP limit changes cannot be applied automatically.', 'infraweaver-connector' );
+			}
+			echo '</p></div>';
+		}
+
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:16px;max-width:640px;">';
+		wp_nonce_field( self::CONFIG_SAVE_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::CONFIG_SAVE_ACTION ) . '">';
+
+		echo '<h3>' . esc_html__( 'WordPress constants (wp-config.php)', 'infraweaver-connector' ) . '</h3>';
+		echo '<table class="form-table" role="presentation"><tbody>';
+		foreach ( $allow as $key => $spec ) {
+			if ( 'wpconfig' !== $spec['group'] ) {
+				continue;
+			}
+			self::render_config_field( (string) $key, $spec, $current[ $key ] ?? '' );
+		}
+		echo '</tbody></table>';
+
+		echo '<h3>' . esc_html__( 'PHP limits (.user.ini)', 'infraweaver-connector' ) . '</h3>';
+		echo '<table class="form-table" role="presentation"><tbody>';
+		foreach ( $allow as $key => $spec ) {
+			if ( 'userini' !== $spec['group'] ) {
+				continue;
+			}
+			self::render_config_field( (string) $key, $spec, $current[ $key ] ?? '' );
+		}
+		echo '</tbody></table>';
+
+		echo '<p><button type="submit" class="button button-primary">' . esc_html__( 'Apply configuration', 'infraweaver-connector' ) . '</button></p>';
+		echo '</form>';
+		echo '<p class="description" style="margin-top:8px;">' . esc_html__( 'Every value is validated against a per-key allow-list; anything that fails is rejected, never written. Constant changes take effect on the next request; PHP limits when PHP-FPM re-reads .user.ini.', 'infraweaver-connector' ) . '</p>';
+	}
+
+	/** One form-table row: a checkbox for a bool key, otherwise a text input pre-filled with the current value. */
+	private static function render_config_field( string $key, array $spec, $value ): void {
+		$label = isset( $spec['label'] ) ? (string) $spec['label'] : $key;
+		$type  = (string) $spec['type'];
+		$id    = 'iwsl-cfg-' . strtolower( str_replace( '_', '-', $key ) );
+
+		echo '<tr><th scope="row"><label for="' . esc_attr( $id ) . '">' . esc_html( $label ) . '</label></th><td>';
+		if ( 'bool' === $type ) {
+			$checked = ! empty( $value ) ? ' checked' : '';
+			echo '<input type="checkbox" id="' . esc_attr( $id ) . '" name="' . esc_attr( $key ) . '" value="1"' . $checked . '>';
+		} else {
+			$display = self::config_value_to_string( $value );
+			echo '<input type="text" id="' . esc_attr( $id ) . '" name="' . esc_attr( $key ) . '" value="' . esc_attr( $display ) . '" class="regular-text">';
+		}
+		$hint = self::config_field_hint( $key );
+		if ( '' !== $hint ) {
+			echo '<br><span class="description">' . esc_html( $hint ) . '</span>';
+		}
+		echo '</td></tr>';
+	}
+
+	/** Render a scalar current value for a text input (bools render as checkboxes upstream). */
+	private static function config_value_to_string( $value ): string {
+		if ( is_bool( $value ) ) {
+			return $value ? '1' : '';
+		}
+		if ( null === $value ) {
+			return '';
+		}
+		return (string) $value;
+	}
+
+	/** A short per-key hint shown under each field. */
+	private static function config_field_hint( string $key ): string {
+		$hints = array(
+			'WP_MEMORY_LIMIT'     => 'Memory size, e.g. 256M.',
+			'WP_MAX_MEMORY_LIMIT' => 'Memory size for admin tasks, e.g. 512M.',
+			'WP_POST_REVISIONS'   => 'Number of revisions to keep (0 or more); leave blank to disable revisions.',
+			'EMPTY_TRASH_DAYS'    => 'Days before trash is emptied (0 or more).',
+			'AUTOSAVE_INTERVAL'   => 'Autosave interval in seconds (10 or more).',
+			'WP_DEBUG'            => 'Enable debug mode.',
+			'WP_DEBUG_LOG'        => 'Log errors to wp-content/debug.log.',
+			'WP_DEBUG_DISPLAY'    => 'Show errors in page output.',
+			'DISALLOW_FILE_EDIT'  => 'Disable the built-in theme/plugin file editor.',
+			'upload_max_filesize' => 'Max upload size, e.g. 64M.',
+			'post_max_size'       => 'Max POST body size, e.g. 64M.',
+			'max_execution_time'  => 'Max script run time in seconds.',
+		);
+		return isset( $hints[ $key ] ) ? $hints[ $key ] : '';
+	}
+
+	/** Render (then clear) the current user's PRG apply result. */
+	private function render_config_result_notice(): void {
+		if ( ! function_exists( 'get_transient' ) || ! function_exists( 'get_current_user_id' ) ) {
+			return;
+		}
+		$key    = 'iwsl_cfg_result_' . (int) get_current_user_id();
+		$result = get_transient( $key );
+		if ( function_exists( 'delete_transient' ) ) {
+			delete_transient( $key );
+		}
+		if ( ! is_array( $result ) ) {
+			return;
+		}
+		$applied = ( isset( $result['applied'] ) && is_array( $result['applied'] ) ) ? $result['applied'] : array();
+		$skipped = ( isset( $result['skipped'] ) && is_array( $result['skipped'] ) ) ? $result['skipped'] : array();
+
+		if ( ! empty( $applied ) ) {
+			$count = count( $applied );
+			echo '<div class="notice notice-success" style="margin-top:12px;padding:12px;"><p>'
+				. esc_html( sprintf( _n( 'Applied %d setting:', 'Applied %d settings:', $count, 'infraweaver-connector' ), $count ) )
+				. ' ' . esc_html( implode( ', ', array_map( 'strval', $applied ) ) ) . '</p></div>';
+		} elseif ( empty( $skipped ) ) {
+			echo '<div class="notice notice-success" style="margin-top:12px;padding:12px;"><p>' . esc_html__( 'No changes to apply.', 'infraweaver-connector' ) . '</p></div>';
+		}
+
+		if ( ! empty( $skipped ) ) {
+			echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p><strong>' . esc_html__( 'Some settings were not applied:', 'infraweaver-connector' ) . '</strong></p><ul style="list-style:disc;margin-left:20px;">';
+			foreach ( $skipped as $k => $reason ) {
+				echo '<li>' . esc_html( (string) $k . ' — ' . (string) $reason ) . '</li>';
+			}
+			echo '</ul></div>';
+		}
+
+		if ( ! empty( $result['manual_step'] ) ) {
+			echo '<div class="notice notice-warning" style="margin-top:12px;padding:12px;"><p>' . esc_html( (string) $result['manual_step'] ) . '</p></div>';
+		}
+	}
+
+	/**
+	 * admin-post handler: apply the config editor. Gate = manage_options + nonce.
+	 * Builds the input map from POST for ALLOW-LISTED keys ONLY (everything else —
+	 * action, nonce, referer, unknown keys — is ignored). Bools are coerced from
+	 * checkbox presence so an unchecked box writes an explicit false; empty text
+	 * fields are omitted (left unchanged) rather than rejected. POST-redirect-GET;
+	 * the page's JS restores the Config tab from localStorage.
+	 */
+	public function handle_config_save(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
+		}
+		check_admin_referer( self::CONFIG_SAVE_NONCE );
+
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+
+		$input = array();
+		foreach ( IWSL_Config_Editor::allowlist() as $key => $spec ) {
+			if ( 'bool' === $spec['type'] ) {
+				$input[ $key ] = isset( $_POST[ $key ] ) ? '1' : '0'; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+				continue;
+			}
+			if ( ! isset( $_POST[ $key ] ) ) {
+				continue;
+			}
+			$raw = wp_unslash( $_POST[ $key ] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized,WordPress.Security.NonceVerification.Missing
+			if ( ! is_scalar( $raw ) ) {
+				continue;
+			}
+			$clean = sanitize_text_field( (string) $raw );
+			if ( '' !== $clean ) {
+				$input[ $key ] = $clean;
+			} elseif ( 'int_or_false' === $spec['type'] ) {
+				$input[ $key ] = false; // an explicit blank disables (false).
+			}
+		}
+
+		$result = $this->config_editor()->apply( $input );
+
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( 'iwsl_cfg_result_' . (int) get_current_user_id(), $result, 60 );
 		}
 		wp_safe_redirect( $redirect );
 		exit;

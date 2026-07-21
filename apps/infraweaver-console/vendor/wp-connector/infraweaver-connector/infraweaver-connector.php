@@ -60,6 +60,7 @@ require_once __DIR__ . '/includes/class-iwsl-white-label.php';
 require_once __DIR__ . '/includes/class-iwsl-db-cleaner.php';
 require_once __DIR__ . '/includes/class-iwsl-db-cleaners.php';
 require_once __DIR__ . '/includes/class-iwsl-db-optimizer.php';
+require_once __DIR__ . '/includes/class-iwsl-config-editor.php';
 require_once __DIR__ . '/includes/class-iwsl-admin.php';
 
 function iwsl_plugin(): IWSL_Plugin {

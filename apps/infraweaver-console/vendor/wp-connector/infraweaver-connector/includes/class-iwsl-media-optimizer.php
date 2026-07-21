@@ -149,12 +149,20 @@ final class IWSL_Media_Optimizer {
 	/**
 	 * Run one bounded batch of conversions. STATEMENT 1 is the authoritative
 	 * entitlement gate — nothing below it runs for a locked site. Batch selection
-	 * is server-side only (no attachment ids ever cross a request boundary): the
-	 * engine queries its own attachments by the converter's accepted MIMEs.
+	 * is always server-side: either the engine queries its own attachments by
+	 * the converter's accepted MIMEs (auto), or — when the operator picked
+	 * specific images via the media-library picker — the given `$ids` are used,
+	 * but ONLY after each one is re-validated here as a real `attachment` post
+	 * with an accepted MIME (see select_batch_from_ids()). Either path feeds the
+	 * SAME convert_one(), which resolves the file path server-side and runs the
+	 * full guard_source() gauntlet — no attachment path ever comes from the
+	 * request, only ids, and only after this validation.
 	 *
+	 * @param int[] $ids Optional operator-picked attachment ids; empty falls back
+	 *                    to the auto-selected batch (unchanged prior behaviour).
 	 * @return array Immutable run summary.
 	 */
-	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false, string $types = 'auto' ): array {
+	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false, string $types = 'auto', array $ids = array() ): array {
 		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
 		$mode  = self::MODE_REPLACE === $mode ? self::MODE_REPLACE : self::MODE_COPY;
 		$gate  = $this->entitlements->evaluate( self::FEATURE );
@@ -196,6 +204,7 @@ final class IWSL_Media_Optimizer {
 			'dry'         => $dry,
 			'requested'   => $limit,
 			'types'       => $types,
+			'source'      => array() === $ids ? 'auto' : 'selection',
 			'converter'   => $converter->id(),
 			'engine'      => (string) $avail['engine'],
 			'converted'   => 0,
@@ -209,8 +218,12 @@ final class IWSL_Media_Optimizer {
 			'elapsed_ms'  => 0,
 		);
 
+		$batch = array() !== $ids
+			? $this->select_batch_from_ids( $ids, $mimes, $limit )
+			: $this->select_batch( $converter, $limit, $mimes );
+
 		try {
-			foreach ( $this->select_batch( $converter, $limit, $mimes ) as $attachment_id ) {
+			foreach ( $batch as $attachment_id ) {
 				if ( ( ( $this->now_ms )() - $started ) >= self::TIME_BUDGET_MS ) {
 					$summary['partial'] = true;
 					break;
@@ -231,9 +244,11 @@ final class IWSL_Media_Optimizer {
 	 * WebP size, discard it, and report the total data a real run would save. No
 	 * file is kept and no attachment is touched. Same gate + time budget as run(),
 	 * so a large request is bounded and reports `partial` when the clock runs out.
+	 *
+	 * @param int[] $ids Optional operator-picked attachment ids; see run().
 	 */
-	public function preview( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $types = 'auto' ): array {
-		return $this->run( $converter_id, $limit, self::MODE_COPY, true, $types );
+	public function preview( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $types = 'auto', array $ids = array() ): array {
+		return $this->run( $converter_id, $limit, self::MODE_COPY, true, $types, $ids );
 	}
 
 	/**
@@ -267,6 +282,50 @@ final class IWSL_Media_Optimizer {
 			)
 		);
 		return is_array( $ids ) ? array_map( 'intval', $ids ) : array();
+	}
+
+	/**
+	 * Validate an operator-supplied id list from the media-library picker.
+	 * UNTRUSTED INPUT: every id is re-checked here, server-side, before it is
+	 * ever handed to convert_one() — kept ONLY if `get_post( $id )` is a real
+	 * `attachment` post AND `get_post_mime_type( $id )` is in the effective
+	 * accepted MIME set for this run. Order is preserved (the order the
+	 * operator picked them in), capped at $limit. This is defense-in-depth
+	 * alongside convert_one()'s own guard_source() gauntlet — an id that
+	 * passes this check still has its file path resolved server-side and
+	 * still passes the full pre-decode security checks; nothing here ever
+	 * trusts a path from the request.
+	 *
+	 * @param int[]    $ids   Candidate attachment ids (already deduped/capped by the caller).
+	 * @param string[] $mimes Effective accepted MIME set for this run.
+	 * @param int      $limit Maximum ids to return.
+	 * @return int[]
+	 */
+	private function select_batch_from_ids( array $ids, array $mimes, int $limit ): array {
+		if ( array() === $mimes || ! function_exists( 'get_post' ) || ! function_exists( 'get_post_mime_type' ) ) {
+			return array();
+		}
+		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
+		$out   = array();
+		foreach ( $ids as $id ) {
+			$id = (int) $id;
+			if ( $id <= 0 ) {
+				continue;
+			}
+			$post = get_post( $id );
+			if ( ! $post || ! isset( $post->post_type ) || 'attachment' !== $post->post_type ) {
+				continue;
+			}
+			$mime = get_post_mime_type( $id );
+			if ( ! is_string( $mime ) || ! in_array( $mime, $mimes, true ) ) {
+				continue;
+			}
+			$out[] = $id;
+			if ( count( $out ) >= $limit ) {
+				break;
+			}
+		}
+		return $out;
 	}
 
 	/**

@@ -57,6 +57,7 @@ require __DIR__ . '/../includes/class-iwsl-white-label.php';
 require __DIR__ . '/../includes/class-iwsl-db-cleaner.php';
 require __DIR__ . '/../includes/class-iwsl-db-cleaners.php';
 require __DIR__ . '/../includes/class-iwsl-db-optimizer.php';
+require __DIR__ . '/../includes/class-iwsl-config-editor.php';
 
 $GLOBALS['iwsl_pass'] = 0;
 $GLOBALS['iwsl_fail'] = 0;
@@ -128,7 +129,7 @@ function iwsl_now_t0( int $offset_ms = 5000 ): callable {
 	};
 }
 
-$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache' );
+$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache', 'config-editor' );
 foreach ( $suites as $suite ) {
 	echo "== {$suite}\n";
 	require __DIR__ . '/test-' . $suite . '.php';
