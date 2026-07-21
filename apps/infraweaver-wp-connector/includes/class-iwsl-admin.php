@@ -341,8 +341,11 @@ final class IWSL_Admin {
 	--iw-r-sm: 10px;
 	--iw-ease: cubic-bezier(0.22, 1, 0.36, 1);
 	--iw-z-rail: 20;
-	margin: 18px 20px 48px 0;
-	max-width: 1180px;
+	margin: 10px 16px 14px 0;
+	max-width: none;
+	min-height: calc(100vh - 56px);
+	display: flex;
+	flex-direction: column;
 	color: var(--iw-ink);
 	background: var(--iw-bg);
 	border: 1px solid var(--iw-line);
@@ -443,7 +446,7 @@ final class IWSL_Admin {
 .iwsl-tab__status--off{ background: color-mix(in oklch, var(--iw-bad) 75%, var(--iw-faint)); }
 
 /* ── Panels ───────────────────────────────────────────────────────────── */
-.iwsl-panels{ padding: 26px 32px 34px; }
+.iwsl-panels{ padding: 26px 32px 34px; flex: 1 1 auto; }
 .iwsl-tabpanel[hidden]{ display: none; }
 .iwsl-tabpanel:focus{ outline: none; }
 .iwsl-tabpanel > h2:first-child,
@@ -640,6 +643,9 @@ CSS;
 			if (on && animate) { enter(panel); }
 		});
 		if (push && history.replaceState) { history.replaceState(null, '', '#iwsl-' + id); }
+		// Remember the tab so a full-page form POST + server redirect (which drops
+		// the hash) returns the operator to the same section, not back to Overview.
+		try { localStorage.setItem('iwsl_tab', id); } catch (e) {}
 	}
 
 	tabs.forEach(function(tab){
@@ -676,6 +682,12 @@ CSS;
 	var hash = (location.hash || '').replace(/^#iwsl-/, '');
 	if (hash && shell.querySelector('#iwsl-tab-' + hash)) {
 		activate(hash, false, false, false);
+	} else {
+		var saved = null;
+		try { saved = localStorage.getItem('iwsl_tab'); } catch (e) {}
+		if (saved && saved !== 'overview' && shell.querySelector('#iwsl-tab-' + saved)) {
+			activate(saved, false, false, false);
+		}
 	}
 })();
 JS;
@@ -816,17 +828,39 @@ JS;
 	/** The nonce-protected run form (POST → admin-post.php). */
 	private function render_optimization_form(): void {
 		$ids = $this->optimizer()->converter_ids();
-		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:16px;">';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="iwsl-mo-form" style="margin-top:16px;max-width:640px;">';
 		wp_nonce_field( self::OPTIMIZE_NONCE );
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::OPTIMIZE_ACTION ) . '">';
-		echo '<label for="iwsl-mo-converter" style="margin-right:8px;font-weight:600;">' . esc_html__( 'Converter', 'infraweaver-connector' ) . '</label>';
+
+		echo '<table class="form-table" role="presentation"><tbody>';
+
+		echo '<tr><th scope="row"><label for="iwsl-mo-converter">' . esc_html__( 'Converter', 'infraweaver-connector' ) . '</label></th><td>';
 		echo '<select id="iwsl-mo-converter" name="converter">';
 		foreach ( $ids as $id ) {
 			echo '<option value="' . esc_attr( (string) $id ) . '">' . esc_html( (string) $id ) . '</option>';
 		}
-		echo '</select> ';
-		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Optimize a batch', 'infraweaver-connector' ) . '</button>';
-		echo ' <span class="description">' . esc_html( sprintf( 'Processes up to %d images per run.', IWSL_Media_Optimizer::MAX_BATCH ) ) . '</span>';
+		echo '</select></td></tr>';
+
+		echo '<tr><th scope="row"><label for="iwsl-mo-count">' . esc_html__( 'Images this run', 'infraweaver-connector' ) . '</label></th><td>';
+		echo '<input type="number" id="iwsl-mo-count" name="count" min="1" max="' . (int) IWSL_Media_Optimizer::MAX_REQUEST . '" value="25" style="width:100px;"> ';
+		echo '<span class="description">' . esc_html( sprintf(
+			/* translators: %d is the per-run image ceiling. */
+			__( 'Up to %d. Bigger requests self-queue across batches (each run is time-bounded — just run again to continue).', 'infraweaver-connector' ),
+			IWSL_Media_Optimizer::MAX_REQUEST
+		) ) . '</span></td></tr>';
+
+		echo '<tr><th scope="row">' . esc_html__( 'Output', 'infraweaver-connector' ) . '</th><td>';
+		echo '<label style="display:block;margin-bottom:8px;"><input type="radio" name="mode" value="copy" checked> <strong>' . esc_html__( 'Keep original + add WebP copy', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Safe. Nothing is deleted — the WebP sits beside the original.', 'infraweaver-connector' ) . '</span></label>';
+		echo '<label style="display:block;"><input type="radio" name="mode" value="replace"> <strong>' . esc_html__( 'Replace original with WebP', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Smaller storage and faster pages. Deletes the original file — any hardcoded .png link in post content will break.', 'infraweaver-connector' ) . '</span></label>';
+		echo '</td></tr>';
+
+		echo '</tbody></table>';
+
+		echo '<p style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">';
+		echo '<button type="submit" name="op" value="preview" class="button">' . esc_html__( 'Estimate savings', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="submit" name="op" value="run" class="button button-primary">' . esc_html__( 'Optimize now', 'infraweaver-connector' ) . '</button>';
+		echo '<span class="description">' . esc_html__( 'Estimate is a dry run — it changes nothing.', 'infraweaver-connector' ) . '</span>';
+		echo '</p>';
 		echo '</form>';
 	}
 
@@ -844,8 +878,9 @@ JS;
 			return;
 		}
 
-		echo '<div style="border:1px solid #c3e6cb;background:#f4fbf6;border-radius:8px;padding:16px;margin-top:16px;max-width:720px;">';
-		echo '<h3 style="margin-top:0;">' . esc_html__( 'Last run', 'infraweaver-connector' ) . '</h3>';
+		echo '<div style="border:1px solid var(--iw-line-2);background:var(--iw-panel);border-radius:12px;padding:18px;margin-top:16px;max-width:720px;">';
+		$dry = ! empty( $summary['dry'] );
+		echo '<h3 style="margin-top:0;">' . esc_html( $dry ? __( 'Savings estimate', 'infraweaver-connector' ) : __( 'Last run', 'infraweaver-connector' ) ) . '</h3>';
 
 		if ( empty( $summary['ok'] ) ) {
 			echo '<p>' . esc_html( sprintf( 'Run refused: %s', (string) ( $summary['reason'] ?? 'unknown' ) ) ) . '</p></div>';
@@ -856,22 +891,58 @@ JS;
 		$skipped   = (int) ( $summary['skipped'] ?? 0 );
 		$refused   = (int) ( $summary['refused'] ?? 0 );
 		$saved     = (int) ( $summary['saved_bytes'] ?? 0 );
-		echo '<p>' . esc_html( sprintf(
-			'Converted %d, skipped %d, refused %d. Saved %s.',
-			$converted,
-			$skipped,
-			$refused,
-			self::format_bytes( $saved )
-		) ) . '</p>';
+		$bytes_in  = (int) ( $summary['bytes_in'] ?? 0 );
+		$pct       = $bytes_in > 0 ? (int) round( $saved / $bytes_in * 100 ) : 0;
 
-		$items = isset( $summary['items'] ) && is_array( $summary['items'] ) ? $summary['items'] : array();
+		$items    = isset( $summary['items'] ) && is_array( $summary['items'] ) ? $summary['items'] : array();
+		$replaced = 0;
+		foreach ( $items as $it ) {
+			if ( ! empty( $it['replaced'] ) ) {
+				++$replaced;
+			}
+		}
+
+		if ( $dry ) {
+			echo '<p style="font-size:15px;">' . esc_html( sprintf(
+				/* translators: 1: image count, 2: human size, 3: percent. */
+				__( 'Converting %1$d image(s) would save %2$s (~%3$d%% smaller). Nothing was changed.', 'infraweaver-connector' ),
+				$converted,
+				self::format_bytes( $saved ),
+				$pct
+			) ) . '</p>';
+		} else {
+			$msg = sprintf(
+				/* translators: 1: converted, 2: skipped, 3: refused, 4: size, 5: percent. */
+				__( 'Converted %1$d, skipped %2$d, refused %3$d. Saved %4$s (~%5$d%% smaller).', 'infraweaver-connector' ),
+				$converted,
+				$skipped,
+				$refused,
+				self::format_bytes( $saved ),
+				$pct
+			);
+			if ( IWSL_Media_Optimizer::MODE_REPLACE === ( $summary['mode'] ?? '' ) ) {
+				/* translators: %d is the number of originals replaced. */
+				$msg .= ' ' . sprintf( __( '%d original(s) replaced.', 'infraweaver-connector' ), $replaced );
+			}
+			echo '<p style="font-size:15px;">' . esc_html( $msg ) . '</p>';
+		}
+
+		if ( ! empty( $summary['partial'] ) ) {
+			echo '<p><strong>' . esc_html__( 'Time budget reached — more images remain. Run the same action again to continue the queue.', 'infraweaver-connector' ) . '</strong></p>';
+		}
+
 		if ( array() !== $items ) {
 			echo '<table class="widefat striped" style="max-width:640px;"><thead><tr><th>File</th><th>Result</th></tr></thead><tbody>';
-			foreach ( array_slice( $items, 0, IWSL_Media_Optimizer::MAX_BATCH ) as $item ) {
+			foreach ( array_slice( $items, 0, 60 ) as $item ) {
 				$basename = isset( $item['basename'] ) ? (string) $item['basename'] : '';
 				$outcome  = isset( $item['outcome'] ) ? (string) $item['outcome'] : '';
 				if ( 'converted' === $outcome && isset( $item['saving'] ) ) {
-					$detail = 'converted — saved ' . self::format_bytes( (int) $item['saving'] );
+					$detail = ( $dry ? 'would save ' : 'saved ' ) . self::format_bytes( (int) $item['saving'] );
+					if ( ! empty( $item['replaced'] ) ) {
+						$detail .= ' · replaced';
+					} elseif ( isset( $item['replace_reason'] ) ) {
+						$detail .= ' · replace failed: ' . (string) $item['replace_reason'];
+					}
 				} elseif ( isset( $item['reason'] ) ) {
 					$detail = $outcome . ' — ' . (string) $item['reason'];
 				} else {
@@ -895,10 +966,10 @@ JS;
 		echo '<ul style="list-style:none;margin:8px 0 0;padding:0;max-width:720px;">';
 		foreach ( $rows as $row ) {
 			list( $title, $desc, $tier ) = $row;
-			echo '<li style="opacity:0.55;border:1px solid #dcdcde;border-radius:6px;padding:10px 12px;margin-bottom:8px;">';
-			echo '<span style="display:inline-block;background:#dcdcde;color:#50575e;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;margin-right:8px;">' . esc_html__( 'Coming soon', 'infraweaver-connector' ) . '</span>';
+			echo '<li style="opacity:0.7;border:1px solid var(--iw-line);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:color-mix(in oklch, var(--iw-panel) 60%, transparent);">';
+			echo '<span style="display:inline-block;background:color-mix(in oklch, var(--iw-warn) 22%, transparent);color:var(--iw-warn);border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;margin-right:8px;">' . esc_html__( 'Coming soon', 'infraweaver-connector' ) . '</span>';
 			echo '<strong>' . esc_html( $title ) . '</strong> ';
-			echo '<span style="display:inline-block;background:#f0f0f1;color:#50575e;border-radius:10px;padding:1px 8px;font-size:11px;margin-left:4px;">' . esc_html( $tier ) . '</span>';
+			echo '<span style="display:inline-block;background:color-mix(in oklch, var(--iw-signal) 16%, transparent);color:var(--iw-signal-2);border-radius:10px;padding:1px 8px;font-size:11px;margin-left:4px;">' . esc_html( $tier ) . '</span>';
 			echo '<br><span class="description">' . esc_html( $desc ) . '</span>';
 			echo '</li>';
 		}
@@ -927,7 +998,7 @@ JS;
 		}
 		check_admin_referer( self::OPTIMIZE_NONCE );
 
-		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		// LAYER 2: re-check the gate before touching any file.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
@@ -937,12 +1008,23 @@ JS;
 		}
 
 		// Only inputs that cross the boundary: nonce + an allow-listed converter
-		// id validated against the registry keys. NO attachment ids.
+		// id validated against the registry keys, an integer count, and two closed
+		// enums (mode, op). NO attachment ids ever cross the request boundary.
 		$requested = isset( $_POST['converter'] ) ? sanitize_key( wp_unslash( $_POST['converter'] ) ) : 'webp_lossless';
 		$optimizer = $this->optimizer();
 		$converter = in_array( $requested, $optimizer->converter_ids(), true ) ? $requested : 'webp_lossless';
 
-		$summary = $optimizer->run( $converter ); // LAYER 3 (authoritative) is inside run().
+		$count = isset( $_POST['count'] ) ? (int) $_POST['count'] : IWSL_Media_Optimizer::MAX_BATCH;
+		$count = max( 1, min( IWSL_Media_Optimizer::MAX_REQUEST, $count ) );
+		$mode  = ( isset( $_POST['mode'] ) && IWSL_Media_Optimizer::MODE_REPLACE === $_POST['mode'] )
+			? IWSL_Media_Optimizer::MODE_REPLACE
+			: IWSL_Media_Optimizer::MODE_COPY;
+		$is_preview = isset( $_POST['op'] ) && 'preview' === $_POST['op'];
+
+		// LAYER 3 (authoritative gate) is inside run()/preview().
+		$summary = $is_preview
+			? $optimizer->preview( $converter, $count )
+			: $optimizer->run( $converter, $count, $mode );
 
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );
@@ -1155,7 +1237,7 @@ JS;
 		}
 		check_admin_referer( self::EMAIL_SETTINGS_NONCE );
 
-		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		// LAYER 2: re-check the gate before touching any stored setting.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
@@ -1195,7 +1277,7 @@ JS;
 		}
 		check_admin_referer( self::EMAIL_LOG_CLEAR_NONCE );
 
-		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -1409,7 +1491,7 @@ JS;
 		}
 		check_admin_referer( self::REDIRECT_ADD_NONCE );
 
-		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		// LAYER 2: re-check the gate before touching any stored rule.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
@@ -1442,7 +1524,7 @@ JS;
 		}
 		check_admin_referer( self::REDIRECT_DELETE_NONCE );
 
-		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -1470,7 +1552,7 @@ JS;
 		}
 		check_admin_referer( self::REDIRECT_LOG_NONCE );
 
-		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -1624,7 +1706,7 @@ JS;
 		}
 		check_admin_referer( self::WHITE_LABEL_NONCE );
 
-		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		// LAYER 2: re-check the gate before touching any stored setting.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_White_Label::FEATURE );
@@ -1815,7 +1897,7 @@ JS;
 		}
 		check_admin_referer( self::DB_OPTIMIZE_NONCE );
 
-		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		// LAYER 2: re-check the gate before touching the database.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_DB_Optimizer::FEATURE );
@@ -1982,7 +2064,7 @@ JS;
 		}
 		check_admin_referer( self::PAGE_CACHE_TOGGLE_NONCE );
 
-		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -2027,7 +2109,7 @@ JS;
 		}
 		check_admin_referer( self::PAGE_CACHE_PURGE_NONCE );
 
-		$redirect = admin_url( 'tools.php?page=infraweaver-plus' );
+		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {

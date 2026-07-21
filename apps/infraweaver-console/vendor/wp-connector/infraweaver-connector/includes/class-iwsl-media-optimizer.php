@@ -37,8 +37,18 @@ final class IWSL_Media_Optimizer {
 	/** The entitlement flag this whole feature gates on. */
 	const FEATURE = 'image_optimization';
 
-	/** Hard batch cap per run — bounded work for a single admin request. */
+	/** Default images selected per run when the operator gives no count. */
 	const MAX_BATCH = 10;
+	/**
+	 * Hard ceiling on how many images one run may REQUEST. The operator can ask
+	 * for more than MAX_BATCH — the run self-chunks and is bounded by
+	 * TIME_BUDGET_MS, reporting `partial` so the remainder is picked up next run.
+	 * This is the "queue it as a batch" behaviour without any async surface.
+	 */
+	const MAX_REQUEST = 200;
+	/** Modes: keep the original beside the WebP, or swap the original out for it. */
+	const MODE_COPY = 'copy';
+	const MODE_REPLACE = 'replace';
 	/** Refuse any source larger than 25 MB before decode. */
 	const MAX_SOURCE_BYTES = 26214400;
 	/** Decompression-bomb ceiling: 40 megapixels. */
@@ -144,8 +154,10 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @return array Immutable run summary.
 	 */
-	public function run( string $converter_id = 'webp_lossless' ): array {
-		$gate = $this->entitlements->evaluate( self::FEATURE );
+	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false ): array {
+		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
+		$mode  = self::MODE_REPLACE === $mode ? self::MODE_REPLACE : self::MODE_COPY;
+		$gate  = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
 			return array(
 				'ok'        => false,
@@ -172,6 +184,9 @@ final class IWSL_Media_Optimizer {
 		$started = ( $this->now_ms )();
 		$summary = array(
 			'ok'          => true,
+			'mode'        => $mode,
+			'dry'         => $dry,
+			'requested'   => $limit,
 			'converter'   => $converter->id(),
 			'engine'      => (string) $avail['engine'],
 			'converted'   => 0,
@@ -186,12 +201,12 @@ final class IWSL_Media_Optimizer {
 		);
 
 		try {
-			foreach ( $this->select_batch( $converter ) as $attachment_id ) {
+			foreach ( $this->select_batch( $converter, $limit ) as $attachment_id ) {
 				if ( ( ( $this->now_ms )() - $started ) >= self::TIME_BUDGET_MS ) {
 					$summary['partial'] = true;
 					break;
 				}
-				$result  = $this->convert_one( (int) $attachment_id, $converter );
+				$result  = $this->convert_one( (int) $attachment_id, $converter, $mode, $dry );
 				$summary = self::fold_result( $summary, $result );
 			}
 		} finally {
@@ -203,23 +218,34 @@ final class IWSL_Media_Optimizer {
 	}
 
 	/**
+	 * Dry-run estimate: convert each candidate to a temp file, measure the exact
+	 * WebP size, discard it, and report the total data a real run would save. No
+	 * file is kept and no attachment is touched. Same gate + time budget as run(),
+	 * so a large request is bounded and reports `partial` when the clock runs out.
+	 */
+	public function preview( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH ): array {
+		return $this->run( $converter_id, $limit, self::MODE_COPY, true );
+	}
+
+	/**
 	 * Server-side batch selection: this site's own attachments whose MIME is on
 	 * the converter's allow-list, oldest id first, capped at MAX_BATCH. Returns
 	 * an empty list outside WordPress.
 	 *
 	 * @return int[]
 	 */
-	private function select_batch( IWSL_Media_Converter $converter ): array {
+	private function select_batch( IWSL_Media_Converter $converter, int $limit = self::MAX_BATCH ): array {
 		if ( ! function_exists( 'get_posts' ) ) {
 			return array();
 		}
-		$ids = get_posts(
+		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
+		$ids   = get_posts(
 			array(
 				'post_type'        => 'attachment',
 				'post_status'      => 'inherit',
 				'post_mime_type'   => $converter->accepts(),
 				'fields'           => 'ids',
-				'posts_per_page'   => self::MAX_BATCH,
+				'posts_per_page'   => $limit,
 				'orderby'          => 'ID',
 				'order'            => 'ASC',
 				'suppress_filters' => true,
@@ -238,7 +264,7 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @return array{ id:int, basename:string, outcome:string, reason?:string, saving?:int, bytes_in?:int, bytes_out?:int }
 	 */
-	private function convert_one( int $attachment_id, IWSL_Media_Converter $converter ): array {
+	private function convert_one( int $attachment_id, IWSL_Media_Converter $converter, string $mode = self::MODE_COPY, bool $dry = false ): array {
 		$source = $this->resolve_source_path( $attachment_id );
 		$basename = '' === $source ? '' : basename( $source );
 		if ( '' === $source ) {
@@ -259,9 +285,11 @@ final class IWSL_Media_Optimizer {
 			return self::item( $attachment_id, basename( $source ), 'refused', 'dest-escape' );
 		}
 
-		// Idempotency: an up-to-date derivative already exists for this exact
-		// source (same size + mtime) — skip without re-decoding.
-		if ( $this->is_current( $attachment_id, $converter, $src_size, $src_mtime, $dest ) ) {
+		// Idempotency (copy mode only): an up-to-date derivative already exists for
+		// this exact source — skip without re-decoding. Replace mode and dry-run
+		// previews always proceed so a swap actually happens / an estimate is shown.
+		if ( ! $dry && self::MODE_COPY === $mode
+			&& $this->is_current( $attachment_id, $converter, $src_size, $src_mtime, $dest ) ) {
 			return self::item( $attachment_id, basename( $source ), 'skipped', 'already-current' );
 		}
 
@@ -287,6 +315,17 @@ final class IWSL_Media_Optimizer {
 			return $item;
 		}
 
+		// Dry-run preview: the exact WebP size is now known — report the saving and
+		// discard the temp. No rename, no meta, no attachment change whatsoever.
+		if ( $dry ) {
+			$this->safe_unlink( $tmp );
+			$item              = self::item( $attachment_id, basename( $source ), 'converted' );
+			$item['bytes_in']  = $bytes_in;
+			$item['bytes_out'] = $bytes_out;
+			$item['saving']    = $bytes_in - $bytes_out;
+			return $item;
+		}
+
 		// Atomic publish: rename temp → final derivative.
 		if ( ! @rename( $tmp, $dest ) ) {
 			$this->safe_unlink( $tmp );
@@ -300,7 +339,73 @@ final class IWSL_Media_Optimizer {
 		$item['bytes_in']  = $bytes_in;
 		$item['bytes_out'] = $bytes_out;
 		$item['saving']    = $bytes_in - $bytes_out;
+
+		// Replace mode: promote the WebP to the canonical attachment file and
+		// remove the original. Best-effort + fail-safe — a failed swap keeps the
+		// original intact and is reported per item.
+		if ( self::MODE_REPLACE === $mode ) {
+			$rep              = $this->replace_original( $attachment_id, $source, $dest );
+			$item['replaced'] = ! empty( $rep['ok'] );
+			if ( empty( $rep['ok'] ) ) {
+				$item['replace_reason'] = (string) ( $rep['reason'] ?? 'replace-failed' );
+			}
+		}
 		return $item;
+	}
+
+	/**
+	 * Destructive REPLACE path (opt-in). Points the attachment at the WebP, fixes
+	 * its MIME, regenerates sub-sizes as WebP, then deletes the original PNG and
+	 * its stale sub-size files. Every step is guarded so a partial failure still
+	 * leaves a servable attachment; the PNG is only unlinked AFTER the swap.
+	 *
+	 * Caveat surfaced to the operator in the UI: any hardcoded `.png` URL in post
+	 * content will 404 after replacement — that is the accepted trade of this mode.
+	 *
+	 * @return array{ ok:bool, reason?:string }
+	 */
+	private function replace_original( int $attachment_id, string $source_png, string $dest_webp ): array {
+		if ( ! function_exists( 'update_attached_file' ) || ! function_exists( 'wp_update_attachment_metadata' ) ) {
+			return array( 'ok' => false, 'reason' => 'no-wp-context' );
+		}
+
+		$old_meta = function_exists( 'wp_get_attachment_metadata' ) ? wp_get_attachment_metadata( $attachment_id ) : array();
+		$dir      = dirname( $source_png );
+
+		// Repoint the attachment at the WebP and correct its MIME first, so even if
+		// a later step fails the site already serves the (smaller) WebP.
+		update_attached_file( $attachment_id, $dest_webp );
+		if ( function_exists( 'wp_update_post' ) ) {
+			wp_update_post( array( 'ID' => $attachment_id, 'post_mime_type' => 'image/webp' ) );
+		}
+
+		// Regenerate sub-sizes from the WebP.
+		if ( ! function_exists( 'wp_generate_attachment_metadata' ) && defined( 'ABSPATH' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/image.php';
+		}
+		if ( function_exists( 'wp_generate_attachment_metadata' ) ) {
+			$new_meta = wp_generate_attachment_metadata( $attachment_id, $dest_webp );
+			if ( is_array( $new_meta ) && array() !== $new_meta ) {
+				wp_update_attachment_metadata( $attachment_id, $new_meta );
+			}
+		}
+
+		// Purge the original PNG and its now-stale sub-size files (same directory).
+		// New sub-sizes carry a .webp extension, so there is no name collision.
+		$this->safe_unlink( $source_png );
+		if ( is_array( $old_meta ) && isset( $old_meta['sizes'] ) && is_array( $old_meta['sizes'] ) ) {
+			foreach ( $old_meta['sizes'] as $size ) {
+				if ( isset( $size['file'] ) && is_string( $size['file'] ) ) {
+					$this->safe_unlink( $dir . '/' . basename( $size['file'] ) );
+				}
+			}
+		}
+
+		// The WebP is now the canonical file, not a sibling derivative — drop meta.
+		if ( function_exists( 'delete_post_meta' ) ) {
+			delete_post_meta( $attachment_id, self::META_KEY );
+		}
+		return array( 'ok' => true );
 	}
 
 	/**
@@ -548,7 +653,7 @@ final class IWSL_Media_Optimizer {
 				$next['refused'] += 1;
 				break;
 		}
-		if ( count( $next['items'] ) < self::MAX_BATCH ) {
+		if ( count( $next['items'] ) < self::MAX_REQUEST ) {
 			$next['items'] = array_merge( $next['items'], array( $item ) );
 		}
 		return $next;

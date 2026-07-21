@@ -70,7 +70,7 @@ final class IWSL_Plus_Feature {
 			'WordPress'       => $snap['wp'],
 			'Generated at'    => $snap['generated_at'],
 		);
-		echo '<div class="iwsl-plus-feature" style="border:1px solid #c3e6cb;background:#f4fbf6;border-radius:8px;padding:16px;margin-top:8px;">';
+		echo '<div class="iwsl-plus-feature" style="border:1px solid var(--iw-line-2,#3a3f4b);background:var(--iw-panel,#23262e);border-radius:12px;padding:18px;margin-top:8px;">';
 		echo '<h2 style="margin-top:0;">✨ Plus — Site Content &amp; Health Snapshot</h2>';
 		echo '<p>This premium panel is generated locally from your WordPress data. No external call is made.</p>';
 		echo '<table class="widefat striped" style="max-width:520px;"><tbody>';
