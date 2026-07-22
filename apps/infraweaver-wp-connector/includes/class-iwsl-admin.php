@@ -215,6 +215,396 @@ final class IWSL_Admin {
 		return isset( $map[ $id ] ) ? (string) $map[ $id ] : '';
 	}
 
+	/**
+	 * The central, warm, jargon-free "explainer" for every feature — one entry per
+	 * feature tab id (~24). Each entry is copy meant for a NON-TECHNICAL owner:
+	 *   - what      : one plain sentence, benefit-first (what it does for them).
+	 *   - why       : why a normal owner would want it (the payoff).
+	 *   - should    : plain guidance on whether to turn it on.
+	 *   - steps     : 1–3 tiny plain steps of what to actually DO.
+	 *   - on_effect : (optional) "when you switch it on, this happens" consequence,
+	 *                 shown on the OFF card so the owner can decide before flipping.
+	 *   - active    : (optional) the "it’s working — here’s what it’s doing" line,
+	 *                 shown on a toggle feature’s panel once it is on.
+	 * This is copy only — it changes no gate, save, field, or toggle behavior.
+	 *
+	 * @return array<string, array<string, mixed>>
+	 */
+	private static function feature_explainer_map(): array {
+		return array(
+			// ── Performance ──────────────────────────────────────────────
+			'speed' => array(
+				'what'      => __( 'Trims the extra bits of code and files your pages send, so they open faster for visitors.', 'infraweaver-connector' ),
+				'why'       => __( 'Faster pages keep people from leaving, and search engines like quick sites too.', 'infraweaver-connector' ),
+				'should'    => __( 'Good for almost every site. Turn it on, then have a quick look that everything still looks right.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Look over your site on a phone and a computer to check nothing changed.', 'infraweaver-connector' ),
+					__( 'That’s it — it keeps working on its own.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Your pages start sending less code, so they load a little quicker straight away.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s tidying up the code on every page as it loads, so visitors get a lighter, faster page.', 'infraweaver-connector' ),
+			),
+			'cache' => array(
+				'what'      => __( 'Saves a ready-made copy of each page so the next visitor gets it instantly.', 'infraweaver-connector' ),
+				'why'       => __( 'Your site does the hard work once, then hands out the saved copy — so pages appear much faster.', 'infraweaver-connector' ),
+				'should'    => __( 'Great for most sites, especially blogs and brochure sites. If you run a shop or members area, check that logged-in pages still update.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Open a few pages to make sure they look right.', 'infraweaver-connector' ),
+					__( 'It refreshes the saved copies for you automatically.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Visitors start getting a saved copy of each page, which loads much faster than building it fresh every time.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s handing visitors a saved, ready-made copy of each page instead of rebuilding it on every visit.', 'infraweaver-connector' ),
+			),
+			'cdn' => array(
+				'what'      => __( 'Serves your images and files from computers around the world, closer to each visitor.', 'infraweaver-connector' ),
+				'why'       => __( 'Someone far away gets your pictures from a nearby computer instead of one across the globe, so they load quicker.', 'infraweaver-connector' ),
+				'should'    => __( 'Worth it if you have visitors in many countries, or lots of images. You’ll need a delivery-network account first (a service that stores copies of your files worldwide).', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Sign up with a delivery network and copy the web address it gives you.', 'infraweaver-connector' ),
+					__( 'Use the short guided setup above to paste that address in.', 'infraweaver-connector' ),
+					__( 'Save — your files start loading from the nearest computer.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Your images, styles and scripts start loading from a nearby delivery computer instead of only your own.', 'infraweaver-connector' ),
+			),
+			'lazy-load' => array(
+				'what'      => __( 'Waits to load each image until a visitor scrolls down to it.', 'infraweaver-connector' ),
+				'why'       => __( 'The top of your page appears sooner, because the browser isn’t loading pictures nobody has looked at yet.', 'infraweaver-connector' ),
+				'should'    => __( 'Good for almost every site, especially long pages with lots of images.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Scroll one of your image-heavy pages to see pictures appear as you go.', 'infraweaver-connector' ),
+					__( 'It works automatically from then on.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Off-screen images wait to load until a visitor scrolls to them, so the page opens sooner.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s holding back off-screen images and loading each one only as visitors scroll to it.', 'infraweaver-connector' ),
+			),
+			'perf-audit' => array(
+				'what'      => __( 'Times how long your site takes to build each page, so you can spot the slow ones.', 'infraweaver-connector' ),
+				'why'       => __( 'You see which pages are dragging, so you know where to focus before visitors notice.', 'infraweaver-connector' ),
+				'should'    => __( 'Handy for everyone — it only measures, it never changes your site. Free.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Leave it on and browse your own site normally.', 'infraweaver-connector' ),
+					__( 'Come back here to see which pages took the longest to build.', 'infraweaver-connector' ),
+					__( 'Nothing else to do — it just watches quietly.', 'infraweaver-connector' ),
+				),
+				'active'    => __( 'it’s quietly timing each page as it loads and keeping a list of the slowest ones for you.', 'infraweaver-connector' ),
+			),
+			'response-scan' => array(
+				'what'      => __( 'Loads your pages a few times and measures the full trip, so you can compare speed before and after a change.', 'infraweaver-connector' ),
+				'why'       => __( 'You get real numbers that prove a change actually made your site faster — not just a feeling.', 'infraweaver-connector' ),
+				'should'    => __( 'Useful when you’re tuning speed and want proof. Otherwise you can leave it for later. Pro.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Use the short setup above to pick which pages to time.', 'infraweaver-connector' ),
+					__( 'Run your first check to record a starting point.', 'infraweaver-connector' ),
+					__( 'Make a change, then run it again to compare.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'You’ll be able to pick pages, time them, and keep before-and-after speed results here.', 'infraweaver-connector' ),
+			),
+
+			// ── Media ────────────────────────────────────────────────────
+			'images' => array(
+				'what'      => __( 'Shrinks the file size of your pictures without making them look any worse.', 'infraweaver-connector' ),
+				'why'       => __( 'Smaller pictures mean faster pages and less storage used — and no one can tell the difference.', 'infraweaver-connector' ),
+				'should'    => __( 'Good for almost every site. It keeps your original pictures untouched, so it’s safe to try.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Choose the pictures to shrink, or let it work through your whole library.', 'infraweaver-connector' ),
+					__( 'Start the run and let it work through them.', 'infraweaver-connector' ),
+					__( 'Done — your pages now use the lighter versions.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'You can pick pictures and it will make lighter copies of them, leaving your originals safe.', 'infraweaver-connector' ),
+			),
+			'auto-convert' => array(
+				'what'      => __( 'Automatically turns new pictures you upload into a smaller, faster format for you.', 'infraweaver-connector' ),
+				'why'       => __( 'You never have to remember to shrink pictures — it happens quietly every time you add one.', 'infraweaver-connector' ),
+				'should'    => __( 'Great if you add pictures often. If you rarely upload, you may not need it.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Upload a picture as usual.', 'infraweaver-connector' ),
+					__( 'It quietly makes a lighter version behind the scenes.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'From now on, pictures you upload get a smaller, faster version made automatically.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s watching for new uploads and quietly making a lighter version of each one.', 'infraweaver-connector' ),
+			),
+			'svg' => array(
+				'what'      => __( 'Lets you safely upload logo and icon files (a type called SVG) that stay sharp at any size.', 'infraweaver-connector' ),
+				'why'       => __( 'Your logo looks crisp on every screen, big or small, and the file stays tiny.', 'infraweaver-connector' ),
+				'should'    => __( 'Turn it on if you want to upload a logo or icons that never look blurry. Each file is checked for safety first.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Upload your logo or icon like any other picture.', 'infraweaver-connector' ),
+					__( 'It’s cleaned and added safely to your library.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'You’ll be able to upload sharp logo and icon files, and each one is safety-checked before it’s saved.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s letting you upload crisp logo and icon files, cleaning each one for safety first.', 'infraweaver-connector' ),
+			),
+			'media-protect' => array(
+				'what'      => __( 'Makes the pictures you choose harder for visitors to right-click, save, or drag away.', 'infraweaver-connector' ),
+				'why'       => __( 'It discourages casual copying of your photos — a gentle deterrent, not a lock.', 'infraweaver-connector' ),
+				'should'    => __( 'Nice if you show original photos or artwork. Remember: nothing online can be made truly impossible to copy.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Try right-clicking one of your pictures to see the difference.', 'infraweaver-connector' ),
+					__( 'That’s it — it protects them from then on.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Right-click and drag-to-save get discouraged on your pictures, making casual copying harder.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s making your pictures harder to right-click or drag away, as a gentle deterrent.', 'infraweaver-connector' ),
+			),
+
+			// ── SEO & Content ────────────────────────────────────────────
+			'seo' => array(
+				'what'      => __( 'Helps search engines and social networks understand your pages, so more people can find you.', 'infraweaver-connector' ),
+				'why'       => __( 'Better-described pages can show up higher in search and look nicer when shared, bringing more visitors.', 'infraweaver-connector' ),
+				'should'    => __( 'Recommended for almost every site that wants to be found. A short setup gets the basics right.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Use the guided setup above to add your site name and a sharing picture.', 'infraweaver-connector' ),
+					__( 'Turn on the site map so search engines can find every page (a site map is a list of all your pages).', 'infraweaver-connector' ),
+					__( 'Fine-tune the rest later if you like.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Your pages start sending clear titles and descriptions to search engines and social networks.', 'infraweaver-connector' ),
+			),
+			'seo-audit' => array(
+				'what'      => __( 'Checks your pages for common search-engine mistakes and tells you exactly what to fix.', 'infraweaver-connector' ),
+				'why'       => __( 'You get a plain to-do list instead of guessing what’s holding your pages back.', 'infraweaver-connector' ),
+				'should'    => __( 'Helpful for anyone who wants more visitors from search. It only checks — it changes nothing.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Look through the list of pages and suggestions.', 'infraweaver-connector' ),
+					__( 'Fix the ones you can — small changes add up.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'It starts checking your pages and building a plain list of things you could improve for search.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s reviewing your pages and listing simple fixes that could help you show up in search.', 'infraweaver-connector' ),
+			),
+			'duplicate' => array(
+				'what'      => __( 'Copies any post or page in one click, so you don’t have to rebuild it from scratch.', 'infraweaver-connector' ),
+				'why'       => __( 'Reuse a page you already like as a starting point and just change what’s different.', 'infraweaver-connector' ),
+				'should'    => __( 'Handy if you make similar pages often. There’s no downside to leaving it on.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Find a post or page in your list and click “Duplicate”.', 'infraweaver-connector' ),
+					__( 'Edit the fresh copy however you like.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'A “Duplicate” link appears on your posts and pages so you can copy any one in a click.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s adding a one-click “Duplicate” option to your posts and pages.', 'infraweaver-connector' ),
+			),
+			'links' => array(
+				'what'      => __( 'Finds links on your site that lead nowhere, so you can fix them.', 'infraweaver-connector' ),
+				'why'       => __( 'Dead links frustrate visitors and can hurt how search engines see your site — this catches them for you.', 'infraweaver-connector' ),
+				'should'    => __( 'Good for most sites, especially older ones with lots of pages. It only looks — it won’t change your content.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Let it scan, then review the broken links it found.', 'infraweaver-connector' ),
+					__( 'Update or remove them so every link works.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'It starts checking your links and lists any that lead to a missing page.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s scanning your pages for links that lead nowhere and listing them for you to fix.', 'infraweaver-connector' ),
+			),
+			'redirects' => array(
+				'what'      => __( 'Sends visitors from an old web address to the right page, instead of a “not found” error.', 'infraweaver-connector' ),
+				'why'       => __( 'When you rename or move a page, people (and search engines) still land in the right place.', 'infraweaver-connector' ),
+				'should'    => __( 'Turn it on when you change a page’s web address, or reorganise your site.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Add the old web address and the new one you want it to go to.', 'infraweaver-connector' ),
+					__( 'Save — anyone visiting the old link now arrives at the new page.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'You’ll be able to point old or changed web addresses at the right page, so visitors never hit a dead end.', 'infraweaver-connector' ),
+			),
+
+			// ── Analytics ────────────────────────────────────────────────
+			'statistics' => array(
+				'what'      => __( 'Shows how many people visit your site, kept private with no outside trackers.', 'infraweaver-connector' ),
+				'why'       => __( 'You see what’s popular and how you’re growing, without handing your visitors’ data to anyone else.', 'infraweaver-connector' ),
+				'should'    => __( 'Great for almost any owner who’s curious about their traffic. It respects visitor privacy.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Let a little time pass so visits are recorded.', 'infraweaver-connector' ),
+					__( 'Come back here to see your visitor numbers.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'It starts counting visits privately on your own site, with no third-party trackers.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s privately counting your visitors right here, without sharing anything with outside companies.', 'infraweaver-connector' ),
+			),
+			'activity-log' => array(
+				'what'      => __( 'Keeps a record of who changed what in your site’s admin area.', 'infraweaver-connector' ),
+				'why'       => __( 'If something changes unexpectedly, you can see who did it and when — great when more than one person helps.', 'infraweaver-connector' ),
+				'should'    => __( 'Useful if several people manage the site, or you just like a paper trail. It runs quietly in the background.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Carry on managing your site as normal.', 'infraweaver-connector' ),
+					__( 'Check the log any time to see recent changes.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'It starts noting each important change in your admin, with who did it and when.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s quietly recording who changes what in your admin, so you always have a history.', 'infraweaver-connector' ),
+			),
+
+			// ── Privacy & Site ───────────────────────────────────────────
+			'consent' => array(
+				'what'      => __( 'Shows visitors a friendly cookie notice, so you follow privacy rules.', 'infraweaver-connector' ),
+				'why'       => __( 'Many privacy laws require it, and it shows visitors you handle their data respectfully.', 'infraweaver-connector' ),
+				'should'    => __( 'Recommended if you have visitors in Europe, or just want to be careful with privacy. One click applies safe defaults.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Use the guided setup above to apply the recommended settings.', 'infraweaver-connector' ),
+					__( 'Adjust the wording or colour if you like.', 'infraweaver-connector' ),
+					__( 'Save — visitors now see your cookie notice.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Visitors start seeing a cookie notice, and their choice is remembered.', 'infraweaver-connector' ),
+			),
+			'maintenance' => array(
+				'what'      => __( 'Shows visitors a friendly “be right back” page while you work on the site.', 'infraweaver-connector' ),
+				'why'       => __( 'People see a tidy message instead of a half-finished or broken-looking site during changes.', 'infraweaver-connector' ),
+				'should'    => __( 'Turn it on only while you’re making big changes, then turn it off when you’re done. You can still see the real site while signed in.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above when you start working.', 'infraweaver-connector' ),
+					__( 'Make your changes — visitors see the “be right back” page.', 'infraweaver-connector' ),
+					__( 'Switch it off to open the site to everyone again.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Visitors see a friendly “be right back” page, while you (signed in) still see the real site.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s showing visitors a friendly “be right back” page — remember to switch it off when you’re done.', 'infraweaver-connector' ),
+			),
+			'whitelabel' => array(
+				'what'      => __( 'Replaces the WordPress name and logo on the login and admin screens with your own.', 'infraweaver-connector' ),
+				'why'       => __( 'The dashboard feels like your brand — nice for clients, or just a tidier look for you.', 'infraweaver-connector' ),
+				'should'    => __( 'A finishing touch, mainly if you hand the site to clients. It’s purely for looks and changes nothing about how the site works.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Add your own logo and name in the settings.', 'infraweaver-connector' ),
+					__( 'Save — the login and admin now wear your brand.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Your own logo and name replace the WordPress branding on the login and admin screens.', 'infraweaver-connector' ),
+			),
+
+			// ── System ───────────────────────────────────────────────────
+			'database' => array(
+				'what'      => __( 'Clears out old clutter in your site’s behind-the-scenes storage, so it stays lean and quick.', 'infraweaver-connector' ),
+				'why'       => __( 'Over time your site piles up leftovers (old drafts, spam, junk) — tidying them keeps it nimble.', 'infraweaver-connector' ),
+				'should'    => __( 'Good for most sites now and then. It shows you a preview first and never touches your real content.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Review the preview of what it would clean.', 'infraweaver-connector' ),
+					__( 'Run the cleanup when you’re happy — your posts and pages stay safe.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'You’ll be able to preview and clear out old clutter, while your posts and pages stay untouched.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s ready to preview and tidy old clutter from your storage, always leaving your real content alone.', 'infraweaver-connector' ),
+			),
+			'scheduled-cleanup' => array(
+				'what'      => __( 'Tidies that behind-the-scenes clutter automatically on a schedule, so you don’t have to remember.', 'infraweaver-connector' ),
+				'why'       => __( 'Your site stays lean by itself — set it once and forget it.', 'infraweaver-connector' ),
+				'should'    => __( 'Nice if you’d rather not do the tidy-up by hand. It sticks to safe limits and never removes your content.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Pick how often it should tidy up.', 'infraweaver-connector' ),
+					__( 'Save — it takes care of the rest on its own.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'It starts tidying old clutter on a repeating schedule, within safe limits, on its own.', 'infraweaver-connector' ),
+			),
+			'email' => array(
+				'what'      => __( 'Helps your site’s emails — like password resets and contact forms — actually reach people’s inboxes.', 'infraweaver-connector' ),
+				'why'       => __( 'By default many hosts send email that lands in spam or vanishes; this makes it far more reliable.', 'infraweaver-connector' ),
+				'should'    => __( 'Recommended if your site sends any email at all. You’ll need the sending details from your email provider.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Enter your email provider’s sending details below.', 'infraweaver-connector' ),
+					__( 'Send a test email to check it arrives.', 'infraweaver-connector' ),
+					__( 'Save — your site’s emails now go out reliably.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Your site’s emails start going out through your chosen provider, so they’re far more likely to arrive.', 'infraweaver-connector' ),
+			),
+			'config' => array(
+				'what'      => __( 'Advanced switches for how WordPress runs behind the scenes.', 'infraweaver-connector' ),
+				'why'       => __( 'Lets an experienced person tune technical limits — most owners never need to touch this.', 'infraweaver-connector' ),
+				'should'    => __( 'Best left alone unless someone technical is helping you. Changing the wrong thing here can affect the site.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Only change something here if you know exactly what it does.', 'infraweaver-connector' ),
+					__( 'When unsure, leave the defaults as they are.', 'infraweaver-connector' ),
+					__( 'Save only after double-checking the value.', 'infraweaver-connector' ),
+				),
+			),
+		);
+	}
+
+	/** The explainer entry for a tab id, or an empty array if none. */
+	private static function feature_explainer( string $id ): array {
+		$map = self::feature_explainer_map();
+		return isset( $map[ $id ] ) && is_array( $map[ $id ] ) ? $map[ $id ] : array();
+	}
+
+	/**
+	 * The toggle-only features (no guided wizard of their own) that become a fully
+	 * GUIDED card: they show the "it’s working — here’s what it’s doing" confirmation
+	 * line once switched on. The list mirrors the simple on/off engines.
+	 *
+	 * @return string[]
+	 */
+	private static function toggle_guided_ids(): array {
+		return array(
+			'cache', 'lazy-load', 'statistics', 'media-protect', 'maintenance', 'svg',
+			'duplicate', 'auto-convert', 'database', 'activity-log', 'speed',
+			'perf-audit', 'links', 'seo-audit',
+		);
+	}
+
+	/**
+	 * The calm, reusable "explainer" card drawn at the TOP of every feature panel —
+	 * an icon plus "What this does", the payoff, a "Should I turn this on?" line and
+	 * 1–3 tiny steps, all in plain, warm, jargon-free language for a non-technical
+	 * owner. Styled with the existing .iwsl-* / --iw-* tokens and reads cleanly on
+	 * mobile. Pure output — reads no request input, changes no state.
+	 *
+	 * $context tunes the closing line only:
+	 *   - 'active' : (feature is on) a green confirmation for toggle-only features.
+	 *   - 'off'    : (granted but off) a "when you switch it on…" consequence.
+	 *   - 'locked' : (higher plan) explainer only; the card’s upgrade note follows.
+	 * Renders nothing when the id has no explainer entry.
+	 */
+	private static function render_feature_intro( string $id, string $context = 'active' ): void {
+		$x = self::feature_explainer( $id );
+		if ( array() === $x ) {
+			return;
+		}
+		$tab_icons = array();
+		foreach ( self::tab_defs() as $tab ) {
+			if ( isset( $tab['id'] ) ) {
+				$tab_icons[ (string) $tab['id'] ] = (string) ( $tab['icon'] ?? 'lightbulb' );
+			}
+		}
+		$icon = $tab_icons[ $id ] ?? 'lightbulb';
+
+		echo '<div class="iwsl-intro">';
+		echo '<span class="iwsl-intro__icon" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span></span>';
+		echo '<div class="iwsl-intro__body">';
+
+		if ( ! empty( $x['what'] ) ) {
+			echo '<p class="iwsl-intro__what"><span class="iwsl-intro__lead">' . esc_html__( 'What this does', 'infraweaver-connector' ) . '</span>' . esc_html( (string) $x['what'] ) . '</p>';
+		}
+		if ( ! empty( $x['why'] ) ) {
+			echo '<p class="iwsl-intro__why">' . esc_html( (string) $x['why'] ) . '</p>';
+		}
+		if ( ! empty( $x['should'] ) ) {
+			echo '<p class="iwsl-intro__should"><span class="iwsl-intro__lead">' . esc_html__( 'Should I turn this on?', 'infraweaver-connector' ) . '</span>' . esc_html( (string) $x['should'] ) . '</p>';
+		}
+		if ( ! empty( $x['steps'] ) && is_array( $x['steps'] ) ) {
+			echo '<p class="iwsl-intro__lead iwsl-intro__lead--steps">' . esc_html__( 'What to do', 'infraweaver-connector' ) . '</p>';
+			echo '<ol class="iwsl-intro__steps">';
+			foreach ( $x['steps'] as $step ) {
+				echo '<li>' . esc_html( (string) $step ) . '</li>';
+			}
+			echo '</ol>';
+		}
+
+		if ( 'active' === $context && ! empty( $x['active'] ) && in_array( $id, self::toggle_guided_ids(), true ) ) {
+			echo '<p class="iwsl-intro__state iwsl-intro__state--on"><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span><span>'
+				. '<strong>' . esc_html__( 'It’s working —', 'infraweaver-connector' ) . '</strong> '
+				. esc_html( (string) $x['active'] ) . '</span></p>';
+		} elseif ( 'off' === $context && ! empty( $x['on_effect'] ) ) {
+			echo '<p class="iwsl-intro__state iwsl-intro__state--off"><span class="dashicons dashicons-arrow-up-alt" aria-hidden="true"></span><span>'
+				. '<strong>' . esc_html__( 'When you switch it on:', 'infraweaver-connector' ) . '</strong> '
+				. esc_html( (string) $x['on_effect'] ) . '</span></p>';
+		}
+
+		echo '</div>'; // .iwsl-intro__body
+		echo '</div>'; // .iwsl-intro
+	}
+
 	/** Hook the admin menu + the image-optimization + email-delivery + redirect + db-optimize admin-post handlers. */
 	public function register(): void {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
@@ -451,6 +841,58 @@ final class IWSL_Admin {
 	}
 
 	/**
+	 * The single most useful feature to try first in each category, with a plain
+	 * one-line reason — the target of the "New here? Start with…" nudge at the top
+	 * of every category page. Keyed by the group display label.
+	 *
+	 * @return array<string, array<string, string>>
+	 */
+	private static function group_starthere(): array {
+		return array(
+			'Performance'    => array( 'id' => 'cache', 'why' => __( 'it’s the biggest, safest speed boost for most sites.', 'infraweaver-connector' ) ),
+			'Media'          => array( 'id' => 'images', 'why' => __( 'it shrinks your pictures so pages load faster, and your originals stay safe.', 'infraweaver-connector' ) ),
+			'SEO & Content'  => array( 'id' => 'seo', 'why' => __( 'a quick setup helps search engines find and show your pages.', 'infraweaver-connector' ) ),
+			'Analytics'      => array( 'id' => 'statistics', 'why' => __( 'it shows who visits your site, kept completely private.', 'infraweaver-connector' ) ),
+			'Privacy & Site' => array( 'id' => 'consent', 'why' => __( 'one click applies privacy-friendly cookie settings.', 'infraweaver-connector' ) ),
+			'System'         => array( 'id' => 'email', 'why' => __( 'it makes sure your site’s emails actually reach people.', 'infraweaver-connector' ) ),
+		);
+	}
+
+	/**
+	 * A calm "New here? Start with <feature> — <reason>" line at the top of a
+	 * category page, linking to that feature's card on the same page. Renders
+	 * nothing if the group has no recommendation or the feature isn't present.
+	 */
+	private static function render_group_starthere( string $group, array $tabs ): void {
+		$map = self::group_starthere();
+		if ( ! isset( $map[ $group ] ) ) {
+			return;
+		}
+		$rec   = $map[ $group ];
+		$rid   = (string) ( $rec['id'] ?? '' );
+		$label = '';
+		foreach ( $tabs as $tab ) {
+			if ( isset( $tab['id'] ) && (string) $tab['id'] === $rid ) {
+				$label = (string) $tab['label'];
+				break;
+			}
+		}
+		if ( '' === $label ) {
+			return;
+		}
+		$link = '<a href="' . esc_attr( '#iwsl-card-' . $rid ) . '">' . esc_html( $label ) . '</a>';
+		echo '<p class="iwsl-starthere">';
+		echo '<span class="dashicons dashicons-lightbulb" aria-hidden="true"></span>';
+		echo '<span>' . sprintf(
+			/* translators: 1: linked feature name (HTML), 2: plain-language reason to start there. */
+			esc_html__( 'New here? Start with %1$s — %2$s', 'infraweaver-connector' ),
+			$link,
+			esc_html( (string) ( $rec['why'] ?? '' ) )
+		) . '</span>';
+		echo '</p>';
+	}
+
+	/**
 	 * Per-feature unlock state, keyed by tab id. Drives the live status dot on
 	 * each tab, the landing cards' lock glyphs, and the tier inference. Reads only
 	 * local plugin state via IWSL_Entitlements::evaluate — never a network call.
@@ -501,6 +943,12 @@ final class IWSL_Admin {
 	 * pattern. Gating/nonce/entitlement logic is untouched — this only routes.
 	 */
 	private function render_panel_for( string $id, array $unlocked ): void {
+		// A calm, plain-English explainer at the TOP of every feature panel, so a
+		// non-technical owner always sees what the feature does, why it helps, and
+		// what to do — before any controls. This is the ON context (the card only
+		// renders this body when the feature is granted and switched on).
+		self::render_feature_intro( $id, 'active' );
+
 		switch ( $id ) {
 			case 'images':
 				$this->render_image_optimization_section();
@@ -593,7 +1041,7 @@ final class IWSL_Admin {
 						'title' => __( 'Before you start', 'infraweaver-connector' ),
 						'body'  => static function (): void {
 							echo '<p>' . esc_html__( 'This rewrites the address of your images, CSS, JavaScript and fonts to your CDN host. Your pages, admin and login always stay on this site.', 'infraweaver-connector' ) . '</p>';
-							echo '<p class="iwsl-wz__note">' . esc_html__( 'Your CDN must be set up as a “pull zone” whose origin is this site. If it can’t reach this site, assets will 404 — so create the pull zone first.', 'infraweaver-connector' ) . '</p>';
+							echo '<p class="iwsl-wz__note">' . esc_html__( 'Your delivery network needs to be set up to fetch files from this site first (this is often called a “pull zone”). If it can’t reach your site, your images and files won’t show up — so set that up before turning this on.', 'infraweaver-connector' ) . '</p>';
 						},
 					),
 					array(
@@ -641,7 +1089,7 @@ final class IWSL_Admin {
 					array(
 						'title' => __( 'What this does', 'infraweaver-connector' ),
 						'body'  => static function (): void {
-							echo '<p>' . esc_html__( 'It loads each page a few times and keeps the middle (median) time — connection, server and download — so one slow blip doesn’t skew the result.', 'infraweaver-connector' ) . '</p>';
+							echo '<p>' . esc_html__( 'It loads each page a few times and keeps the middle result, so one slow blip doesn’t throw off the number. It counts the whole trip — connecting, your site building the page, and downloading it.', 'infraweaver-connector' ) . '</p>';
 							echo '<p>' . esc_html__( 'Your home page is always included. Add any other important pages below.', 'infraweaver-connector' ) . '</p>';
 						},
 					),
@@ -650,7 +1098,7 @@ final class IWSL_Admin {
 						'body'  => static function () use ( $runs ): void {
 							echo '<div class="iwsl-wz__fields">';
 							self::wizard_textarea( 'iwsl_rs_urls', __( 'Extra URLs (one per line)', 'infraweaver-connector' ), '', rtrim( (string) home_url(), '/' ) . "/shop/\n" . rtrim( (string) home_url(), '/' ) . '/about/', 4 );
-							self::wizard_field( 'number', 'iwsl_rs_runs', __( 'Loads per page (median kept)', 'infraweaver-connector' ), (string) $runs, '', array( 'min' => (string) IWSL_Response_Scan::RUNS_MIN, 'max' => (string) IWSL_Response_Scan::RUNS_MAX ) );
+							self::wizard_field( 'number', 'iwsl_rs_runs', __( 'Loads per page (we keep the middle result)', 'infraweaver-connector' ), (string) $runs, '', array( 'min' => (string) IWSL_Response_Scan::RUNS_MIN, 'max' => (string) IWSL_Response_Scan::RUNS_MAX ) );
 							self::wizard_field( 'text', 'iwsl_rs_label', __( 'Label for this baseline (optional)', 'infraweaver-connector' ), '', __( 'e.g. before lossless images', 'infraweaver-connector' ) );
 							echo '</div>';
 							self::wizard_checkbox( 'iwsl_rs_include_sitemap', __( 'Also time a few top pages from my sitemap', 'infraweaver-connector' ), false );
@@ -682,14 +1130,14 @@ final class IWSL_Admin {
 				'submit' => __( 'Save SEO settings', 'infraweaver-connector' ),
 				'launch' => array(
 					'heading' => __( 'Help Google understand your site', 'infraweaver-connector' ),
-					'body'    => __( 'Set your brand name, a default share image and turn on an XML sitemap so search engines can find every page. Fine-tune everything afterwards.', 'infraweaver-connector' ),
+					'body'    => __( 'Set your brand name, a default sharing picture and turn on a site map (a list of all your pages) so search engines can find every page. Fine-tune everything afterwards.', 'infraweaver-connector' ),
 					'button'  => __( 'Set up SEO basics', 'infraweaver-connector' ),
 				),
 				'steps'  => array(
 					array(
 						'title' => __( 'What this does', 'infraweaver-connector' ),
 						'body'  => static function (): void {
-							echo '<p>' . esc_html__( 'These three basics cover most of what search engines and social networks look for. You can tune titles, templates, schema and more on the full form afterwards.', 'infraweaver-connector' ) . '</p>';
+							echo '<p>' . esc_html__( 'These three basics cover most of what search engines and social networks look for. You can fine-tune your page titles, wording and more on the full form afterwards.', 'infraweaver-connector' ) . '</p>';
 						},
 					),
 					array(
@@ -700,7 +1148,7 @@ final class IWSL_Admin {
 							self::wizard_field( 'text', 'iwseo_default_social_image', __( 'Default share image URL', 'infraweaver-connector' ), '', '/wp-content/uploads/brand/social.png' );
 							echo '</div>';
 							echo '<p class="description">' . esc_html__( 'The share image is used when a page is posted to social media and has no image of its own.', 'infraweaver-connector' ) . '</p>';
-							self::wizard_checkbox( 'iwseo_sitemap_enabled', __( 'Turn on the XML sitemap (recommended)', 'infraweaver-connector' ), true, __( 'Publishes /sitemap_index.xml and adds it to robots.txt so search engines can crawl every page.', 'infraweaver-connector' ) );
+							self::wizard_checkbox( 'iwseo_sitemap_enabled', __( 'Turn on the site map (recommended)', 'infraweaver-connector' ), true, __( 'Creates a tidy list of all your pages and points search engines to it, so every page gets found.', 'infraweaver-connector' ) );
 						},
 					),
 				),
@@ -1095,6 +1543,10 @@ JS;
 		$this->render_group_hero( $group, $meta[ $group ], $tier, $gate );
 		$this->render_toggle_toast();
 
+		// A friendly "New here? Start with…" nudge that points a first-time owner at
+		// the single most useful feature in this category before the full list.
+		self::render_group_starthere( $group, $tabs );
+
 		// One panel per area (no sub-tabs): a sticky jump-rail + every feature
 		// stacked as a card. Each card carries a tier-aware enable/disable switch
 		// and reveals its controls only when granted AND switched on.
@@ -1195,9 +1647,19 @@ JS;
 			$this->render_panel_for( $id, $unlocked );
 			echo '</div>';
 		} elseif ( 'off' === $state ) {
-			echo '<div class="iwsl-card__body iwsl-card__body--muted"><p>' . esc_html__( 'This feature is switched off. Turn it on to configure and use it.', 'infraweaver-connector' ) . '</p></div>';
+			// A GUIDED card even when off: the same plain-English explainer (so the
+			// owner can decide with confidence), a "what happens when you turn it on"
+			// line, then a gentle pointer to the On switch above. The explainer is a
+			// no-op for any id without copy, in which case the pointer stands alone.
+			echo '<div class="iwsl-card__body">';
+			self::render_feature_intro( $id, 'off' );
+			echo '<p class="iwsl-card__hint"><span class="dashicons dashicons-arrow-up-alt2" aria-hidden="true"></span>' . esc_html__( 'Ready when you are — use the On switch above to turn it on.', 'infraweaver-connector' ) . '</p>';
+			echo '</div>';
 		} else {
-			echo '<div class="iwsl-card__body iwsl-card__body--muted"><p>' . esc_html__( 'Included in a higher plan. Upgrade this site from the InfraWeaver console to unlock it.', 'infraweaver-connector' ) . '</p></div>';
+			echo '<div class="iwsl-card__body">';
+			self::render_feature_intro( $id, 'locked' );
+			echo '<p class="iwsl-card__hint">' . esc_html__( 'Included in a higher plan. Upgrade this site from the InfraWeaver console to unlock it.', 'infraweaver-connector' ) . '</p>';
+			echo '</div>';
 		}
 
 		echo '</section>';
@@ -1324,6 +1786,36 @@ JS;
 	.iwsl-shell .iwsl-card__id{ min-width: 0; }
 	.iwsl-shell .iwsl-card__title{ overflow-wrap: anywhere; }
 	.iwsl-shell .iwsl-card__body{ padding: 14px 14px 16px; }
+}
+
+/* ── "Start here" helper line at the top of each category page ─────────── */
+.iwsl-shell .iwsl-starthere{ display: flex; gap: 10px; align-items: center; margin: 0 0 14px; padding: 11px 15px; border-radius: var(--iw-r-sm, 12px); border: 1px solid color-mix(in oklch, var(--iw-signal) 24%, var(--iw-line-2)); background: color-mix(in oklch, var(--iw-signal) 7%, var(--iw-panel)); font-size: 13.5px; line-height: 1.5; color: var(--iw-muted); }
+.iwsl-shell .iwsl-starthere .dashicons{ color: var(--iw-signal); flex: 0 0 auto; font-size: 18px; width: 18px; height: 18px; }
+.iwsl-shell .iwsl-starthere a{ font-weight: 650; }
+
+/* ── Per-feature "explainer" card at the top of every panel ───────────── */
+.iwsl-shell .iwsl-intro{ display: flex; gap: 14px; align-items: flex-start; padding: 15px 17px; margin: 0 0 16px; border: 1px solid color-mix(in oklch, var(--iw-signal) 20%, var(--iw-line)); border-radius: var(--iw-r-sm, 12px); background: color-mix(in oklch, var(--iw-signal) 6%, var(--iw-panel-2)); }
+.iwsl-shell .iwsl-intro__icon{ display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto; color: var(--iw-signal-ink); background: linear-gradient(155deg, var(--iw-signal-2), var(--iw-signal)); }
+.iwsl-shell .iwsl-intro__icon .dashicons{ font-size: 19px; width: 19px; height: 19px; }
+.iwsl-shell .iwsl-intro__body{ flex: 1 1 auto; min-width: 0; }
+.iwsl-shell .iwsl-intro__body > p{ margin: 0 0 8px; font-size: 13.5px; line-height: 1.5; color: var(--iw-muted); }
+.iwsl-shell .iwsl-intro__what{ color: var(--iw-ink) !important; }
+.iwsl-shell .iwsl-intro__lead{ display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--iw-faint); margin-bottom: 2px; }
+.iwsl-shell .iwsl-intro__lead--steps{ margin: 12px 0 4px; }
+.iwsl-shell .iwsl-intro__steps{ margin: 4px 0 4px; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; list-style: decimal; }
+.iwsl-shell .iwsl-intro__steps li{ font-size: 13px; line-height: 1.45; color: var(--iw-ink); }
+.iwsl-shell .iwsl-intro__state{ display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 0 !important; padding: 9px 11px; border-radius: 10px; font-size: 13px !important; line-height: 1.45; }
+.iwsl-shell .iwsl-intro__state .dashicons{ flex: 0 0 auto; margin-top: 1px; font-size: 16px; width: 16px; height: 16px; }
+.iwsl-shell .iwsl-intro__state strong{ font-weight: 700; }
+.iwsl-shell .iwsl-intro__state--on{ background: color-mix(in oklch, var(--iw-good) 13%, transparent); border: 1px solid color-mix(in oklch, var(--iw-good) 34%, var(--iw-line)); color: var(--iw-ink) !important; }
+.iwsl-shell .iwsl-intro__state--on .dashicons{ color: var(--iw-good); }
+.iwsl-shell .iwsl-intro__state--off{ background: color-mix(in oklch, var(--iw-signal) 8%, transparent); border: 1px solid color-mix(in oklch, var(--iw-signal) 26%, var(--iw-line)); color: var(--iw-muted) !important; }
+.iwsl-shell .iwsl-intro__state--off .dashicons{ color: var(--iw-signal); }
+.iwsl-shell .iwsl-card__hint{ display: flex; gap: 7px; align-items: center; margin: 12px 0 0; font-size: 12.5px; color: var(--iw-faint); }
+.iwsl-shell .iwsl-card__hint .dashicons{ font-size: 15px; width: 15px; height: 15px; flex: 0 0 auto; }
+@media (max-width: 600px){
+	.iwsl-shell .iwsl-intro{ flex-direction: column; gap: 11px; padding: 14px; }
+	.iwsl-shell .iwsl-intro__icon{ width: 30px; height: 30px; }
 }
 </style>';
 	}
