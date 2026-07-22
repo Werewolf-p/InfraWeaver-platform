@@ -130,7 +130,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       { href: "/monitoring", icon: HeartPulse, label: "Monitoring", shortcut: "G H", description: "Proactive 'what breaks next' signals board — ArgoCD sync, secret/cert health, resource pressure, cron drift, posture, reliability — plus status, health, uptime, alerts, and latency", pinnable: true, keywords: ["monitoring", "observability", "signals", "what breaks next", "argocd", "sync", "secrets", "certs", "cron", "overdue", "wedged", "resource pressure", "oom", "posture", "reliability", "status", "platform status", "health", "uptime", "availability", "sla", "latency", "alerts", "brewing", "incidents"] },
       { href: "/logs", icon: FileText, label: "Pod Logs", shortcut: "G L", description: "Live streaming pod logs" },
       { href: "/log-analytics", icon: FileText, label: "Log Analytics", description: "Search and analyze pod logs", secondary: true },
-      { href: "/events", icon: History, label: "Activity Log", shortcut: "G E", description: "Cluster events and audit trail" },
+      { href: "/events", icon: History, label: "Cluster Events", shortcut: "G E", description: "Cluster events and audit trail" },
       { href: "/alert-silence", icon: BellOff, label: "Alert Silence", description: "Silence Prometheus alert rules", secondary: true },
       { href: "/tests", icon: TestTube2, label: "Diagnostics", description: "Platform tests, self-test, health probes, and webhook testing", pinnable: true, keywords: ["tests", "self test", "self-test", "health tester", "endpoint", "webhook", "diagnostics", "connectivity"], secondary: true },
     ],

@@ -299,8 +299,8 @@ html.light .shimmer {
 @utility density-spacious { --spacing-base: 1.25rem; }
 
 /* ── Display density ───────────────────────────────────────────
-   The SettingsProvider sets data-density (and optional data-compact)
-   on <html>. Because Tailwind spacing/font sizes are rem-based,
+   The SettingsProvider sets data-density on <html> (Compact /
+   Comfortable / Spacious). Because Tailwind spacing/font sizes are rem-based,
    scaling the root font-size rescales padding, margins, gaps and
    text across the whole app, making the density choice clearly
    visible without touching individual components.
@@ -312,10 +312,6 @@ html.light .shimmer {
 html[data-density="compact"] { font-size: 14px; --spacing-base: 0.5rem; --tbl-px: 0.75rem; --tbl-py: 0.375rem; }
 html[data-density="comfortable"] { font-size: 16px; --spacing-base: 0.75rem; --tbl-px: 1rem; --tbl-py: 0.75rem; }
 html[data-density="spacious"] { font-size: 18px; --spacing-base: 1.25rem; --tbl-px: 1.25rem; --tbl-py: 1rem; }
-
-/* Compact Mode toggle tightens things further on top of density. */
-html[data-compact="true"] { font-size: 13px; --tbl-py: 0.3125rem; }
-html[data-compact="true"][data-density="spacious"] { font-size: 15px; --tbl-py: 0.75rem; }
 
 /* ── Mobile / Touch utilities ───────────────────────────────── */
 

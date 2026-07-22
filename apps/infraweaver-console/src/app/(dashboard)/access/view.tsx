@@ -33,6 +33,28 @@ const ASSIGNABLE_PERMISSIONS: Permission[] = [
   "game-hub:read", "game-hub:write", "game-hub:admin",
 ];
 
+// Plain-language explanation of what each scope actually grants, shown as a
+// tooltip on the permission chips so operators know what they are granting.
+// Falls back to the raw scope string for any scope not listed here.
+const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
+  "apps:read": "View apps and their status",
+  "apps:write": "Create, edit, and delete app configuration",
+  "apps:sync": "Trigger app syncs / redeploys",
+  "config:read": "View configuration and settings",
+  "config:write": "Edit configuration and settings",
+  "cluster:read": "View cluster nodes, health, and resources",
+  "cluster:admin": "Full cluster administration",
+  "security:read": "View security posture, scans, and findings",
+  "security:write": "Change security settings and policies",
+  "infra:read": "View infrastructure inventory and topology",
+  "rbac:admin": "Manage roles and who has them",
+  "game-hub:read": "View game servers and their status",
+  "game-hub:write": "Create, edit, and configure game servers",
+  "game-hub:admin": "Full game-hub administration",
+};
+
+const describePermission = (p: Permission): string => PERMISSION_DESCRIPTIONS[p] ?? p;
+
 type TabId = "pim" | "groups" | "assignments";
 
 interface ActivationDecorated extends PimActivation {
@@ -492,6 +514,7 @@ function GroupEditor({ group, onClose, onSaved }: { group?: CustomGroup; onClose
           <button
             key={p}
             type="button"
+            title={describePermission(p)}
             onClick={() => togglePerm(p)}
             className={cn(
               "rounded px-2 py-1 text-xs",
@@ -625,7 +648,7 @@ function AssignmentEditor({ groups, onSaved }: { groups: CustomGroup[]; onSaved:
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {ASSIGNABLE_PERMISSIONS.map((p) => (
-          <button key={p} type="button" onClick={() => togglePerm(p)} className={cn("rounded px-2 py-1 text-xs", permissions.includes(p) ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300")}>{p}</button>
+          <button key={p} type="button" title={describePermission(p)} onClick={() => togglePerm(p)} className={cn("rounded px-2 py-1 text-xs", permissions.includes(p) ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300")}>{p}</button>
         ))}
       </div>
       <button type="button" disabled={saveMutation.isPending} onClick={save} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">

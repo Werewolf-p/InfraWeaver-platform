@@ -20,7 +20,10 @@ interface PlatformStatus {
   checkedAt: string;
 }
 
-function statusBanner(status: string) {
+function statusBanner(status: string | undefined) {
+  // Never claim a green "operational" state on missing/undefined data — fall back
+  // to a neutral "unknown" banner instead of a false all-clear (or a false red).
+  if (!status) return { bg: "bg-slate-500/10 border-slate-500/30", text: "text-slate-500 dark:text-slate-400", label: "Status Unknown" };
   if (status === "operational") return { bg: "bg-green-500/10 border-green-500/30", text: "text-green-400", label: "All Systems Operational" };
   if (status === "degraded") return { bg: "bg-yellow-500/10 border-yellow-500/30", text: "text-yellow-400", label: "Partial Outage" };
   return { bg: "bg-red-500/10 border-red-500/30", text: "text-red-400", label: "Major Outage" };
@@ -51,7 +54,7 @@ export function StatusView() {
   const countdown = refreshInterval
     ? Math.max(0, Math.ceil((refreshInterval - ((now - dataUpdatedAt) % refreshInterval)) / 1000))
     : 0;
-  const banner = statusBanner(data?.status ?? "operational");
+  const banner = statusBanner(data?.status);
 
   if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
 

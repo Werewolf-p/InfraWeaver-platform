@@ -47,19 +47,10 @@ export default function AllServicesPage() {
     <PageScaffold
       icon={Grid3X3}
       title="All Services"
+      subtitle={`Browse and search all ${totalItems} pages and tools`}
       className="animate-in fade-in-0 slide-in-from-bottom-4 duration-300 p-6 max-w-7xl mx-auto"
       bodyClassName="space-y-6"
     >
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 text-slate-500 text-xs mb-2">
-          <Grid3X3 className="w-3.5 h-3.5" />
-          <span>All Services</span>
-        </div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">All Services</h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Browse and search all {totalItems} pages and tools</p>
-      </div>
-
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -68,7 +59,7 @@ export default function AllServicesPage() {
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder="Search services..."
-          className="w-full bg-slate-800/60 border border-gray-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-gray-900 dark:text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30"
+          className="w-full bg-white/60 dark:bg-slate-800/60 border border-gray-200 dark:border-white/10 rounded-xl pl-10 pr-4 py-3 text-gray-900 dark:text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30"
         />
         {query && (
           <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-slate-500">{totalShown} results</span>
@@ -117,9 +108,9 @@ function ServiceCard({ item, isFav, onToggleFav }: { item: NavItem; isFav: boole
     >
       <Link
         href={item.href}
-        className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/40 border border-gray-200 dark:border-white/5 hover:bg-slate-800/70 hover:border-indigo-500/30 transition-all"
+        className="flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-slate-800/40 border border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-slate-800/70 hover:border-indigo-500/30 transition-all"
       >
-        <div className="w-8 h-8 rounded-lg bg-slate-700/60 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-500/20 transition-colors">
+        <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-slate-700/60 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-500/20 transition-colors">
           <item.icon className="w-4 h-4 text-slate-500 dark:text-slate-400 group-hover:text-indigo-400 transition-colors" />
         </div>
         <div className="flex-1 min-w-0">

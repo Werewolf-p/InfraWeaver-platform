@@ -117,7 +117,7 @@ export default function GameHubSetupPage() {
               <CheckCircle2 className="w-4 h-4" />
               Game Hub is ready!
             </div>
-            <Link href="/game-hub" className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors w-fit">
+            <Link href="/game-hub" className="flex items-center gap-2 px-4 py-2 bg-[var(--az-primary)] hover:bg-[var(--az-primary-hover)] text-white rounded-lg text-sm font-medium transition-colors w-fit">
               <Gamepad2 className="w-4 h-4" />
               Go to Game Hub
             </Link>
@@ -126,7 +126,7 @@ export default function GameHubSetupPage() {
           <button
             onClick={applyResources}
             disabled={applying || isLoading || !canApplySetup}
-            className="flex items-center gap-2 px-4 py-2 bg-[#0078D4] hover:bg-[#006cbe] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--az-primary)] hover:bg-[var(--az-primary-hover)] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
           >
             {applying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             {applying ? "Applying..." : "Apply Resources"}

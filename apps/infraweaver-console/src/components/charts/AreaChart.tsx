@@ -69,11 +69,11 @@ export function MetricAreaChart({ data, label, unit = "%", color = "emerald", wa
               <stop offset="95%" stopColor={fill} stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--color-border))" />
           <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#64748b" }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
           <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: "#64748b" }} tickLine={false} axisLine={false} />
           <Tooltip
-            contentStyle={{ background: "#0f172a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "12px", color: "#e2e8f0" }}
+            contentStyle={{ background: "rgb(var(--color-surface-raised))", border: "1px solid rgb(var(--color-border))", borderRadius: "8px", fontSize: "12px", color: "rgb(var(--color-text-primary))" }}
             formatter={(v: unknown) => [`${Math.round(v as number)}${unit}`, label]}
             labelFormatter={(l) => `Time: ${l}`}
           />

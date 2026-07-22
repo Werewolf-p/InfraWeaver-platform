@@ -22,6 +22,9 @@ interface GatusEndpoint {
 }
 
 interface HealthResponse {
+  // `available` reflects whether the /api/health proxy actually reached Gatus.
+  // Live-ness is derived from this + real endpoint data, never hardcoded.
+  available?: boolean;
   endpoints: GatusEndpoint[];
 }
 
@@ -82,6 +85,10 @@ export function UptimeView() {
     ? Math.round(endpoints.reduce((sum, ep) => sum + uptimePercent(ep.results), 0) / endpoints.length)
     : 0;
 
+  // Derive live-vs-caveat from the API response rather than asserting a state.
+  // Only claim "live" when the proxy reached Gatus AND returned real endpoint data.
+  const isLive = (data?.available ?? false) && endpoints.length > 0;
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <PageHeader
@@ -107,9 +114,15 @@ export function UptimeView() {
           </>
         }
       />
-      <span className="inline-flex items-center gap-1 text-xs text-amber-400/70">
-        <AlertTriangle className="w-3 h-3" /> Simulated data — connect Gatus for live results
-      </span>
+      {isLive ? (
+        <span className="inline-flex items-center gap-1 text-xs text-emerald-400/80">
+          <Activity className="w-3 h-3" /> Live results via Gatus
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1 text-xs text-amber-400/70">
+          <AlertTriangle className="w-3 h-3" /> Awaiting live data — connect Gatus for live results
+        </span>
+      )}
 
       {/* Overall summary */}
       <motion.div

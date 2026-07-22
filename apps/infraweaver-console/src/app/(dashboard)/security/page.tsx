@@ -1,22 +1,22 @@
 "use client";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useApiQuery, useApiMutation } from "@/hooks/use-api-query";
 import {
   Shield, ShieldCheck, AlertTriangle, CheckCircle2, RefreshCw, Lock, Users, Loader2,
-  KeyRound, Network, FileWarning, Server, Box, Activity, Database,
+  KeyRound, Network, Server, Box, Activity, Database,
   ChevronDown, ChevronRight, Clock, Cpu,
   AlertCircle, BookOpen, Layers, GitBranch, HardDrive, BarChart2, Download,
-  Filter, RotateCcw,
+  Filter, RotateCcw, ArrowRight,
 } from "lucide-react";
+import Link from "next/link";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { PageScaffold } from "@/components/ui/page-scaffold";
 import { PostureGauge } from "@/components/security/posture-gauge";
-import { AuditLogTable } from "@/components/security/audit-log-table";
 import { useAuditLog } from "@/hooks/use-audit-log";
 import { HorizontalScrollHint } from "@/components/ui/horizontal-scroll-hint";
 
@@ -227,7 +227,6 @@ export default function SecurityPage() {
   const { isAdmin } = useRBAC();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [expandedViolation, setExpandedViolation] = useState<number | null>(null);
   const [expandedKyverno, setExpandedKyverno] = useState<number | null>(null);
   const [kyvernoSevFilter, setKyvernoSevFilter] = useState("all");
   const [authTimeFilter, setAuthTimeFilter] = useState<"24h" | "7d" | "30d">("7d");
@@ -296,6 +295,16 @@ export default function SecurityPage() {
   const sortedCerts = [...(certsData?.certs ?? [])].sort((a, b) => (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999));
   const expiringThisMonth = sortedCerts.filter(c => c.daysLeft !== null && c.daysLeft <= 30).length;
 
+  // Audit log summary (full trail lives at /audit)
+  const auditEntries = auditLogData?.entries ?? [];
+  const auditFailureCount = auditEntries.filter(e => e.result === "failure").length;
+  const recentAuditEntries = auditEntries.slice(0, 3);
+
+  // Running-image summary (full CVE view lives at /image-vulnerabilities)
+  const runningImages = enhanced?.runningImages ?? [];
+  const vulnerableImageCount = runningImages.filter(img => img.vulnerable).length;
+  const totalCveCount = runningImages.reduce((sum, img) => sum + (img.cveCount ?? 0), 0);
+
   const ov = enhanced?.overview;
   const overviewCards: StatCard[] = ov ? [
     { label: "Pods running as root", value: ov.rootPodCount, icon: Users, status: ov.rootPodCount > 0 ? "crit" : "ok" },
@@ -309,12 +318,6 @@ export default function SecurityPage() {
     { label: "MetalLB pool", value: `${ov.metallbPoolUsed} / ${ov.metallbPoolTotal}`, icon: Network, status: ov.metallbPoolUsed / (ov.metallbPoolTotal || 1) > 0.8 ? "warn" : "ok", sub: "IPs in use" },
     { label: "Node pressure", value: ov.nodePressureCount, icon: Activity, status: ov.nodePressureCount > 0 ? "crit" : "ok", sub: `${ov.nodeCount} nodes total` },
   ] : [];
-
-  const kyvernoBySeverity = (enhanced?.kyvernoViolations ?? []).reduce<Record<string, EnhancedData["kyvernoViolations"]>>((acc, v) => {
-    const sev = v.severity.toLowerCase();
-    acc[sev] = [...(acc[sev] ?? []), v];
-    return acc;
-  }, {});
 
   // Auth events time filter
   const filteredAuthEvents = useMemo(() => {
@@ -684,69 +687,6 @@ export default function SecurityPage() {
           </CollapsibleSection>
         </motion.div>
 
-        {/* ── Kyverno Violations (from enhanced, legacy) ── */}
-        <SectionCard delay={0.1}>
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-purple-400" />
-            Kyverno Violations (Enhanced Scan)
-            {enhanced && (
-              <span className="ml-auto text-xs text-slate-500">
-                {enhanced.kyvernoViolations.length} violation{enhanced.kyvernoViolations.length !== 1 ? "s" : ""}
-              </span>
-            )}
-          </h3>
-          {enhancedLoading ? <Shimmer rows={4} /> : enhanced?.kyvernoViolations?.length === 0 ? (
-            <div className="text-center py-8">
-              <CheckCircle2 className="w-10 h-10 text-green-400 mx-auto mb-2" />
-              <p className="text-sm text-slate-500 dark:text-slate-400">No policy violations detected</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {Object.entries(kyvernoBySeverity).sort(([a], [b]) => {
-                const order = ["critical", "high", "medium", "low"];
-                return order.indexOf(a) - order.indexOf(b);
-              }).map(([severity, violations]) => (
-                <div key={severity}>
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">{severity} ({violations.length})</p>
-                  {violations.map((v, i) => {
-                    const idx = enhanced?.kyvernoViolations?.indexOf(v) ?? i;
-                    return (
-                      <div key={i} className="mb-1.5">
-                        <button
-                          onClick={() => setExpandedViolation(expandedViolation === idx ? null : idx)}
-                          className="w-full flex items-center gap-2 p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-left"
-                        >
-                          {expandedViolation === idx ? <ChevronDown className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 flex-shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 flex-shrink-0" />}
-                          <SeverityBadge severity={v.severity} />
-                          <span className="text-sm text-gray-900 dark:text-white font-medium flex-1 truncate">{v.name}</span>
-                          <span className="text-xs text-slate-500 flex-shrink-0">{v.namespace}</span>
-                        </button>
-                        <AnimatePresence>
-                          {expandedViolation === idx && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: "auto", opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              className="overflow-hidden"
-                            >
-                              <div className="mx-1 p-3 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/5 border-t-0 rounded-b-lg text-xs text-slate-500 dark:text-slate-400 space-y-1">
-                                <p><span className="text-slate-500">Policy:</span> {v.policy}</p>
-                                <p><span className="text-slate-500">Resource:</span> {v.resource}</p>
-                                <p><span className="text-slate-500">Category:</span> {v.category}</p>
-                                <p><span className="text-slate-500">Message:</span> {v.message}</p>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-
         {/* ── Pod Security Audit (enhanced with severity bars + ns grouping) ── */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.35 }}>
           <CollapsibleSection
@@ -895,10 +835,41 @@ export default function SecurityPage() {
             storageKey="sec-audit-log"
             badge={<Download className="w-4 h-4 text-emerald-400 flex-shrink-0" />}
           >
-            <AuditLogTable
-              entries={auditLogData?.entries ?? []}
-              isLoading={auditLogLoading}
-            />
+            {auditLogLoading ? <Shimmer rows={2} /> : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/5">
+                    <p className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">{auditEntries.length}</p>
+                    <p className="text-xs text-slate-500">Total entries</p>
+                  </div>
+                  <div className={cn("p-3 rounded-lg border", auditFailureCount > 0 ? "bg-red-500/5 border-red-500/20" : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/5")}>
+                    <p className={cn("text-lg font-bold tabular-nums", auditFailureCount > 0 ? "text-red-400" : "text-green-400")}>{auditFailureCount}</p>
+                    <p className="text-xs text-slate-500">Failed actions</p>
+                  </div>
+                </div>
+                {recentAuditEntries.length > 0 && (
+                  <div className="space-y-1.5">
+                    {recentAuditEntries.map((entry, i) => (
+                      <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/5">
+                        <StatusDot ok={entry.result === "success"} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-900 dark:text-white font-medium truncate">{entry.user}</p>
+                          <p className="text-xs text-slate-500 truncate">{entry.action}{entry.resource ? ` · ${entry.resource}` : ""}</p>
+                        </div>
+                        <span className="text-xs text-slate-600 flex-shrink-0">{timeAgo(entry.timestamp)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Link
+                  href="/audit"
+                  className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 text-sm font-medium text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
+                >
+                  View full audit log
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            )}
           </CollapsibleSection>
         </motion.div>
 
@@ -1082,23 +1053,29 @@ export default function SecurityPage() {
             storageKey="sec-images"
             badge={<Box className="w-4 h-4 text-indigo-400 flex-shrink-0" />}
           >
-            {enhancedLoading ? <Shimmer rows={3} /> : (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs text-blue-300">
-                  <FileWarning className="w-4 h-4 flex-shrink-0" />
-                  <span>Trivy not available on runner. Showing image inventory. Run <code className="font-mono bg-gray-100 dark:bg-white/10 px-1 rounded">trivy image &lt;img&gt;</code> locally for CVE details.</span>
+            {enhancedLoading ? <Shimmer rows={2} /> : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/5">
+                    <p className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">{runningImages.length}</p>
+                    <p className="text-xs text-slate-500">Images</p>
+                  </div>
+                  <div className={cn("p-3 rounded-lg border", vulnerableImageCount > 0 ? "bg-red-500/5 border-red-500/20" : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/5")}>
+                    <p className={cn("text-lg font-bold tabular-nums", vulnerableImageCount > 0 ? "text-red-400" : "text-green-400")}>{vulnerableImageCount}</p>
+                    <p className="text-xs text-slate-500">Vulnerable</p>
+                  </div>
+                  <div className={cn("p-3 rounded-lg border", totalCveCount > 0 ? "bg-orange-500/5 border-orange-500/20" : "bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/5")}>
+                    <p className={cn("text-lg font-bold tabular-nums", totalCveCount > 0 ? "text-orange-400" : "text-green-400")}>{totalCveCount}</p>
+                    <p className="text-xs text-slate-500">Known CVEs</p>
+                  </div>
                 </div>
-                {(enhanced?.runningImages ?? []).map((img, i) => (
-                  <motion.div key={i} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/5"
-                  >
-                    <Box className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                    <span className="text-xs text-slate-700 dark:text-slate-300 font-mono truncate">{img.image}</span>
-                  </motion.div>
-                ))}
-                {!(enhanced?.runningImages?.length) && (
-                  <p className="text-xs text-slate-500 text-center py-2">No image data available</p>
-                )}
+                <Link
+                  href="/image-vulnerabilities"
+                  className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 px-4 text-sm font-medium text-slate-700 dark:text-slate-300 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
+                >
+                  View image vulnerabilities
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
             )}
           </CollapsibleSection>

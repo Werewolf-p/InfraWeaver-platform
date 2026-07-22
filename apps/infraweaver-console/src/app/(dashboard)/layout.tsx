@@ -744,7 +744,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         >
           <DegradedBackendsBanner />
           <PullToRefresh onRefresh={handlePullToRefresh} className="min-h-full">
-            <AnimatePresence mode="wait">
+            <AnimatePresence>
               <motion.div
                 key={pathname}
                 initial={{ opacity: 0, y: 4 }}

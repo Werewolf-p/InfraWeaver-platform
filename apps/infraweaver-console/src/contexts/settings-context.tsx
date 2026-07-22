@@ -9,7 +9,7 @@ interface SettingsContextValue {
 }
 
 const SettingsContext = createContext<SettingsContextValue>({
-  settings: { refreshInterval: 30000, compactMode: false, showSystemApps: true, density: "comfortable" },
+  settings: { refreshInterval: 30000, showSystemApps: true, density: "comfortable" },
   updateSetting: () => {},
   mounted: false,
 });
@@ -22,12 +22,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     if (!mounted || typeof document === "undefined") return;
     const root = document.documentElement;
     root.dataset.density = settings.density;
-    if (settings.compactMode) {
-      root.dataset.compact = "true";
-    } else {
-      delete root.dataset.compact;
-    }
-  }, [mounted, settings.density, settings.compactMode]);
+  }, [mounted, settings.density]);
 
   return (
     <SettingsContext.Provider value={settingsState}>

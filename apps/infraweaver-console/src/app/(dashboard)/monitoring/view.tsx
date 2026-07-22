@@ -37,6 +37,18 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import { serializeRows } from "@/lib/export-serializers";
 import { cn, timeAgo } from "@/lib/utils";
 
+// Chart theming — reuse the same CSS-var tokens the rest of the console themes
+// with so grids/axes/tooltips stay legible in both light and dark mode instead
+// of hardcoding dark-only literals.
+const CHART_GRID_STROKE = "rgb(var(--color-border))";
+const CHART_AXIS_FILL = "rgb(var(--color-text-tertiary))";
+const CHART_TOOLTIP_STYLE = {
+  background: "rgb(var(--color-surface-raised))",
+  border: "1px solid rgb(var(--color-border))",
+  borderRadius: 12,
+  color: "rgb(var(--color-text-primary))",
+} as const;
+
 interface EndpointResult {
   success: boolean;
   duration: number;
@@ -466,10 +478,10 @@ export function MonitoringView() {
                           <stop offset="95%" stopColor="#0078D4" stopOpacity={0.02} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-                      <XAxis dataKey="time" tick={{ fill: "#888", fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
-                      <YAxis tick={{ fill: "#888", fontSize: 11 }} tickLine={false} axisLine={false} width={36} />
-                      <RechartsTooltip contentStyle={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 12 }} />
+                      <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="3 3" />
+                      <XAxis dataKey="time" tick={{ fill: CHART_AXIS_FILL, fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
+                      <YAxis tick={{ fill: CHART_AXIS_FILL, fontSize: 11 }} tickLine={false} axisLine={false} width={36} />
+                      <RechartsTooltip contentStyle={CHART_TOOLTIP_STYLE} />
                       <Area type="monotone" dataKey="latencyMs" stroke="#0078D4" fill="url(#monitoringLatency)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -492,10 +504,10 @@ export function MonitoringView() {
                           <stop offset="95%" stopColor="#10b981" stopOpacity={0.03} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid stroke="#2a2a2a" strokeDasharray="3 3" />
-                      <XAxis dataKey="time" tick={{ fill: "#888", fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
-                      <YAxis domain={[0, 100]} tick={{ fill: "#888", fontSize: 11 }} tickLine={false} axisLine={false} width={36} />
-                      <RechartsTooltip contentStyle={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 12 }} />
+                      <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="3 3" />
+                      <XAxis dataKey="time" tick={{ fill: CHART_AXIS_FILL, fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
+                      <YAxis domain={[0, 100]} tick={{ fill: CHART_AXIS_FILL, fontSize: 11 }} tickLine={false} axisLine={false} width={36} />
+                      <RechartsTooltip contentStyle={CHART_TOOLTIP_STYLE} />
                       <Area type="stepAfter" dataKey="availability" stroke="#10b981" fill="url(#monitoringAvailability)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>

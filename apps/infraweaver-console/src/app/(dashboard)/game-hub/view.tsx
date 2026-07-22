@@ -1063,7 +1063,7 @@ export function GameHubView() {
           <Gamepad2 className="h-6 w-6 shrink-0 text-[#0078D4] dark:text-[#4db3ff]" />
           <div className="min-w-0">
             <div className="flex items-center gap-3">
-              <h1 className="truncate text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">Game Hub</h1>
+              <h1 className="truncate text-2xl font-semibold text-gray-900 dark:text-[#f2f2f2]">Game Servers</h1>
               <RefreshCountdown intervalSeconds={15} resetKey={dataUpdatedAt} className="hidden lg:inline-flex" />
             </div>
           </div>

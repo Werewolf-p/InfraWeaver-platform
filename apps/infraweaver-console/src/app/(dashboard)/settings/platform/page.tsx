@@ -152,16 +152,16 @@ export default function PlatformUpdatePage() {
       <div className="space-y-6 max-w-3xl">
 
         {/* Version card */}
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+        <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-5">
           <div className="flex items-center gap-2 mb-1">
-            <GitBranch className="h-4 w-4 text-slate-400" />
-            <h3 className="font-semibold text-sm text-slate-100">Platform Version</h3>
+            <GitBranch className="h-4 w-4 text-gray-500 dark:text-slate-400" />
+            <h3 className="font-semibold text-sm text-gray-900 dark:text-slate-100">Platform Version</h3>
             {version?.githubRepo && (
               <a
                 href={version.githubRepo + "/releases"}
                 target="_blank"
                 rel="noreferrer"
-                className="ml-auto flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
+                className="ml-auto flex items-center gap-1 text-[11px] text-slate-500 hover:text-gray-700 dark:hover:text-slate-300 transition-colors"
               >
                 <ExternalLink className="h-3 w-3" /> GitHub releases
               </a>
@@ -172,7 +172,7 @@ export default function PlatformUpdatePage() {
           </p>
 
           {versionQuery.isLoading ? (
-            <div className="flex items-center gap-2 text-slate-400 text-sm">
+            <div className="flex items-center gap-2 text-gray-500 dark:text-slate-400 text-sm">
               <Loader2 className="h-4 w-4 animate-spin" /> Checking GitHub…
             </div>
           ) : versionQuery.isError || !version?.ok ? (
@@ -185,12 +185,12 @@ export default function PlatformUpdatePage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">Running</p>
-                  <code className="font-mono text-sm text-slate-200">{current}</code>
+                  <code className="font-mono text-sm text-gray-900 dark:text-slate-200">{current}</code>
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">Latest release</p>
                   <div className="flex items-center gap-2">
-                    <code className="font-mono text-sm text-slate-200">
+                    <code className="font-mono text-sm text-gray-900 dark:text-slate-200">
                       {latest ?? (version.latestCommitSha ? `main-${version.latestCommitSha}` : "—")}
                     </code>
                     {hasUpdate ? (
@@ -202,7 +202,7 @@ export default function PlatformUpdatePage() {
                         <CheckCircle2 className="h-3 w-3" /> up to date
                       </span>
                     ) : (
-                      <span className="rounded-full bg-slate-500/20 text-slate-400 border border-slate-500/30 px-2 py-0.5 text-[10px]">
+                      <span className="rounded-full bg-slate-500/20 text-gray-500 dark:text-slate-400 border border-slate-500/30 px-2 py-0.5 text-[10px]">
                         no releases yet
                       </span>
                     )}
@@ -214,18 +214,18 @@ export default function PlatformUpdatePage() {
                 <div className="text-xs text-slate-500">
                   Released {new Date(version.latestRelease.publishedAt).toLocaleDateString()} ·{" "}
                   <a href={version.latestRelease.url} target="_blank" rel="noreferrer"
-                    className="hover:text-slate-300 underline underline-offset-2">
+                    className="hover:text-gray-700 dark:hover:text-slate-300 underline underline-offset-2">
                     {version.latestRelease.name || version.latestRelease.tag}
                   </a>
                 </div>
               )}
 
               {version.changelog && version.changelog.length > 0 && (
-                <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
+                <div className="rounded-lg border border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-white/[0.02] p-3">
                   <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">What&apos;s new</p>
                   <ul className="space-y-1">
                     {version.changelog.map((c, i) => (
-                      <li key={i} className="font-mono text-xs text-slate-300">{c}</li>
+                      <li key={i} className="font-mono text-xs text-gray-700 dark:text-slate-300">{c}</li>
                     ))}
                   </ul>
                 </div>
@@ -235,10 +235,10 @@ export default function PlatformUpdatePage() {
         </div>
 
         {/* Action card */}
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+        <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-5">
           <div className="flex items-center gap-2 mb-1">
-            <ArrowUpCircle className="h-4 w-4 text-slate-400" />
-            <h3 className="font-semibold text-sm text-slate-100">Apply Update</h3>
+            <ArrowUpCircle className="h-4 w-4 text-gray-500 dark:text-slate-400" />
+            <h3 className="font-semibold text-sm text-gray-900 dark:text-slate-100">Apply Update</h3>
           </div>
           <p className="text-xs text-slate-500 mb-4">
             Rewrites image tags in ArgoCD manifests to the latest GitHub release version and triggers deployment.
@@ -248,8 +248,8 @@ export default function PlatformUpdatePage() {
             <button
               onClick={() => versionQuery.refetch()}
               disabled={versionQuery.isFetching}
-              className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04]
-                         hover:bg-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.04]
+                         hover:bg-gray-200 dark:hover:bg-white/10 px-3 py-1.5 text-xs text-gray-700 dark:text-slate-300 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={cn("h-3.5 w-3.5", versionQuery.isFetching && "animate-spin")} />
               Check for Updates
@@ -264,7 +264,7 @@ export default function PlatformUpdatePage() {
                     "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
                     hasUpdate
                       ? "bg-amber-500 hover:bg-amber-400 text-black"
-                      : "border border-white/10 bg-white/[0.04] hover:bg-white/10 text-slate-400 cursor-not-allowed"
+                      : "border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.04] hover:bg-gray-200 dark:hover:bg-white/10 text-gray-500 dark:text-slate-400 cursor-not-allowed"
                   )}
                 >
                   {updateMutation.isPending ? (
@@ -278,8 +278,8 @@ export default function PlatformUpdatePage() {
                   <button
                     onClick={() => ciTriggerMutation.mutate()}
                     disabled={ciTriggerMutation.isPending || ciRunning}
-                    className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04]
-                               hover:bg-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.04]
+                               hover:bg-gray-200 dark:hover:bg-white/10 px-3 py-1.5 text-xs text-gray-700 dark:text-slate-300 transition-colors disabled:opacity-50"
                   >
                     {ciRunning ? (
                       <><Loader2 className="h-3.5 w-3.5 animate-spin" /> CI running…</>
@@ -293,24 +293,24 @@ export default function PlatformUpdatePage() {
 
             {!canUpdate && (
               <p className="text-xs text-slate-500 self-center">
-                Requires <code className="text-slate-300">admin</code> role.
+                Requires <code className="text-gray-700 dark:text-slate-300">admin</code> role.
               </p>
             )}
           </div>
 
           {/* CI run status */}
           {ciRunId && (
-            <div className="mb-4 rounded-lg border border-white/5 bg-white/[0.02] px-4 py-3 flex items-center gap-3">
+            <div className="mb-4 rounded-lg border border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-white/[0.02] px-4 py-3 flex items-center gap-3">
               {ciRunning && <Loader2 className="h-4 w-4 animate-spin text-blue-400 shrink-0" />}
               {ciDone && ciSuccess && <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />}
               {ciDone && !ciSuccess && <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />}
               <div className="text-xs">
-                <span className="text-slate-300">
+                <span className="text-gray-700 dark:text-slate-300">
                   {ciRunning ? "CI build in progress…" : ciSuccess ? "CI build succeeded" : "CI build finished"}
                 </span>
                 {ciStatusQuery.data?.url && (
                   <a href={ciStatusQuery.data.url} target="_blank" rel="noreferrer"
-                    className="ml-2 text-slate-500 hover:text-slate-300 underline underline-offset-2">
+                    className="ml-2 text-slate-500 hover:text-gray-700 dark:hover:text-slate-300 underline underline-offset-2">
                     view on GitHub
                   </a>
                 )}
@@ -333,23 +333,23 @@ export default function PlatformUpdatePage() {
         </div>
 
         {/* How it works */}
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
-          <h3 className="font-semibold text-sm text-slate-200 mb-3">How updates work</h3>
-          <div className="space-y-2 text-xs text-slate-400">
+        <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 p-5">
+          <h3 className="font-semibold text-sm text-gray-900 dark:text-slate-200 mb-3">How updates work</h3>
+          <div className="space-y-2 text-xs text-gray-500 dark:text-slate-400">
             <p>
-              <span className="text-slate-200 font-medium">1. Developer pushes a version tag</span>{" "}
-              (e.g. <code className="text-slate-300">git tag v1.2.0 && git push --tags</code>) to the{" "}
-              <a href={version?.githubRepo} target="_blank" rel="noreferrer" className="text-slate-300 underline underline-offset-2">
+              <span className="text-gray-900 dark:text-slate-200 font-medium">1. Developer pushes a version tag</span>{" "}
+              (e.g. <code className="text-gray-700 dark:text-slate-300">git tag v1.2.0 && git push --tags</code>) to the{" "}
+              <a href={version?.githubRepo} target="_blank" rel="noreferrer" className="text-gray-700 dark:text-slate-300 underline underline-offset-2">
                 GitHub repo
               </a>.
             </p>
             <p>
-              <span className="text-slate-200 font-medium">2. GitHub Actions CI</span>{" "}
+              <span className="text-gray-900 dark:text-slate-200 font-medium">2. GitHub Actions CI</span>{" "}
               builds Docker images, pushes them to{" "}
-              <code className="text-slate-300">ghcr.io/werewolf-p/…</code>, and creates a GitHub Release.
+              <code className="text-gray-700 dark:text-slate-300">ghcr.io/werewolf-p/…</code>, and creates a GitHub Release.
             </p>
             <p>
-              <span className="text-slate-200 font-medium">3. Apply Update (this page)</span>{" "}
+              <span className="text-gray-900 dark:text-slate-200 font-medium">3. Apply Update (this page)</span>{" "}
               rewrites the image tags in the ArgoCD manifests to the new release version. ArgoCD then
               pulls the updated images and rolls out the new pods automatically.
             </p>

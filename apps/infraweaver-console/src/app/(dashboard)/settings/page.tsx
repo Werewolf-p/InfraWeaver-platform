@@ -6,7 +6,6 @@ import {
   AlignJustify,
   CheckCircle2,
   Filter,
-  Layout,
   Loader2,
   RefreshCw,
   Settings as SettingsIcon,
@@ -125,16 +124,6 @@ export default function SettingsPage() {
               </SettingsCard>
             </motion.div>
 
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 }}>
-              <ToggleSettingRow
-                icon={Layout}
-                title="Compact Mode"
-                description="Reduce padding in cards for denser view"
-                checked={settings.compactMode}
-                onChange={(checked) => updateSetting("compactMode", checked)}
-              />
-            </motion.div>
-
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06 }}>
               <ToggleSettingRow
                 icon={Filter}
@@ -160,8 +149,8 @@ export default function SettingsPage() {
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
               <ToggleSettingRow
                 icon={Zap}
-                title="Simple Mode"
-                description="Hide advanced form fields across the console"
+                title="Hide Advanced Fields"
+                description="Simplify forms by hiding rarely-used advanced options across the console"
                 checked={simpleMode}
                 onChange={setSimpleMode}
               />
