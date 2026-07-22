@@ -39,7 +39,7 @@ function iwsl_seo_post( int $id, array $over = array() ): object {
 	return (object) array_merge(
 		array(
 			'ID'               => $id,
-			'post_title'       => str_repeat( 'a', 40 ),         // 40 chars → within [20,60]
+			'post_title'       => str_repeat( 'a', 30 ) . ' ' . $id, // distinct per id, within [20,60]
 			'post_content'     => iwsl_seo_words( 400, true ),    // 400 words + heading
 			'post_excerpt'     => '',
 			'meta_description' => 'A perfectly fine meta description.',
@@ -176,5 +176,62 @@ $store->set( 'entitlements', array( 'seo_audit' => false ) ); // console revokes
 $r = $audit->run_audit( array( iwsl_seo_post( 1 ) ) );
 iwsl_assert_same( 'entitlement-locked', $r['reason'], 'revocation: identical call after revoke is entitlement-locked' );
 iwsl_assert_same( 0, $r['scanned'], 'revocation: nothing scanned once re-locked' );
+
+// ── 6. find_duplicates(): identical vs unique values ──────────────────────────
+
+$dups = IWSL_SEO_Audit::find_duplicates( array( 1 => 'Hello World', 2 => 'hello world', 3 => 'Unique' ) );
+iwsl_assert_same( 1, count( $dups ), 'find_duplicates: one duplicate group (case/space-insensitive)' );
+iwsl_assert_same( array( 1, 2 ), $dups['hello world'], 'find_duplicates: ids 1 and 2 grouped under the normalized value' );
+
+iwsl_assert_same( array(), IWSL_SEO_Audit::find_duplicates( array( 1 => 'A', 2 => 'B', 3 => 'C' ) ), 'find_duplicates: all-unique → no groups' );
+
+$dups_empty = IWSL_SEO_Audit::find_duplicates( array( 1 => '', 2 => '', 3 => 'Real' ) );
+iwsl_assert_same( array(), $dups_empty, 'find_duplicates: empty values are never duplicates' );
+
+// ── 7. compute_orphans(): orphan vs linked-from-two ───────────────────────────
+
+$content = array(
+	1 => '<p>See <a href="https://ex.com/two">two</a> and <a href="https://ex.com/three">three</a>.</p>',
+	2 => '<p>Back to <a href="https://ex.com/three">three</a>.</p>',
+	3 => '<p>No outbound links here.</p>',
+	4 => '<p>Lonely page, links to <a href="https://ex.com/one">one</a>.</p>',
+);
+$permalinks = array(
+	1 => 'https://ex.com/one',
+	2 => 'https://ex.com/two',
+	3 => 'https://ex.com/three',
+	4 => 'https://ex.com/four',
+);
+$orphans = IWSL_SEO_Audit::compute_orphans( $content, $permalinks );
+iwsl_assert( in_array( 4, $orphans, true ), 'compute_orphans: page 4 has no inbound links → orphan' );
+iwsl_assert( ! in_array( 1, $orphans, true ), 'compute_orphans: page 1 is linked from page 4 → not orphan' );
+iwsl_assert( ! in_array( 3, $orphans, true ), 'compute_orphans: page 3 is linked from two pages → not orphan' );
+iwsl_assert( ! in_array( 2, $orphans, true ), 'compute_orphans: page 2 is linked once → not orphan' );
+
+// A self-link does not save a page from being an orphan.
+$self = IWSL_SEO_Audit::compute_orphans(
+	array( 5 => '<a href="/five">me</a>' ),
+	array( 5 => 'https://ex.com/five' )
+);
+iwsl_assert_same( array( 5 ), $self, 'compute_orphans: a self-link does not count as an inbound link' );
+
+// A page with no resolvable permalink is not evaluated for orphan status.
+$no_perma = IWSL_SEO_Audit::compute_orphans( array( 6 => 'no links' ), array( 6 => '' ) );
+iwsl_assert_same( array(), $no_perma, 'compute_orphans: permalink-less pages are skipped (not flagged)' );
+
+// ── 8. run_audit corpus pass surfaces duplicate + orphan issue codes ──────────
+
+$corpus = array(
+	(object) array( 'ID' => 10, 'post_title' => 'Shared Title Here Now', 'post_content' => iwsl_seo_words( 400, true ), 'meta_description' => 'Meta ten.', 'has_featured' => true, 'permalink' => 'https://ex.com/ten' ),
+	(object) array( 'ID' => 11, 'post_title' => 'Shared Title Here Now', 'post_content' => iwsl_seo_words( 400, true ) . '<a href="https://ex.com/ten">ten</a>', 'meta_description' => 'Meta eleven.', 'has_featured' => true, 'permalink' => 'https://ex.com/eleven' ),
+);
+$audit_c2 = new IWSL_SEO_Audit( iwsl_seo_unlocked_entitlements( $SEO_NOW ) );
+$sum_c2   = $audit_c2->run_audit( $corpus );
+$issues10 = $sum_c2['items'][0]['issues'];
+$issues11 = $sum_c2['items'][1]['issues'];
+iwsl_assert( in_array( 'duplicate-title', $issues10, true ), 'run_audit corpus: page 10 flagged duplicate-title' );
+iwsl_assert( in_array( 'duplicate-title', $issues11, true ), 'run_audit corpus: page 11 flagged duplicate-title' );
+iwsl_assert( ! in_array( 'orphan-page', $issues10, true ), 'run_audit corpus: page 10 is linked from 11 → not orphan' );
+iwsl_assert( in_array( 'orphan-page', $issues11, true ), 'run_audit corpus: page 11 has no inbound links → orphan' );
 
 // This suite installs no globals — nothing to unset.

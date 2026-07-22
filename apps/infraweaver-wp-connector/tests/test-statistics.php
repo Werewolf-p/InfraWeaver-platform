@@ -461,8 +461,280 @@ $eng8->render_section();
 $html = ob_get_clean();
 iwsl_assert( false !== strpos( $html, '<svg' ), 'render: unlocked → inline SVG charts present' );
 iwsl_assert( false !== strpos( $html, 'Site Statistics' ), 'render: unlocked → dashboard heading present' );
-iwsl_assert( false === strpos( $html, 'http://' ) && false === strpos( $html, '<script' ), 'render: no external http/script references (self-contained)' );
+// Self-contained: the redesign legitimately ships an inline <script> island + one
+// inlined IIFE, so we no longer forbid <script>; instead we forbid any EXTERNAL
+// resource (a src= load, a <link>, or a known CDN host).
+iwsl_assert(
+	false === strpos( $html, '<link' )
+	&& false === strpos( $html, ' src=' )
+	&& false === stripos( $html, 'googleapis' )
+	&& false === stripos( $html, 'unpkg' )
+	&& false === stripos( $html, 'jsdelivr' )
+	&& false === stripos( $html, 'chart.js' ),
+	'render: no external link/script-src/CDN references (self-contained)'
+);
+iwsl_assert( false !== strpos( $html, 'id="iwsl-stats-data"' ), 'render: bounded JSON drill island emitted' );
+iwsl_assert( false !== strpos( $html, 'application/json' ), 'render: drill island is inert application/json (not executable data)' );
 iwsl_assert( false !== strpos( $html, IWSL_Statistics::RESET_ACTION ), 'render: gated reset form present' );
+
+// ── 9. Insights redesign — pure classifier aggregations (Tier-1, no schema) ────
+
+// channel(): search > direct > social > referral, subdomain-suffix aware.
+iwsl_assert_same( 'search', IWSL_Stats_Classifier::channel( 'google.com', 'Google' ), 'channel: a search engine → search' );
+iwsl_assert_same( 'direct', IWSL_Stats_Classifier::channel( '', '' ), 'channel: no referrer host → direct' );
+iwsl_assert_same( 'referral', IWSL_Stats_Classifier::channel( 'example.com', '' ), 'channel: unknown host → referral' );
+iwsl_assert_same( 'social', IWSL_Stats_Classifier::channel( 'facebook.com', '' ), 'channel: facebook.com → social' );
+iwsl_assert_same( 'social', IWSL_Stats_Classifier::channel( 'l.facebook.com', '' ), 'classifies l.facebook.com referral as social' );
+iwsl_assert_same( 'social', IWSL_Stats_Classifier::channel( 'out.reddit.com', '' ), 'channel: out.reddit.com subdomain → social' );
+iwsl_assert_same( 'social', IWSL_Stats_Classifier::channel( 't.co', '' ), 'channel: t.co → social' );
+iwsl_assert_same( true, IWSL_Stats_Classifier::is_social_host( 'threads.net' ), 'social host: exact match' );
+iwsl_assert_same( false, IWSL_Stats_Classifier::is_social_host( 'notfacebook.com' ), 'social host: suffix guard rejects notfacebook.com' );
+iwsl_assert_same( false, IWSL_Stats_Classifier::is_social_host( 'example.com' ), 'social host: unrelated host is not social' );
+
+// visit_depths + quality: bounce and pages/visit.
+$q_rows_single = array(
+	iwsl_st_row( 1000, 'A', 'view', '/a' ),
+	iwsl_st_row( 1000, 'B', 'view', '/b' ),
+	iwsl_st_row( 1000, 'C', 'view', '/c' ),
+);
+$depths_single = IWSL_Stats_Classifier::visit_depths( $q_rows_single );
+iwsl_assert_same( 1, $depths_single['A'], 'visit_depths: one view for visit A' );
+iwsl_assert_same( 3, count( $depths_single ), 'visit_depths: three distinct visits' );
+$q_single = IWSL_Stats_Classifier::quality( $q_rows_single );
+iwsl_assert_same( 100.0, $q_single['bounce_pct'], 'bounce is 100 when every visit has one view' );
+iwsl_assert_same( 1.0, $q_single['pages_per_visit'], 'quality: pages/visit is 1 when every visit is single-page' );
+iwsl_assert_same( 3, $q_single['bounced'], 'quality: all three visits bounced' );
+
+$q_rows_mixed = array(
+	iwsl_st_row( 1000, 'A', 'view', '/a' ),
+	iwsl_st_row( 1100, 'A', 'view', '/b' ),  // A has depth 2 → not a bounce
+	iwsl_st_row( 1000, 'B', 'view', '/a' ),  // B has depth 1 → bounce
+	iwsl_st_row( 1000, 'C', 'search', '/a' ), // non-view ignored by depth
+);
+$q_mixed = IWSL_Stats_Classifier::quality( $q_rows_mixed );
+iwsl_assert_same( 50.0, $q_mixed['bounce_pct'], 'quality: one of two visits bounced → 50%' );
+iwsl_assert_same( 1.5, $q_mixed['pages_per_visit'], 'quality: 3 views / 2 visits → 1.5 pages/visit' );
+iwsl_assert_same( 2, $q_mixed['visits'], 'quality: search event does not create a visit' );
+$q_empty = IWSL_Stats_Classifier::quality( array() );
+iwsl_assert_same( 0.0, $q_empty['bounce_pct'], 'quality: empty rows → 0 bounce (no divide-by-zero)' );
+iwsl_assert_same( 0, $q_empty['visits'], 'quality: empty rows → 0 visits' );
+
+// daily_quality: 30 dense days, today reflects current quality.
+$DQ_TODAY = ( 200 * 86400 );
+$dq_rows  = array(
+	iwsl_st_row( $DQ_TODAY + 100, 'A', 'view', '/a' ),
+	iwsl_st_row( $DQ_TODAY + 200, 'A', 'view', '/b' ), // A depth 2 today
+	iwsl_st_row( $DQ_TODAY + 100, 'B', 'view', '/a' ), // B depth 1 today (bounce)
+);
+$dq = IWSL_Stats_Classifier::daily_quality( $dq_rows, $DQ_TODAY );
+iwsl_assert_same( 30, count( $dq ), 'daily_quality: exactly 30 dense days' );
+iwsl_assert_same( 50.0, $dq[29]['bounce_pct'], 'daily_quality: today bounce 50%' );
+iwsl_assert_same( 1.5, $dq[29]['ppv'], 'daily_quality: today pages/visit 1.5' );
+iwsl_assert_same( 0.0, $dq[0]['bounce_pct'], 'daily_quality: an empty earlier day is 0 (zero-filled)' );
+
+// hourly_series: 24 dense hours bucketed within the calendar day.
+$hs_rows = array(
+	iwsl_st_row( $DQ_TODAY + ( 14 * 3600 ) + 5, 'A', 'view', '/a' ),
+	iwsl_st_row( $DQ_TODAY + ( 14 * 3600 ) + 9, 'B', 'view', '/a' ),
+	iwsl_st_row( $DQ_TODAY + ( 2 * 3600 ), 'C', 'view', '/a' ),
+	iwsl_st_row( $DQ_TODAY - 50, 'D', 'view', '/a' ),          // previous day, excluded
+	iwsl_st_row( $DQ_TODAY + ( 14 * 3600 ), 'E', 'search', '/a' ), // non-view, excluded
+);
+$hs = IWSL_Stats_Classifier::hourly_series( $hs_rows, $DQ_TODAY );
+iwsl_assert_same( 24, count( $hs ), 'hourly_series: 24 dense hour buckets' );
+iwsl_assert_same( 2, $hs[14]['views'], 'hourly_series: two views in hour 14' );
+iwsl_assert_same( 2, $hs[14]['visits'], 'hourly_series: two distinct visits in hour 14' );
+iwsl_assert_same( 1, $hs[2]['views'], 'hourly_series: one view in hour 2' );
+iwsl_assert_same( 0, $hs[0]['views'], 'hourly_series: hour 0 is empty (dense zero)' );
+
+// channels: visits grouped by ENTRY channel (first view row per visit).
+$ch_rows = array(
+	iwsl_st_row( 1000, 'A', 'view', '/a', array( 'search_engine' => 'Google', 'referer_host' => 'google.com' ) ), // search
+	iwsl_st_row( 1000, 'B', 'view', '/a', array( 'referer_host' => 'l.facebook.com' ) ),                          // social
+	iwsl_st_row( 1000, 'C', 'view', '/a' ),                                                                       // direct
+	iwsl_st_row( 1000, 'D', 'view', '/a' ),                                                                       // direct
+	iwsl_st_row( 1000, 'E', 'view', '/a', array( 'referer_host' => 'partner.example' ) ),                         // referral
+);
+$channels = IWSL_Stats_Classifier::channels( $ch_rows );
+iwsl_assert_same( 'Direct', $channels[0]['label'], 'channels: Direct leads with 2 visits' );
+iwsl_assert_same( 2, $channels[0]['count'], 'channels: 2 direct visits' );
+$ch_map = array();
+foreach ( $channels as $c ) {
+	$ch_map[ $c['label'] ] = $c['count'];
+}
+iwsl_assert_same( 1, $ch_map['Search'], 'channels: 1 search visit' );
+iwsl_assert_same( 1, $ch_map['Social'], 'channels: 1 social visit' );
+iwsl_assert_same( 1, $ch_map['Referral'], 'channels: 1 referral visit' );
+
+// channels classifies by the visit's FIRST view even if a later view differs.
+$ch_first = array(
+	iwsl_st_row( 1000, 'A', 'view', '/a', array( 'referer_host' => 'l.facebook.com' ) ), // first → social
+	iwsl_st_row( 2000, 'A', 'view', '/b' ),                                              // later direct, ignored
+);
+$ch_first_out = IWSL_Stats_Classifier::channels( $ch_first );
+iwsl_assert_same( 'Social', $ch_first_out[0]['label'], 'channels: visit classified by its first view (social)' );
+
+// entry_exit: first/last view path per visit, ties break on row order.
+$ee_rows = array(
+	iwsl_st_row( 1000, 'A', 'view', '/home' ),
+	iwsl_st_row( 2000, 'A', 'view', '/pricing' ), // A: entry /home, exit /pricing
+	iwsl_st_row( 1500, 'B', 'view', '/contact' ), // B: entry+exit /contact
+);
+$ee = IWSL_Stats_Classifier::entry_exit( $ee_rows );
+$entry_map = array();
+foreach ( $ee['entries'] as $e ) {
+	$entry_map[ $e['label'] ] = $e['count'];
+}
+$exit_map = array();
+foreach ( $ee['exits'] as $e ) {
+	$exit_map[ $e['label'] ] = $e['count'];
+}
+iwsl_assert_same( 1, $entry_map['/home'], 'entry_exit: /home is an entry page' );
+iwsl_assert_same( 1, $entry_map['/contact'], 'entry_exit: /contact is an entry page' );
+iwsl_assert_same( 1, $exit_map['/pricing'], 'entry_exit: /pricing is an exit page' );
+iwsl_assert_same( false, isset( $entry_map['/pricing'] ), 'entry_exit: /pricing is never an entry (later view)' );
+
+$ee_tie = array(
+	iwsl_st_row( 1000, 'T', 'view', '/first' ),  // same hit_at, first in order
+	iwsl_st_row( 1000, 'T', 'view', '/second' ),
+);
+$ee_tie_out = IWSL_Stats_Classifier::entry_exit( $ee_tie );
+iwsl_assert_same( '/first', $ee_tie_out['entries'][0]['label'], 'entry page ties break on row order' );
+
+// hour_dow: 7×24 grid, Monday row 0, bucketed in the injected zone.
+$utc     = new DateTimeZone( 'UTC' );
+$mon14   = ( new DateTimeImmutable( '2021-01-04 14:00:00', $utc ) )->getTimestamp(); // Monday
+$sun09   = ( new DateTimeImmutable( '2021-01-10 09:00:00', $utc ) )->getTimestamp(); // Sunday
+$hd_rows = array(
+	iwsl_st_row( $mon14, 'A', 'view', '/a' ),
+	iwsl_st_row( $mon14 + 30, 'B', 'view', '/a' ),
+	iwsl_st_row( $sun09, 'C', 'view', '/a' ),
+	iwsl_st_row( $mon14, 'D', 'search', '/a' ), // non-view excluded
+);
+$grid = IWSL_Stats_Classifier::hour_dow( $hd_rows, $utc );
+iwsl_assert_same( 7, count( $grid ), 'hour_dow: 7 day rows' );
+iwsl_assert_same( 24, count( $grid[0] ), 'hour_dow: 24 hour columns' );
+iwsl_assert_same( 2, $grid[0][14], 'hour_dow: Monday 14:00 has 2 views (row 0 = Monday)' );
+iwsl_assert_same( 1, $grid[6][9], 'hour_dow: Sunday 09:00 has 1 view (row 6 = Sunday)' );
+iwsl_assert_same( 0, $grid[3][3], 'hour_dow: an empty cell is 0' );
+
+// heat_summary: deterministic English one-liner; empty grid → placeholder.
+$summary = IWSL_Stats_Classifier::heat_summary( $grid );
+iwsl_assert( false !== strpos( $summary, 'Busiest around Monday 14:00' ), 'heat_summary: busiest cell named' );
+$empty_grid = array();
+for ( $d = 0; $d < 7; $d++ ) {
+	$empty_grid[ $d ] = array_fill( 0, 24, 0 );
+}
+iwsl_assert_same( 'No activity recorded yet.', IWSL_Stats_Classifier::heat_summary( $empty_grid ), 'heat_summary: empty grid → placeholder' );
+
+// top_searches: rank on-site search queries.
+$ts_rows = array(
+	iwsl_st_row( 1000, 'A', 'search', '/', array( 'event_label' => 'widgets' ) ),
+	iwsl_st_row( 1100, 'B', 'search', '/', array( 'event_label' => 'widgets' ) ),
+	iwsl_st_row( 1200, 'C', 'search', '/', array( 'event_label' => 'gadgets' ) ),
+	iwsl_st_row( 1300, 'D', 'view', '/', array( 'event_label' => 'not a search' ) ),
+);
+$ts = IWSL_Stats_Classifier::top_searches( $ts_rows );
+iwsl_assert_same( 'widgets', $ts[0]['label'], 'top_searches: most frequent query first' );
+iwsl_assert_same( 2, $ts[0]['count'], 'top_searches: widgets searched twice' );
+iwsl_assert_same( 2, count( $ts ), 'top_searches: only search events counted' );
+
+// filter_rows: exact field match.
+$fr_rows = array(
+	iwsl_st_row( 1000, 'A', 'view', '/a', array( 'country' => 'NL' ) ),
+	iwsl_st_row( 1000, 'B', 'view', '/b', array( 'country' => 'DE' ) ),
+	iwsl_st_row( 1000, 'C', 'view', '/a', array( 'country' => 'NL' ) ),
+);
+iwsl_assert_same( 2, count( IWSL_Stats_Classifier::filter_rows( $fr_rows, 'path', '/a' ) ), 'filter_rows: two rows on /a' );
+iwsl_assert_same( 1, count( IWSL_Stats_Classifier::filter_rows( $fr_rows, 'country', 'DE' ) ), 'filter_rows: one row in DE' );
+iwsl_assert_same( 0, count( IWSL_Stats_Classifier::filter_rows( $fr_rows, 'path', '/nope' ) ), 'filter_rows: no match → empty' );
+
+// drill_payload: bounded, structured, four named dims only.
+$dp_today = ( 300 * 86400 );
+$dp_rows  = array(
+	iwsl_st_row( $dp_today + 10, 'A', 'view', '/pricing', array( 'referer_host' => 'google.com', 'search_engine' => 'Google', 'country' => 'NL', 'device' => 'desktop' ) ),
+	iwsl_st_row( $dp_today + 20, 'A', 'view', '/pricing', array( 'referer_host' => 'google.com', 'search_engine' => 'Google', 'country' => 'NL', 'device' => 'desktop' ) ),
+	iwsl_st_row( $dp_today + 30, 'B', 'view', '/pricing', array( 'referer_host' => 'partner.example', 'country' => 'DE', 'device' => 'mobile' ) ),
+	iwsl_st_row( $dp_today + 40, 'C', 'view', '/home', array( 'country' => 'NL', 'device' => 'desktop' ) ),
+);
+$drill = IWSL_Stats_Classifier::drill_payload( $dp_rows, $dp_today );
+iwsl_assert_same( array( 'page', 'referrer', 'country', 'channel' ), array_keys( $drill ), 'drill_payload: exactly the four named dims' );
+iwsl_assert( isset( $drill['page']['/pricing'] ), 'drill_payload: /pricing is a page key' );
+$pri = $drill['page']['/pricing'];
+iwsl_assert_same( 3, $pri['views'], 'drill_payload: /pricing has 3 views' );
+iwsl_assert_same( 2, $pri['visits'], 'drill_payload: /pricing has 2 visits' );
+iwsl_assert_same( 30, count( $pri['series'] ), 'drill_payload: entry carries a 30-day series' );
+iwsl_assert_same( 3, $pri['series'][29], 'drill_payload: today slot of /pricing series = 3' );
+iwsl_assert( 75.0 === $pri['share_pct'], 'drill_payload: /pricing = 3 of 4 views = 75%' );
+iwsl_assert( count( $pri['a'] ) <= 5, 'drill_payload: complementary list a is ≤5 pairs' );
+iwsl_assert( count( $pri['b'] ) <= 5, 'drill_payload: complementary list b is ≤5 pairs' );
+iwsl_assert( count( $drill['page'] ) <= 10, 'drill_payload: page dim ≤ TOP_N keys' );
+iwsl_assert( isset( $drill['channel']['search'] ), 'drill_payload: search channel present' );
+iwsl_assert( isset( $drill['channel']['direct'] ), 'drill_payload: direct channel present' );
+// Each drill pair is a compact [label,count] two-tuple.
+$first_pair = $pri['a'][0] ?? null;
+iwsl_assert( is_array( $first_pair ) && 2 === count( $first_pair ), 'drill_payload: pairs are [label,count] two-tuples' );
+
+// aggregate() now carries the redesign keys over the same single pass.
+$AG2_NOW  = ( 400 * 86400 ) + 40000;
+$ag2_rows = array(
+	iwsl_st_row( $AG2_NOW - 100, 'A', 'view', '/a', array( 'referer_host' => 'google.com', 'search_engine' => 'Google', 'country' => 'NL', 'device' => 'desktop' ) ),
+	iwsl_st_row( $AG2_NOW - 200, 'A', 'view', '/b', array( 'referer_host' => 'google.com', 'search_engine' => 'Google', 'country' => 'NL', 'device' => 'desktop' ) ),
+	iwsl_st_row( $AG2_NOW - 300, 'B', 'view', '/a', array( 'country' => 'DE', 'device' => 'mobile' ) ),
+);
+$ag2 = IWSL_Stats_Classifier::aggregate( $ag2_rows, $AG2_NOW, 7, $utc );
+iwsl_assert( isset( $ag2['quality']['bounce_pct'] ), 'aggregate: quality block present' );
+iwsl_assert_same( 50.0, $ag2['quality']['bounce_pct'], 'aggregate: quality bounce (B bounced of A,B)' );
+iwsl_assert( isset( $ag2['quality']['prev_bounce_pct'] ), 'aggregate: quality carries prev_bounce_pct for compare' );
+iwsl_assert( isset( $ag2['quality']['prev_ppv'] ), 'aggregate: quality carries prev_ppv for compare' );
+iwsl_assert( isset( $ag2['channels'] ), 'aggregate: channels block present' );
+iwsl_assert( isset( $ag2['entries'] ) && isset( $ag2['exits'] ), 'aggregate: entries + exits present' );
+iwsl_assert( isset( $ag2['heatmap'] ) && 7 === count( $ag2['heatmap'] ), 'aggregate: 7-row heatmap present' );
+iwsl_assert( isset( $ag2['heat_summary'] ) && is_string( $ag2['heat_summary'] ), 'aggregate: heat_summary sentence present' );
+iwsl_assert( isset( $ag2['daily_quality'] ) && 30 === count( $ag2['daily_quality'] ), 'aggregate: 30-day daily_quality present' );
+iwsl_assert( isset( $ag2['drill']['page'] ), 'aggregate: drill payload present' );
+iwsl_assert( isset( $ag2['searches'] ), 'aggregate: searches present' );
+iwsl_assert_same( array(), $ag2['hourly'], 'aggregate: hourly is empty unless range=1' );
+
+// range=1 populates the hourly + hourly_prev arms.
+$ag_today = IWSL_Stats_Classifier::aggregate( $ag2_rows, $AG2_NOW, 1, $utc );
+iwsl_assert_same( 24, count( $ag_today['hourly'] ), 'aggregate: range=1 → 24 hourly buckets' );
+iwsl_assert_same( 24, count( $ag_today['hourly_prev'] ), 'aggregate: range=1 → 24 previous-day buckets' );
+
+// ── 10. View render: KPI hero, charts, drill affordances, drawer, degradation ──
+
+$V_NOW      = ( 500 * 86400 ) + 45000;
+$view_rows  = array(
+	iwsl_st_row( $V_NOW - 100, 'A', 'view', '/pricing', array( 'referer_host' => 'google.com', 'search_engine' => 'Google', 'country' => 'NL', 'device' => 'desktop', 'browser' => 'Chrome', 'os' => 'Windows' ) ),
+	iwsl_st_row( $V_NOW - 200, 'A', 'view', '/home', array( 'referer_host' => 'google.com', 'search_engine' => 'Google', 'country' => 'NL', 'device' => 'desktop', 'browser' => 'Chrome', 'os' => 'Windows' ) ),
+	iwsl_st_row( $V_NOW - 300, 'B', 'view', '/home', array( 'referer_host' => 'l.facebook.com', 'country' => 'DE', 'device' => 'mobile', 'browser' => 'Safari', 'os' => 'iOS' ) ),
+	iwsl_st_row( $V_NOW - 400, 'C', 'search', '/', array( 'event_label' => 'blue widgets' ) ),
+);
+$fakeV = new IWSL_Stats_Fake_WPDB( $view_rows );
+$engV  = iwsl_st_engine( iwsl_st_store( 'active', $V_NOW - 60, true, $V_NOW ), $fakeV, $V_NOW );
+ob_start();
+$engV->render_section();
+$htmlV = ob_get_clean();
+iwsl_assert( class_exists( 'IWSL_Statistics_View' ), 'view: IWSL_Statistics_View autoloaded via statistics.php require' );
+iwsl_assert( false !== strpos( $htmlV, 'iwsl-stats__kpis' ), 'view: KPI hero strip rendered' );
+iwsl_assert( false !== strpos( $htmlV, 'iwsl-donut' ), 'view: donut chart rendered' );
+iwsl_assert( false !== strpos( $htmlV, 'iwsl-heat' ), 'view: activity heatmap rendered' );
+iwsl_assert( false !== strpos( $htmlV, 'iwsl-drawer' ), 'view: drill drawer shell rendered' );
+iwsl_assert( false !== strpos( $htmlV, 'data-dim="page"' ), 'view: page rows are drill buttons' );
+iwsl_assert( false !== strpos( $htmlV, 'aria-haspopup="dialog"' ), 'view: drill rows advertise a dialog' );
+iwsl_assert( false !== strpos( $htmlV, 'iwsl-stats__spark' ), 'view: KPI sparklines rendered' );
+iwsl_assert( false !== strpos( $htmlV, 'id="iwsl-stats-data"' ), 'view: JSON island present in section' );
+iwsl_assert( false === strpos( $htmlV, '<link' ) && false === strpos( $htmlV, ' src=' ), 'view: still fully self-contained (no external resource)' );
+iwsl_assert( false !== strpos( $htmlV, 'aria-pressed' ), 'view: metric-toggle tiles expose aria-pressed (degradable)' );
+
+// Zero-data render must still produce a full, readable dashboard (graceful empty).
+$fakeVE = new IWSL_Stats_Fake_WPDB( array() );
+$engVE  = iwsl_st_engine( iwsl_st_store( 'active', $V_NOW - 60, true, $V_NOW ), $fakeVE, $V_NOW );
+ob_start();
+$engVE->render_section();
+$htmlVE = ob_get_clean();
+iwsl_assert( false !== strpos( $htmlVE, 'iwsl-stats__kpis' ), 'view: zero-data still renders KPI strip' );
+iwsl_assert( false !== strpos( $htmlVE, 'iwsl-stats' ), 'view: zero-data still renders the dashboard shell' );
 
 // No global $wpdb was ever installed by this suite; keep the harness clean for later
 // suites regardless.

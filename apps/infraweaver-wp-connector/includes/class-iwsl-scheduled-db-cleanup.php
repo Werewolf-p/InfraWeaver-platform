@@ -487,7 +487,7 @@ final class IWSL_Scheduled_DB_Cleanup {
 		}
 		check_admin_referer( self::SAVE_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -521,7 +521,7 @@ final class IWSL_Scheduled_DB_Cleanup {
 		}
 		check_admin_referer( self::RUN_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {

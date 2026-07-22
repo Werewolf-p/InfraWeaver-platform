@@ -62,6 +62,53 @@ final class IWSL_SEO_Head {
 		return trim( $resolved );
 	}
 
+	// ── content-derived description ─────────────────────────────────────────────
+
+	/**
+	 * Derive a clean, snippet-length plain-text description from post HTML: strip
+	 * shortcodes + tags (script/style bodies dropped whole), decode entities,
+	 * collapse whitespace, then truncate to the last WHOLE word at or before
+	 * $max_chars — never a mid-word cut. Returns '' for empty/markup-only input.
+	 * Pure + deterministic: the automated meta-description fallback that makes our
+	 * SEO more hands-off than Yoast (which leaves the description blank).
+	 */
+	public static function auto_excerpt( string $html, int $max_chars = 155 ): string {
+		if ( '' === $html ) {
+			return '';
+		}
+		// Drop script/style bodies, then shortcodes, then every remaining tag.
+		$text = preg_replace( '#<(script|style)\b[^>]*>.*?</\1>#is', ' ', $html ) ?? $html;
+		$text = preg_replace( '/\[\/?[^\]]*\]/', ' ', $text ) ?? $text;
+		$text = preg_replace( '#<[^>]+>#', ' ', $text ) ?? $text;
+		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$text = preg_replace( '/\s+/u', ' ', $text ) ?? $text;
+		$text = trim( $text );
+		if ( '' === $text ) {
+			return '';
+		}
+
+		$max_chars = max( 1, $max_chars );
+		if ( self::u_len( $text ) <= $max_chars ) {
+			return $text;
+		}
+
+		// Rebuild word by word until the next whole word would overflow the budget.
+		$out = '';
+		foreach ( explode( ' ', $text ) as $word ) {
+			$candidate = '' === $out ? $word : $out . ' ' . $word;
+			if ( self::u_len( $candidate ) > $max_chars ) {
+				break;
+			}
+			$out = $candidate;
+		}
+		// A single leading word longer than the whole budget: hard-cut it so we
+		// never return empty for over-budget content.
+		if ( '' === $out ) {
+			$out = self::u_substr( $text, 0, $max_chars );
+		}
+		return $out;
+	}
+
 	// ── robots ──────────────────────────────────────────────────────────────────
 
 	/**
@@ -419,6 +466,16 @@ final class IWSL_SEO_Head {
 			return esc_url( $s );
 		}
 		return self::e( $s );
+	}
+
+	/** Character length (mb-aware, ASCII fallback). */
+	private static function u_len( string $s ): int {
+		return function_exists( 'mb_strlen' ) ? (int) mb_strlen( $s, 'UTF-8' ) : strlen( $s );
+	}
+
+	/** Character-wise substring (mb-aware, ASCII fallback). */
+	private static function u_substr( string $s, int $start, int $length ): string {
+		return function_exists( 'mb_substr' ) ? (string) mb_substr( $s, $start, $length, 'UTF-8' ) : (string) substr( $s, $start, $length );
 	}
 }
 

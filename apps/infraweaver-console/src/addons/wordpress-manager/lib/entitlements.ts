@@ -43,6 +43,8 @@ export const ENTITLEMENT_FLAGS = [
   "statistics",
   "cookie_consent",
   "seo_suite",
+  "media_protection",
+  "response_scan",
 ] as const;
 export type EntitlementFlag = (typeof ENTITLEMENT_FLAGS)[number];
 
@@ -191,6 +193,18 @@ export const ENTITLEMENT_FLAG_META: Readonly<Record<EntitlementFlag, Entitlement
     label: "SEO suite",
     description:
       "Full on-page SEO suite — focus-keyphrase & readability analysis with live scoring, Google snippet preview, meta/title templates, Open Graph & Twitter cards, JSON-LD schema, XML sitemaps, breadcrumbs, robots/canonical controls, and internal-link suggestions.",
+  },
+  media_protection: {
+    flag: "media_protection",
+    label: "Media protection",
+    description:
+      "Discourages copying of images the owner marks as protected — disables right-click, drag, and long-press save on those images only, with a transparent overlay. A deterrent, not a hard lock; unmarked media is untouched.",
+  },
+  response_scan: {
+    flag: "response_scan",
+    label: "Response time scanner",
+    description:
+      "Times the full round-trip to load the site's own public pages (connection + server + download) via a loopback probe, and snapshots the results so speed can be compared before and after a settings change.",
   },
 };
 

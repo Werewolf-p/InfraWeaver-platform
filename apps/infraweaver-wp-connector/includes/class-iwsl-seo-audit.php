@@ -113,22 +113,183 @@ final class IWSL_SEO_Audit {
 			);
 		}
 
-		$list    = is_array( $posts ) ? $posts : $this->query_posts( $limit );
-		$summary = self::empty_summary();
+		$list = is_array( $posts ) ? $posts : $this->query_posts( $limit );
+
+		// First pass: gather each item's fields + base (per-item) issues, bounded.
+		$rows             = array();
+		$titles_by_id     = array();
+		$metas_by_id      = array();
+		$content_by_id    = array();
+		$permalinks_by_id = array();
+		$partial          = false;
 
 		$seen = 0;
 		foreach ( $list as $post ) {
 			if ( $seen >= $limit ) {
-				$summary['partial'] = true;
+				$partial = true;
 				break;
 			}
 			$seen++;
-			$fields  = $this->gather_fields( $post );
-			$issues  = self::evaluate_item( $fields );
-			$summary = self::fold_item( $summary, (int) $fields['id'], (string) $fields['title'], $issues );
+			$fields = $this->gather_fields( $post );
+			$id     = (int) $fields['id'];
+			$rows[] = array(
+				'id'     => $id,
+				'title'  => (string) $fields['title'],
+				'issues' => self::evaluate_item( $fields ),
+			);
+			$titles_by_id[ $id ]     = (string) $fields['title'];
+			$metas_by_id[ $id ]      = (string) $fields['meta_description'];
+			$content_by_id[ $id ]    = (string) $fields['content'];
+			$permalinks_by_id[ $id ] = (string) $fields['permalink'];
 		}
 
+		// Corpus pass (no extra queries): duplicate titles/metas + orphan pages.
+		$dup_title_ids = self::ids_in_groups( self::find_duplicates( $titles_by_id ) );
+		$dup_meta_ids  = self::ids_in_groups( self::find_duplicates( $metas_by_id ) );
+		$orphan_ids    = array_fill_keys( self::compute_orphans( $content_by_id, $permalinks_by_id ), true );
+
+		// Fold each item, appending the corpus-level issues after the per-item ones.
+		$summary = self::empty_summary();
+		foreach ( $rows as $row ) {
+			$id     = (int) $row['id'];
+			$issues = $row['issues'];
+			if ( isset( $dup_title_ids[ $id ] ) ) {
+				$issues[] = 'duplicate-title';
+			}
+			if ( isset( $dup_meta_ids[ $id ] ) ) {
+				$issues[] = 'duplicate-meta-description';
+			}
+			if ( isset( $orphan_ids[ $id ] ) ) {
+				$issues[] = 'orphan-page';
+			}
+			$summary = self::fold_item( $summary, $id, (string) $row['title'], $issues );
+		}
+		$summary['partial'] = $partial;
+
 		return $summary;
+	}
+
+	/**
+	 * Group ids by NORMALIZED (case/space-insensitive) value, returning only the
+	 * groups that repeat — i.e. the duplicate sets. Empty values never count as
+	 * duplicates. Pure; unit-testable with a plain id→value map.
+	 *
+	 * @param array<int|string, mixed> $values_by_id
+	 * @return array<string, int[]> normalized value → ids that share it (size ≥ 2)
+	 */
+	public static function find_duplicates( array $values_by_id ): array {
+		$groups = array();
+		foreach ( $values_by_id as $id => $value ) {
+			$norm = self::normalize_dup_value( (string) $value );
+			if ( '' === $norm ) {
+				continue;
+			}
+			$groups[ $norm ][] = (int) $id;
+		}
+		$out = array();
+		foreach ( $groups as $norm => $ids ) {
+			if ( count( $ids ) > 1 ) {
+				$out[ $norm ] = $ids;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Flag orphan pages: those with a resolvable permalink that receive ZERO inbound
+	 * internal links from any OTHER page in the corpus. Extracts <a href> targets
+	 * from each page's content and matches them by normalized path. Pages without a
+	 * permalink are not evaluated. Pure; unit-testable with plain arrays.
+	 *
+	 * @param array<int|string, mixed> $content_by_id
+	 * @param array<int|string, mixed> $permalinks_by_id
+	 * @return int[] orphan post ids
+	 */
+	public static function compute_orphans( array $content_by_id, array $permalinks_by_id ): array {
+		$path_to_id = array();
+		$inbound    = array();
+		foreach ( $permalinks_by_id as $id => $permalink ) {
+			$path = self::url_to_path( (string) $permalink );
+			if ( '' === $path ) {
+				continue;
+			}
+			$path_to_id[ $path ]  = (int) $id;
+			$inbound[ (int) $id ] = 0;
+		}
+
+		foreach ( $content_by_id as $src_id => $content ) {
+			$src_id = (int) $src_id;
+			$seen   = array();
+			foreach ( self::extract_internal_hrefs( (string) $content ) as $href ) {
+				$path = self::url_to_path( $href );
+				if ( '' === $path || ! isset( $path_to_id[ $path ] ) ) {
+					continue;
+				}
+				$target_id = $path_to_id[ $path ];
+				if ( $target_id === $src_id || isset( $seen[ $target_id ] ) ) {
+					continue; // self-links and repeats count once, not at all.
+				}
+				$seen[ $target_id ]     = true;
+				$inbound[ $target_id ] += 1;
+			}
+		}
+
+		$orphans = array();
+		foreach ( $inbound as $id => $count ) {
+			if ( 0 === $count ) {
+				$orphans[] = (int) $id;
+			}
+		}
+		return $orphans;
+	}
+
+	/** Flatten find_duplicates() groups into an id→true membership set. */
+	private static function ids_in_groups( array $groups ): array {
+		$out = array();
+		foreach ( $groups as $ids ) {
+			foreach ( (array) $ids as $id ) {
+				$out[ (int) $id ] = true;
+			}
+		}
+		return $out;
+	}
+
+	/** Case/space-insensitive normalization for duplicate comparison. */
+	private static function normalize_dup_value( string $v ): string {
+		$v = preg_replace( '/\s+/u', ' ', trim( $v ) ) ?? trim( $v );
+		return function_exists( 'mb_strtolower' ) ? (string) mb_strtolower( $v, 'UTF-8' ) : strtolower( $v );
+	}
+
+	/** The <a href> targets in a chunk of HTML (decoded, non-empty). @return string[] */
+	private static function extract_internal_hrefs( string $html ): array {
+		$out = array();
+		if ( preg_match_all( '#<a\b[^>]*\bhref\s*=\s*("([^"]*)"|\'([^\']*)\')#i', $html, $m ) ) {
+			foreach ( $m[2] as $i => $dq ) {
+				$href = '' !== $dq ? $dq : ( isset( $m[3][ $i ] ) ? $m[3][ $i ] : '' );
+				$href = trim( html_entity_decode( $href, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+				if ( '' !== $href ) {
+					$out[] = $href;
+				}
+			}
+		}
+		return $out;
+	}
+
+	/** Reduce a URL or path to a comparable normalized path, or '' when not on-site. */
+	private static function url_to_path( string $url ): string {
+		$url = trim( $url );
+		if ( '' === $url || '#' === $url[0] ) {
+			return '';
+		}
+		if ( preg_match( '#^(mailto:|tel:|javascript:|data:)#i', $url ) ) {
+			return '';
+		}
+		$path = parse_url( $url, PHP_URL_PATH );
+		if ( ! is_string( $path ) || '' === $path ) {
+			return preg_match( '#^https?://[^/]+/?$#i', $url ) ? '/' : '';
+		}
+		$path = rtrim( $path, '/' );
+		return '' === $path ? '/' : $path;
 	}
 
 	/**
@@ -230,12 +391,20 @@ final class IWSL_SEO_Audit {
 			$has_featured = $id > 0 && function_exists( 'has_post_thumbnail' ) && has_post_thumbnail( $id );
 		}
 
+		$permalink = '';
+		if ( is_object( $o ) && isset( $o->permalink ) ) {
+			$permalink = (string) $o->permalink;
+		} elseif ( $id > 0 && function_exists( 'get_permalink' ) ) {
+			$permalink = (string) get_permalink( $id );
+		}
+
 		return array(
 			'id'               => $id,
 			'title'            => $title,
 			'content'          => $content,
 			'meta_description' => $meta,
 			'has_featured'     => $has_featured,
+			'permalink'        => $permalink,
 		);
 	}
 
@@ -328,6 +497,9 @@ final class IWSL_SEO_Audit {
 			'thin-content'            => 'Thin content (< ' . self::THIN_CONTENT_WORDS . ' words)',
 			'missing-featured-image'  => 'No featured image',
 			'no-heading'              => 'No heading (h1–h6)',
+			'duplicate-title'            => 'Duplicate title (shared with another page)',
+			'duplicate-meta-description' => 'Duplicate meta description',
+			'orphan-page'                => 'Orphan page (no internal links point here)',
 		);
 	}
 
@@ -344,7 +516,7 @@ final class IWSL_SEO_Audit {
 		}
 		check_admin_referer( self::NONCE );
 
-		$plus_url = admin_url( 'admin.php?page=infraweaver-plus' );
+		$plus_url = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {

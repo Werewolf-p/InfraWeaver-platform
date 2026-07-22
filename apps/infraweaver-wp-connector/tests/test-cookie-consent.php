@@ -292,5 +292,119 @@ $eff   = $cc->effective_signatures( array( 'vendor_overrides' => array( 'youtube
 iwsl_assert_same( 'preferences', $eff['youtube']['category'], 'signatures: override retags YouTube to preferences' );
 iwsl_assert_same( 'statistics', $eff['google_analytics']['category'], 'signatures: un-overridden vendor keeps its default category' );
 
+// ── 9. Fresh-install default state (the documented banner-not-showing cause) ──
+
+// A fresh site has no stored settings → enabled defaults FALSE → start_buffer/
+// filter_output bail before any transform. Enabling (one click) is REQUIRED.
+$store_sn = new IWSL_Memory_Store();
+$fresh    = iwsl_cc_engine( $store_sn, iwsl_cc_unlocked_entitlements( $store_sn, $CC_NOW ), $CC_NOW )->sanitize_settings( array() );
+iwsl_assert_same( false, $fresh['enabled'], 'fresh install: enabled defaults OFF (root cause of "no banner")' );
+
+$store_f = new IWSL_Memory_Store();
+$ent_f   = iwsl_cc_unlocked_entitlements( $store_f, $CC_NOW );
+$cc_f    = iwsl_cc_engine( $store_f, $ent_f, $CC_NOW, array( 'HTTP_CF_IPCOUNTRY' => 'DE' ) );
+iwsl_assert_same( false, $cc_f->is_configured(), 'fresh install: is_configured false before any save' );
+iwsl_assert_same( iwsl_cc_sample_page(), $cc_f->filter_output( iwsl_cc_sample_page() ), 'fresh install: unlocked but never configured → page untouched (no banner)' );
+
+// ── 10. One-click automation: recommended defaults + apply ────────────────────
+
+$rd = IWSL_Consent_Classifier::recommended_defaults();
+iwsl_assert_same( true, $rd['enabled'], 'defaults: recommended preset enables the feature' );
+iwsl_assert_same( 'opt-in', $rd['default_model'], 'defaults: GDPR-safe opt-in model' );
+iwsl_assert_same( true, $rd['consent_mode'], 'defaults: Google Consent Mode v2 on' );
+iwsl_assert_same( true, $rd['respect_gpc'], 'defaults: GPC (do-not-sell) honored' );
+iwsl_assert_same( false, $rd['respect_dnt'], 'defaults: legacy DNT off' );
+iwsl_assert_same( array( 'preferences' => true, 'statistics' => true, 'marketing' => true ), $rd['categories'], 'defaults: every category offered to the visitor' );
+
+// The preset survives the save-time gauntlet unchanged in meaning.
+$rd_clean = $cc_f->sanitize_settings( $rd );
+iwsl_assert_same( true, $rd_clean['enabled'], 'defaults: preset passes the sanitizer enabled' );
+iwsl_assert_same( 'opt-in', $rd_clean['default_model'], 'defaults: preset model survives the sanitizer' );
+iwsl_assert_same( '#2a6df0', $rd_clean['accent'], 'defaults: empty accent falls back to the engine default color' );
+
+// Engine layer: no get_privacy_policy_url in the harness → policy_url stays ''.
+iwsl_assert_same( '', $cc_f->recommended_defaults()['policy_url'], 'defaults: no fabricated policy URL when WP cannot provide one' );
+
+// ONE CLICK on the fresh engine → configured, enabled, banner + blocking live.
+$applied = $cc_f->apply_recommended_defaults();
+iwsl_assert_same( true, $applied['ok'], 'one-click: apply_recommended_defaults ok' );
+iwsl_assert_same( true, $cc_f->is_configured(), 'one-click: is_configured true after apply' );
+iwsl_assert_same( true, $cc_f->settings()['enabled'], 'one-click: enabled persisted' );
+$live = $cc_f->filter_output( iwsl_cc_sample_page() );
+iwsl_assert( false !== strpos( $live, 'iwsl-cc-banner' ), 'one-click: banner markup now injected for a fresh visitor' );
+iwsl_assert( false !== strpos( $live, 'data-iwsl-consent="statistics"' ), 'one-click: GA auto-blocked before consent' );
+iwsl_assert( false !== strpos( $live, 'data-iwsl-consent="marketing"' ), 'one-click: YouTube embed auto-blocked before consent' );
+iwsl_assert( false !== strpos( $live, "gtag('consent','default'" ), 'one-click: Consent Mode default emitted' );
+iwsl_assert( false !== strpos( $live, 'We value your privacy' ), 'one-click: built-in banner copy used when title is empty' );
+
+// Sparse overrides merge over the preset (wizard branding step).
+$cc_f->apply_recommended_defaults( array( 'accent' => '#112233', 'banner_layout' => 'box' ) );
+iwsl_assert_same( '#112233', $cc_f->settings()['accent'], 'one-click: accent override applied' );
+iwsl_assert_same( 'box', $cc_f->settings()['banner_layout'], 'one-click: layout override applied' );
+
+// Locked site: one click persists NOTHING (gate is STATEMENT 1 of the save).
+$store_lk = new IWSL_Memory_Store();
+$ent_lk   = iwsl_cc_entitlements( $store_lk, $CC_NOW, 'active', array( 'plus' => true ) ); // cookie_consent ABSENT
+$cc_lk    = iwsl_cc_engine( $store_lk, $ent_lk, $CC_NOW );
+$app_lk   = $cc_lk->apply_recommended_defaults();
+iwsl_assert_same( false, $app_lk['ok'], 'one-click (locked): refused' );
+iwsl_assert_same( 'entitlement-locked', $app_lk['reason'], 'one-click (locked): reason entitlement-locked' );
+iwsl_assert_same( null, $store_lk->get( 'cookie_consent' ), 'one-click (locked): store untouched' );
+
+// ── 11. Auto-detection: detect_vendors / detect_trackers ─────────────────────
+
+$det = IWSL_Consent_Classifier::detect_vendors( iwsl_cc_sample_page() );
+iwsl_assert_same( 2, count( $det ), 'detect: exactly GA + YouTube found on the sample page' );
+iwsl_assert_same( 'statistics', $det['google_analytics']['category'], 'detect: GA categorized statistics (analytics)' );
+iwsl_assert_same( 2, $det['google_analytics']['count'], 'detect: GA counted twice (loader src + inline gtag)' );
+iwsl_assert_same( 'YouTube embed', $det['youtube']['label'], 'detect: YouTube label carried for the wizard UI' );
+iwsl_assert_same( 'marketing', $det['youtube']['category'], 'detect: YouTube categorized marketing' );
+iwsl_assert_same( array(), IWSL_Consent_Classifier::detect_vendors( '<p>hello</p>' ), 'detect: tracker-free page → empty map' );
+iwsl_assert_same( array(), IWSL_Consent_Classifier::detect_vendors( '' ), 'detect: empty input → empty map' );
+
+// Engine wrapper honors the admin's per-vendor overrides.
+$store_dv = new IWSL_Memory_Store();
+$ent_dv   = iwsl_cc_unlocked_entitlements( $store_dv, $CC_NOW );
+$cc_dv    = iwsl_cc_engine( $store_dv, $ent_dv, $CC_NOW );
+$cc_dv->save_settings( array( 'enabled' => '1', 'vendor_overrides' => array( 'youtube' => 'preferences' ) ) );
+iwsl_assert_same( 'preferences', $cc_dv->detect_trackers( iwsl_cc_sample_page() )['youtube']['category'], 'detect: engine wrapper applies vendor overrides' );
+
+// New signatures: Matomo / Snapchat / Tawk.to auto-classified.
+iwsl_assert_same( 'statistics', IWSL_Consent_Classifier::classify_src( 'https://cdn.matomo.cloud/acme/matomo.js' ), 'classify: Matomo → statistics' );
+iwsl_assert_same( 'statistics', IWSL_Consent_Classifier::classify_snippet( '_paq.push(["trackPageView"]);' ), 'classify: Matomo _paq snippet → statistics' );
+iwsl_assert_same( 'marketing', IWSL_Consent_Classifier::classify_src( 'https://sc-static.net/scevent.min.js' ), 'classify: Snapchat Pixel → marketing' );
+iwsl_assert_same( 'marketing', IWSL_Consent_Classifier::classify_snippet( 'snaptr("init","abc");' ), 'classify: snaptr snippet → marketing' );
+iwsl_assert_same( 'preferences', IWSL_Consent_Classifier::classify_src( 'https://embed.tawk.to/abc/default' ), 'classify: Tawk.to chat → preferences (functional)' );
+
+// ── 12. Admin preview + non-HTML buffer guard ────────────────────────────────
+
+// Preview flag flows into the runtime config; the show-path checks it.
+$store_p = new IWSL_Memory_Store();
+$ent_p   = iwsl_cc_unlocked_entitlements( $store_p, $CC_NOW );
+$cc_p    = iwsl_cc_engine( $store_p, $ent_p, $CC_NOW, array( 'HTTP_CF_IPCOUNTRY' => 'DE', 'QUERY_STRING' => 'iwsl_cc_preview=1' ) );
+$cc_p->apply_recommended_defaults();
+$out_p = $cc_p->filter_output( iwsl_cc_sample_page() );
+iwsl_assert( false !== strpos( $out_p, '"preview":true' ), 'preview: ?iwsl_cc_preview=1 sets preview:true in the config' );
+iwsl_assert( false !== strpos( $out_p, '!CFG.preview' ), 'preview: runtime ignores a prior consent cookie while previewing' );
+
+$cc_np  = iwsl_cc_engine( $store_p, $ent_p, $CC_NOW, array( 'HTTP_CF_IPCOUNTRY' => 'DE' ) );
+$out_np = $cc_np->filter_output( iwsl_cc_sample_page() );
+iwsl_assert( false !== strpos( $out_np, '"preview":false' ), 'preview: normal visit carries preview:false' );
+
+// REQUEST_URI fallback when QUERY_STRING is absent from the server map.
+$cc_ru  = iwsl_cc_engine( $store_p, $ent_p, $CC_NOW, array( 'REQUEST_URI' => '/?iwsl_cc_preview=1' ) );
+iwsl_assert( false !== strpos( $cc_ru->filter_output( iwsl_cc_sample_page() ), '"preview":true' ), 'preview: derived from REQUEST_URI when QUERY_STRING absent' );
+
+// preview_url uses the (stubbed) home_url.
+iwsl_assert_same( 'https://fixture-site.test/?iwsl_cc_preview=1', $cc_p->preview_url(), 'preview: preview_url built from home_url' );
+
+// Non-HTML buffers are NEVER injected into, even enabled + unlocked.
+$json_payload = '{"ok":true,"items":[1,2,3]}';
+iwsl_assert_same( $json_payload, $cc_p->filter_output( $json_payload ), 'guard: JSON buffer served byte-identical (no injection)' );
+$xml_payload = '<?xml version="1.0"?><rss><channel><title>t</title></channel></rss>';
+iwsl_assert_same( $xml_payload, $cc_p->filter_output( $xml_payload ), 'guard: XML/RSS buffer served byte-identical (no injection)' );
+$fragment = '<body><p>partial theme output</p></body>';
+iwsl_assert( false !== strpos( $cc_p->filter_output( $fragment ), 'iwsl-cc-banner' ), 'guard: a </body>-bearing page still gets the banner (fallback append)' );
+
 // cleanup: this suite installs no $GLOBALS — script-local temporaries only.
 unset( $store, $ent, $cc, $CC_NOW );

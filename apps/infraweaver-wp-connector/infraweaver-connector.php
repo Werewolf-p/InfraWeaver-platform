@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.9.1
+ * Version: 0.10.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.9.1' );
+define( 'IWSL_CONNECTOR_VERSION', '0.10.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -65,6 +65,7 @@ require_once __DIR__ . '/includes/class-iwsl-db-optimizer.php';
 require_once __DIR__ . '/includes/class-iwsl-config-editor.php';
 // ── Plus feature engines (wave 2): each gated, self-contained, console-granted ──
 require_once __DIR__ . '/includes/class-iwsl-lazy-load.php';
+require_once __DIR__ . '/includes/class-iwsl-media-protection.php';
 require_once __DIR__ . '/includes/class-iwsl-cdn-rewrite.php';
 require_once __DIR__ . '/includes/class-iwsl-duplicate-post.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-audit.php';
@@ -82,8 +83,10 @@ require_once __DIR__ . '/includes/class-iwsl-cookie-consent.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-analyzer.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-head.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-sitemap.php';
+require_once __DIR__ . '/includes/class-iwsl-seo-alt-text.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-suite.php';
 require_once __DIR__ . '/includes/class-iwsl-perf-audit.php';
+require_once __DIR__ . '/includes/class-iwsl-response-scan.php';
 require_once __DIR__ . '/includes/class-iwsl-admin.php';
 
 function iwsl_plugin(): IWSL_Plugin {
@@ -167,7 +170,10 @@ $iwsl_ent = iwsl_plugin()->entitlements();
 // that expose an update_settings()/handler method. cap + nonce + gate, then run,
 // stash a per-user result transient, and redirect back to the Plus page.
 $iwsl_plus_redirect = static function (): string {
-	return admin_url( 'admin.php?page=infraweaver-plus' );
+	// Return to the SAME category sub-page the settings form was submitted from
+	// (via the request referer), so a save keeps the operator on their section
+	// instead of bouncing to the Overview dashboard. Falls back to the main page.
+	return iwsl_plus_redirect_base();
 };
 
 // Lazy-Load Media (Pro, `lazy_load`).
@@ -182,6 +188,26 @@ if ( $iwsl_switches->is_on( IWSL_Lazy_Load::FEATURE ) ) {
 		$result = $iwsl_lazy_load->update_settings( $_POST );
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( IWSL_Lazy_Load::RESULT_PREFIX . get_current_user_id(), $result, 60 );
+		}
+		wp_safe_redirect( $iwsl_plus_redirect() );
+		exit;
+	} );
+}
+
+// Media Protection (Pro, `media_protection`). Marks selected images harder to
+// right-click-save / drag-copy; register() self-wires its attachment-field + the
+// front-end deterrent filters, each gating on the entitlement as statement 1.
+$iwsl_media_protection = new IWSL_Media_Protection( $iwsl_ent, new IWSL_WP_Store() );
+if ( $iwsl_switches->is_on( IWSL_Media_Protection::FEATURE ) ) {
+	$iwsl_media_protection->register();
+	add_action( 'admin_post_' . IWSL_Media_Protection::SETTINGS_ACTION, static function () use ( $iwsl_media_protection, $iwsl_plus_redirect ): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
+		}
+		check_admin_referer( IWSL_Media_Protection::SETTINGS_NONCE );
+		$result = $iwsl_media_protection->update_settings( $_POST );
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( IWSL_Media_Protection::RESULT_PREFIX . get_current_user_id(), $result, 60 );
 		}
 		wp_safe_redirect( $iwsl_plus_redirect() );
 		exit;
@@ -261,6 +287,12 @@ if ( $iwsl_switches->is_on( IWSL_Speed_Pack::FEATURE ) ) {
 } else {
 	// Switched off while still entitled → strip the managed .htaccess block now.
 	$iwsl_speed_pack->disable();
+}
+
+// Response Time Scanner (Pro, `response_scan`). Active loopback probe of the site's
+// OWN public URLs via wp_remote_get; register() self-wires its two admin-post handlers.
+if ( $iwsl_switches->is_on( IWSL_Response_Scan::FEATURE ) ) {
+	( new IWSL_Response_Scan( $iwsl_ent, new IWSL_WP_Store() ) )->register();
 }
 
 // Site Statistics (Ultimate, `statistics`) + Cookie Consent (Ultimate,

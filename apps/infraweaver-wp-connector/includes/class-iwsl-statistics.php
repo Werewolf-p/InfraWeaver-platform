@@ -46,6 +46,14 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// The render layer lives in its own file (kept under the size cap). Loading it here,
+// guarded + idempotent, means every context that already requires this engine (the
+// test harness top-requires and production) gets the view automatically — no other
+// file needs to change.
+if ( ! class_exists( 'IWSL_Statistics_View' ) ) {
+	require_once __DIR__ . '/class-iwsl-statistics-view.php';
+}
+
 final class IWSL_Statistics {
 
 	/** The entitlement flag this whole feature gates on. */
@@ -463,7 +471,8 @@ final class IWSL_Statistics {
 		$now   = $this->now_seconds();
 		$since = $now - ( self::AGG_WINDOW_DAYS * IWSL_Stats_Classifier::DAY_SECONDS );
 		$rows  = $this->fetch_rows( $this->db, $since, self::MAX_READ_ROWS );
-		return IWSL_Stats_Classifier::aggregate( $rows, $now, $range_days );
+		$tz    = function_exists( 'wp_timezone' ) ? wp_timezone() : new DateTimeZone( 'UTC' );
+		return IWSL_Stats_Classifier::aggregate( $rows, $now, $range_days, $tz );
 	}
 
 	/**
@@ -498,314 +507,21 @@ final class IWSL_Statistics {
 
 	/**
 	 * The admin section. Locked → a notice listing the gate reasons. Unlocked → the
-	 * analytics dashboard: KPI tiles, a 30-day views time-series (inline SVG), bar
-	 * charts for browsers / search engines / countries / devices, and ranked tables
-	 * for top pages, referrers and recent events. Every dynamic fragment is escaped;
-	 * all charts are self-contained inline SVG (no external JS/CSS/CDN).
+	 * full "Insights" dashboard. This method stays thin: it re-checks the gate (the
+	 * authoritative innermost check), reads the bounded dashboard model, and hands
+	 * rendering to IWSL_Statistics_View. All markup, charts, escaping, the drill
+	 * island and the inlined interactivity live in the view, keeping this engine file
+	 * focused on recording / retention / reads.
 	 */
 	public function render_section(): void {
-		$gate = $this->entitlements->evaluate( self::FEATURE );
-		if ( empty( $gate['unlocked'] ) ) {
-			$this->render_locked_notice( $gate );
-			return;
-		}
-
+		$gate  = $this->entitlements->evaluate( self::FEATURE );
 		$range = $this->requested_range();
-		$data  = $this->dashboard( $range );
-
-		echo '<div class="iwsl-stats">';
-		$this->render_styles();
-		echo '<h2 class="iwsl-stats__title">' . self::esc_html_safe( 'Site Statistics' ) . '</h2>';
-		echo '<p class="iwsl-stats__intro">' . self::esc_html_safe(
-			'Privacy-respecting, self-hosted analytics. No IP addresses are stored and no external service is contacted.'
-		) . '</p>';
-
-		$this->render_range_switch( $range );
-		$this->render_kpis( $data['kpi'], $range );
-		$this->render_timeseries( isset( $data['series'] ) ? $data['series'] : array() );
-
-		echo '<div class="iwsl-stats__grid">';
-		$this->render_bar_card( 'Browsers', $data['browsers'], 1 );
-		$this->render_bar_card( 'Search engines', $data['search_engines'], 2 );
-		$this->render_bar_card( 'Countries', $data['countries'], 3 );
-		$this->render_bar_card( 'Devices', $data['devices'], 6 );
-		echo '</div>';
-
-		echo '<div class="iwsl-stats__grid">';
-		$this->render_table_card( 'Top pages', $data['top_pages'], 'Page' );
-		$this->render_table_card( 'Top referrers', $data['top_referrers'], 'Referrer' );
-		echo '</div>';
-
-		$this->render_events_card( isset( $data['recent_events'] ) ? $data['recent_events'] : array() );
-
-		echo '<details class="iwsl-adv"><summary>' . self::esc_html_safe( 'Advanced settings' ) . '</summary><div class="iwsl-adv__body">';
-		$this->render_reset_form();
-		echo '</div></details>';
-		echo '</div>';
-	}
-
-	/** The KPI stat tiles: views / visits with up-down vs the prior period, plus today + online. */
-	private function render_kpis( array $kpi, int $range ): void {
-		$label = $this->range_label( $range );
-		echo '<div class="iwsl-stats__tiles">';
-		$this->render_tile( 'Views (' . $label . ')', (int) $kpi['views'], $kpi['views_delta_pct'] );
-		$this->render_tile( 'Unique visits (' . $label . ')', (int) $kpi['visits'], $kpi['visits_delta_pct'] );
-		$this->render_tile( 'Views today', (int) $kpi['views_today'], null );
-		$this->render_tile( 'Events (' . $label . ')', (int) $kpi['events'], null );
-		$this->render_tile( 'Online now', (int) $kpi['online_now'], null );
-		echo '</div>';
-	}
-
-	/** One KPI tile with an optional accessible up/down delta (arrow + sign, never color-only). */
-	private function render_tile( string $label, int $value, ?float $delta ): void {
-		echo '<div class="iwsl-stats__tile">';
-		echo '<div class="iwsl-stats__tile-label">' . self::esc_html_safe( $label ) . '</div>';
-		echo '<div class="iwsl-stats__tile-value">' . self::esc_html_safe( self::num( $value ) ) . '</div>';
-		if ( null !== $delta ) {
-			$up   = $delta >= 0;
-			$arrow = $up ? '▲' : '▼';
-			$cls  = $up ? 'is-up' : 'is-down';
-			$sign = $up ? '+' : '';
-			echo '<div class="iwsl-stats__delta ' . self::esc_attr_safe( $cls ) . '">'
-				. '<span aria-hidden="true">' . self::esc_html_safe( $arrow ) . '</span> '
-				. self::esc_html_safe( $sign . self::num_f( $delta ) . '% vs prior period' )
-				. '</div>';
-		} else {
-			echo '<div class="iwsl-stats__delta is-flat">&nbsp;</div>';
-		}
-		echo '</div>';
-	}
-
-	/** The 30-day views time-series as a hand-built inline SVG area+line chart. */
-	private function render_timeseries( array $series ): void {
-		$n = count( $series );
-		echo '<div class="iwsl-stats__card">';
-		echo '<h3 class="iwsl-stats__card-title">' . self::esc_html_safe( 'Views — last 30 days' ) . '</h3>';
-		if ( 0 === $n ) {
-			echo '<p class="iwsl-stats__empty">' . self::esc_html_safe( 'No data recorded yet.' ) . '</p></div>';
+		if ( empty( $gate['unlocked'] ) ) {
+			( new IWSL_Statistics_View( array(), $range ) )->render_locked( $gate );
 			return;
 		}
-
-		$max = 1;
-		foreach ( $series as $s ) {
-			$max = max( $max, (int) $s['views'] );
-		}
-		$w    = 760;
-		$h    = 200;
-		$padl = 44;
-		$padr = 16;
-		$padt = 16;
-		$padb = 28;
-		$iw   = $w - $padl - $padr;
-		$ih   = $h - $padt - $padb;
-		$step = $n > 1 ? $iw / ( $n - 1 ) : 0;
-
-		$pts  = array();
-		$last = null;
-		foreach ( $series as $i => $s ) {
-			$x = $padl + ( $step * $i );
-			$y = $padt + $ih - ( ( (int) $s['views'] / $max ) * $ih );
-			$pts[] = self::coord( $x ) . ',' . self::coord( $y );
-			$last  = array( 'x' => $x, 'y' => $y, 'v' => (int) $s['views'], 'day' => (string) $s['day'] );
-		}
-		$area  = 'M' . self::coord( $padl ) . ',' . self::coord( $padt + $ih );
-		$area .= ' L' . implode( ' L', $pts );
-		$area .= ' L' . self::coord( $padl + $iw ) . ',' . self::coord( $padt + $ih ) . ' Z';
-
-		$first_day = (string) $series[0]['day'];
-		$last_day  = (string) $series[ $n - 1 ]['day'];
-
-		echo '<div class="iwsl-stats__chart">';
-		echo '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="100%" height="auto" role="img" '
-			. 'aria-label="' . self::esc_attr_safe( 'Daily views over the last 30 days, peak ' . self::num( $max ) . ' views' ) . '" '
-			. 'preserveAspectRatio="xMidYMid meet" class="iwsl-svg">';
-		echo '<title>' . self::esc_html_safe( 'Views — last 30 days' ) . '</title>';
-		// baseline + max gridline
-		echo '<line x1="' . $padl . '" y1="' . self::coord( $padt + $ih ) . '" x2="' . ( $padl + $iw ) . '" y2="' . self::coord( $padt + $ih ) . '" class="iwsl-svg__axis" />';
-		echo '<line x1="' . $padl . '" y1="' . $padt . '" x2="' . ( $padl + $iw ) . '" y2="' . $padt . '" class="iwsl-svg__grid" />';
-		echo '<text x="' . ( $padl - 8 ) . '" y="' . ( $padt + 4 ) . '" text-anchor="end" class="iwsl-svg__tick">' . self::esc_html_safe( self::num( $max ) ) . '</text>';
-		echo '<text x="' . ( $padl - 8 ) . '" y="' . self::coord( $padt + $ih ) . '" text-anchor="end" class="iwsl-svg__tick">0</text>';
-		// area + line
-		echo '<path d="' . self::esc_attr_safe( $area ) . '" class="iwsl-svg__area" />';
-		echo '<polyline points="' . self::esc_attr_safe( implode( ' ', $pts ) ) . '" class="iwsl-svg__line" fill="none" />';
-		if ( null !== $last ) {
-			echo '<circle cx="' . self::coord( $last['x'] ) . '" cy="' . self::coord( $last['y'] ) . '" r="4" class="iwsl-svg__dot" />';
-			echo '<text x="' . self::coord( $last['x'] - 4 ) . '" y="' . self::coord( $last['y'] - 8 ) . '" text-anchor="end" class="iwsl-svg__endlabel">' . self::esc_html_safe( self::num( $last['v'] ) ) . '</text>';
-		}
-		// x labels (first + last)
-		echo '<text x="' . $padl . '" y="' . ( $h - 8 ) . '" text-anchor="start" class="iwsl-svg__tick">' . self::esc_html_safe( $first_day ) . '</text>';
-		echo '<text x="' . ( $padl + $iw ) . '" y="' . ( $h - 8 ) . '" text-anchor="end" class="iwsl-svg__tick">' . self::esc_html_safe( $last_day ) . '</text>';
-		echo '</svg>';
-		echo '</div></div>';
-	}
-
-	/** A card with a horizontal-bar chart for a top-N breakdown (value labels = non-color cue). */
-	private function render_bar_card( string $title, array $rows, int $slot ): void {
-		echo '<div class="iwsl-stats__card">';
-		echo '<h3 class="iwsl-stats__card-title">' . self::esc_html_safe( $title ) . '</h3>';
-		if ( array() === $rows ) {
-			echo '<p class="iwsl-stats__empty">' . self::esc_html_safe( 'No data yet.' ) . '</p></div>';
-			return;
-		}
-		$max = 1;
-		foreach ( $rows as $r ) {
-			$max = max( $max, (int) $r['count'] );
-		}
-		$n      = count( $rows );
-		$rowh   = 26;
-		$gap    = 6;
-		$w      = 420;
-		$labelw = 130;
-		$barx   = $labelw + 8;
-		$barw   = $w - $barx - 52;
-		$h      = ( $rowh + $gap ) * $n + 8;
-		$color  = 'var(--iwsl-series-' . (int) $slot . ')';
-
-		echo '<div class="iwsl-stats__chart">';
-		echo '<svg viewBox="0 0 ' . $w . ' ' . $h . '" width="100%" height="auto" role="img" '
-			. 'aria-label="' . self::esc_attr_safe( $title . ' breakdown' ) . '" class="iwsl-svg">';
-		echo '<title>' . self::esc_html_safe( $title ) . '</title>';
-		$y = 8;
-		foreach ( $rows as $r ) {
-			$count = (int) $r['count'];
-			$label = (string) $r['label'];
-			$bw    = $max > 0 ? ( $count / $max ) * $barw : 0;
-			$cy    = $y + ( $rowh / 2 ) + 4;
-			echo '<text x="0" y="' . self::coord( $cy ) . '" class="iwsl-svg__rowlabel">' . self::esc_html_safe( self::truncate( $label, 22 ) ) . '</text>';
-			echo '<rect x="' . $barx . '" y="' . $y . '" width="' . self::coord( max( 2, $bw ) ) . '" height="' . $rowh . '" rx="4" fill="' . self::esc_attr_safe( $color ) . '" class="iwsl-svg__bar">';
-			echo '<title>' . self::esc_html_safe( $label . ': ' . self::num( $count ) ) . '</title>';
-			echo '</rect>';
-			echo '<text x="' . self::coord( $barx + max( 2, $bw ) + 6 ) . '" y="' . self::coord( $cy ) . '" class="iwsl-svg__barvalue">' . self::esc_html_safe( self::num( $count ) ) . '</text>';
-			$y += $rowh + $gap;
-		}
-		echo '</svg>';
-		echo '</div></div>';
-	}
-
-	/** A ranked table card (top pages / referrers). Wide content scrolls inside the card. */
-	private function render_table_card( string $title, array $rows, string $col ): void {
-		echo '<div class="iwsl-stats__card">';
-		echo '<h3 class="iwsl-stats__card-title">' . self::esc_html_safe( $title ) . '</h3>';
-		if ( array() === $rows ) {
-			echo '<p class="iwsl-stats__empty">' . self::esc_html_safe( 'No data yet.' ) . '</p></div>';
-			return;
-		}
-		echo '<div class="iwsl-stats__scroll"><table class="widefat striped"><thead><tr>';
-		echo '<th>' . self::esc_html_safe( $col ) . '</th><th class="iwsl-stats__num">' . self::esc_html_safe( 'Views' ) . '</th>';
-		echo '</tr></thead><tbody>';
-		foreach ( $rows as $r ) {
-			echo '<tr><td>' . self::esc_html_safe( self::truncate( (string) $r['label'], 80 ) ) . '</td>'
-				. '<td class="iwsl-stats__num">' . self::esc_html_safe( self::num( (int) $r['count'] ) ) . '</td></tr>';
-		}
-		echo '</tbody></table></div></div>';
-	}
-
-	/** The recent visitor-actions stream (searches, 404s, comments). */
-	private function render_events_card( array $events ): void {
-		echo '<div class="iwsl-stats__card">';
-		echo '<h3 class="iwsl-stats__card-title">' . self::esc_html_safe( 'Recent visitor actions' ) . '</h3>';
-		if ( array() === $events ) {
-			echo '<p class="iwsl-stats__empty">' . self::esc_html_safe( 'No visitor actions recorded yet.' ) . '</p></div>';
-			return;
-		}
-		echo '<div class="iwsl-stats__scroll"><table class="widefat striped"><thead><tr>';
-		echo '<th>' . self::esc_html_safe( 'When' ) . '</th>';
-		echo '<th>' . self::esc_html_safe( 'Action' ) . '</th>';
-		echo '<th>' . self::esc_html_safe( 'Detail' ) . '</th>';
-		echo '<th>' . self::esc_html_safe( 'Page' ) . '</th>';
-		echo '</tr></thead><tbody>';
-		foreach ( $events as $e ) {
-			echo '<tr>';
-			echo '<td>' . self::esc_html_safe( self::format_time( (int) $e['at'] ) ) . '</td>';
-			echo '<td>' . self::esc_html_safe( self::event_label( (string) $e['type'] ) ) . '</td>';
-			echo '<td>' . self::esc_html_safe( self::truncate( (string) $e['label'], 60 ) ) . '</td>';
-			echo '<td>' . self::esc_html_safe( self::truncate( (string) $e['path'], 48 ) ) . '</td>';
-			echo '</tr>';
-		}
-		echo '</tbody></table></div></div>';
-	}
-
-	/** The date-range switch (today / 7d / 30d) as gated, escaped GET links. */
-	private function render_range_switch( int $active ): void {
-		$base = $this->page_base_url();
-		echo '<div class="iwsl-stats__ranges" role="group" aria-label="' . self::esc_attr_safe( 'Date range' ) . '">';
-		foreach ( self::ALLOWED_RANGES as $days ) {
-			$url = self::add_query_arg_safe( $base, self::RANGE_PARAM, (string) $days );
-			$cls = $days === $active ? 'iwsl-stats__range is-active' : 'iwsl-stats__range';
-			$aria = $days === $active ? ' aria-current="true"' : '';
-			echo '<a class="' . self::esc_attr_safe( $cls ) . '" href="' . self::esc_url_safe( $url ) . '"' . $aria . '>'
-				. self::esc_html_safe( $this->range_label( $days ) ) . '</a>';
-		}
-		echo '</div>';
-	}
-
-	/** The gated "Reset statistics" admin-post form. */
-	private function render_reset_form(): void {
-		$action_url = function_exists( 'admin_url' ) ? admin_url( 'admin-post.php' ) : 'admin-post.php';
-		echo '<form method="post" action="' . self::esc_url_safe( (string) $action_url ) . '" class="iwsl-stats__reset" '
-			. 'onsubmit="return confirm(\'Clear all recorded statistics? This cannot be undone.\');">';
-		echo '<input type="hidden" name="action" value="' . self::esc_attr_safe( self::RESET_ACTION ) . '" />';
-		if ( function_exists( 'wp_nonce_field' ) ) {
-			wp_nonce_field( self::RESET_NONCE );
-		}
-		echo '<button type="submit" class="button button-secondary">' . self::esc_html_safe( 'Reset statistics' ) . '</button>';
-		echo ' ' . iwsl_field_help( 'Permanently deletes all recorded visits and starts counting fresh.' );
-		echo '</form>';
-	}
-
-	/** The locked-state notice with the human gate reasons. */
-	private function render_locked_notice( array $gate ): void {
-		$reasons = isset( $gate['reasons'] ) && is_array( $gate['reasons'] ) ? $gate['reasons'] : array();
-		echo '<div class="notice notice-warning"><p>';
-		echo self::esc_html_safe( 'Site Statistics is locked.' );
-		if ( array() !== $reasons ) {
-			echo ' ' . self::esc_html_safe( 'Reasons: ' . implode( ', ', array_map( 'strval', $reasons ) ) );
-		}
-		echo '</p></div>';
-	}
-
-	/**
-	 * The self-contained, theme-aware chart/tile styles. Scoped to `.iwsl-stats`, using
-	 * the dataviz reference palette (validated categorical slots), with a
-	 * prefers-color-scheme dark override and support for the shell's explicit dark
-	 * theme. Transparent card fills so it inherits the surrounding admin surface.
-	 */
-	private function render_styles(): void {
-		echo '<style>
-.iwsl-stats{--iwsl-ink:#0b0b0b;--iwsl-ink-2:#52514e;--iwsl-muted:#898781;--iwsl-line:#e1e0d9;--iwsl-axis:#c3c2b7;--iwsl-card:rgba(11,11,11,0.03);--iwsl-good:#006300;--iwsl-bad:#d03b3b;--iwsl-series-1:#2a78d6;--iwsl-series-2:#1baf7a;--iwsl-series-3:#eda100;--iwsl-series-6:#e34948;}
-@media (prefers-color-scheme:dark){.iwsl-stats{--iwsl-ink:#ffffff;--iwsl-ink-2:#c3c2b7;--iwsl-muted:#898781;--iwsl-line:#2c2c2a;--iwsl-axis:#383835;--iwsl-card:rgba(255,255,255,0.04);--iwsl-good:#0ca30c;--iwsl-bad:#e66767;--iwsl-series-1:#3987e5;--iwsl-series-2:#199e70;--iwsl-series-3:#c98500;--iwsl-series-6:#e66767;}}
-.iwsl-shell .iwsl-stats,:root[data-theme="dark"] .iwsl-stats{--iwsl-ink:#ffffff;--iwsl-ink-2:#c3c2b7;--iwsl-line:#2c2c2a;--iwsl-axis:#383835;--iwsl-card:rgba(255,255,255,0.04);--iwsl-good:#0ca30c;--iwsl-bad:#e66767;--iwsl-series-1:#3987e5;--iwsl-series-2:#199e70;--iwsl-series-3:#c98500;--iwsl-series-6:#e66767;}
-.iwsl-stats__title{margin:0 0 4px;}
-.iwsl-stats__intro{color:var(--iwsl-ink-2);margin:0 0 16px;max-width:60ch;}
-.iwsl-stats__ranges{display:inline-flex;gap:2px;margin-bottom:16px;border:1px solid var(--iwsl-line);border-radius:8px;overflow:hidden;}
-.iwsl-stats__range{padding:6px 14px;text-decoration:none;color:var(--iwsl-ink-2);font-size:13px;}
-.iwsl-stats__range.is-active{background:var(--iwsl-series-1);color:#fff;font-weight:600;}
-.iwsl-stats__tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px;}
-.iwsl-stats__tile{background:var(--iwsl-card);border:1px solid var(--iwsl-line);border-radius:12px;padding:14px 16px;}
-.iwsl-stats__tile-label{color:var(--iwsl-ink-2);font-size:12px;text-transform:uppercase;letter-spacing:.03em;}
-.iwsl-stats__tile-value{color:var(--iwsl-ink);font-size:30px;font-weight:700;line-height:1.15;margin-top:4px;font-variant-numeric:tabular-nums;}
-.iwsl-stats__delta{font-size:12px;margin-top:4px;color:var(--iwsl-muted);}
-.iwsl-stats__delta.is-up{color:var(--iwsl-good);}
-.iwsl-stats__delta.is-down{color:var(--iwsl-bad);}
-.iwsl-stats__card{background:var(--iwsl-card);border:1px solid var(--iwsl-line);border-radius:12px;padding:16px;margin-bottom:18px;}
-.iwsl-stats__card-title{margin:0 0 12px;font-size:14px;color:var(--iwsl-ink);}
-.iwsl-stats__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;}
-.iwsl-stats__chart{overflow-x:auto;}
-.iwsl-stats__scroll{overflow-x:auto;}
-.iwsl-stats__num{text-align:right;font-variant-numeric:tabular-nums;}
-.iwsl-stats__empty{color:var(--iwsl-muted);margin:4px 0 0;}
-.iwsl-stats__reset{margin-top:8px;}
-.iwsl-svg{max-width:100%;display:block;}
-.iwsl-svg__axis{stroke:var(--iwsl-axis);stroke-width:1;}
-.iwsl-svg__grid{stroke:var(--iwsl-line);stroke-width:1;}
-.iwsl-svg__area{fill:var(--iwsl-series-1);opacity:.14;}
-.iwsl-svg__line{stroke:var(--iwsl-series-1);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;}
-.iwsl-svg__dot{fill:var(--iwsl-series-1);stroke:var(--iwsl-card);stroke-width:2;}
-.iwsl-svg__tick{fill:var(--iwsl-muted);font-size:11px;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;}
-.iwsl-svg__endlabel{fill:var(--iwsl-ink);font-size:12px;font-weight:600;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;}
-.iwsl-svg__rowlabel{fill:var(--iwsl-ink-2);font-size:12px;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;}
-.iwsl-svg__barvalue{fill:var(--iwsl-ink);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;}
-</style>';
+		$data = $this->dashboard( $range );
+		( new IWSL_Statistics_View( $data, $range ) )->render();
 	}
 
 	// ── table + dbDelta install ────────────────────────────────────────────────
@@ -906,32 +622,6 @@ final class IWSL_Statistics {
 		return in_array( $raw, self::ALLOWED_RANGES, true ) ? $raw : self::DEFAULT_RANGE;
 	}
 
-	/** Human label for a range in days. */
-	private function range_label( int $days ): string {
-		if ( 1 === $days ) {
-			return 'Today';
-		}
-		return $days . ' days';
-	}
-
-	/** The Plus admin page base URL (for the range switch links). */
-	private function page_base_url(): string {
-		$url = 'admin.php?page=' . self::PAGE_SLUG;
-		if ( function_exists( 'admin_url' ) ) {
-			$url = admin_url( $url );
-		}
-		return $url;
-	}
-
-	/** Append/replace a query arg on a URL, WordPress-native when available. */
-	private static function add_query_arg_safe( string $url, string $key, string $value ): string {
-		if ( function_exists( 'add_query_arg' ) ) {
-			return (string) add_query_arg( $key, $value, $url );
-		}
-		$sep = false === strpos( $url, '?' ) ? '?' : '&';
-		return $url . $sep . rawurlencode( $key ) . '=' . rawurlencode( $value );
-	}
-
 	/** Coarse boolean read from the ctx array. */
 	private static function flag( array $ctx, string $key ): bool {
 		return isset( $ctx[ $key ] ) && $ctx[ $key ];
@@ -946,60 +636,6 @@ final class IWSL_Statistics {
 	private static function clean_text( string $value ): string {
 		$stripped = preg_replace( '/[\x00-\x1F\x7F]/', '', $value );
 		return null === $stripped ? '' : trim( $stripped );
-	}
-
-	/** Human event label for the recent-actions table. */
-	private static function event_label( string $type ): string {
-		switch ( $type ) {
-			case IWSL_Stats_Classifier::EVENT_SEARCH:
-				return 'Search';
-			case IWSL_Stats_Classifier::EVENT_404:
-				return 'Not found (404)';
-			case IWSL_Stats_Classifier::EVENT_COMMENT:
-				return 'Comment';
-			default:
-				return 'View';
-		}
-	}
-
-	/** Integer, thousands-separated (i18n when available). */
-	private static function num( int $value ): string {
-		if ( function_exists( 'number_format_i18n' ) ) {
-			return (string) number_format_i18n( $value );
-		}
-		return number_format( $value );
-	}
-
-	/** One-decimal float without trailing noise. */
-	private static function num_f( float $value ): string {
-		return rtrim( rtrim( number_format( $value, 1, '.', '' ), '0' ), '.' );
-	}
-
-	/** Round a coordinate to 2dp for compact, deterministic SVG output. */
-	private static function coord( float $value ): string {
-		return rtrim( rtrim( number_format( $value, 2, '.', '' ), '0' ), '.' );
-	}
-
-	/** Truncate a display string with an ellipsis (never mid-escape — plain text). */
-	private static function truncate( string $value, int $max ): string {
-		if ( strlen( $value ) <= $max ) {
-			return $value;
-		}
-		return substr( $value, 0, max( 0, $max - 1 ) ) . '…';
-	}
-
-	/** A human timestamp; falls back to a raw ISO-ish string outside WordPress. */
-	private static function format_time( int $unix ): string {
-		if ( $unix <= 0 ) {
-			return '—';
-		}
-		if ( function_exists( 'wp_date' ) ) {
-			$formatted = wp_date( 'Y-m-d H:i', $unix );
-			if ( is_string( $formatted ) && '' !== $formatted ) {
-				return $formatted;
-			}
-		}
-		return gmdate( 'Y-m-d H:i', $unix );
 	}
 
 	private function now_seconds(): int {
@@ -1062,13 +698,5 @@ final class IWSL_Statistics {
 
 	private static function esc_html_safe( string $value ): string {
 		return function_exists( 'esc_html' ) ? esc_html( $value ) : htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
-	}
-
-	private static function esc_attr_safe( string $value ): string {
-		return function_exists( 'esc_attr' ) ? esc_attr( $value ) : htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
-	}
-
-	private static function esc_url_safe( string $value ): string {
-		return function_exists( 'esc_url' ) ? esc_url( $value ) : htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
 	}
 }

@@ -21,6 +21,14 @@
  *    raw IP) recorded server-side from the first-party consent cookie on the next
  *    render, so NO public/nopriv endpoint is added.
  *  - VERSIONED POLICY. Bumping the policy version re-prompts every visitor.
+ *  - ONE-CLICK AUTO SETUP. recommended_defaults() is a complete, GDPR-safe settings
+ *    map (opt-in, Consent Mode, GPC, all categories, auto-detected policy URL);
+ *    apply_recommended_defaults() persists it through the same gated save path, so
+ *    the admin wizard can turn the whole feature on correctly in ONE action.
+ *  - ADMIN PREVIEW. A logged-in administrator appending ?iwsl_cc_preview=1 to any
+ *    front-end URL sees the banner exactly as a fresh visitor would (their own
+ *    consent cookie is ignored for display) — logged-in visitors are otherwise
+ *    never touched. Preview changes ONLY what that admin's own browser renders.
  *
  * TRUST MODEL. Console-authoritative, mirroring every other Plus feature: the
  * `cookie_consent` flag is written ONLY by the dual-signed `entitlements.set`
@@ -75,6 +83,9 @@ final class IWSL_Cookie_Consent {
 
 	/** First-party cookie the banner persists the visitor's choice in. */
 	const COOKIE_NAME = 'iwsl_consent';
+
+	/** Query parameter a logged-in administrator uses to preview the banner. */
+	const PREVIEW_PARAM = 'iwsl_cc_preview';
 
 	/** Hard FIFO cap on stored consent records — bounds option size. */
 	const MAX_LOG_ENTRIES = 500;
@@ -186,8 +197,22 @@ final class IWSL_Cookie_Consent {
 		if ( empty( $settings['enabled'] ) ) {
 			return $html;
 		}
+		if ( ! self::looks_like_html( $html ) ) {
+			return $html; // JSON/XML/other non-document buffer — never inject into it.
+		}
 		$out = $this->transform( $html, $settings );
 		return is_string( $out ) ? $out : $html;
+	}
+
+	/**
+	 * Whether a buffered payload is an HTML document the banner may be injected
+	 * into. A template that emits JSON, XML or plain text (sitemaps, exports)
+	 * must be served byte-identical — injecting markup would corrupt it.
+	 */
+	private static function looks_like_html( string $html ): bool {
+		return false !== stripos( $html, '<html' )
+			|| false !== stripos( $html, '<!doctype' )
+			|| false !== stripos( $html, '</body>' );
 	}
 
 	/**
@@ -281,6 +306,67 @@ final class IWSL_Cookie_Consent {
 			}
 		}
 		return $sigs;
+	}
+
+	// ── one-click automation (the wizard surface) ────────────────────────────────
+
+	/**
+	 * Whether the admin has ever saved (or auto-applied) consent settings. False on
+	 * a fresh install — the wizard uses this to offer the one-click setup.
+	 */
+	public function is_configured(): bool {
+		return 0 < (int) $this->settings()['saved_at'];
+	}
+
+	/**
+	 * The complete GDPR-safe recommended settings map (classifier defaults plus the
+	 * site's own privacy-policy URL when WordPress knows one). Pure read — nothing
+	 * is persisted; the wizard renders this as "what one click will apply". The map
+	 * still passes the full save-time gauntlet in apply_recommended_defaults().
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function recommended_defaults(): array {
+		$defaults = IWSL_Consent_Classifier::recommended_defaults();
+		$policy   = function_exists( 'get_privacy_policy_url' ) ? (string) get_privacy_policy_url() : '';
+		if ( '' !== $policy ) {
+			$defaults['policy_url'] = $policy; // re-validated by the sanitizer on save.
+		}
+		return $defaults;
+	}
+
+	/**
+	 * ONE CLICK: persist the recommended defaults (optionally overridden field-by-
+	 * field, e.g. a brand accent) through the normal gated save path — STATEMENT 1
+	 * of save_settings() is the authoritative entitlement gate, so a locked site
+	 * stores nothing. After this the banner + prior-blocking are live for visitors.
+	 *
+	 * @param array<string,mixed> $overrides sparse map merged over the defaults.
+	 * @return array{ ok:bool, reason?:string, settings?:array, gate?:array }
+	 */
+	public function apply_recommended_defaults( array $overrides = array() ): array {
+		return $this->save_settings( array_merge( $this->recommended_defaults(), $overrides ) );
+	}
+
+	/**
+	 * Auto-detect known third-party trackers in a page's HTML (vendor => label,
+	 * category, count), honoring the admin's per-vendor overrides. Pure analysis —
+	 * nothing is rewritten or stored; the wizard uses it to show "found on your
+	 * site" evidence. Self-contained: the caller supplies the HTML (no network).
+	 *
+	 * @return array<string, array{ label:string, category:string, count:int }>
+	 */
+	public function detect_trackers( string $html ): array {
+		return IWSL_Consent_Classifier::detect_vendors( $html, $this->effective_signatures( $this->settings() ) );
+	}
+
+	/**
+	 * The front-end URL a logged-in administrator opens to preview the live banner
+	 * (their own prior consent cookie is ignored for display, nothing else changes).
+	 */
+	public function preview_url(): string {
+		$base = function_exists( 'home_url' ) ? (string) home_url( '/' ) : '/';
+		return $base . ( false === strpos( $base, '?' ) ? '?' : '&' ) . self::PREVIEW_PARAM . '=1';
 	}
 
 	// ── mutators (STATEMENT 1 is the authoritative gate) ─────────────────────────
@@ -557,6 +643,7 @@ final class IWSL_Cookie_Consent {
 			'consentMode' => ! empty( $settings['consent_mode'] ),
 			'respectGpc'  => ! empty( $settings['respect_gpc'] ),
 			'respectDnt'  => ! empty( $settings['respect_dnt'] ),
+			'preview'     => $this->is_preview(),
 		);
 		return '<script type="application/json" id="iwsl-consent-config">' . self::json( $config ) . '</script>';
 	}
@@ -727,7 +814,7 @@ final class IWSL_Cookie_Consent {
 			. 'if(e.key==="Tab"&&modal&&!modal.hidden){var f=modal.querySelectorAll("button,input:not([disabled]),a[href]");if(!f.length)return;'
 			. 'var first=f[0],last=f[f.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}'
 			. 'else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}}});'
-			. 'var st=read();if(st&&st.v===CFG.version){apply(st.c||["necessary"]);root.hidden=false;if(banner)banner.style.display="none";if(handle)handle.hidden=false;}'
+			. 'var st=read();if(!CFG.preview&&st&&st.v===CFG.version){apply(st.c||["necessary"]);root.hidden=false;if(banner)banner.style.display="none";if(handle)handle.hidden=false;}'
 			. 'else if(CFG.model==="none"){save(["necessary"].concat(ALL),"implied");}'
 			. 'else if(CFG.model==="opt-out"||CFG.model==="info"){apply(defaults());show();}'
 			. 'else{apply(["necessary"]);show();}'
@@ -814,7 +901,32 @@ final class IWSL_Cookie_Consent {
 		return (int) floor( ( $this->now_ms )() / 1000 );
 	}
 
-	/** Whether this is an anonymous front-end render (never admin/REST/cron/login/logged-in). */
+	/**
+	 * Whether THIS request is an administrator's banner preview
+	 * (?iwsl_cc_preview=1). Read from the injected server map's query string so
+	 * the engine stays pure/testable. Preview only changes what that admin's own
+	 * browser renders — the gate and the enabled switch still apply in full.
+	 */
+	private function is_preview(): bool {
+		$qs = isset( $this->server['QUERY_STRING'] ) && is_string( $this->server['QUERY_STRING'] )
+			? $this->server['QUERY_STRING'] : '';
+		if ( '' === $qs && isset( $this->server['REQUEST_URI'] ) && is_string( $this->server['REQUEST_URI'] ) ) {
+			$qs = (string) parse_url( $this->server['REQUEST_URI'], PHP_URL_QUERY );
+		}
+		if ( '' === $qs ) {
+			return false;
+		}
+		parse_str( $qs, $vars );
+		return isset( $vars[ self::PREVIEW_PARAM ] ) && '1' === (string) $vars[ self::PREVIEW_PARAM ];
+	}
+
+	/**
+	 * Whether this is an anonymous front-end HTML render (never admin/REST/cron/
+	 * AJAX/login/feed/embed/trackback/robots/XML-RPC/JSON/XML/customizer). A
+	 * logged-in user is excluded UNLESS an administrator is explicitly previewing
+	 * the banner (?iwsl_cc_preview=1) — that was the owner's "I can't tell if it
+	 * even works" gap: logged-in test views never showed the banner.
+	 */
 	private static function default_is_front(): callable {
 		return static function (): bool {
 			if ( function_exists( 'is_admin' ) && is_admin() ) {
@@ -829,12 +941,41 @@ final class IWSL_Cookie_Consent {
 			if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
 				return false;
 			}
+			if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
+				return false;
+			}
 			if ( isset( $GLOBALS['pagenow'] ) && 'wp-login.php' === $GLOBALS['pagenow'] ) {
 				return false;
 			}
-			// Logged-in users see the site untouched — consent UI targets the public.
-			if ( function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
+			// Non-HTML front-end responses: injecting banner markup would corrupt them.
+			if ( function_exists( 'is_feed' ) && is_feed() ) {
 				return false;
+			}
+			if ( function_exists( 'is_embed' ) && is_embed() ) {
+				return false;
+			}
+			if ( function_exists( 'is_trackback' ) && is_trackback() ) {
+				return false;
+			}
+			if ( function_exists( 'is_robots' ) && is_robots() ) {
+				return false;
+			}
+			if ( function_exists( 'wp_is_json_request' ) && wp_is_json_request() ) {
+				return false;
+			}
+			if ( function_exists( 'wp_is_xml_request' ) && wp_is_xml_request() ) {
+				return false;
+			}
+			if ( function_exists( 'is_customize_preview' ) && is_customize_preview() ) {
+				return false;
+			}
+			// Logged-in users see the site untouched — consent UI targets the public.
+			// Exception: an administrator explicitly previewing the banner.
+			if ( function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
+				$wants_preview = isset( $_GET[ self::PREVIEW_PARAM ] ) && '1' === (string) $_GET[ self::PREVIEW_PARAM ]; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+				if ( ! ( $wants_preview && function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) ) ) {
+					return false;
+				}
 			}
 			return true;
 		};

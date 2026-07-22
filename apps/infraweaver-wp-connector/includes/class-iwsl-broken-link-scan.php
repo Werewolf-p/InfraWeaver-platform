@@ -529,7 +529,7 @@ final class IWSL_Broken_Link_Scan {
 			check_admin_referer( self::NONCE );
 		}
 
-		$redirect = function_exists( 'admin_url' ) ? admin_url( 'admin.php?page=infraweaver-plus' ) : '';
+		$redirect = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {

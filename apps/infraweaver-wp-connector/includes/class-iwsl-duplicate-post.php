@@ -320,7 +320,7 @@ final class IWSL_Duplicate_Post {
 		}
 		check_admin_referer( self::NONCE );
 
-		$plus_url = admin_url( 'admin.php?page=infraweaver-plus' );
+		$plus_url = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {

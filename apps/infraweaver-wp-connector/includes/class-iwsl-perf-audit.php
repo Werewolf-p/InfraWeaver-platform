@@ -441,7 +441,7 @@ final class IWSL_Perf_Audit {
 		check_admin_referer( self::TOGGLE_NONCE );
 		$on = ! $this->is_enabled();
 		$this->set_enabled( $on );
-		wp_safe_redirect( add_query_arg( 'iwsl_perf_toggled', $on ? '1' : '0', admin_url( 'admin.php?page=infraweaver-plus' ) ) );
+		wp_safe_redirect( add_query_arg( 'iwsl_perf_toggled', $on ? '1' : '0', iwsl_plus_redirect_base() ) );
 		exit;
 	}
 
@@ -452,7 +452,7 @@ final class IWSL_Perf_Audit {
 		}
 		check_admin_referer( self::RESET_NONCE );
 		$this->reset_samples();
-		wp_safe_redirect( add_query_arg( 'iwsl_perf_reset', '1', admin_url( 'admin.php?page=infraweaver-plus' ) ) );
+		wp_safe_redirect( add_query_arg( 'iwsl_perf_reset', '1', iwsl_plus_redirect_base() ) );
 		exit;
 	}
 

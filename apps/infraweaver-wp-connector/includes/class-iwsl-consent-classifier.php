@@ -178,6 +178,53 @@ final class IWSL_Consent_Classifier {
 				'hosts'    => array( 'js.hs-scripts.com', 'js.hsforms.net', 'js.hubspot.com', 'hs-analytics.net', 'hs-banner.com' ),
 				'snippets' => array( '_hsq', 'hs-scripts' ),
 			),
+			'matomo'             => array(
+				'label'    => 'Matomo Analytics',
+				'category' => 'statistics',
+				'hosts'    => array( 'matomo.cloud', '/matomo.js', '/piwik.js' ),
+				'snippets' => array( '_paq.push', 'matomo.js', 'piwik.js' ),
+			),
+			'snapchat_pixel'     => array(
+				'label'    => 'Snapchat Pixel',
+				'category' => 'marketing',
+				'hosts'    => array( 'sc-static.net', 'tr.snapchat.com' ),
+				'snippets' => array( 'snaptr(' ),
+			),
+			'tawk_to'            => array(
+				'label'    => 'Tawk.to chat',
+				'category' => 'preferences',
+				'hosts'    => array( 'embed.tawk.to' ),
+				'snippets' => array( 'Tawk_API' ),
+			),
+		);
+	}
+
+	/**
+	 * The GDPR-safe recommended settings map — the "just works" one-click preset
+	 * the admin wizard applies. Pure and side-effect free; the engine layers the
+	 * site's own privacy-policy URL on top and runs the whole map through its
+	 * save-time gauntlet. Choices: opt-IN default (safe everywhere; US still maps
+	 * to opt-out via region_model), Consent Mode v2 on, GPC honored (CCPA "do not
+	 * sell/share"), legacy DNT off, every category offered, neutral copy/accent
+	 * (empty → the engine's built-in wording and color).
+	 *
+	 * @return array<string,mixed> same keys the engine's sanitizer accepts.
+	 */
+	public static function recommended_defaults(): array {
+		return array(
+			'enabled'          => true,
+			'default_model'    => self::MODEL_OPT_IN,
+			'banner_layout'    => 'bar',
+			'consent_mode'     => true,
+			'respect_gpc'      => true,
+			'respect_dnt'      => false,
+			'policy_version'   => 1,
+			'title'            => '',
+			'message'          => '',
+			'policy_url'       => '',
+			'accent'           => '',
+			'categories'       => array( 'preferences' => true, 'statistics' => true, 'marketing' => true ),
+			'vendor_overrides' => array(),
 		);
 	}
 
@@ -189,21 +236,9 @@ final class IWSL_Consent_Classifier {
 	 * match against each signature's hosts.
 	 */
 	public static function classify_src( string $src, ?array $signatures = null ): ?string {
-		if ( '' === $src ) {
-			return null;
-		}
-		$sigs = null !== $signatures ? $signatures : self::signatures();
-		foreach ( $sigs as $sig ) {
-			if ( ! isset( $sig['hosts'], $sig['category'] ) || ! is_array( $sig['hosts'] ) ) {
-				continue;
-			}
-			foreach ( $sig['hosts'] as $needle ) {
-				if ( is_string( $needle ) && '' !== $needle && false !== stripos( $src, $needle ) ) {
-					return (string) $sig['category'];
-				}
-			}
-		}
-		return null;
+		$sigs   = null !== $signatures ? $signatures : self::signatures();
+		$vendor = self::match_vendor_src( $src, $sigs );
+		return null === $vendor ? null : (string) $sigs[ $vendor ]['category'];
 	}
 
 	/**
@@ -211,21 +246,95 @@ final class IWSL_Consent_Classifier {
 	 * signature's snippet markers (function calls, ids). Case-insensitive.
 	 */
 	public static function classify_snippet( string $code, ?array $signatures = null ): ?string {
+		$sigs   = null !== $signatures ? $signatures : self::signatures();
+		$vendor = self::match_vendor_snippet( $code, $sigs );
+		return null === $vendor ? null : (string) $sigs[ $vendor ]['category'];
+	}
+
+	/** The vendor id whose hosts match a `src` URL, or null (first-party/unknown). */
+	private static function match_vendor_src( string $src, array $sigs ): ?string {
+		if ( '' === $src ) {
+			return null;
+		}
+		foreach ( $sigs as $vendor => $sig ) {
+			if ( ! isset( $sig['hosts'], $sig['category'] ) || ! is_array( $sig['hosts'] ) ) {
+				continue;
+			}
+			foreach ( $sig['hosts'] as $needle ) {
+				if ( is_string( $needle ) && '' !== $needle && false !== stripos( $src, $needle ) ) {
+					return (string) $vendor;
+				}
+			}
+		}
+		return null;
+	}
+
+	/** The vendor id whose snippet markers match an inline script body, or null. */
+	private static function match_vendor_snippet( string $code, array $sigs ): ?string {
 		if ( '' === $code ) {
 			return null;
 		}
-		$sigs = null !== $signatures ? $signatures : self::signatures();
-		foreach ( $sigs as $sig ) {
+		foreach ( $sigs as $vendor => $sig ) {
 			if ( ! isset( $sig['snippets'], $sig['category'] ) || ! is_array( $sig['snippets'] ) ) {
 				continue;
 			}
 			foreach ( $sig['snippets'] as $needle ) {
 				if ( is_string( $needle ) && '' !== $needle && false !== stripos( $code, $needle ) ) {
-					return (string) $sig['category'];
+					return (string) $vendor;
 				}
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * AUTO-DETECT which known third-party trackers a page's HTML contains, WITHOUT
+	 * rewriting anything: vendor id => { label, category, count }. Same matching
+	 * rules as block_html() (script src, inline script body, iframe src), so what
+	 * this reports is exactly what prior-blocking will neutralize. Pure and
+	 * self-contained — the caller supplies the HTML; no network, no I/O.
+	 *
+	 * @return array<string, array{ label:string, category:string, count:int }>
+	 */
+	public static function detect_vendors( string $html, ?array $signatures = null ): array {
+		if ( '' === $html ) {
+			return array();
+		}
+		$sigs  = null !== $signatures ? $signatures : self::signatures();
+		$found = array();
+		$tally = static function ( ?string $vendor ) use ( &$found, $sigs ): void {
+			if ( null === $vendor ) {
+				return;
+			}
+			if ( ! isset( $found[ $vendor ] ) ) {
+				$found[ $vendor ] = array(
+					'label'    => (string) ( $sigs[ $vendor ]['label'] ?? $vendor ),
+					'category' => (string) ( $sigs[ $vendor ]['category'] ?? 'marketing' ),
+					'count'    => 0,
+				);
+			}
+			++$found[ $vendor ]['count'];
+		};
+
+		if ( preg_match_all( '#<script\b([^>]*)>(.*?)</script>#is', $html, $scripts, PREG_SET_ORDER ) ) {
+			foreach ( $scripts as $m ) {
+				$src = self::get_attr( (string) $m[1], 'src' );
+				if ( null !== $src && '' !== $src ) {
+					$tally( self::match_vendor_src( $src, $sigs ) );
+				} elseif ( '' !== trim( (string) $m[2] ) ) {
+					$tally( self::match_vendor_snippet( (string) $m[2], $sigs ) );
+				}
+			}
+		}
+		if ( preg_match_all( '#<iframe\b([^>]*)>#is', $html, $frames, PREG_SET_ORDER ) ) {
+			foreach ( $frames as $m ) {
+				$src = self::get_attr( (string) $m[1], 'src' );
+				if ( null !== $src && '' !== $src ) {
+					$tally( self::match_vendor_src( $src, $sigs ) );
+				}
+			}
+		}
+		return $found;
 	}
 
 	// ── prior-blocking transform (the hard part; FAIL-SAFE) ──────────────────────

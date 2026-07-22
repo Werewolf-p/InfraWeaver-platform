@@ -733,8 +733,83 @@ iwsl_assert( $type_ok, 'render_head: meta type attribute rendered via esc_attr f
 iwsl_assert( false !== strpos( $head_e, '<meta property="og:type"' ), 'render_head: og:type type attribute well-formed + escaped' );
 iwsl_assert( false !== strpos( $head_e, '<meta name="description"' ), 'render_head: description type attribute well-formed + escaped' );
 
+// ── 28. Head: auto_excerpt — content-derived meta description fallback ─────────
+
+iwsl_assert_same( 'Hello world', IWSL_SEO_Head::auto_excerpt( '<p>Hello <b>world</b></p>' ), 'auto_excerpt: strips tags to plain text' );
+iwsl_assert_same( 'Tom & Jerry', IWSL_SEO_Head::auto_excerpt( '<p>Tom &amp; Jerry</p>' ), 'auto_excerpt: decodes HTML entities' );
+iwsl_assert_same( 'Real text here', IWSL_SEO_Head::auto_excerpt( '[gallery ids="1,2"]Real text here[/gallery]' ), 'auto_excerpt: strips shortcodes' );
+iwsl_assert_same( '', IWSL_SEO_Head::auto_excerpt( '<p>   </p>' ), 'auto_excerpt: markup/whitespace-only → empty' );
+iwsl_assert_same( '', IWSL_SEO_Head::auto_excerpt( '' ), 'auto_excerpt: empty in → empty out' );
+$ae_long = 'one two three four five six seven eight nine ten';
+iwsl_assert_same( 'one two three', IWSL_SEO_Head::auto_excerpt( $ae_long, 13 ), 'auto_excerpt: truncates at a whole word within budget' );
+iwsl_assert_same( 'one two three', IWSL_SEO_Head::auto_excerpt( $ae_long, 14 ), 'auto_excerpt: never cuts mid-word (14 still stops at "three")' );
+iwsl_assert_same( 'one two three', IWSL_SEO_Head::auto_excerpt( 'one two three', 13 ), 'auto_excerpt: exact boundary (len == max) returns the whole text' );
+iwsl_assert_same( 'café münchen', IWSL_SEO_Head::auto_excerpt( '<p>café münchen</p>', 155 ), 'auto_excerpt: unicode text preserved' );
+iwsl_assert_same( 'über café', IWSL_SEO_Head::auto_excerpt( 'über café münchen test', 12 ), 'auto_excerpt: unicode truncation stops at a whole word' );
+iwsl_assert_same( 'superca', IWSL_SEO_Head::auto_excerpt( 'supercalifragilistic', 7 ), 'auto_excerpt: a single over-budget word is hard-cut (never empty)' );
+
+// ── 29. Analyzer: extract_image_srcs — powers the image sitemap ────────────────
+
+iwsl_assert_same(
+	array( 'https://ex.com/a.jpg', 'https://ex.com/b.png' ),
+	IWSL_SEO_Analyzer::extract_image_srcs( '<img src="https://ex.com/a.jpg"><p>x</p><img src=\'https://ex.com/b.png\' alt="b">' ),
+	'extract_image_srcs: multiple imgs, both quote styles, in order'
+);
+iwsl_assert_same( array(), IWSL_SEO_Analyzer::extract_image_srcs( '<img alt="no src here">' ), 'extract_image_srcs: img with no src is skipped' );
+iwsl_assert_same( array(), IWSL_SEO_Analyzer::extract_image_srcs( '<img src="">' ), 'extract_image_srcs: empty src is skipped' );
+iwsl_assert_same( array( 'https://ex.com/x.jpg' ), IWSL_SEO_Analyzer::extract_image_srcs( '<img   src = "https://ex.com/x.jpg"  >tail' ), 'extract_image_srcs: tolerant of attribute whitespace' );
+iwsl_assert_same( array( 'https://ex.com/a?x=1&y=2' ), IWSL_SEO_Analyzer::extract_image_srcs( '<img src="https://ex.com/a?x=1&amp;y=2">' ), 'extract_image_srcs: decodes entities in the src URL' );
+
+// ── 30. Sitemap entry folds featured + in-content images (uses §23 reflection) ─
+
+$GLOBALS['iwseo_content_map'] = array( 100 => '<img src="https://ex.com/in.jpg">body' );
+$GLOBALS['iwseo_thumb_map']   = array( 100 => 'https://ex.com/feat.jpg' );
+if ( ! function_exists( 'get_post' ) ) {
+	function get_post( $id = 0 ) {
+		$c = isset( $GLOBALS['iwseo_content_map'][ (int) $id ] ) ? $GLOBALS['iwseo_content_map'][ (int) $id ] : '';
+		return (object) array( 'ID' => (int) $id, 'post_content' => $c );
+	}
+}
+if ( ! function_exists( 'get_the_post_thumbnail_url' ) ) {
+	function get_the_post_thumbnail_url( $id = 0, $size = 'post-thumbnail' ) {
+		return isset( $GLOBALS['iwseo_thumb_map'][ (int) $id ] ) ? $GLOBALS['iwseo_thumb_map'][ (int) $id ] : false;
+	}
+}
+$GLOBALS['iwseo_types'] = array( 'guide' );
+$GLOBALS['iwseo_posts'] = array( 'guide' => array( 100 ) );
+$entries_img = $entries_ref->invoke( $eng_sm, 'guide', 1 );
+iwsl_assert_same( 1, count( $entries_img ), 'sitemap images: one entry produced' );
+iwsl_assert_same(
+	array( 'https://ex.com/feat.jpg', 'https://ex.com/in.jpg' ),
+	$entries_img[0]['images'],
+	'sitemap entry: featured image first, then the in-content <img src>'
+);
+
+// ── 31. should_noindex_archive — pure archive noindex policy ──────────────────
+
+iwsl_assert_same( true, IWSL_SEO_Suite::should_noindex_archive( array( 'archive_type' => 'search' ) ), 'noindex archive: search results → noindex' );
+iwsl_assert_same( true, IWSL_SEO_Suite::should_noindex_archive( array( 'archive_type' => 'archive', 'post_count' => 0 ) ), 'noindex archive: zero-post archive → noindex' );
+iwsl_assert_same( true, IWSL_SEO_Suite::should_noindex_archive( array( 'archive_type' => 'author', 'single_author_site' => true, 'post_count' => 5 ) ), 'noindex archive: author archive on a single-author site → noindex' );
+iwsl_assert_same( false, IWSL_SEO_Suite::should_noindex_archive( array( 'archive_type' => 'author', 'single_author_site' => false, 'post_count' => 5 ) ), 'noindex archive: author archive on a multi-author site → indexable' );
+iwsl_assert_same( false, IWSL_SEO_Suite::should_noindex_archive( array( 'archive_type' => 'archive', 'post_count' => 10 ) ), 'noindex archive: a populated term archive → indexable' );
+
+// ── 32. sanitize_settings — archive/author/search template buckets ────────────
+
+$store_ss = new IWSL_Memory_Store();
+$eng_ss   = iwsl_seo_engine( $store_ss, $SEO_NOW );
+$clean_ss = $eng_ss->sanitize_settings( array(
+	'title_templates' => array( 'author' => '%%name%% %%sep%% %%sitename%%', 'search' => 'Search: %%searchphrase%%', 'archive' => '%%term_title%%' ),
+	'meta_templates'  => array( 'archive' => 'Browse %%term_title%%' ),
+) );
+iwsl_assert_same( '%%name%% %%sep%% %%sitename%%', $clean_ss['title_templates']['author'], 'sanitize_settings: author title bucket kept' );
+iwsl_assert_same( 'Search: %%searchphrase%%', $clean_ss['title_templates']['search'], 'sanitize_settings: search title bucket kept' );
+iwsl_assert_same( '%%term_title%%', $clean_ss['title_templates']['archive'], 'sanitize_settings: archive title bucket kept' );
+iwsl_assert_same( 'Browse %%term_title%%', $clean_ss['meta_templates']['archive'], 'sanitize_settings: archive meta bucket kept' );
+iwsl_assert( isset( $clean_ss['title_templates']['post'] ), 'sanitize_settings: original post bucket still present (additive)' );
+
 // ── cleanup: unset every global this suite installed ──────────────────────────
 
+unset( $GLOBALS['iwseo_content_map'], $GLOBALS['iwseo_thumb_map'] );
 unset( $GLOBALS['iwseo_meta_boxes'] );
 unset( $GLOBALS['iwseo_removed'] );
 unset( $GLOBALS['iwseo_types'] );

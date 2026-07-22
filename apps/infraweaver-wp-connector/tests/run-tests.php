@@ -81,6 +81,13 @@ require __DIR__ . '/../includes/class-iwsl-seo-head.php';
 require __DIR__ . '/../includes/class-iwsl-seo-sitemap.php';
 require __DIR__ . '/../includes/class-iwsl-seo-suite.php';
 require __DIR__ . '/../includes/class-iwsl-perf-audit.php';
+// New Wave engines. Guarded so an in-progress file never fatals sibling suites.
+foreach ( array( 'class-iwsl-response-scan.php', 'class-iwsl-media-protection.php', 'class-iwsl-seo-alt-text.php' ) as $iwsl_new_inc ) {
+	$iwsl_new_path = __DIR__ . '/../includes/' . $iwsl_new_inc;
+	if ( file_exists( $iwsl_new_path ) ) {
+		require_once $iwsl_new_path;
+	}
+}
 
 $GLOBALS['iwsl_pass'] = 0;
 $GLOBALS['iwsl_fail'] = 0;
@@ -152,11 +159,11 @@ function iwsl_now_t0( int $offset_ms = 5000 ): callable {
 	};
 }
 
-$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements', 'feature-switches', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache', 'config-editor',
+$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements', 'feature-switches', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache', 'config-editor', 'ui-help',
 	// Wave 2 feature suites. broken-link-scan runs after media-optimizer (whose
 	// global stubs it is designed around); speed-pack MUST be last (it defines
 	// remove_action/remove_filter recorder stubs).
-	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'perf-audit', 'speed-pack' );
+	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'seo-alt-text', 'perf-audit', 'media-protection', 'response-scan', 'speed-pack' );
 // CHILD MODE: `php run-tests.php <suite>` runs exactly ONE suite in this process.
 // Each suite is self-contained (it defines its own guarded WP-function stubs), so
 // running it in isolation is authoritative and free of cross-suite global leakage.

@@ -379,4 +379,114 @@ $store->set( 'entitlements', array( 'redirect_manager' => false ) ); // console 
 $rd->maybe_redirect();
 iwsl_assert_same( 1, count( $rec->calls ), 'revocation: identical request after revoke adds NO redirect' );
 
+// ── 24. build_auto_source_target(): pure old→new diff + no-op cases ────────────
+
+$auto = IWSL_Redirects::build_auto_source_target( 'https://fixture-site.test/old-slug/', 'https://fixture-site.test/new-slug/' );
+iwsl_assert_same( '/old-slug', $auto['source'], 'auto build: source is the old normalized path' );
+iwsl_assert_same( 'https://fixture-site.test/new-slug/', $auto['target'], 'auto build: target is the new permalink verbatim' );
+iwsl_assert_same( null, IWSL_Redirects::build_auto_source_target( 'https://fixture-site.test/x/', 'https://fixture-site.test/x' ), 'auto build: same normalized path → null (no-op)' );
+iwsl_assert_same( null, IWSL_Redirects::build_auto_source_target( '', 'https://fixture-site.test/x' ), 'auto build: empty old permalink → null' );
+iwsl_assert_same( null, IWSL_Redirects::build_auto_source_target( 'https://fixture-site.test/x', '' ), 'auto build: empty new permalink → null' );
+
+// ── 25. detect_cycle(): simple loop, long chain, no-cycle ─────────────────────
+
+iwsl_assert_same( true, IWSL_Redirects::detect_cycle( array( iwsl_rd_make_rule( '/b', '/a', 301 ) ), '/a', '/b' ), 'detect_cycle: A→B with existing B→A is a loop' );
+$chain = array( iwsl_rd_make_rule( '/b', '/c', 301 ), iwsl_rd_make_rule( '/c', '/d', 301 ), iwsl_rd_make_rule( '/d', '/a', 301 ) );
+iwsl_assert_same( true, IWSL_Redirects::detect_cycle( $chain, '/a', '/b' ), 'detect_cycle: long chain A→B→C→D→A loops back' );
+iwsl_assert_same( false, IWSL_Redirects::detect_cycle( array( iwsl_rd_make_rule( '/b', '/c', 301 ) ), '/a', '/b' ), 'detect_cycle: A→B→C is not a loop' );
+iwsl_assert_same( false, IWSL_Redirects::detect_cycle( array(), '/a', '/z', ), 'detect_cycle: a single unmatched edge is not a loop' );
+
+// ── 26. add_rule refuses a rule that completes a loop ─────────────────────────
+
+$store = new IWSL_Memory_Store();
+$rec   = new IWSL_Recording_Redirector();
+$rd    = iwsl_rd_engine( $store, $RD_NOW, $rec );
+$rd->add_rule( '/b', '/a', 301 ); // existing B→A
+$loop = $rd->add_rule( '/a', '/b', 301 ); // A→B would close the loop
+iwsl_assert_same( 'creates-redirect-loop', $loop['reason'], 'add_rule: rejects a loop-closing rule' );
+iwsl_assert_same( 1, count( $rd->rules() ), 'add_rule: the loop rule was not stored' );
+
+// ── 27. auto-redirect toggle: default ON + gated set ──────────────────────────
+
+$store = new IWSL_Memory_Store();
+$rec   = new IWSL_Recording_Redirector();
+$rd    = iwsl_rd_engine( $store, $RD_NOW, $rec );
+iwsl_assert_same( true, $rd->is_auto_redirect_enabled(), 'auto-redirect: enabled by default (default ON)' );
+$rd->set_auto_redirect( false );
+iwsl_assert_same( false, $rd->is_auto_redirect_enabled(), 'auto-redirect: can be switched off' );
+$rd->set_auto_redirect( true );
+iwsl_assert_same( true, $rd->is_auto_redirect_enabled(), 'auto-redirect: can be switched back on' );
+
+$store_l = new IWSL_Memory_Store();
+$store_l->set( 'state', 'active' );
+$store_l->set( 'last_verified_at', $RD_NOW - 1000 );
+$store_l->set( 'entitlements', array( 'plus' => true ) ); // redirect_manager ABSENT
+$ent_l = new IWSL_Entitlements( $store_l, static function () use ( $RD_NOW ): int {
+	return $RD_NOW; } );
+$rd_l = new IWSL_Redirects( $ent_l, $store_l, static function () use ( $RD_NOW ): int {
+	return $RD_NOW; } );
+iwsl_assert_same( 'entitlement-locked', $rd_l->set_auto_redirect( true )['reason'], 'auto-redirect: set is gated (locked → refused)' );
+
+// ── 28. register() wires the front-end + auto-redirect hooks ──────────────────
+
+$GLOBALS['iwsl_rd_actions'] = array();
+if ( ! function_exists( 'add_action' ) ) {
+	function add_action( $hook, $cb = null, $priority = 10, $args = 1 ) {
+		$GLOBALS['iwsl_rd_actions'][] = (string) $hook;
+		return true;
+	}
+}
+$store = new IWSL_Memory_Store();
+$rec   = new IWSL_Recording_Redirector();
+$rd    = iwsl_rd_engine( $store, $RD_NOW, $rec );
+$rd->register();
+iwsl_assert( in_array( 'template_redirect', $GLOBALS['iwsl_rd_actions'], true ), 'register: wires template_redirect' );
+iwsl_assert( in_array( 'pre_post_update', $GLOBALS['iwsl_rd_actions'], true ), 'register: wires pre_post_update (snapshot)' );
+iwsl_assert( in_array( 'post_updated', $GLOBALS['iwsl_rd_actions'], true ), 'register: wires post_updated (diff)' );
+
+// ── 29. auto-redirect glue: a published slug change creates a 301 ─────────────
+// WP stubs defined LAST so every earlier test kept the strict local behaviour.
+
+$GLOBALS['iwsl_rd_perma']  = 'https://fixture-site.test/old-slug';
+$GLOBALS['iwsl_rd_status'] = 'publish';
+if ( ! function_exists( 'get_post_type' ) ) {
+	function get_post_type( $id = 0 ) {
+		return 'post';
+	}
+}
+if ( ! function_exists( 'get_post_status' ) ) {
+	function get_post_status( $id = 0 ) {
+		return (string) $GLOBALS['iwsl_rd_status'];
+	}
+}
+if ( ! function_exists( 'get_permalink' ) ) {
+	function get_permalink( $id = 0 ) {
+		return (string) $GLOBALS['iwsl_rd_perma'];
+	}
+}
+if ( ! function_exists( 'get_post_types' ) ) {
+	function get_post_types( $args = array(), $output = 'names' ) {
+		return array( 'post' => 'post', 'page' => 'page' );
+	}
+}
+$store = new IWSL_Memory_Store();
+$rec   = new IWSL_Recording_Redirector();
+$rd    = iwsl_rd_engine( $store, $RD_NOW, $rec );
+$rd->snapshot_permalink( 42 ); // captures old permalink (published public post)
+$GLOBALS['iwsl_rd_perma'] = 'https://fixture-site.test/new-slug'; // slug changed
+$rd->maybe_auto_redirect( 42, (object) array( 'post_status' => 'publish' ), null );
+$auto_rules = $rd->rules();
+iwsl_assert_same( 1, count( $auto_rules ), 'auto-redirect glue: a 301 was created on slug change' );
+iwsl_assert_same( '/old-slug', $auto_rules[0]['source'], 'auto-redirect glue: source is the old path' );
+iwsl_assert_same( 301, (int) $auto_rules[0]['type'], 'auto-redirect glue: status is 301' );
+
+// No-op: an unchanged permalink creates nothing.
+$store2 = new IWSL_Memory_Store();
+$rd2    = iwsl_rd_engine( $store2, $RD_NOW, new IWSL_Recording_Redirector() );
+$GLOBALS['iwsl_rd_perma'] = 'https://fixture-site.test/stable';
+$rd2->snapshot_permalink( 7 );
+$rd2->maybe_auto_redirect( 7, (object) array( 'post_status' => 'publish' ), null );
+iwsl_assert_same( 0, count( $rd2->rules() ), 'auto-redirect glue: unchanged permalink creates no rule' );
+
+unset( $GLOBALS['iwsl_rd_actions'], $GLOBALS['iwsl_rd_perma'], $GLOBALS['iwsl_rd_status'] );
 unset( $_SERVER['REQUEST_URI'] );

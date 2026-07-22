@@ -512,7 +512,7 @@ final class IWSL_Maintenance_Mode {
 		}
 		check_admin_referer( self::NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = iwsl_plus_redirect_base();
 
 		// LAYER 2: re-check the gate before touching any stored setting.
 		$gate = $this->entitlements->evaluate( self::FEATURE );

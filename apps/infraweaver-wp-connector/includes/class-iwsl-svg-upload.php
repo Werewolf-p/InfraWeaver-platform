@@ -512,7 +512,7 @@ final class IWSL_SVG_Upload {
 			check_admin_referer( self::NONCE );
 		}
 
-		$redirect = function_exists( 'admin_url' ) ? admin_url( 'admin.php?page=infraweaver-plus' ) : '';
+		$redirect = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
