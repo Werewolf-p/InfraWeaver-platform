@@ -151,6 +151,7 @@ final class IWSL_Admin {
 			'cache'             => IWSL_Page_Cache::FEATURE,
 			'lazy-load'         => IWSL_Lazy_Load::FEATURE,
 			'media-protect'     => IWSL_Media_Protection::FEATURE,
+			'elementor'         => IWSL_Elementor_Blocks::FEATURE,
 			'cdn'               => IWSL_CDN_Rewrite::FEATURE,
 			'duplicate'         => IWSL_Duplicate_Post::FEATURE,
 			'seo-audit'         => IWSL_SEO_Audit::FEATURE,
@@ -192,6 +193,7 @@ final class IWSL_Admin {
 			'auto-convert'      => __( 'Automatically turns your images into a smaller, faster format for you.', 'infraweaver-connector' ),
 			'svg'               => __( 'Lets you safely upload logo and icon files that stay crisp at any size.', 'infraweaver-connector' ),
 			'media-protect'     => __( 'Makes images you mark harder to right-click-save or drag-copy. A deterrent, not a lock.', 'infraweaver-connector' ),
+				'elementor'         => __( 'Adds ready-made InfraWeaver blocks — a call-to-action, feature grid, pricing table and notice — you can drop into the Elementor page builder.', 'infraweaver-connector' ),
 			'seo'               => __( 'Helps Google understand your pages so more people can find your site.', 'infraweaver-connector' ),
 			'seo-audit'         => __( 'Checks your pages for common Google mistakes and tells you what to fix.', 'infraweaver-connector' ),
 			'duplicate'         => __( 'Copies a post or page in one click so you don’t start from scratch.', 'infraweaver-connector' ),
@@ -350,6 +352,18 @@ final class IWSL_Admin {
 				),
 				'on_effect' => __( 'Right-click and drag-to-save get discouraged on your pictures, making casual copying harder.', 'infraweaver-connector' ),
 				'active'    => __( 'it’s making your pictures harder to right-click or drag away, as a gentle deterrent.', 'infraweaver-connector' ),
+			),
+			'elementor' => array(
+				'what'      => __( 'Adds a handful of ready-made InfraWeaver blocks to the Elementor page builder — a call-to-action, a feature grid, a pricing table and a notice.', 'infraweaver-connector' ),
+				'why'       => __( 'You get polished, on-brand sections you can drop into a page and fill in, instead of building them from scratch.', 'infraweaver-connector' ),
+				'should'    => __( 'Handy if you build pages with Elementor. You’ll need the free Elementor page builder installed first.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Make sure the free Elementor page builder is installed and active.', 'infraweaver-connector' ),
+					__( 'Edit any page with Elementor and open the widgets panel.', 'infraweaver-connector' ),
+					__( 'Find the “InfraWeaver” category and drag a block onto your page.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'The InfraWeaver blocks appear in Elementor’s widgets panel, ready to drag onto your pages.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s adding InfraWeaver blocks to your Elementor widgets panel for you to drop into any page.', 'infraweaver-connector' ),
 			),
 
 			// ── SEO & Content ────────────────────────────────────────────
@@ -921,6 +935,7 @@ final class IWSL_Admin {
 			'cdn'               => array( 'CDN URL Rewrite', function () use ( $ent ) { ( new IWSL_CDN_Rewrite( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'lazy-load'         => array( 'Lazy-Load Media', function () use ( $ent ) { ( new IWSL_Lazy_Load( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'media-protect'     => array( 'Media Protection', function () use ( $ent ) { ( new IWSL_Media_Protection( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+				'elementor'         => array( 'Elementor Blocks', function () use ( $ent ) { ( new IWSL_Elementor_Blocks( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'auto-convert'      => array( 'Scheduled Auto-Convert', function () use ( $ent ) { ( new IWSL_Auto_Convert( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'svg'               => array( 'SVG Uploads', function () use ( $ent ) { ( new IWSL_SVG_Upload( $ent ) )->render_section(); } ),
 			'seo-audit'         => array( 'SEO Meta Audit', function () use ( $ent ) { ( new IWSL_SEO_Audit( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
@@ -1887,6 +1902,7 @@ JS;
 			array( 'id' => 'auto-convert', 'label' => 'Auto-Convert', 'icon' => 'update', 'group' => 'Media' ),
 			array( 'id' => 'svg', 'label' => 'SVG', 'icon' => 'media-code', 'group' => 'Media' ),
 			array( 'id' => 'media-protect', 'label' => 'Media Protection', 'icon' => 'lock', 'group' => 'Media' ),
+			array( 'id' => 'elementor', 'label' => 'Elementor Blocks', 'icon' => 'layout', 'group' => 'Media' ),
 
 			// SEO & Content
 			array( 'id' => 'seo', 'label' => 'SEO', 'icon' => 'chart-area', 'group' => 'SEO & Content' ),

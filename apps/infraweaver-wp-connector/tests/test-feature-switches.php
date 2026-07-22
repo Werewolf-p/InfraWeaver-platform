@@ -45,7 +45,8 @@ iwsl_assert_same( true, IWSL_Feature_Switches::is_switchable( 'speed_pack' ), 's
 iwsl_assert_same( true, IWSL_Feature_Switches::is_switchable( 'white_label' ), 'white_label is switchable' );
 iwsl_assert_same( false, IWSL_Feature_Switches::is_switchable( 'wp_config_editor' ), 'config editor (no tier gate) is NOT switchable' );
 iwsl_assert_same( false, IWSL_Feature_Switches::is_switchable( 'nonsense' ), 'unknown flag not switchable' );
-iwsl_assert_same( 22, count( IWSL_Feature_Switches::switchable() ), 'exactly 22 switchable features' );
+iwsl_assert_same( 23, count( IWSL_Feature_Switches::switchable() ), 'exactly 23 switchable features' );
+iwsl_assert_same( true, IWSL_Feature_Switches::is_switchable( 'elementor_blocks' ), 'elementor_blocks is switchable' );
 
 // ── turning OFF is always allowed (even the ungranted) ─────────────────────────
 $r = $sw->set( 'speed_pack', false );
@@ -110,5 +111,5 @@ foreach ( $flag_map as $tab_id => $flag ) {
 	}
 }
 iwsl_assert_same( true, $all_covered, 'every admin card FEATURE flag is switchable (no toggle without a switch)' );
-iwsl_assert_same( 22, count( $flag_map ), 'admin exposes all 22 tier-gated features' );
+iwsl_assert_same( 23, count( $flag_map ), 'admin exposes all 23 tier-gated features' );
 iwsl_assert_same( count( array_unique( array_values( $flag_map ) ) ), count( $flag_map ), 'admin card map has no duplicate FEATURE flags' );

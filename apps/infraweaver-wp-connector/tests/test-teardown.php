@@ -84,7 +84,7 @@ iwsl_assert( true, 'flush_page_cache() returned safely with no plugin/cache pres
 
 // ── flags(): the switchable set plus the FREE perf audit ───────────────────────
 $flags = IWSL_Teardown::flags();
-iwsl_assert_same( 23, count( $flags ), 'flags() = 22 switchable + perf_audit' );
+iwsl_assert_same( 24, count( $flags ), 'flags() = 23 switchable + perf_audit' );
 iwsl_assert( in_array( 'response_scan', $flags, true ), 'flags() includes response_scan' );
 iwsl_assert( in_array( 'media_protection', $flags, true ), 'flags() includes media_protection' );
 iwsl_assert( in_array( IWSL_Teardown::FLAG_PERF_AUDIT, $flags, true ), 'flags() includes the FREE perf_audit' );
@@ -93,6 +93,7 @@ iwsl_assert( in_array( IWSL_Teardown::FLAG_PERF_AUDIT, $flags, true ), 'flags() 
 iwsl_assert( IWSL_Teardown::engine_for( 'lazy_load', $ent, $wp_store ) instanceof IWSL_Lazy_Load, 'lazy_load → IWSL_Lazy_Load' );
 iwsl_assert( IWSL_Teardown::engine_for( 'page_cache', $ent, $wp_store ) instanceof IWSL_Page_Cache, 'page_cache → IWSL_Page_Cache (ctor takes $ent only)' );
 iwsl_assert( IWSL_Teardown::engine_for( 'media_protection', $ent, $wp_store ) instanceof IWSL_Media_Protection, 'media_protection → IWSL_Media_Protection' );
+iwsl_assert( IWSL_Teardown::engine_for( 'elementor_blocks', $ent, $wp_store ) instanceof IWSL_Elementor_Blocks, 'elementor_blocks → IWSL_Elementor_Blocks' );
 iwsl_assert( IWSL_Teardown::engine_for( IWSL_Teardown::FLAG_PERF_AUDIT, $ent, $wp_store ) instanceof IWSL_Perf_Audit, 'perf_audit → IWSL_Perf_Audit (ctor takes $store only)' );
 iwsl_assert_same( null, IWSL_Teardown::engine_for( 'not_a_feature', $ent, $wp_store ), 'unknown flag → null' );
 iwsl_assert_same( null, IWSL_Teardown::engine_for( '', $ent, $wp_store ), 'empty flag → null' );

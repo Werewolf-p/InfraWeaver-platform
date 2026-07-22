@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.11.5
+ * Version: 0.11.6
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.11.5' );
+define( 'IWSL_CONNECTOR_VERSION', '0.11.6' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -66,6 +66,7 @@ require_once __DIR__ . '/includes/class-iwsl-config-editor.php';
 // ── Plus feature engines (wave 2): each gated, self-contained, console-granted ──
 require_once __DIR__ . '/includes/class-iwsl-lazy-load.php';
 require_once __DIR__ . '/includes/class-iwsl-media-protection.php';
+require_once __DIR__ . '/includes/class-iwsl-elementor-blocks.php';
 require_once __DIR__ . '/includes/class-iwsl-cdn-rewrite.php';
 require_once __DIR__ . '/includes/class-iwsl-duplicate-post.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-audit.php';
@@ -219,6 +220,16 @@ if ( $iwsl_switches->is_on( IWSL_Media_Protection::FEATURE ) ) {
 		wp_safe_redirect( $iwsl_plus_redirect() );
 		exit;
 	} );
+}
+
+// Elementor Blocks (Pro, `elementor_blocks`). Registers a set of InfraWeaver
+// Elementor widgets under their own category. register() self-gates on the
+// entitlement as statement 1 AND on Elementor being loaded, so a locked site —
+// or any site without Elementor — attaches no hooks and pays nothing. No settings
+// form, so there is no admin-post handler to wire. Registered on every request
+// because Elementor's registration hooks fire outside admin (the editor preview).
+if ( $iwsl_switches->is_on( IWSL_Elementor_Blocks::FEATURE ) ) {
+	( new IWSL_Elementor_Blocks( $iwsl_ent, new IWSL_WP_Store() ) )->register();
 }
 
 // CDN URL Rewrite (Ultimate, `cdn_rewrite`).

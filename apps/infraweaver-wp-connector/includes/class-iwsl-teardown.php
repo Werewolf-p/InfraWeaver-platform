@@ -110,6 +110,8 @@ final class IWSL_Teardown {
 				return new IWSL_Lazy_Load( $ent, $store );
 			case IWSL_Media_Protection::FEATURE:
 				return new IWSL_Media_Protection( $ent, $store );
+			case IWSL_Elementor_Blocks::FEATURE:
+				return new IWSL_Elementor_Blocks( $ent, $store );
 			case IWSL_Auto_Convert::FEATURE:
 				return new IWSL_Auto_Convert( $ent, $store );
 			case IWSL_SVG_Upload::FEATURE:

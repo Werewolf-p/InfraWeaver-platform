@@ -45,6 +45,7 @@ final class IWSL_Feature_Switches {
 			'cdn_rewrite'          => true,
 			'lazy_load'            => true,
 			'media_protection'     => true,
+			'elementor_blocks'     => true,
 			'image_optimization'   => true,
 			'auto_convert'         => true,
 			'svg_upload'           => true,
