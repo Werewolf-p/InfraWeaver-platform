@@ -617,6 +617,34 @@ if ( ! class_exists( 'IWSL_Fake_WPDB' ) ) {
 		public function esc_like( $s ) {
 			return addcslashes( (string) $s, '_%\\' );
 		}
+		/**
+		 * Models the two COUNT(*) queries library_stats() issues. It reads the MIME
+		 * allow-list straight out of the (already-prepared) `IN (...)` clause, counts
+		 * matching image attachments in the in-memory registry, and — when the query
+		 * JOINs postmeta — narrows to those carrying the optimizer's derivative meta.
+		 */
+		public function get_var( $q ) {
+			$q     = (string) $q;
+			$mimes = array();
+			if ( preg_match( '/IN \(([^)]*)\)/', $q, $m ) ) {
+				foreach ( explode( ',', $m[1] ) as $lit ) {
+					$mimes[] = trim( $lit, " '" );
+				}
+			}
+			$want_meta = false !== strpos( $q, 'wp_postmeta' );
+			$count     = 0;
+			foreach ( $GLOBALS['iwsl_mo_attachments'] as $id => $att ) {
+				$mime = isset( $att['mime'] ) ? (string) $att['mime'] : '';
+				if ( array() !== $mimes && ! in_array( $mime, $mimes, true ) ) {
+					continue;
+				}
+				if ( $want_meta && ! isset( $GLOBALS['iwsl_mo_meta'][ $id ][ IWSL_Media_Optimizer::META_KEY ] ) ) {
+					continue;
+				}
+				++$count;
+			}
+			return (string) $count;
+		}
 		public function prepare( $q, ...$args ) {
 			foreach ( $args as $a ) {
 				$rep = is_int( $a ) ? (string) (int) $a : "'" . str_replace( "'", "''", (string) $a ) . "'";
@@ -853,6 +881,254 @@ $p14b = $opt14->purge();
 iwsl_assert_same( 0, $p14b['meta'], 'purge(idempotent): second call removes nothing (meta=0)' );
 iwsl_assert_same( 0, $p14b['locks'], 'purge(idempotent): second call clears nothing (locks=0)' );
 
+// ── 13. library_stats(): whole-library optimization counters ─────────────────
+//
+// Uses the REAL converter registry (so the optimizable MIME set is png/jpeg/gif/
+// bmp/tiff) and the fake $wpdb's COUNT(*) support added above. Proves total counts
+// only optimizable image attachments (already-WebP derivatives excluded), optimized
+// counts those carrying the derivative meta, and remaining = total - optimized.
+
+iwsl_mo_reset();
+$base_stats = iwsl_mo_tempdir();
+$GLOBALS['iwsl_mo_attachments'][1001] = array( 'path' => $base_stats . '/a.png', 'mime' => 'image/png' );
+$GLOBALS['iwsl_mo_attachments'][1002] = array( 'path' => $base_stats . '/b.png', 'mime' => 'image/png' );
+$GLOBALS['iwsl_mo_attachments'][1003] = array( 'path' => $base_stats . '/c.jpg', 'mime' => 'image/jpeg' );
+$GLOBALS['iwsl_mo_attachments'][1004] = array( 'path' => $base_stats . '/d.webp', 'mime' => 'image/webp' ); // NOT optimizable
+$GLOBALS['iwsl_mo_meta'][1001][ IWSL_Media_Optimizer::META_KEY ] = array(
+	'converter' => 'webp_lossless', 'source_size' => 1, 'source_mtime' => 1,
+);
+
+$opt_stats = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base_stats,
+	static function () use ( $NOW ): int {
+		return $NOW; }
+); // default (real) converter registry → full optimizable MIME set.
+$stats = $opt_stats->library_stats();
+iwsl_assert_same( array( 'total', 'optimized', 'remaining' ), array_keys( $stats ), 'library_stats: shape is { total, optimized, remaining }' );
+iwsl_assert_same( 3, $stats['total'], 'library_stats: total excludes the already-WebP attachment (2 png + 1 jpeg)' );
+iwsl_assert_same( 1, $stats['optimized'], 'library_stats: optimized counts only sources carrying the derivative meta' );
+iwsl_assert_same( 2, $stats['remaining'], 'library_stats: remaining = total - optimized' );
+
+// Everything optimized → remaining 0.
+$GLOBALS['iwsl_mo_meta'][1002][ IWSL_Media_Optimizer::META_KEY ] = array( 'converter' => 'webp_lossless', 'source_size' => 1, 'source_mtime' => 1 );
+$GLOBALS['iwsl_mo_meta'][1003][ IWSL_Media_Optimizer::META_KEY ] = array( 'converter' => 'webp_lossless', 'source_size' => 1, 'source_mtime' => 1 );
+$stats_done = $opt_stats->library_stats();
+iwsl_assert_same( 3, $stats_done['optimized'], 'library_stats: optimized rises as more sources gain the meta' );
+iwsl_assert_same( 0, $stats_done['remaining'], 'library_stats: remaining reaches 0 when every source is optimized' );
+
+// Empty library → all zeros (no divide-by-anything, no negatives).
+iwsl_mo_reset();
+$stats_empty = $opt_stats->library_stats();
+iwsl_assert_same( array( 'total' => 0, 'optimized' => 0, 'remaining' => 0 ), $stats_empty, 'library_stats: empty library → all zeros' );
+
+// ── 14. AJAX endpoints: existence + shared security gate ─────────────────────
+//
+// The two logged-in-only AJAX actions (iwsl_mo_status / iwsl_mo_run_batch) live on
+// IWSL_Admin. Load it here (its deps are already required by the runner) and drive
+// the handlers with capturing stubs for the WP AJAX terminals, proving they enforce
+// the SAME defence as the admin-post path: manage_options, then the entitlement gate,
+// before any conversion — and that the happy path runs one real batch + reports stats.
+
+$iwsl_admin_inc = __DIR__ . '/../includes/class-iwsl-admin.php';
+if ( is_file( $iwsl_admin_inc ) ) {
+	require_once $iwsl_admin_inc;
+}
+
+if ( class_exists( 'IWSL_Admin' ) ) {
+
+	// Capturing terminal: wp_send_json_* normally wp_die()/exit — here they throw so
+	// the test can inspect the emitted payload + HTTP status without ending the run.
+	if ( ! class_exists( 'IWSL_Ajax_Halt' ) ) {
+		final class IWSL_Ajax_Halt extends Exception {
+			public $ok;
+			public $payload;
+			public $http;
+			public function __construct( bool $ok, $payload, int $http ) {
+				parent::__construct( 'ajax-halt' );
+				$this->ok      = $ok;
+				$this->payload = $payload;
+				$this->http    = $http;
+			}
+		}
+	}
+	if ( ! function_exists( 'current_user_can' ) ) {
+		function current_user_can( $cap ) {
+			return ! empty( $GLOBALS['iwsl_mo_can'] );
+		}
+	}
+	if ( ! function_exists( 'check_ajax_referer' ) ) {
+		function check_ajax_referer( $action = -1, $query_arg = false, $die = true ) {
+			return 1; // nonce validation is WP's own tested code; bypass in-harness.
+		}
+	}
+	if ( ! function_exists( 'wp_send_json_success' ) ) {
+		function wp_send_json_success( $data = null, $status = 200 ) {
+			throw new IWSL_Ajax_Halt( true, $data, (int) $status );
+		}
+	}
+	if ( ! function_exists( 'wp_send_json_error' ) ) {
+		function wp_send_json_error( $data = null, $status = 200 ) {
+			throw new IWSL_Ajax_Halt( false, $data, (int) $status );
+		}
+	}
+	if ( ! function_exists( 'sanitize_key' ) ) {
+		function sanitize_key( $key ) {
+			return strtolower( preg_replace( '/[^a-z0-9_\-]/i', '', (string) $key ) );
+		}
+	}
+	if ( ! function_exists( 'wp_unslash' ) ) {
+		function wp_unslash( $v ) {
+			return is_string( $v ) ? stripslashes( $v ) : $v;
+		}
+	}
+	if ( ! function_exists( 'sanitize_text_field' ) ) {
+		function sanitize_text_field( $s ) {
+			return trim( (string) $s );
+		}
+	}
+
+	/** Build an IWSL_Plugin whose entitlement gate is unlocked / locked for the FEATURE. */
+	$iwsl_mo_plugin = static function ( bool $unlocked ) use ( $NOW ): IWSL_Plugin {
+		$store = new IWSL_Memory_Store();
+		$store->set( 'state', 'active' );
+		$store->set( 'last_verified_at', $NOW - 60000 );
+		$store->set( 'entitlements', $unlocked ? array( 'plus' => true, 'image_optimization' => true ) : array( 'plus' => true ) );
+		return new IWSL_Plugin(
+			$store,
+			static function () use ( $NOW ): int {
+				return $NOW; }
+		);
+	};
+
+	// (a) both AJAX handler methods exist and are public.
+	iwsl_assert( method_exists( 'IWSL_Admin', 'handle_mo_status_ajax' ), 'ajax: handle_mo_status_ajax() exists' );
+	iwsl_assert( method_exists( 'IWSL_Admin', 'handle_mo_run_batch_ajax' ), 'ajax: handle_mo_run_batch_ajax() exists' );
+	$ref_status = new ReflectionMethod( 'IWSL_Admin', 'handle_mo_status_ajax' );
+	$ref_batch  = new ReflectionMethod( 'IWSL_Admin', 'handle_mo_run_batch_ajax' );
+	iwsl_assert( $ref_status->isPublic() && $ref_batch->isPublic(), 'ajax: both handlers are public (admin-ajax callable)' );
+
+	// A fake-converter optimizer so no real WebP engine is needed; unlocked so its
+	// own run()-gate never masks the handler-level gate we are probing.
+	$iwsl_mo_make_admin = static function ( bool $unlocked, string $base ) use ( $iwsl_mo_plugin, $NOW ): IWSL_Admin {
+		$optimizer = new IWSL_Media_Optimizer(
+			iwsl_mo_unlocked_entitlements( $NOW ),
+			$base,
+			static function () use ( $NOW ): int {
+				return $NOW; },
+			array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) )
+		);
+		return new IWSL_Admin( $iwsl_mo_plugin( $unlocked ), $optimizer );
+	};
+
+	// (b) no manage_options → forbidden, for BOTH endpoints, before any work.
+	$GLOBALS['iwsl_mo_can'] = false;
+	$admin_forbidden        = $iwsl_mo_make_admin( true, iwsl_mo_tempdir() );
+	foreach ( array( 'handle_mo_status_ajax', 'handle_mo_run_batch_ajax' ) as $iwsl_mo_method ) {
+		$caught = null;
+		try {
+			$admin_forbidden->$iwsl_mo_method();
+		} catch ( IWSL_Ajax_Halt $e ) {
+			$caught = $e;
+		}
+		iwsl_assert( $caught instanceof IWSL_Ajax_Halt && false === $caught->ok, "ajax: {$iwsl_mo_method} rejects without manage_options" );
+		iwsl_assert_same( 'forbidden', $caught ? ( $caught->payload['reason'] ?? '' ) : '', "ajax: {$iwsl_mo_method} forbidden reason" );
+		iwsl_assert_same( 403, $caught ? $caught->http : 0, "ajax: {$iwsl_mo_method} forbidden is HTTP 403" );
+	}
+
+	// (c) capable but entitlement LOCKED → entitlement-locked, before any conversion.
+	$GLOBALS['iwsl_mo_can'] = true;
+	iwsl_mo_reset();
+	$fake_locked  = new IWSL_Recording_Converter( 0.4 );
+	$admin_locked = new IWSL_Admin(
+		$iwsl_mo_plugin( false ),
+		new IWSL_Media_Optimizer(
+			iwsl_mo_unlocked_entitlements( $NOW ),
+			iwsl_mo_tempdir(),
+			static function () use ( $NOW ): int {
+				return $NOW; },
+			array( 'webp_lossless' => $fake_locked )
+		)
+	);
+	foreach ( array( 'handle_mo_status_ajax', 'handle_mo_run_batch_ajax' ) as $iwsl_mo_method ) {
+		$caught = null;
+		try {
+			$admin_locked->$iwsl_mo_method();
+		} catch ( IWSL_Ajax_Halt $e ) {
+			$caught = $e;
+		}
+		iwsl_assert_same( 'entitlement-locked', $caught ? ( $caught->payload['reason'] ?? '' ) : '', "ajax: {$iwsl_mo_method} refuses a locked site" );
+		iwsl_assert_same( 403, $caught ? $caught->http : 0, "ajax: {$iwsl_mo_method} locked is HTTP 403" );
+	}
+	iwsl_assert_same( 0, $fake_locked->convert_calls, 'ajax: locked batch NEVER reaches the converter' );
+
+	// (d) status success → { stats: { total, optimized, remaining } }.
+	$GLOBALS['iwsl_mo_can'] = true;
+	iwsl_mo_reset();
+	$base_ajax = iwsl_mo_tempdir();
+	$GLOBALS['iwsl_mo_attachments'][1101] = array( 'path' => $base_ajax . '/s.png', 'mime' => 'image/png' );
+	$admin_ok = $iwsl_mo_make_admin( true, $base_ajax );
+	$caught   = null;
+	try {
+		$admin_ok->handle_mo_status_ajax();
+	} catch ( IWSL_Ajax_Halt $e ) {
+		$caught = $e;
+	}
+	iwsl_assert( $caught instanceof IWSL_Ajax_Halt && true === $caught->ok, 'ajax: status success emits wp_send_json_success' );
+	$status_stats = $caught ? ( $caught->payload['stats'] ?? array() ) : array();
+	iwsl_assert_same( array( 'total', 'optimized', 'remaining' ), array_keys( $status_stats ), 'ajax: status payload carries a { total, optimized, remaining } stats block' );
+	iwsl_assert_same( 1, $status_stats['total'] ?? -1, 'ajax: status counts the one optimizable png' );
+
+	// (e) batch success → runs ONE real batch and reports { summary, stats }.
+	iwsl_mo_reset();
+	$base_batch = iwsl_mo_tempdir();
+	$png_batch  = $base_batch . '/run.png';
+	file_put_contents( $png_batch, iwsl_mo_valid_png( 8, 8 ) );
+	$GLOBALS['iwsl_mo_attachments'][1201] = array( 'path' => $png_batch, 'mime' => 'image/png' );
+	$fake_batch  = new IWSL_Recording_Converter( 0.4 );
+	$admin_batch = new IWSL_Admin(
+		$iwsl_mo_plugin( true ),
+		new IWSL_Media_Optimizer(
+			iwsl_mo_unlocked_entitlements( $NOW ),
+			$base_batch,
+			static function () use ( $NOW ): int {
+				return $NOW; },
+			array( 'webp_lossless' => $fake_batch )
+		)
+	);
+	$_POST  = array(
+		'action'                 => 'iwsl_mo_run_batch',
+		'nonce'                  => 'test',
+		'converter'              => 'webp_lossless',
+		'types'                  => 'auto',
+		'mode'                   => 'copy',
+		'count'                  => '10',
+		'ids'                    => '',
+		'rewrite'                => '',
+		'iwsl_mo_skip_optimized' => '1',
+	);
+	$caught = null;
+	try {
+		$admin_batch->handle_mo_run_batch_ajax();
+	} catch ( IWSL_Ajax_Halt $e ) {
+		$caught = $e;
+	}
+	$_POST = array();
+	iwsl_assert( $caught instanceof IWSL_Ajax_Halt && true === $caught->ok, 'ajax: batch success emits wp_send_json_success' );
+	$batch_payload = $caught ? $caught->payload : array();
+	iwsl_assert( isset( $batch_payload['summary'], $batch_payload['stats'] ), 'ajax: batch payload carries both summary and stats' );
+	iwsl_assert_same( 1, $fake_batch->convert_calls, 'ajax: batch actually ran one conversion' );
+	iwsl_assert_same( 1, (int) ( $batch_payload['summary']['converted'] ?? 0 ), 'ajax: batch summary reports one converted' );
+	iwsl_assert_same( 0, (int) ( $batch_payload['stats']['remaining'] ?? -1 ), 'ajax: batch stats show nothing remaining after the source is optimized' );
+} else {
+	echo "  [skip] AJAX endpoint tests — IWSL_Admin not loadable in this harness\n";
+}
+
 // This suite is the only one that installs a global $wpdb; other suites bring
 // their own recording fake. Remove it so it never leaks across the shared runner.
 unset( $GLOBALS['wpdb'] );
+
+// (15) no-WP guard: with $wpdb gone, library_stats() degrades to all-zeros rather
+// than fataling — the same guard every WordPress call in this engine carries.
+$stats_no_wp = $opt_stats->library_stats();
+iwsl_assert_same( array( 'total' => 0, 'optimized' => 0, 'remaining' => 0 ), $stats_no_wp, 'library_stats: returns all-zeros with no $wpdb (no-WP harness guard)' );

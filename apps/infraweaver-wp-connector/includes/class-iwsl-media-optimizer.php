@@ -263,6 +263,89 @@ final class IWSL_Media_Optimizer {
 	}
 
 	/**
+	 * Whole-library optimization counters — the source of truth for the progress
+	 * popup and its AJAX status endpoint. Returns { total, optimized, remaining }:
+	 *
+	 *   - total     — image attachments this engine CAN optimize: post_mime_type is
+	 *                 in the union of every registered converter's accepted MIMEs, so
+	 *                 already-produced WebP derivatives and non-optimizable attachments
+	 *                 are excluded (this is the same candidate set select_batch() draws
+	 *                 from, so `remaining` tracks what a run actually has left to do);
+	 *   - optimized — how many of those already carry this optimizer's derivative
+	 *                 tracking meta (self::META_KEY) — i.e. already have an up-to-date
+	 *                 lossless copy on record;
+	 *   - remaining — max( 0, total - optimized ).
+	 *
+	 * Two efficient COUNT(*) queries (mirrors the parameterised $wpdb pattern used by
+	 * rewrite_post_references()). No user input reaches SQL — the MIME allow-list is
+	 * derived from the converter registry and bound through prepare(). Fully guarded:
+	 * returns all-zeros outside a WordPress $wpdb context (the no-WP test harness).
+	 *
+	 * @return array{ total:int, optimized:int, remaining:int }
+	 */
+	public function library_stats(): array {
+		$zero = array( 'total' => 0, 'optimized' => 0, 'remaining' => 0 );
+
+		global $wpdb;
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb )
+			|| ! method_exists( $wpdb, 'get_var' ) || ! method_exists( $wpdb, 'prepare' ) ) {
+			return $zero;
+		}
+
+		$mimes = $this->optimizable_mimes();
+		if ( array() === $mimes ) {
+			return $zero;
+		}
+		$placeholders = implode( ',', array_fill( 0, count( $mimes ), '%s' ) );
+
+		$total = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->posts}
+				 WHERE post_type = 'attachment' AND post_status = 'inherit'
+				   AND post_mime_type IN ($placeholders)",
+				...$mimes
+			)
+		);
+
+		$meta_args = array_merge( $mimes, array( self::META_KEY ) );
+		$optimized = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->posts} p
+				 INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID
+				 WHERE p.post_type = 'attachment' AND p.post_status = 'inherit'
+				   AND p.post_mime_type IN ($placeholders)
+				   AND m.meta_key = %s",
+				...$meta_args
+			)
+		);
+
+		$optimized = min( $optimized, $total ); // defensive: subset can never exceed total.
+		return array(
+			'total'     => $total,
+			'optimized' => $optimized,
+			'remaining' => max( 0, $total - $optimized ),
+		);
+	}
+
+	/**
+	 * The union of every registered converter's accepted MIME types — the full set
+	 * of image types this engine can turn into a WebP. Order-stable, de-duplicated.
+	 *
+	 * @return string[]
+	 */
+	private function optimizable_mimes(): array {
+		$out = array();
+		foreach ( $this->converters as $converter ) {
+			foreach ( $converter->accepts() as $mime ) {
+				if ( is_string( $mime ) && '' !== $mime && ! in_array( $mime, $out, true ) ) {
+					$out[] = $mime;
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Server-side batch selection: this site's own attachments whose MIME is on
 	 * the converter's allow-list, oldest id first, capped at MAX_BATCH. Returns
 	 * an empty list outside WordPress.

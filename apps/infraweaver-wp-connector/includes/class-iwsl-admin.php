@@ -36,6 +36,16 @@ final class IWSL_Admin {
 	/** Nonce action guarding the run form. */
 	const OPTIMIZE_NONCE = 'iwsl_media_optimize';
 
+	/**
+	 * Authenticated (logged-in only) admin-ajax actions powering the progress
+	 * popup's auto-loop: a read-only library-stats poll and a single bounded batch
+	 * run. Both carry the SAME defence as the admin-post handler — manage_options,
+	 * the OPTIMIZE_NONCE via check_ajax_referer(), and the authoritative entitlement
+	 * gate inside IWSL_Media_Optimizer::run(). There is deliberately NO nopriv twin.
+	 */
+	const MO_STATUS_ACTION = 'iwsl_mo_status';
+	const MO_BATCH_ACTION  = 'iwsl_mo_run_batch';
+
 	/** admin-post action + nonce for the SMTP settings save. */
 	const EMAIL_SETTINGS_ACTION = 'iwsl_email_settings';
 	const EMAIL_SETTINGS_NONCE  = 'iwsl_email_settings';
@@ -705,6 +715,10 @@ final class IWSL_Admin {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'admin_post_' . self::OPTIMIZE_ACTION, array( $this, 'handle_media_optimize' ) );
+		// Logged-in-only AJAX surface for the image-optimizer progress popup. Same
+		// cap + nonce + entitlement gate as the admin-post handler; no nopriv twin.
+		add_action( 'wp_ajax_' . self::MO_STATUS_ACTION, array( $this, 'handle_mo_status_ajax' ) );
+		add_action( 'wp_ajax_' . self::MO_BATCH_ACTION, array( $this, 'handle_mo_run_batch_ajax' ) );
 		add_action( 'admin_post_' . self::EMAIL_SETTINGS_ACTION, array( $this, 'handle_email_settings_save' ) );
 		add_action( 'admin_post_' . self::EMAIL_LOG_CLEAR_ACTION, array( $this, 'handle_email_log_clear' ) );
 		add_action( 'admin_post_' . self::EMAIL_TEST_ACTION, array( $this, 'handle_email_test' ) );
@@ -3190,10 +3204,14 @@ JS;
 
 		// PRIMARY one-click action — safe defaults apply (Auto types, keep original +
 		// add WebP, only smaller results kept). Open Advanced to tune before running.
+		// With JS the two buttons open the progress popup and auto-loop the AJAX queue
+		// to completion; without JS they POST one bounded batch (the no-JS fallback).
 		echo '<div class="iwsl-primary">';
 		echo '<span class="iwsl-primary__meta">' . esc_html__( 'Re-encodes to WebP — originals kept, only smaller results are saved.', 'infraweaver-connector' ) . '</span>';
-		echo '<button type="submit" name="op" value="run" class="button button-primary">' . esc_html__( 'Optimize all images', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="submit" id="iwsl-mo-run-all" name="op" value="run" class="button button-primary">' . esc_html__( 'Optimize all images', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="submit" id="iwsl-mo-replace-all" name="op" value="replace-all" class="button button-link-delete">' . esc_html__( 'Replace all larger files with lossless', 'infraweaver-connector' ) . '</button>';
 		echo '</div>';
+		echo '<p class="description" id="iwsl-mo-replace-all-note" style="margin:-6px 0 4px;">' . esc_html__( 'Replace mode swaps each original for its WebP only where the WebP is smaller, then deletes the original — any hardcoded file link in post content will break.', 'infraweaver-connector' ) . '</p>';
 
 		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
 
@@ -3232,7 +3250,7 @@ JS;
 		echo '</td></tr>';
 
 		echo '<tr><th scope="row">' . esc_html__( 'On your pages', 'infraweaver-connector' ) . iwsl_field_help( 'Swap the pictures shown on your pages to the smaller ones.' ) . '</th><td>';
-		echo '<label style="display:block;"><input type="checkbox" name="rewrite" value="1"> <strong>' . esc_html__( 'Replace the images on my pages with the optimized WebP', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Rewrites the image URLs in post & page content (including srcset) to point at the new WebP — even when you keep the original copy. Applies to images optimized in this run.', 'infraweaver-connector' ) . '</span></label>';
+		echo '<label style="display:block;"><input type="checkbox" name="rewrite" value="1" checked> <strong>' . esc_html__( 'Replace the images on my pages with the optimized WebP', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'On by default. Rewrites the image URLs in post & page content (including srcset) to point at the new WebP — even when you keep the original copy. Applies to images optimized in this run.', 'infraweaver-connector' ) . '</span></label>';
 		echo '</td></tr>';
 
 		echo '</tbody></table>';
@@ -3252,6 +3270,322 @@ JS;
 		echo '</div></details>';
 		echo '</form>';
 		self::render_media_picker_script();
+		$this->render_optimizer_progress_ui();
+	}
+
+	/**
+	 * The self-contained progress popup + its auto-loop orchestrator, injected ONLY
+	 * on this (unlocked Image Optimization) page. No external assets: inline CSS +
+	 * one nowdoc script, keyed off a JSON config (ajax url, the OPTIMIZE_NONCE, the
+	 * two AJAX action names, i18n labels). The script hijacks the two primary buttons
+	 * to open the modal and loop iwsl_mo_run_batch until `remaining` hits 0 OR a
+	 * no-progress guard trips; the plain form POST remains the no-JS fallback. Server
+	 * stays authoritative — the JS sends only already-form-validated fields, and every
+	 * one is re-validated server-side by read_media_optimize_request().
+	 */
+	private function render_optimizer_progress_ui(): void {
+		$cfg = array(
+			'ajaxUrl'         => admin_url( 'admin-ajax.php' ),
+			'nonce'           => wp_create_nonce( self::OPTIMIZE_NONCE ),
+			'statusAction'    => self::MO_STATUS_ACTION,
+			'batchAction'     => self::MO_BATCH_ACTION,
+			'maxRequest'      => IWSL_Media_Optimizer::MAX_REQUEST,
+			// Stop the loop after this many consecutive batches that make no headway
+			// (e.g. every remaining image has no smaller lossless version) — the guard
+			// against an infinite loop when `remaining` can never reach exactly 0.
+			'noProgressLimit' => 3,
+			'replaceConfirm'  => __( 'Replace every original with its smaller WebP across your whole library? Each original is deleted once its WebP copy is confirmed smaller. This cannot be undone.', 'infraweaver-connector' ),
+			'i18n'            => array(
+				'titleOptimize' => __( 'Optimizing images', 'infraweaver-connector' ),
+				'titleReplace'  => __( 'Replacing with lossless WebP', 'infraweaver-connector' ),
+				'total'         => __( 'Total images', 'infraweaver-connector' ),
+				'optimized'     => __( 'Already lossless', 'infraweaver-connector' ),
+				'remaining'     => __( 'Remaining', 'infraweaver-connector' ),
+				'starting'      => __( 'Starting…', 'infraweaver-connector' ),
+				/* translators: 1: images done so far, 2: total images. */
+				'converting'    => __( 'Converting… %1$s of %2$s', 'infraweaver-connector' ),
+				'done'          => __( 'All done ✓ — every image has a lossless copy.', 'infraweaver-connector' ),
+				'doneLeftovers' => __( 'All done ✓ — remaining images have no smaller lossless version and were left unchanged.', 'infraweaver-connector' ),
+				'stopped'       => __( 'Stopped. You can close this and re-open it to continue.', 'infraweaver-connector' ),
+				'errNetwork'    => __( 'Network error — could not reach the server. Nothing was lost; try again.', 'infraweaver-connector' ),
+				'errLocked'     => __( 'Image Optimization is not granted for this site.', 'infraweaver-connector' ),
+				'errForbidden'  => __( 'You do not have permission to run this action.', 'infraweaver-connector' ),
+				'errGeneric'    => __( 'The run was refused by the server.', 'infraweaver-connector' ),
+				'close'         => __( 'Close', 'infraweaver-connector' ),
+			),
+		);
+
+		// Modal shell — hidden until a run starts. role=dialog + aria-modal, an
+		// aria-live log line, and a labelled progress bar for assistive tech.
+		$title     = esc_html( $cfg['i18n']['titleOptimize'] );
+		$lbl_total = esc_html( $cfg['i18n']['total'] );
+		$lbl_opt   = esc_html( $cfg['i18n']['optimized'] );
+		$lbl_rem   = esc_html( $cfg['i18n']['remaining'] );
+		$lbl_close = esc_html( $cfg['i18n']['close'] );
+
+		echo '<div id="iwsl-mo-modal" class="iwsl-mo-modal" hidden role="dialog" aria-modal="true" aria-labelledby="iwsl-mo-modal-title">';
+		echo '<div class="iwsl-mo-modal__backdrop" data-iwsl-mo-close></div>';
+		echo '<div class="iwsl-mo-modal__panel" role="document">';
+		echo '<h2 id="iwsl-mo-modal-title" class="iwsl-mo-modal__title">' . $title . '</h2>';
+		echo '<div class="iwsl-mo-stats">';
+		echo '<div class="iwsl-mo-stat"><span class="iwsl-mo-stat__label">' . $lbl_total . '</span><span class="iwsl-mo-stat__num" id="iwsl-mo-total">–</span></div>';
+		echo '<div class="iwsl-mo-stat"><span class="iwsl-mo-stat__label">' . $lbl_opt . '</span><span class="iwsl-mo-stat__num" id="iwsl-mo-optimized">–</span></div>';
+		echo '<div class="iwsl-mo-stat"><span class="iwsl-mo-stat__label">' . $lbl_rem . '</span><span class="iwsl-mo-stat__num" id="iwsl-mo-remaining">–</span></div>';
+		echo '</div>';
+		echo '<div class="iwsl-mo-bar" id="iwsl-mo-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="iwsl-mo-bar__fill" id="iwsl-mo-bar-fill"></div></div>';
+		echo '<p class="iwsl-mo-log" id="iwsl-mo-log" role="status" aria-live="polite"></p>';
+		echo '<div class="iwsl-mo-modal__actions">';
+		echo '<button type="button" class="button button-primary" id="iwsl-mo-modal-close" data-iwsl-mo-close>' . $lbl_close . '</button>';
+		echo '</div>';
+		echo '</div></div>';
+
+		// Scoped styles — theme-neutral, uses WP admin palette; high z-index overlay.
+		echo '<style>
+.iwsl-mo-modal{ position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; }
+.iwsl-mo-modal[hidden]{ display:none; }
+.iwsl-mo-modal__backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.55); }
+.iwsl-mo-modal__panel{ position:relative; background:#fff; color:#1d2327; width:min(460px,92vw); max-height:90vh; overflow:auto; border-radius:10px; padding:22px 24px; box-shadow:0 12px 40px rgba(0,0,0,.35); }
+.iwsl-mo-modal__title{ margin:0 0 14px; font-size:18px; }
+.iwsl-mo-stats{ display:flex; gap:10px; flex-wrap:wrap; margin:0 0 14px; }
+.iwsl-mo-stat{ flex:1 1 120px; background:#f0f0f1; border-radius:8px; padding:10px 12px; text-align:center; }
+.iwsl-mo-stat__label{ display:block; font-size:12px; color:#50575e; }
+.iwsl-mo-stat__num{ display:block; font-size:22px; font-weight:600; margin-top:2px; }
+.iwsl-mo-bar{ height:12px; background:#dcdcde; border-radius:999px; overflow:hidden; margin:0 0 12px; }
+.iwsl-mo-bar__fill{ height:100%; width:0; background:#2271b1; transition:width .25s ease; }
+.iwsl-mo-log{ margin:0 0 16px; min-height:1.4em; font-size:13px; color:#3c434a; }
+.iwsl-mo-log.is-error{ color:#b32d2e; font-weight:600; }
+.iwsl-mo-log.is-done{ color:#1a7f37; font-weight:600; }
+.iwsl-mo-modal__actions{ display:flex; justify-content:flex-end; }
+@media (prefers-color-scheme: dark){
+	.iwsl-mo-modal__panel{ background:#1d2327; color:#e0e0e2; }
+	.iwsl-mo-stat{ background:#2c3338; }
+	.iwsl-mo-stat__label{ color:#a7aaad; }
+	.iwsl-mo-bar{ background:#3c434a; }
+	.iwsl-mo-log{ color:#c3c4c7; }
+}
+</style>';
+
+		echo '<script>window.iwslMoCfg = ' . wp_json_encode( $cfg ) . ';</script>';
+		self::render_optimizer_progress_script();
+	}
+
+	/**
+	 * The progress-popup controller. Vanilla JS, no dependencies: hijacks the two
+	 * primary buttons, opens the modal (focus-managed, Esc to close), then loops the
+	 * iwsl_mo_run_batch AJAX action — updating Total / Already lossless / Remaining
+	 * from each response's `stats` — until remaining hits 0 or the no-progress guard
+	 * trips. Reads run parameters straight from the visible form so the loop mirrors
+	 * exactly what a no-JS POST would submit (server re-validates regardless).
+	 */
+	private static function render_optimizer_progress_script(): void {
+		echo "<script>\n";
+		echo <<<'JS'
+(function(){
+	var cfg = window.iwslMoCfg;
+	if (!cfg) { return; }
+	var form = document.querySelector('.iwsl-mo-form');
+	var modal = document.getElementById('iwsl-mo-modal');
+	if (!form || !modal) { return; }
+
+	var runBtn = document.getElementById('iwsl-mo-run-all');
+	var repBtn = document.getElementById('iwsl-mo-replace-all');
+	var closeEls = modal.querySelectorAll('[data-iwsl-mo-close]');
+	var lastFocus = null;
+	var busy = false;
+	var stopRequested = false;
+
+	function el(id){ return document.getElementById(id); }
+	function setText(id, v){ var n = el(id); if (n) { n.textContent = String(v); } }
+	function fmt(tpl, a, b){ return String(tpl).replace('%1$s', a).replace('%2$s', b); }
+
+	function setLog(msg, state){
+		var n = el('iwsl-mo-log');
+		if (!n) { return; }
+		n.textContent = msg;
+		n.className = 'iwsl-mo-log' + (state ? ' is-' + state : '');
+	}
+
+	function setBar(total, optimized, remaining){
+		var pct = total > 0 ? Math.round(optimized / total * 100) : (remaining === 0 ? 100 : 0);
+		if (pct < 0) { pct = 0; } if (pct > 100) { pct = 100; }
+		var fill = el('iwsl-mo-bar-fill'); if (fill) { fill.style.width = pct + '%'; }
+		var bar = el('iwsl-mo-bar'); if (bar) { bar.setAttribute('aria-valuenow', String(pct)); }
+	}
+
+	function applyStats(stats){
+		stats = stats || {};
+		var total = parseInt(stats.total, 10) || 0;
+		var optimized = parseInt(stats.optimized, 10) || 0;
+		var remaining = parseInt(stats.remaining, 10);
+		if (isNaN(remaining)) { remaining = Math.max(0, total - optimized); }
+		setText('iwsl-mo-total', total);
+		setText('iwsl-mo-optimized', optimized);
+		setText('iwsl-mo-remaining', remaining);
+		setBar(total, optimized, remaining);
+		return { total: total, optimized: optimized, remaining: remaining };
+	}
+
+	function focusable(){
+		return Array.prototype.slice.call(
+			modal.querySelectorAll('button:not([disabled]), [href], input, [tabindex]:not([tabindex="-1"])')
+		).filter(function(n){ return n.offsetParent !== null; });
+	}
+	function onKeydown(e){
+		if (e.key === 'Escape' || e.keyCode === 27) { e.preventDefault(); closeModal(); return; }
+		if (e.key === 'Tab' || e.keyCode === 9) {
+			var f = focusable();
+			if (!f.length) { return; }
+			var first = f[0], last = f[f.length - 1];
+			if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+			else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+		}
+	}
+
+	function openModal(title){
+		lastFocus = document.activeElement;
+		var t = el('iwsl-mo-modal-title'); if (t) { t.textContent = title; }
+		modal.hidden = false;
+		document.addEventListener('keydown', onKeydown, true);
+		var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); }
+	}
+	function closeModal(){
+		stopRequested = true;
+		modal.hidden = true;
+		document.removeEventListener('keydown', onKeydown, true);
+		if (lastFocus && lastFocus.focus) { lastFocus.focus(); }
+	}
+	for (var i = 0; i < closeEls.length; i++) {
+		closeEls[i].addEventListener('click', function(e){ e.preventDefault(); closeModal(); });
+	}
+
+	function fieldVal(name){
+		var n = form.querySelector('[name="' + name + '"]');
+		return n ? n.value : '';
+	}
+	function modeVal(){
+		var r = form.querySelector('input[name="mode"]:checked');
+		return r ? r.value : 'copy';
+	}
+	function checkedVal(name){
+		var n = form.querySelector('input[name="' + name + '"]');
+		return (n && n.checked) ? '1' : '';
+	}
+
+	// Build the POST body for one batch. `override` lets Replace-All force a
+	// full-library replace pass regardless of the form's current selections.
+	function batchBody(override){
+		var body = new URLSearchParams();
+		body.set('action', cfg.batchAction);
+		body.set('nonce', cfg.nonce);
+		body.set('converter', fieldVal('converter') || 'webp_lossless');
+		body.set('types', fieldVal('types') || 'auto');
+		if (override && override.mode) {
+			body.set('mode', override.mode);
+			body.set('count', String(cfg.maxRequest));
+			body.set('ids', '');
+			body.set('rewrite', '');
+			body.set('iwsl_mo_skip_optimized', override.skip ? '1' : '');
+		} else {
+			body.set('mode', modeVal());
+			body.set('count', fieldVal('count') || '25');
+			body.set('ids', fieldVal('ids') || '');
+			body.set('rewrite', checkedVal('rewrite'));
+			body.set('iwsl_mo_skip_optimized', checkedVal('iwsl_mo_skip_optimized'));
+		}
+		return body;
+	}
+
+	function post(body){
+		return fetch(cfg.ajaxUrl, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+			body: body.toString()
+		}).then(function(res){ return res.json().catch(function(){ return null; }); });
+	}
+
+	function errorMessage(payload){
+		var reason = payload && payload.data && payload.data.reason;
+		if (reason === 'entitlement-locked') { return cfg.i18n.errLocked; }
+		if (reason === 'forbidden') { return cfg.i18n.errForbidden; }
+		return cfg.i18n.errGeneric;
+	}
+
+	function finish(kind){
+		busy = false;
+		if (kind === 'done') { setLog(cfg.i18n.done, 'done'); }
+		else if (kind === 'leftovers') { setLog(cfg.i18n.doneLeftovers, 'done'); }
+		else if (kind === 'stopped') { setLog(cfg.i18n.stopped); }
+		var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); }
+	}
+
+	function loop(override){
+		var noProgress = 0;
+		var lastRemaining = null;
+
+		function step(){
+			if (stopRequested) { finish('stopped'); return; }
+			post(batchBody(override)).then(function(payload){
+				if (stopRequested) { finish('stopped'); return; }
+				if (!payload || !payload.success) { busy = false; setLog(errorMessage(payload), 'error'); var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); } return; }
+				var data = payload.data || {};
+				var s = applyStats(data.stats);
+				setLog(fmt(cfg.i18n.converting, s.optimized, s.total));
+				var converted = (data.summary && parseInt(data.summary.converted, 10)) || 0;
+				if (s.remaining <= 0) { finish('done'); return; }
+				if (lastRemaining !== null && s.remaining >= lastRemaining && converted === 0) { noProgress++; }
+				else { noProgress = 0; }
+				lastRemaining = s.remaining;
+				if (noProgress >= cfg.noProgressLimit) { finish('leftovers'); return; }
+				step();
+			}).catch(function(){
+				busy = false;
+				setLog(cfg.i18n.errNetwork, 'error');
+				var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); }
+			});
+		}
+		step();
+	}
+
+	function start(title, override){
+		if (busy) { return; }
+		busy = true;
+		stopRequested = false;
+		applyStats({ total: 0, optimized: 0, remaining: 0 });
+		setText('iwsl-mo-total', '–'); setText('iwsl-mo-optimized', '–'); setText('iwsl-mo-remaining', '–');
+		setLog(cfg.i18n.starting);
+		openModal(title);
+		// Seed the counters from the read-only status endpoint, then loop batches.
+		var probe = new URLSearchParams();
+		probe.set('action', cfg.statusAction);
+		probe.set('nonce', cfg.nonce);
+		post(probe).then(function(payload){
+			if (stopRequested) { finish('stopped'); return; }
+			if (payload && payload.success && payload.data) { applyStats(payload.data.stats); }
+			else if (payload && !payload.success) { busy = false; setLog(errorMessage(payload), 'error'); return; }
+			loop(override);
+		}).catch(function(){
+			// Status probe failed — still attempt the loop (batches carry their own stats).
+			if (!stopRequested) { loop(override); }
+		});
+	}
+
+	if (runBtn) {
+		runBtn.addEventListener('click', function(e){
+			e.preventDefault();
+			start(cfg.i18n.titleOptimize, null);
+		});
+	}
+	if (repBtn) {
+		repBtn.addEventListener('click', function(e){
+			e.preventDefault();
+			if (!window.confirm(cfg.replaceConfirm)) { return; }
+			start(cfg.i18n.titleReplace, { mode: 'replace', skip: false });
+		});
+	}
+})();
+JS;
+		echo "\n</script>\n";
 	}
 
 	/**
@@ -3551,32 +3885,18 @@ JS;
 			exit;
 		}
 
-		// Inputs that cross the boundary: nonce + an allow-listed converter id
-		// validated against the registry keys, an integer count, two closed
-		// enums (mode, op), and — optionally — a picker-supplied id list
-		// (validated further below, never trusted as-is).
-		$requested = isset( $_POST['converter'] ) ? sanitize_key( wp_unslash( $_POST['converter'] ) ) : 'webp_lossless';
+		// All boundary-crossing inputs (converter / count / mode / types / picked
+		// ids / rewrite / skip-done) are sanitised + validated by the shared helper —
+		// the SAME code the AJAX batch path calls, so neither surface can ever drift
+		// from the other's security posture. `op` is the handler-only control flow.
 		$optimizer = $this->optimizer();
-		$converter = in_array( $requested, $optimizer->converter_ids(), true ) ? $requested : 'webp_lossless';
-
-		$count = isset( $_POST['count'] ) ? (int) $_POST['count'] : IWSL_Media_Optimizer::MAX_BATCH;
-		$count = max( 1, min( IWSL_Media_Optimizer::MAX_REQUEST, $count ) );
-		$mode  = ( isset( $_POST['mode'] ) && IWSL_Media_Optimizer::MODE_REPLACE === $_POST['mode'] )
-			? IWSL_Media_Optimizer::MODE_REPLACE
-			: IWSL_Media_Optimizer::MODE_COPY;
-		$op         = isset( $_POST['op'] ) ? sanitize_key( wp_unslash( $_POST['op'] ) ) : 'run';
-		$is_preview = 'preview' === $op;
-		// Opt-in: rewrite the image URLs on posts/pages to the WebP (copy mode too).
-		$rewrite = isset( $_POST['rewrite'] ) && '1' === (string) $_POST['rewrite'];
-		// "Only optimize images not already optimized" (default ON): the auto batch
-		// picks only sources without an existing optimized derivative, so running it
-		// again advances to NEW images and never re-touches (or duplicates) done ones.
-		$skip_optimized = isset( $_POST['iwsl_mo_skip_optimized'] ) && '1' === (string) $_POST['iwsl_mo_skip_optimized'];
+		$p         = $this->read_media_optimize_request();
+		$op        = isset( $_POST['op'] ) ? sanitize_key( wp_unslash( $_POST['op'] ) ) : 'run';
 
 		// De-duplicate branch: delete originals that already have an optimized copy.
 		// `dedupe-preview` is a safe dry run; `dedupe` deletes (repointing pages first).
 		if ( 'dedupe' === $op || 'dedupe-preview' === $op ) {
-			$summary = $optimizer->remove_optimized_duplicates( 'dedupe-preview' === $op, true, $count );
+			$summary = $optimizer->remove_optimized_duplicates( 'dedupe-preview' === $op, true, $p['count'] );
 			if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 				set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );
 			}
@@ -3584,21 +3904,66 @@ JS;
 			exit;
 		}
 
-		// Source-type filter: 'auto' (every accepted type) or one exact MIME,
-		// validated against a closed list before it reaches the engine.
+		// LAYER 3 (the authoritative gate) is inside run()/preview(). This is also the
+		// no-JS fallback for the JS-driven buttons: `replace-all` forces a full-library
+		// REPLACE pass (one time-bounded batch — the progress popup loops it to
+		// completion, but without JS the summary's `partial` flag tells the operator to
+		// re-run); `preview` is a dry-run estimate; anything else is a normal
+		// copy/replace run honouring the form's Output radio + picked ids.
+		if ( 'replace-all' === $op ) {
+			$summary = $optimizer->run( $p['converter'], $p['count'], IWSL_Media_Optimizer::MODE_REPLACE, false, $p['types'], array(), false, false );
+		} elseif ( 'preview' === $op ) {
+			$summary = $optimizer->preview( $p['converter'], $p['count'], $p['types'], $p['ids'], $p['skip_optimized'] );
+		} else {
+			$summary = $optimizer->run( $p['converter'], $p['count'], $p['mode'], false, $p['types'], $p['ids'], $p['rewrite'], $p['skip_optimized'] );
+		}
+
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );
+		}
+		wp_safe_redirect( $redirect );
+		exit;
+	}
+
+	/**
+	 * Sanitise + validate every boundary-crossing input of an image-optimization run
+	 * from $_POST. Extracted so the admin-post handler AND the AJAX batch endpoint
+	 * share ONE validation path — the AJAX surface can never be weaker than the POST
+	 * surface. Returns a fully-typed, engine-ready param bag; NONE of it is trusted
+	 * downstream (the optimizer re-resolves paths + re-validates picked ids itself).
+	 *
+	 * @return array{ converter:string, count:int, mode:string, types:string, ids:int[], rewrite:bool, skip_optimized:bool }
+	 */
+	private function read_media_optimize_request(): array {
+		// Converter: an allow-listed id validated against the live registry keys.
+		$requested = isset( $_POST['converter'] ) ? sanitize_key( wp_unslash( $_POST['converter'] ) ) : 'webp_lossless'; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$converter = in_array( $requested, $this->optimizer()->converter_ids(), true ) ? $requested : 'webp_lossless';
+
+		// Count: integer, clamped to [1, MAX_REQUEST].
+		$count = isset( $_POST['count'] ) ? (int) $_POST['count'] : IWSL_Media_Optimizer::MAX_BATCH; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$count = max( 1, min( IWSL_Media_Optimizer::MAX_REQUEST, $count ) );
+
+		// Output mode: a closed enum — 'replace' or (default) 'copy'.
+		$mode = ( isset( $_POST['mode'] ) && IWSL_Media_Optimizer::MODE_REPLACE === $_POST['mode'] ) // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			? IWSL_Media_Optimizer::MODE_REPLACE
+			: IWSL_Media_Optimizer::MODE_COPY;
+
+		// Opt-in flags: rewrite page references, and skip already-optimized sources.
+		$rewrite        = isset( $_POST['rewrite'] ) && '1' === (string) $_POST['rewrite']; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$skip_optimized = isset( $_POST['iwsl_mo_skip_optimized'] ) && '1' === (string) $_POST['iwsl_mo_skip_optimized']; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+
+		// Source-type filter: 'auto' or one exact MIME, against a closed allow-list.
 		$allowed_types = array( 'auto', 'image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/tiff' );
-		$types         = isset( $_POST['types'] ) ? sanitize_text_field( wp_unslash( $_POST['types'] ) ) : 'auto';
+		$types         = isset( $_POST['types'] ) ? sanitize_text_field( wp_unslash( $_POST['types'] ) ) : 'auto'; // phpcs:ignore WordPress.Security.NonceVerification.Missing
 		if ( ! in_array( $types, $allowed_types, true ) ) {
 			$types = 'auto';
 		}
 
-		// Optional explicit selection from the media-library picker. This is the
-		// ONLY place an attachment id crosses the request boundary, and it is
-		// treated as UNTRUSTED: the optimizer re-validates every id server-side
-		// (real attachment + accepted MIME) before it is ever handed to
-		// convert_one(), which itself still runs the full guard_source() gauntlet.
-		// An empty list falls back to the existing count-driven auto-selection.
-		$ids_raw = isset( $_POST['ids'] ) ? sanitize_text_field( wp_unslash( $_POST['ids'] ) ) : '';
+		// Optional media-library selection — the ONLY place an attachment id crosses
+		// the boundary. UNTRUSTED: parsed to positive ints, deduped, capped; the
+		// optimizer re-validates each (real attachment + accepted MIME) server-side
+		// before convert_one() ever resolves a path. Empty → count-driven auto batch.
+		$ids_raw = isset( $_POST['ids'] ) ? sanitize_text_field( wp_unslash( $_POST['ids'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$ids     = array();
 		if ( '' !== $ids_raw ) {
 			$ids = array_map( 'intval', explode( ',', $ids_raw ) );
@@ -3608,16 +3973,68 @@ JS;
 			$ids = array_slice( $ids, 0, IWSL_Media_Optimizer::MAX_REQUEST );
 		}
 
-		// LAYER 3 (authoritative gate) is inside run()/preview().
-		$summary = $is_preview
-			? $optimizer->preview( $converter, $count, $types, $ids, $skip_optimized )
-			: $optimizer->run( $converter, $count, $mode, false, $types, $ids, $rewrite, $skip_optimized );
+		return array(
+			'converter'      => $converter,
+			'count'          => $count,
+			'mode'           => $mode,
+			'types'          => $types,
+			'ids'            => $ids,
+			'rewrite'        => $rewrite,
+			'skip_optimized' => $skip_optimized,
+		);
+	}
 
-		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
-			set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );
+	/**
+	 * AJAX: read-only whole-library optimization counters for the progress popup.
+	 * Same gate as the run: manage_options + OPTIMIZE_NONCE + the entitlement check.
+	 * Emits { stats: { total, optimized, remaining } } on success.
+	 */
+	public function handle_mo_status_ajax(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'reason' => 'forbidden' ), 403 );
 		}
-		wp_safe_redirect( $redirect );
-		exit;
+		check_ajax_referer( self::OPTIMIZE_NONCE, 'nonce' );
+
+		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_send_json_error( array( 'reason' => 'entitlement-locked' ), 403 );
+		}
+
+		wp_send_json_success( array( 'stats' => $this->optimizer()->library_stats() ) );
+	}
+
+	/**
+	 * AJAX: run ONE bounded batch, then report the fresh library stats so the popup
+	 * can decide whether to loop again. Identical defence to handle_media_optimize():
+	 * capability + OPTIMIZE_NONCE (check_ajax_referer) + LAYER-2 entitlement re-check,
+	 * with the authoritative LAYER-3 gate inside run(). Server stays authoritative —
+	 * every run parameter is re-validated here via the shared helper; the JS only
+	 * orchestrates the loop. Emits { summary, stats } on success.
+	 */
+	public function handle_mo_run_batch_ajax(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'reason' => 'forbidden' ), 403 );
+		}
+		check_ajax_referer( self::OPTIMIZE_NONCE, 'nonce' );
+
+		// LAYER 2: re-check the gate before touching any file.
+		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_send_json_error( array( 'reason' => 'entitlement-locked' ), 403 );
+		}
+
+		$optimizer = $this->optimizer();
+		$p         = $this->read_media_optimize_request();
+
+		// One batch only — never a dry run, never a preview. LAYER 3 lives in run().
+		$summary = $optimizer->run( $p['converter'], $p['count'], $p['mode'], false, $p['types'], $p['ids'], $p['rewrite'], $p['skip_optimized'] );
+
+		wp_send_json_success(
+			array(
+				'summary' => $summary,
+				'stats'   => $optimizer->library_stats(),
+			)
+		);
 	}
 
 	// ── Section 3: SMTP Email Delivery & Log ───────────────────────────────────
