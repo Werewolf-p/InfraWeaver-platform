@@ -154,6 +154,24 @@ final class IWSL_SVG_Upload {
 		return true === $this->store->get( self::ENABLED_KEY, false );
 	}
 
+	/**
+	 * Teardown: clear the administrator opt-in toggle — the only persistent
+	 * state this feature owns. This engine is otherwise stateless (three
+	 * self-gated mime/prefilter hooks + a pure sanitizer); it schedules no
+	 * cron and writes no postmeta. Idempotent (check-before-delete) and cheap
+	 * when already clean: a second call finds nothing left and reports zero.
+	 *
+	 * @return array{ options:int, meta:int, cron:bool }
+	 */
+	public function purge(): array {
+		$options = 0;
+		if ( null !== $this->store->get( self::ENABLED_KEY, null ) ) {
+			$this->store->delete( self::ENABLED_KEY );
+			$options = 1;
+		}
+		return array( 'options' => $options, 'meta' => 0, 'cron' => false );
+	}
+
 	// ── the three upload filters (each self-gated as STATEMENT 1) ────────────────
 
 	/**
@@ -512,7 +530,7 @@ final class IWSL_SVG_Upload {
 			check_admin_referer( self::NONCE );
 		}
 
-		$redirect = function_exists( 'admin_url' ) ? admin_url( 'admin.php?page=infraweaver-plus' ) : '';
+		$redirect = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {

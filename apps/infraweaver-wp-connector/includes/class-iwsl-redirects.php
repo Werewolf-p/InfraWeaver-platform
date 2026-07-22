@@ -273,7 +273,10 @@ final class IWSL_Redirects {
 			'created_at' => $this->now_seconds(),
 		);
 
-		$next = array_merge( $rules, array( $new_rule ) );
+		// Optimistic re-read: append onto the FRESH list, not the pre-validation
+		// snapshot in $rules, so a rule a racing writer stored during validation
+		// is merged in rather than clobbered.
+		$next = array_merge( $this->rules(), array( $new_rule ) );
 		$this->store->set( self::RULES_KEY, $next );
 		$this->flush_page_cache();
 
@@ -312,9 +315,11 @@ final class IWSL_Redirects {
 			return $this->refusal( 'unknown-rule' );
 		}
 
+		// Optimistic re-read: filter the FRESH list so a rule a racing writer
+		// stored after the existence check above is preserved, not clobbered.
 		$next = array_values(
 			array_filter(
-				$rules,
+				$this->rules(),
 				static function ( array $rule ) use ( $id ): bool {
 					return (string) $rule['id'] !== $id;
 				}
@@ -528,7 +533,41 @@ final class IWSL_Redirects {
 		if ( null === $auto ) {
 			return;
 		}
+		// The path that now resolves to live content must never be a redirect
+		// source. Supersede any existing rule whose source is the NEW permalink's
+		// path — e.g. the forward rule left by an earlier rename — BEFORE adding
+		// the reverse rule. Without this, reverting a slug is refused as a cycle
+		// (A→B already exists, B→A would close it), stranding the stale A→B rule
+		// so it 301s the now-live URL to a dead one. A live URL is never a
+		// legitimate redirect source, so scoping the drop to that path is safe.
+		$this->delete_rules_by_source( self::graph_target_path( $auto['target'] ) );
 		$this->add_rule( $auto['source'], $auto['target'], 301 ); // reuse the gated validator.
+	}
+
+	/**
+	 * Immutably drop every stored rule whose normalized source equals $source.
+	 * Used only by the auto-redirect glue to supersede a stale rule pointing away
+	 * from a path that now resolves to live content (and to dissolve the A→B / B→A
+	 * cycle a slug-revert would otherwise create). Re-reads the rules immediately
+	 * before the set; a null/empty source is a no-op, and the store is written only
+	 * when a rule was actually removed. The following add_rule() flushes the cache.
+	 */
+	private function delete_rules_by_source( ?string $source ): void {
+		if ( null === $source || '' === $source ) {
+			return;
+		}
+		$rules = $this->rules();
+		$next  = array_values(
+			array_filter(
+				$rules,
+				static function ( array $rule ) use ( $source ): bool {
+					return self::normalize_path( (string) $rule['source'] ) !== $source;
+				}
+			)
+		);
+		if ( count( $next ) !== count( $rules ) ) {
+			$this->store->set( self::RULES_KEY, $next );
+		}
 	}
 
 	/** Whether the feature is unlocked AND auto-redirect is toggled on. */

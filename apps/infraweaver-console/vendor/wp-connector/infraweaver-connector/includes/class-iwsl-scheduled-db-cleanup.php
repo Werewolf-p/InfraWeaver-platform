@@ -242,6 +242,45 @@ final class IWSL_Scheduled_DB_Cleanup {
 		return $summary;
 	}
 
+	/**
+	 * Teardown for an uninstall/unlink sweep: delete BOTH option keys this feature
+	 * owns — the schedule settings map (SETTINGS_KEY) and the last-run record
+	 * (LAST_RUN_KEY) — AND clear its recurring WP-Cron event (CRON_HOOK). Leaving a
+	 * scheduled event behind after the feature is torn down is exactly the residue we
+	 * remove: the cron would keep firing (only to no-op on the revoked gate) until the
+	 * event is unscheduled. This NEVER touches the wrapped optimizer or the site
+	 * database. Idempotent + cheap-when-clean: deleting an absent option is a no-op,
+	 * and WP-Cron is only touched when an event is actually scheduled. Every WP-Cron
+	 * call is function_exists-guarded so it is harmless under the harness.
+	 *
+	 * @return array{ ok:bool, settings_deleted:bool, last_run_deleted:bool, cron_cleared:bool }
+	 */
+	public function purge(): array {
+		$had_settings = null !== $this->store->get( self::SETTINGS_KEY, null );
+		$had_last_run = null !== $this->store->get( self::LAST_RUN_KEY, null );
+		$this->store->delete( self::SETTINGS_KEY );
+		$this->store->delete( self::LAST_RUN_KEY );
+
+		$cron_cleared = false;
+		if ( function_exists( 'wp_next_scheduled' ) && function_exists( 'wp_clear_scheduled_hook' ) ) {
+			// Only touch WP-Cron when an event is actually scheduled (cheap-when-clean).
+			if ( false !== wp_next_scheduled( self::CRON_HOOK ) ) {
+				wp_clear_scheduled_hook( self::CRON_HOOK );
+				$cron_cleared = true;
+			}
+		} elseif ( function_exists( 'wp_clear_scheduled_hook' ) ) {
+			// No introspection available — clear unconditionally so no event survives.
+			wp_clear_scheduled_hook( self::CRON_HOOK );
+		}
+
+		return array(
+			'ok'               => true,
+			'settings_deleted' => $had_settings,
+			'last_run_deleted' => $had_last_run,
+			'cron_cleared'     => $cron_cleared,
+		);
+	}
+
 	// ── scheduling reconciliation (all WordPress calls guarded) ────────────────
 
 	/**
@@ -487,7 +526,7 @@ final class IWSL_Scheduled_DB_Cleanup {
 		}
 		check_admin_referer( self::SAVE_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -521,7 +560,7 @@ final class IWSL_Scheduled_DB_Cleanup {
 		}
 		check_admin_referer( self::RUN_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {

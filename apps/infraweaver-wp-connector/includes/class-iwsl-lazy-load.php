@@ -203,7 +203,9 @@ final class IWSL_Lazy_Load {
 		$seen = 0;
 
 		$out = preg_replace_callback(
-			'#<img\b[^>]*>#i',
+			// Quote-aware boundary: a `>` inside a quoted attribute (e.g. alt="a > b")
+			// must not be mistaken for the tag's closing bracket.
+			'#<img\b(?:"[^"]*"|\'[^\']*\'|[^>])*>#i',
 			static function ( array $m ) use ( &$seen, $skip ): string {
 				$seen++;
 				if ( $seen <= $skip ) {
@@ -219,7 +221,7 @@ final class IWSL_Lazy_Load {
 
 		if ( $lazy_iframes ) {
 			$iframes = preg_replace_callback(
-				'#<iframe\b[^>]*>#i',
+				'#<iframe\b(?:"[^"]*"|\'[^\']*\'|[^>])*>#i',
 				static function ( array $m ): string {
 					return self::augment_tag( $m[0], false );
 				},

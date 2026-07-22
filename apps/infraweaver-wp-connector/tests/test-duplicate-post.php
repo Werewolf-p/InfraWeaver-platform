@@ -96,6 +96,26 @@ if ( ! function_exists( 'maybe_unserialize' ) ) {
 	}
 }
 
+// Minimal filter registry so the skip-list filter is observable (subprocess-isolated).
+$GLOBALS['iwsl_dp_filters'] = array();
+if ( ! function_exists( 'add_filter' ) ) {
+	function add_filter( $hook, $cb, $priority = 10, $accepted_args = 1 ) {
+		$GLOBALS['iwsl_dp_filters'][ (string) $hook ][] = $cb;
+		return true;
+	}
+}
+if ( ! function_exists( 'apply_filters' ) ) {
+	function apply_filters( $hook, $value, ...$args ) {
+		foreach ( $GLOBALS['iwsl_dp_filters'][ (string) $hook ] ?? array() as $cb ) {
+			$value = call_user_func( $cb, $value, ...$args );
+		}
+		return $value;
+	}
+}
+function iwsl_dp_remove_filters( string $hook ): void {
+	unset( $GLOBALS['iwsl_dp_filters'][ $hook ] );
+}
+
 // ── fixtures ──────────────────────────────────────────────────────────────────
 
 /** Unlocked gate: active + fresh heartbeat + duplicate_post flag. */
@@ -213,6 +233,28 @@ iwsl_assert_same( array( 'a', 'b' ), $GLOBALS['iwsl_dp_meta'][ $new_id ]['sizes'
 iwsl_assert( ! isset( $GLOBALS['iwsl_dp_meta'][ $new_id ]['_edit_lock'] ), 'unlock: _edit_lock NOT copied' );
 iwsl_assert( ! isset( $GLOBALS['iwsl_dp_meta'][ $new_id ]['_edit_last'] ), 'unlock: _edit_last NOT copied' );
 
+// ── 4b. Skip-list filter: a site can exclude a uniqueness-constrained key ──────
+
+iwsl_dp_reset();
+$GLOBALS['iwsl_dp_custom'][5] = array(
+	'color'      => array( 'blue' ),
+	'sku'        => array( 'ABC-123' ), // uniqueness-constrained → filter skips it
+	'sizes'      => array( 'M' ),
+	'_edit_lock' => array( '123:1' ),   // default internal skip still applies
+);
+add_filter( 'iwsl_duplicate_post_skip_meta', static function ( array $skip, int $source_id ): array {
+	return array_merge( $skip, array( 'sku' ) );
+}, 10, 2 );
+$dp     = new IWSL_Duplicate_Post( iwsl_dp_unlocked_entitlements( $DP_NOW ) );
+$r      = $dp->duplicate( iwsl_dp_post( 5 ) );
+$new_id = (int) $r['new_id'];
+iwsl_assert( ! isset( $GLOBALS['iwsl_dp_meta'][ $new_id ]['sku'] ), 'skip filter: filtered key NOT copied to the duplicate' );
+iwsl_assert_same( array( 'blue' ), $GLOBALS['iwsl_dp_meta'][ $new_id ]['color'], 'skip filter: other keys still copied (color)' );
+iwsl_assert_same( array( 'M' ), $GLOBALS['iwsl_dp_meta'][ $new_id ]['sizes'], 'skip filter: other keys still copied (sizes)' );
+iwsl_assert_same( 2, $r['meta_copied'], 'skip filter: exactly the two unfiltered keys copied' );
+iwsl_assert( ! isset( $GLOBALS['iwsl_dp_meta'][ $new_id ]['_edit_lock'] ), 'skip filter: default internal keys still skipped' );
+iwsl_dp_remove_filters( 'iwsl_duplicate_post_skip_meta' );
+
 // ── 5. Guard: non-duplicable sources refused, nothing inserted ────────────────
 
 iwsl_dp_reset();
@@ -277,5 +319,6 @@ unset(
 	$GLOBALS['iwsl_dp_custom'],
 	$GLOBALS['iwsl_dp_meta'],
 	$GLOBALS['iwsl_dp_can'],
-	$GLOBALS['iwsl_dp_insert_return']
+	$GLOBALS['iwsl_dp_insert_return'],
+	$GLOBALS['iwsl_dp_filters']
 );

@@ -580,6 +580,27 @@ final class IWSL_Cookie_Consent {
 	}
 
 	/**
+	 * A readable button-text color (`#fff` or `#111`) for a 6-hex background, chosen
+	 * by WCAG relative luminance so a pale admin-picked accent never leaves white
+	 * text on a light fill (an invisible primary button). Pure — no WP dependency.
+	 */
+	private static function readable_foreground( string $hex ): string {
+		$hex = ltrim( trim( $hex ), '#' );
+		if ( 6 !== strlen( $hex ) || 1 !== preg_match( '/^[0-9a-fA-F]{6}$/', $hex ) ) {
+			return '#fff';
+		}
+		$linear = static function ( int $c ): float {
+			$s = $c / 255;
+			return $s <= 0.03928 ? $s / 12.92 : pow( ( $s + 0.055 ) / 1.055, 2.4 );
+		};
+		$r = $linear( (int) hexdec( substr( $hex, 0, 2 ) ) );
+		$g = $linear( (int) hexdec( substr( $hex, 2, 2 ) ) );
+		$b = $linear( (int) hexdec( substr( $hex, 4, 2 ) ) );
+		$luminance = 0.2126 * $r + 0.7152 * $g + 0.0722 * $b;
+		return $luminance > 0.5 ? '#111' : '#fff';
+	}
+
+	/**
 	 * Validate a policy-URL: empty, a rooted internal path (`/…`, no scheme, no `//`),
 	 * or a strict absolute http(s) URL. Anything else → '' (no link rendered).
 	 */
@@ -714,7 +735,7 @@ final class IWSL_Cookie_Consent {
 		$h .= '<div class="iwsl-cc-scrim" aria-hidden="true"></div>';
 
 		// Banner.
-		$h .= '<div class="iwsl-cc-banner" role="dialog" aria-modal="false" aria-labelledby="iwsl-cc-title" aria-describedby="iwsl-cc-desc">';
+		$h .= '<div class="iwsl-cc-banner" role="dialog" aria-modal="false" aria-live="polite" aria-labelledby="iwsl-cc-title" aria-describedby="iwsl-cc-desc">';
 		$h .= '<button type="button" class="iwsl-cc-x iwsl-cc-banner-x" data-iwsl-action="dismiss" aria-label="Close">&times;</button>';
 		$h .= '<div class="iwsl-cc-copy">';
 		$h .= '<h2 id="iwsl-cc-title">' . self::esc_html_safe( $title ) . '</h2>';
@@ -763,6 +784,7 @@ final class IWSL_Cookie_Consent {
 
 	/** The banner CSS with the validated accent injected as a custom property. */
 	private function banner_css( string $accent ): string {
+		$fg = self::readable_foreground( $accent );
 		return ':root{--iwsl-cc-accent:' . $accent . '}'
 			. '.iwsl-cc,.iwsl-cc *{box-sizing:border-box}'
 			. '.iwsl-cc{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.5}'
@@ -781,7 +803,10 @@ final class IWSL_Cookie_Consent {
 			. 'background:rgba(255,255,255,.08);color:#e7edf3}'
 			. '.iwsl-cc-btn:hover{background:rgba(255,255,255,.14)}'
 			. '.iwsl-cc-btn:focus-visible{outline:2px solid var(--iwsl-cc-accent);outline-offset:2px}'
-			. '.iwsl-cc-accept{background:var(--iwsl-cc-accent);color:#fff;border-color:var(--iwsl-cc-accent)}'
+			// Accept AND Reject share one filled-accent treatment: equal size, weight and
+			// prominence (GDPR/consent — neither choice is nudged). Foreground is picked
+			// by luminance so the label stays readable even on a pale accent.
+			. '.iwsl-cc-accept,.iwsl-cc-reject{background:var(--iwsl-cc-accent);color:' . $fg . ';border-color:var(--iwsl-cc-accent)}'
 			. '.iwsl-cc-manage{background:transparent;border-color:rgba(255,255,255,.22)}'
 			. '.iwsl-cc-modal{position:fixed;inset:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;'
 			. 'padding:20px;background:rgba(4,7,11,.66)}'
@@ -854,7 +879,8 @@ final class IWSL_Cookie_Consent {
 			. 'functionality_storage:"granted",personalization_storage:g.preferences?"granted":"denied",security_storage:"granted"});}'
 			. 'function apply(cats){var g=granted(cats);ALL.forEach(function(c){if(g[c])unblock(c);});consentMode(g);}'
 			. 'function save(cats,method){apply(cats);write(cats,method);hide();if(handle)handle.hidden=false;}'
-			. 'function show(){root.hidden=false;root.classList.add("iwsl-cc-open");if(banner)banner.style.display="";if(handle)handle.hidden=true;}'
+			. 'function show(){root.hidden=false;root.classList.add("iwsl-cc-open");if(banner)banner.style.display="";if(handle)handle.hidden=true;'
+			. 'if(banner){var fa=banner.querySelector(".iwsl-cc-btn");if(fa){try{fa.focus();}catch(e){}}}}'
 			. 'function hide(){root.classList.remove("iwsl-cc-open");if(modal)modal.hidden=true;if(banner)banner.style.display="none";}'
 			. 'function openModal(){if(!modal)return;var st=read();var have=st&&st.c?st.c:defaults();'
 			. 'modal.querySelectorAll(".iwsl-cc-toggle").forEach(function(t){var c=t.getAttribute("data-cat");if(c!=="necessary")t.checked=have.indexOf(c)>-1;});'

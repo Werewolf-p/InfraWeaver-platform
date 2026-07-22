@@ -38,13 +38,12 @@ final class IWSL_Responder {
 	public function build( string $in_reply_to, bool $ok, array $result, ?int $kid = null ): ?array {
 		$kid  = $kid ?? $this->rotation->signing_kid();
 		$pair = $this->store->get( 'wp_keys.' . $kid );
-		if ( ! is_array( $pair ) ) {
-			// Epoch vanished between capture and signing (e.g. abort) — fall
-			// back to the current signing epoch.
-			$kid  = $this->rotation->signing_kid();
-			$pair = $this->store->get( 'wp_keys.' . $kid );
-		}
 		$site = $this->store->get( 'site_id' );
+		// Fail closed (§8 chain of custody): if the REQUESTED epoch's keypair is
+		// missing, do NOT silently fall back to the current signing key — signing
+		// a response under the wrong epoch would break the chain of custody the
+		// console verifies. Return null so the caller emits an `internal` error
+		// instead of a response signed by the wrong key.
 		if ( ! is_array( $pair ) || ! is_string( $site ) ) {
 			return null;
 		}

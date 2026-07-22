@@ -62,6 +62,11 @@ final class IWSL_Redirects {
 	const LOG_KEY = 'redirect_404_log';
 	/** Store key for the 404-logging on/off toggle. */
 	const LOG_ENABLED_KEY = 'redirect_404_log_enabled';
+	/** Store key for the auto-redirect-on-slug-change toggle (default ON). */
+	const AUTO_REDIRECT_KEY = 'redirect_auto_slug';
+
+	/** Bounded hop budget for the redirect-chain cycle walk. */
+	const MAX_REDIRECT_HOPS = 10;
 
 	/** The only redirect statuses this manager will emit. */
 	const ALLOWED_TYPES = array( 301, 302 );
@@ -94,6 +99,9 @@ final class IWSL_Redirects {
 
 	/** @var array Code-level external host allow-list (defaults to empty). */
 	private $allow_hosts;
+
+	/** @var array<int, string> post_id → old permalink, snapshotted within one request. */
+	private $pending_permalinks = array();
 
 	/**
 	 * @param IWSL_Entitlements                          $entitlements The gate.
@@ -142,11 +150,15 @@ final class IWSL_Redirects {
 		);
 	}
 
-	/** Register the sole front-end hook. Guarded so the harness can call it harmlessly. */
+	/** Register the front-end hook + the auto-redirect glue. Guarded for the harness. */
 	public function register(): void {
 		if ( function_exists( 'add_action' ) ) {
 			// Priority 1 — ahead of redirect_canonical (10) so a managed rule wins.
 			add_action( 'template_redirect', array( $this, 'maybe_redirect' ), 1 );
+			// Auto-redirect on slug change (default-on; Yoast gates this behind
+			// Premium). Snapshot the OLD permalink before the update, diff after.
+			add_action( 'pre_post_update', array( $this, 'snapshot_permalink' ), 10, 2 );
+			add_action( 'post_updated', array( $this, 'maybe_auto_redirect' ), 10, 3 );
 		}
 	}
 
@@ -197,6 +209,11 @@ final class IWSL_Redirects {
 		return true === $this->store->get( self::LOG_ENABLED_KEY, false );
 	}
 
+	/** Whether auto-redirect-on-slug-change is switched on (default ON). */
+	public function is_auto_redirect_enabled(): bool {
+		return false !== $this->store->get( self::AUTO_REDIRECT_KEY, true );
+	}
+
 	// ── mutators (STATEMENT 1 is the authoritative gate) ───────────────────────
 
 	/**
@@ -241,6 +258,11 @@ final class IWSL_Redirects {
 			return $this->refusal( 'max-rules' );
 		}
 
+		// Reject a rule that would complete a redirect loop/chain (A→B→A, …).
+		if ( self::detect_cycle( $rules, $normalized_source, $location ) ) {
+			return $this->refusal( 'creates-redirect-loop' );
+		}
+
 		$new_rule = array(
 			'id'         => 'r' . substr( sha1( $normalized_source ), 0, 12 ),
 			'source'     => $normalized_source,
@@ -251,8 +273,12 @@ final class IWSL_Redirects {
 			'created_at' => $this->now_seconds(),
 		);
 
-		$next = array_merge( $rules, array( $new_rule ) );
+		// Optimistic re-read: append onto the FRESH list, not the pre-validation
+		// snapshot in $rules, so a rule a racing writer stored during validation
+		// is merged in rather than clobbered.
+		$next = array_merge( $this->rules(), array( $new_rule ) );
 		$this->store->set( self::RULES_KEY, $next );
+		$this->flush_page_cache();
 
 		return array(
 			'ok'          => true,
@@ -289,15 +315,18 @@ final class IWSL_Redirects {
 			return $this->refusal( 'unknown-rule' );
 		}
 
+		// Optimistic re-read: filter the FRESH list so a rule a racing writer
+		// stored after the existence check above is preserved, not clobbered.
 		$next = array_values(
 			array_filter(
-				$rules,
+				$this->rules(),
 				static function ( array $rule ) use ( $id ): bool {
 					return (string) $rule['id'] !== $id;
 				}
 			)
 		);
 		$this->store->set( self::RULES_KEY, $next );
+		$this->flush_page_cache();
 
 		return array(
 			'ok'          => true,
@@ -317,7 +346,58 @@ final class IWSL_Redirects {
 			return array( 'ok' => false, 'reason' => 'entitlement-locked', 'gate' => $gate );
 		}
 		$this->store->set( self::LOG_ENABLED_KEY, $enabled );
+		$this->flush_page_cache();
 		return array( 'ok' => true, 'enabled' => $enabled );
+	}
+
+	/**
+	 * Toggle auto-redirect-on-slug-change. STATEMENT 1 is the gate. Mirrors
+	 * set_404_logging(); the default is ON, so this exists to turn it OFF.
+	 *
+	 * @return array{ ok:bool, reason?:string, enabled?:bool, gate?:array }
+	 */
+	public function set_auto_redirect( bool $enabled ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'reason' => 'entitlement-locked', 'gate' => $gate );
+		}
+		$this->store->set( self::AUTO_REDIRECT_KEY, $enabled );
+		$this->flush_page_cache();
+		return array( 'ok' => true, 'enabled' => $enabled );
+	}
+
+	// ── teardown + cache invalidation ──────────────────────────────────────────
+
+	/**
+	 * Invalidate any full-page cache after a rule is added / deleted / toggled — a
+	 * managed redirect changes what the front end serves for a URL. The teardown
+	 * helper is built by a peer; class_exists-guarded so this is a harmless no-op
+	 * without it, and never called on the passive hit-counter path.
+	 */
+	private function flush_page_cache(): void {
+		if ( class_exists( 'IWSL_Teardown' ) && method_exists( 'IWSL_Teardown', 'flush_page_cache' ) ) {
+			IWSL_Teardown::flush_page_cache();
+		}
+	}
+
+	/**
+	 * Delete-time teardown scrub for the Redirect Manager. Removes ONLY plugin-owned
+	 * option state: the rules list, the 404-log ring buffer, the 404-logging toggle,
+	 * and the auto-redirect-on-slug-change toggle. Idempotent and cheap when clean —
+	 * each key is dropped only when present. This engine schedules no cron, so none is
+	 * cleared. Guarded end to end so it runs harmlessly under the zero-WP harness.
+	 *
+	 * @return array{ ok:bool, options:string[], cron:string[] }
+	 */
+	public function purge(): array {
+		$removed = array( 'ok' => true, 'options' => array(), 'cron' => array() );
+		foreach ( array( self::RULES_KEY, self::LOG_KEY, self::LOG_ENABLED_KEY, self::AUTO_REDIRECT_KEY ) as $key ) {
+			if ( null !== $this->store->get( $key, null ) ) {
+				$this->store->delete( $key );
+				$removed['options'][] = $key;
+			}
+		}
+		return $removed;
 	}
 
 	// ── the engine (pure decision) + the effect ────────────────────────────────
@@ -394,6 +474,123 @@ final class IWSL_Redirects {
 		}
 	}
 
+	// ── auto-redirect on slug change (WP glue) ─────────────────────────────────
+
+	/**
+	 * `pre_post_update`: snapshot the CURRENT (old) permalink of an already-published
+	 * public post before WordPress writes the update, so we can diff it afterwards.
+	 * Gate + toggle checked; every WP call guarded. $data is the incoming update.
+	 *
+	 * @param int   $post_id
+	 * @param mixed $data
+	 */
+	public function snapshot_permalink( int $post_id, $data = null ): void {
+		if ( $post_id <= 0 || ! $this->auto_redirect_active() ) {
+			return;
+		}
+		$type = function_exists( 'get_post_type' ) ? (string) get_post_type( $post_id ) : '';
+		if ( ! $this->is_public_type( $type ) ) {
+			return;
+		}
+		if ( function_exists( 'get_post_status' ) && 'publish' !== get_post_status( $post_id ) ) {
+			return; // Only track posts that already had a public URL.
+		}
+		if ( function_exists( 'get_permalink' ) ) {
+			$link = get_permalink( $post_id );
+			if ( is_string( $link ) && '' !== $link ) {
+				$this->pending_permalinks[ $post_id ] = $link;
+			}
+		}
+	}
+
+	/**
+	 * `post_updated`: if the permalink changed for a still-published post, create a
+	 * 301 from the OLD path to the NEW permalink via the gated add_rule() (whose
+	 * validators + loop-detection + gate apply). Snapshot is consumed once.
+	 *
+	 * @param int   $post_id
+	 * @param mixed $post_after
+	 * @param mixed $post_before
+	 */
+	public function maybe_auto_redirect( int $post_id, $post_after = null, $post_before = null ): void {
+		if ( ! isset( $this->pending_permalinks[ $post_id ] ) ) {
+			return;
+		}
+		$old = (string) $this->pending_permalinks[ $post_id ];
+		unset( $this->pending_permalinks[ $post_id ] );
+
+		if ( ! $this->auto_redirect_active() ) {
+			return;
+		}
+		$status_after = is_object( $post_after ) && isset( $post_after->post_status )
+			? (string) $post_after->post_status
+			: ( function_exists( 'get_post_status' ) ? (string) get_post_status( $post_id ) : '' );
+		if ( 'publish' !== $status_after ) {
+			return; // Unpublished — no live URL to redirect to.
+		}
+		$new = function_exists( 'get_permalink' ) ? (string) get_permalink( $post_id ) : '';
+		$auto = self::build_auto_source_target( $old, $new );
+		if ( null === $auto ) {
+			return;
+		}
+		// The path that now resolves to live content must never be a redirect
+		// source. Supersede any existing rule whose source is the NEW permalink's
+		// path — e.g. the forward rule left by an earlier rename — BEFORE adding
+		// the reverse rule. Without this, reverting a slug is refused as a cycle
+		// (A→B already exists, B→A would close it), stranding the stale A→B rule
+		// so it 301s the now-live URL to a dead one. A live URL is never a
+		// legitimate redirect source, so scoping the drop to that path is safe.
+		$this->delete_rules_by_source( self::graph_target_path( $auto['target'] ) );
+		$this->add_rule( $auto['source'], $auto['target'], 301 ); // reuse the gated validator.
+	}
+
+	/**
+	 * Immutably drop every stored rule whose normalized source equals $source.
+	 * Used only by the auto-redirect glue to supersede a stale rule pointing away
+	 * from a path that now resolves to live content (and to dissolve the A→B / B→A
+	 * cycle a slug-revert would otherwise create). Re-reads the rules immediately
+	 * before the set; a null/empty source is a no-op, and the store is written only
+	 * when a rule was actually removed. The following add_rule() flushes the cache.
+	 */
+	private function delete_rules_by_source( ?string $source ): void {
+		if ( null === $source || '' === $source ) {
+			return;
+		}
+		$rules = $this->rules();
+		$next  = array_values(
+			array_filter(
+				$rules,
+				static function ( array $rule ) use ( $source ): bool {
+					return self::normalize_path( (string) $rule['source'] ) !== $source;
+				}
+			)
+		);
+		if ( count( $next ) !== count( $rules ) ) {
+			$this->store->set( self::RULES_KEY, $next );
+		}
+	}
+
+	/** Whether the feature is unlocked AND auto-redirect is toggled on. */
+	private function auto_redirect_active(): bool {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		return ! empty( $gate['unlocked'] ) && $this->is_auto_redirect_enabled();
+	}
+
+	/** Whether $type is a public post type (attachment excluded); post+page outside WP. */
+	private function is_public_type( string $type ): bool {
+		if ( '' === $type ) {
+			return false;
+		}
+		if ( function_exists( 'get_post_types' ) ) {
+			$types = get_post_types( array( 'public' => true ), 'names' );
+			if ( is_array( $types ) ) {
+				unset( $types['attachment'] );
+				return in_array( $type, array_values( $types ), true );
+			}
+		}
+		return in_array( $type, array( 'post', 'page' ), true );
+	}
+
 	// ── normalization (public static so tests hit it directly) ─────────────────
 
 	/**
@@ -407,6 +604,96 @@ final class IWSL_Redirects {
 		}
 		$trimmed = rtrim( $path, '/' );
 		return '' === $trimmed ? '/' : $trimmed;
+	}
+
+	/**
+	 * Build the (source, target) for an auto-redirect from an OLD → NEW permalink
+	 * pair, or null when there is nothing to do (either empty, or the normalized
+	 * paths are equal — a no-op change). Pure: the caller feeds the two permalinks
+	 * and passes the result to the gated add_rule(). Source is the old path; target
+	 * is the new permalink verbatim (the add_rule validators re-check it).
+	 *
+	 * @return array{ source:string, target:string }|null
+	 */
+	public static function build_auto_source_target( string $old_permalink, string $new_permalink ): ?array {
+		$old = trim( $old_permalink );
+		$new = trim( $new_permalink );
+		if ( '' === $old || '' === $new ) {
+			return null;
+		}
+		$old_path = self::extract_path( $old );
+		if ( null === $old_path ) {
+			return null;
+		}
+		$old_norm = self::normalize_path( $old_path );
+		if ( '' === $old_norm ) {
+			return null;
+		}
+		$new_path = self::extract_path( $new );
+		$new_norm = null !== $new_path ? self::normalize_path( $new_path ) : '';
+		if ( $old === $new || $old_norm === $new_norm ) {
+			return null; // No slug change — nothing to redirect.
+		}
+		return array( 'source' => $old_norm, 'target' => $new );
+	}
+
+	/**
+	 * Whether adding (candidate_source → candidate_target) would create a redirect
+	 * loop or an over-long chain. Builds a source-path → target-path graph from the
+	 * existing rules plus the candidate, then walks forward from the candidate
+	 * source: revisiting any node (or returning to the start) is a cycle, and a
+	 * chain longer than MAX_REDIRECT_HOPS is treated as unsafe (fail-closed). An
+	 * external / pathless candidate target cannot loop internally → false. Pure.
+	 *
+	 * @param array<int, array> $rules Existing stored rules (each with source+target).
+	 */
+	public static function detect_cycle( array $rules, string $candidate_source, string $candidate_target ): bool {
+		$graph = array();
+		foreach ( $rules as $rule ) {
+			if ( ! is_array( $rule ) || ! isset( $rule['source'], $rule['target'] ) ) {
+				continue;
+			}
+			$src = self::normalize_path( (string) $rule['source'] );
+			$tgt = self::graph_target_path( (string) $rule['target'] );
+			if ( '' !== $src && null !== $tgt ) {
+				$graph[ $src ] = $tgt;
+			}
+		}
+
+		$start = self::normalize_path( $candidate_source );
+		$cand_tgt = self::graph_target_path( $candidate_target );
+		if ( '' === $start || null === $cand_tgt ) {
+			return false;
+		}
+		$graph[ $start ] = $cand_tgt;
+
+		$current = $start;
+		$seen = array();
+		for ( $hop = 0; $hop < self::MAX_REDIRECT_HOPS; $hop++ ) {
+			if ( ! isset( $graph[ $current ] ) ) {
+				return false; // Chain terminates at a non-redirected path.
+			}
+			$next = $graph[ $current ];
+			if ( $next === $start || isset( $seen[ $next ] ) ) {
+				return true; // Returns to the start or revisits a node → cycle.
+			}
+			$seen[ $next ] = true;
+			$current = $next;
+		}
+		return true; // Exceeded the hop budget without terminating.
+	}
+
+	/** The graph node (path) for a redirect target, or null when it has no path. */
+	private static function graph_target_path( string $target ): ?string {
+		$target = trim( $target );
+		if ( '' === $target ) {
+			return null;
+		}
+		if ( '/' === $target[0] ) {
+			return self::normalize_path( $target );
+		}
+		$path = self::extract_path( $target );
+		return null !== $path ? self::normalize_path( $path ) : null;
 	}
 
 	// ── validators (the save-time security gauntlet) ───────────────────────────

@@ -173,6 +173,11 @@ iwsl_assert( false !== strpos( $scripted, '<div> x </div>' ), 'minify: surroundi
 iwsl_assert_same( 'XY', IWSL_Speed_Pack::minify_html( 'X<!-- a comment -->Y' ), 'minify: HTML comment stripped' );
 $cond = IWSL_Speed_Pack::minify_html( 'A<!--[if IE]><b>x</b><![endif]-->B' );
 iwsl_assert( false !== strpos( $cond, '<!--[if IE]>' ), 'minify: IE conditional comment preserved' );
+// a `>` inside a quoted attribute on the opening tag must not truncate the
+// protected region: the whole <code> block survives minify byte-for-byte.
+$quoted = IWSL_Speed_Pack::minify_html( '<div>  a  </div><code data-x="a>b">keep   me</code>' );
+iwsl_assert( false !== strpos( $quoted, '<code data-x="a>b">keep   me</code>' ), 'minify: <code> with >-bearing attr preserved intact' );
+iwsl_assert( false !== strpos( $quoted, '<div> a </div>' ), 'minify: markup around the quoted-attr region still collapsed' );
 
 // via the gated output-buffer callback when unlocked + toggle on.
 $store = iwsl_sp_unlocked_store( $SP_NOW );

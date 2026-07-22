@@ -76,8 +76,8 @@ function iwsl_bls_unlocked( int $now ): IWSL_Entitlements {
 	);
 }
 
-/** Build an unlocked scanner over injected posts + remote map (+ optional clock). */
-function iwsl_bls_engine( int $now, array $posts, array $remote, ?callable $clock = null, ?IWSL_Store $store = null ): IWSL_Broken_Link_Scan {
+/** Build an unlocked scanner over injected posts + remote map (+ optional clock/store/resolver). */
+function iwsl_bls_engine( int $now, array $posts, array $remote, ?callable $clock = null, ?IWSL_Store $store = null, ?callable $resolver = null ): IWSL_Broken_Link_Scan {
 	return new IWSL_Broken_Link_Scan(
 		iwsl_bls_unlocked( $now ),
 		$store ?? new IWSL_Memory_Store(),
@@ -86,7 +86,8 @@ function iwsl_bls_engine( int $now, array $posts, array $remote, ?callable $cloc
 		},
 		'site',
 		iwsl_bls_provider( $posts ),
-		iwsl_bls_fetcher( $remote )
+		iwsl_bls_fetcher( $remote ),
+		$resolver
 	);
 }
 
@@ -302,6 +303,67 @@ iwsl_assert_same( array(), $pg2['options'], 'purge idempotent: second purge remo
 $store_clean = new IWSL_Memory_Store();
 $eng_clean   = iwsl_bls_engine( $BLS_NOW, array(), array(), null, $store_clean );
 iwsl_assert_same( array(), $eng_clean->purge()['options'], 'purge cheap-when-clean: a never-scanned engine removes nothing' );
+
+// ── 9. SSRF: an external link resolving to an internal IP is refused pre-fetch ─
+//
+// An author can plant a link at a loopback / link-local / RFC1918 host so an
+// operator "Scan now" fires an INTERNAL request. The guard resolves the host
+// (injected resolver here) and refuses any internal target BEFORE the fetcher —
+// the recording fetcher counter proves no outbound call was made. A literal
+// private IP is blocked without even resolving. Public hosts still scan.
+
+iwsl_bls_reset();
+$ssrf_posts = array(
+	array(
+		'id'      => 91,
+		'title'   => 'Planted',
+		'content' => '<a href="http://metadata.attacker.test/latest">meta</a>' // → 169.254.169.254 (link-local)
+			. '<a href="http://intranet.attacker.test/x">intra</a>'            // → 10.0.0.5 (RFC1918)
+			. '<a href="http://127.0.0.1/status">lo</a>'                       // literal loopback
+			. '<a href="http://192.168.1.1/admin">lan</a>'                     // literal RFC1918
+			. '<a href="http://public.example/ok">pub</a>',                    // → public IP, still scanned
+	),
+);
+$ssrf_resolver = static function ( string $host ): string {
+	$map = array(
+		'metadata.attacker.test' => '169.254.169.254',
+		'intranet.attacker.test' => '10.0.0.5',
+		'public.example'         => '93.184.216.34',
+	);
+	return $map[ $host ] ?? $host;
+};
+$eng9 = iwsl_bls_engine(
+	$BLS_NOW,
+	$ssrf_posts,
+	array( 'http://public.example/ok' => array( 'code' => 200, 'error' => '' ) ),
+	null,
+	null,
+	$ssrf_resolver
+);
+$r9 = $eng9->scan();
+iwsl_assert_same( 4, $r9['broken_count'], 'ssrf: all four internal-resolving targets reported broken' );
+iwsl_assert_same( 1, $GLOBALS['iwsl_bls_fetches'], 'ssrf: ONLY the public host is fetched (internal targets never hit the network)' );
+foreach ( array(
+	'http://metadata.attacker.test/latest',
+	'http://intranet.attacker.test/x',
+	'http://127.0.0.1/status',
+	'http://192.168.1.1/admin',
+) as $blocked ) {
+	$entry = iwsl_bls_find( $r9, $blocked );
+	iwsl_assert( is_array( $entry ), "ssrf: blocked target reported: {$blocked}" );
+	iwsl_assert_same( 'unsafe-host', $entry['status'], "ssrf: internal target marked unsafe-host: {$blocked}" );
+}
+iwsl_assert( null === iwsl_bls_find( $r9, 'http://public.example/ok' ), 'ssrf: the public host still scans and is NOT reported broken' );
+
+// A public external host with no injected resolver still scans (default
+// gethostbyname path): an unresolvable fake host is left to the safe-fetcher,
+// never pre-blocked as unsafe — otherwise a broken-link scanner scans nothing.
+iwsl_bls_reset();
+$pub_posts = array( array( 'id' => 92, 'title' => 'Pub', 'content' => '<a href="http://external.test/ok">o</a>' ) );
+$eng_pub   = iwsl_bls_engine( $BLS_NOW, $pub_posts, array( 'http://external.test/ok' => array( 'code' => 200, 'error' => '' ) ) );
+$r_pub     = $eng_pub->scan();
+iwsl_assert_same( 0, $r_pub['broken_count'], 'ssrf: an unresolvable public host is not pre-blocked as unsafe' );
+iwsl_assert_same( 1, $GLOBALS['iwsl_bls_fetches'], 'ssrf: the public host is fetched (guard did not block it)' );
 
 // Clean up the stubs' global state so nothing leaks into a later suite.
 unset(

@@ -947,6 +947,29 @@ final class IWSL_SEO_Analyzer {
 		return $out;
 	}
 
+	/**
+	 * @return string[] the `src` URL of each <img> that has one (imgs without a
+	 * src are skipped). Sibling of extract_image_alts, same regex idiom — used to
+	 * fold in-content images into the XML sitemap. Public + pure so it is unit
+	 * testable with plain strings.
+	 */
+	public static function extract_image_srcs( string $html ): array {
+		$out = array();
+		if ( preg_match_all( '#<img\b[^>]*>#is', $html, $m ) ) {
+			foreach ( $m[0] as $tag ) {
+				if ( ! preg_match( '#\bsrc\s*=\s*("([^"]*)"|\'([^\']*)\')#i', $tag, $sm ) ) {
+					continue; // No src attribute — skip.
+				}
+				$src = '' !== $sm[2] ? $sm[2] : ( isset( $sm[3] ) ? $sm[3] : '' );
+				$src = trim( html_entity_decode( $src, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+				if ( '' !== $src ) {
+					$out[] = $src;
+				}
+			}
+		}
+		return $out;
+	}
+
 	/** @return string[] alt text of each <img> (empty string when alt is absent). */
 	private static function extract_image_alts( string $html ): array {
 		$out = array();

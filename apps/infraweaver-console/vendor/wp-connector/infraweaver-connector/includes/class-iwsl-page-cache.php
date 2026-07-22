@@ -283,6 +283,37 @@ final class IWSL_Page_Cache {
 		return array( 'ok' => true, 'purged' => $purged );
 	}
 
+	/**
+	 * Full teardown for an uninstall/unlink sweep: tear down whatever disable()
+	 * would (our drop-in — never a foreign one — the WP_CACHE marker line, and the
+	 * cache dir contents), then run purge_all() again for good measure. This class
+	 * stores NO settings under IWSL_Store — the drop-in file, the wp-config marker
+	 * line, and the contained cache dir ARE its entire on-disk footprint, so tearing
+	 * those down is the whole job; there are no option keys to delete.
+	 *
+	 * SAFETY: if a FOREIGN drop-in occupies the path, disable() refuses (never
+	 * touches a competitor's file) and that refusal is propagated here unchanged —
+	 * purge() never overwrites or deletes anything it does not own.
+	 *
+	 * Idempotent + cheap-when-clean: on a site where the feature was never enabled,
+	 * disable() and purge_all() each short-circuit on a handful of is_file()/glob()
+	 * checks and do no real work.
+	 *
+	 * @return array{ ok:bool, reason?:string, removed:bool, purged:int }
+	 */
+	public function purge(): array {
+		$disabled = $this->disable();
+		if ( empty( $disabled['ok'] ) ) {
+			return $disabled; // foreign drop-in — refuse, exactly like disable().
+		}
+		$extra = $this->purge_all();
+		return array(
+			'ok'      => true,
+			'removed' => ! empty( $disabled['removed'] ),
+			'purged'  => (int) ( $disabled['purged'] ?? 0 ) + (int) ( $extra['purged'] ?? 0 ),
+		);
+	}
+
 	// ── status ─────────────────────────────────────────────────────────────────
 
 	/**

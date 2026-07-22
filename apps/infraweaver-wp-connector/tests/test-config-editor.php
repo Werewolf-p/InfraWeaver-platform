@@ -153,6 +153,7 @@ iwsl_assert( empty( $r['applied'] ), 'fail-safe: nothing applied when unwritable
 iwsl_assert( isset( $r['skipped']['WP_MEMORY_LIMIT'] ) && 'wp-config-unwritable' === $r['skipped']['WP_MEMORY_LIMIT'], 'fail-safe: wp-config key skipped as unwritable' );
 iwsl_assert( isset( $r['skipped']['upload_max_filesize'] ) && 'user-ini-unwritable' === $r['skipped']['upload_max_filesize'], 'fail-safe: .user.ini key skipped as unwritable' );
 iwsl_assert( isset( $r['manual_step'] ) && '' !== (string) $r['manual_step'], 'fail-safe: manual_step surfaced' );
+iwsl_assert( false !== strpos( (string) $r['manual_step'], 'ask your host or developer' ), 'fail-safe: manual_step leads with a plain-English action before the raw jargon' );
 iwsl_assert( ! is_file( $missing ), 'fail-safe: no wp-config written to an unwritable path' );
 
 // ── 8. mod_php (apache2handler): PHP limits go to .htaccess, NOT .user.ini ──────
@@ -180,6 +181,7 @@ iwsl_assert( ! is_file( $dir5 . '/.user.ini' ), 'mod_php: no .user.ini written u
 // The result must be HONEST: mechanism + a take-effect note + a live effective readback.
 iwsl_assert( isset( $r['notes'] ) && is_array( $r['notes'] ) && ! empty( $r['notes'] ), 'mod_php: apply returns an honest take-effect note' );
 iwsl_assert( isset( $r['effective'] ) && array_key_exists( 'upload_max_filesize', $r['effective'] ), 'mod_php: apply reports the live effective ini_get() alongside the requested value' );
+iwsl_assert( false !== strpos( (string) ( $r['notes'][0] ?? '' ), 'saved and will apply' ), 'mod_php: take-effect note leads with plain English before the php_value/AllowOverride detail' );
 
 // configured_php_limits() reads back what was written (distinct from live current()).
 $conf = $ed5->configured_php_limits();
@@ -227,3 +229,4 @@ iwsl_assert_same( false, $r['php_limits_writable'], 'htaccess unwritable: php_li
 iwsl_assert( empty( $r['applied'] ), 'htaccess unwritable: nothing applied' );
 iwsl_assert( isset( $r['skipped']['upload_max_filesize'] ) && 'htaccess-unwritable' === $r['skipped']['upload_max_filesize'], 'htaccess unwritable: key skipped as htaccess-unwritable' );
 iwsl_assert( isset( $r['manual_step'] ) && false !== strpos( (string) $r['manual_step'], '.htaccess' ), 'htaccess unwritable: manual_step names .htaccess (not .user.ini)' );
+iwsl_assert( false !== strpos( (string) $r['manual_step'], 'ask your host or developer' ), 'htaccess unwritable: manual_step leads with a plain-English action before the technical detail' );

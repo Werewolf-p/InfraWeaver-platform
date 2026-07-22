@@ -164,7 +164,7 @@ final class IWSL_Media_Optimizer {
 	 *                    to the auto-selected batch (unchanged prior behaviour).
 	 * @return array Immutable run summary.
 	 */
-	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false, string $types = 'auto', array $ids = array(), bool $rewrite = false ): array {
+	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false, string $types = 'auto', array $ids = array(), bool $rewrite = false, bool $skip_optimized = true ): array {
 		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
 		$mode  = self::MODE_REPLACE === $mode ? self::MODE_REPLACE : self::MODE_COPY;
 		$gate  = $this->entitlements->evaluate( self::FEATURE );
@@ -228,7 +228,7 @@ final class IWSL_Media_Optimizer {
 
 		$batch = array() !== $ids
 			? $this->select_batch_from_ids( $ids, $mimes, $limit )
-			: $this->select_batch( $converter, $limit, $mimes );
+			: $this->select_batch( $converter, $limit, $mimes, $skip_optimized );
 
 		try {
 			foreach ( $batch as $attachment_id ) {
@@ -258,8 +258,91 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @param int[] $ids Optional operator-picked attachment ids; see run().
 	 */
-	public function preview( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $types = 'auto', array $ids = array() ): array {
-		return $this->run( $converter_id, $limit, self::MODE_COPY, true, $types, $ids );
+	public function preview( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $types = 'auto', array $ids = array(), bool $skip_optimized = true ): array {
+		return $this->run( $converter_id, $limit, self::MODE_COPY, true, $types, $ids, false, $skip_optimized );
+	}
+
+	/**
+	 * Whole-library optimization counters — the source of truth for the progress
+	 * popup and its AJAX status endpoint. Returns { total, optimized, remaining }:
+	 *
+	 *   - total     — image attachments this engine CAN optimize: post_mime_type is
+	 *                 in the union of every registered converter's accepted MIMEs, so
+	 *                 already-produced WebP derivatives and non-optimizable attachments
+	 *                 are excluded (this is the same candidate set select_batch() draws
+	 *                 from, so `remaining` tracks what a run actually has left to do);
+	 *   - optimized — how many of those already carry this optimizer's derivative
+	 *                 tracking meta (self::META_KEY) — i.e. already have an up-to-date
+	 *                 lossless copy on record;
+	 *   - remaining — max( 0, total - optimized ).
+	 *
+	 * Two efficient COUNT(*) queries (mirrors the parameterised $wpdb pattern used by
+	 * rewrite_post_references()). No user input reaches SQL — the MIME allow-list is
+	 * derived from the converter registry and bound through prepare(). Fully guarded:
+	 * returns all-zeros outside a WordPress $wpdb context (the no-WP test harness).
+	 *
+	 * @return array{ total:int, optimized:int, remaining:int }
+	 */
+	public function library_stats(): array {
+		$zero = array( 'total' => 0, 'optimized' => 0, 'remaining' => 0 );
+
+		global $wpdb;
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb )
+			|| ! method_exists( $wpdb, 'get_var' ) || ! method_exists( $wpdb, 'prepare' ) ) {
+			return $zero;
+		}
+
+		$mimes = $this->optimizable_mimes();
+		if ( array() === $mimes ) {
+			return $zero;
+		}
+		$placeholders = implode( ',', array_fill( 0, count( $mimes ), '%s' ) );
+
+		$total = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->posts}
+				 WHERE post_type = 'attachment' AND post_status = 'inherit'
+				   AND post_mime_type IN ($placeholders)",
+				...$mimes
+			)
+		);
+
+		$meta_args = array_merge( $mimes, array( self::META_KEY ) );
+		$optimized = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->posts} p
+				 INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID
+				 WHERE p.post_type = 'attachment' AND p.post_status = 'inherit'
+				   AND p.post_mime_type IN ($placeholders)
+				   AND m.meta_key = %s",
+				...$meta_args
+			)
+		);
+
+		$optimized = min( $optimized, $total ); // defensive: subset can never exceed total.
+		return array(
+			'total'     => $total,
+			'optimized' => $optimized,
+			'remaining' => max( 0, $total - $optimized ),
+		);
+	}
+
+	/**
+	 * The union of every registered converter's accepted MIME types — the full set
+	 * of image types this engine can turn into a WebP. Order-stable, de-duplicated.
+	 *
+	 * @return string[]
+	 */
+	private function optimizable_mimes(): array {
+		$out = array();
+		foreach ( $this->converters as $converter ) {
+			foreach ( $converter->accepts() as $mime ) {
+				if ( is_string( $mime ) && '' !== $mime && ! in_array( $mime, $out, true ) ) {
+					$out[] = $mime;
+				}
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -269,7 +352,7 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @return int[]
 	 */
-	private function select_batch( IWSL_Media_Converter $converter, int $limit = self::MAX_BATCH, array $mimes = array() ): array {
+	private function select_batch( IWSL_Media_Converter $converter, int $limit = self::MAX_BATCH, array $mimes = array(), bool $skip_optimized = true ): array {
 		if ( ! function_exists( 'get_posts' ) ) {
 			return array();
 		}
@@ -280,18 +363,30 @@ final class IWSL_Media_Optimizer {
 			return array(); // A type filter that matched nothing selects nothing.
 		}
 		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
-		$ids   = get_posts(
-			array(
-				'post_type'        => 'attachment',
-				'post_status'      => 'inherit',
-				'post_mime_type'   => $mimes,
-				'fields'           => 'ids',
-				'posts_per_page'   => $limit,
-				'orderby'          => 'ID',
-				'order'            => 'ASC',
-				'suppress_filters' => true,
-			)
+		$args  = array(
+			'post_type'        => 'attachment',
+			'post_status'      => 'inherit',
+			'post_mime_type'   => $mimes,
+			'fields'           => 'ids',
+			'posts_per_page'   => $limit,
+			'orderby'          => 'ID',
+			'order'            => 'ASC',
+			'suppress_filters' => true,
 		);
+		// "Only optimize images not already optimized": exclude any attachment that
+		// already carries this optimizer's derivative-tracking meta, so a repeat run
+		// advances to genuinely NEW images and can never re-process (or duplicate) a
+		// source it has already converted. Off = re-scan everything (convert_one is
+		// still idempotent, so it only re-encodes a source whose bytes/mtime changed).
+		if ( $skip_optimized ) {
+			$args['meta_query'] = array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+				array(
+					'key'     => self::META_KEY,
+					'compare' => 'NOT EXISTS',
+				),
+			);
+		}
+		$ids = get_posts( $args );
 		return is_array( $ids ) ? array_map( 'intval', $ids ) : array();
 	}
 
@@ -757,6 +852,39 @@ final class IWSL_Media_Optimizer {
 			$this->release_lock();
 		}
 		return $summary;
+	}
+
+	/**
+	 * Teardown: remove this engine's ENTIRE persistent bookkeeping footprint —
+	 * the per-attachment derivative-tracking meta (self::META_KEY, which also
+	 * carries the registered copy_id) and the single-flight run-lock transient.
+	 * Idempotent (check-before-delete) and cheap when already clean: a second
+	 * call finds nothing to remove and reports zeros. NEVER touches original
+	 * uploads, WebP derivative files already written to disk, the Media Library
+	 * copy attachments themselves, or any core WordPress postmeta — only the
+	 * bookkeeping this class itself created. Every WP/$wpdb call is guarded so
+	 * this runs cleanly under the zero-dependency test harness.
+	 *
+	 * @return array{ options:int, meta:int, cron:bool, locks:int }
+	 */
+	public function purge(): array {
+		$meta = 0;
+		global $wpdb;
+		if ( isset( $wpdb ) && is_object( $wpdb ) && method_exists( $wpdb, 'delete' ) ) {
+			$deleted = $wpdb->delete( $wpdb->postmeta, array( 'meta_key' => self::META_KEY ) );
+			$meta    = is_int( $deleted ) ? $deleted : 0;
+		}
+
+		$locks = 0;
+		if ( function_exists( 'get_transient' ) && function_exists( 'delete_transient' )
+			&& false !== get_transient( self::LOCK_TRANSIENT ) ) {
+			delete_transient( self::LOCK_TRANSIENT );
+			$locks = 1;
+		}
+
+		// This engine persists no settings of its own (no IWSL_Store instance) —
+		// 'options' is always 0, kept in the shape for uniformity across engines.
+		return array( 'options' => 0, 'meta' => $meta, 'cron' => false, 'locks' => $locks );
 	}
 
 	/**

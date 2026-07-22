@@ -60,6 +60,21 @@ final class IWSL_Stats_Classifier {
 	/** Days in the dashboard time-series (independent of the KPI range switch). */
 	const SERIES_DAYS = 30;
 
+	/**
+	 * Known social-network referrer hosts (www-stripped, lower-case). Matched by
+	 * subdomain-suffix (host === h OR host ends with ".".h) so link-shim subdomains
+	 * (l.facebook.com, out.reddit.com) fold into the parent network. Used only by the
+	 * pure channel() classifier — never for a network call.
+	 *
+	 * @var string[]
+	 */
+	const SOCIAL_HOSTS = array(
+		'facebook.com', 'm.facebook.com', 'l.facebook.com', 'instagram.com',
+		'l.instagram.com', 't.co', 'x.com', 'twitter.com', 'linkedin.com', 'lnkd.in',
+		'reddit.com', 'out.reddit.com', 'pinterest.com', 'youtube.com',
+		'news.ycombinator.com', 'mastodon.social', 'bsky.app', 'threads.net',
+	);
+
 	// ── bot detection (a small, bounded substring denylist) ────────────────────
 
 	/**
@@ -309,14 +324,16 @@ final class IWSL_Stats_Classifier {
 	 * the KPIs + breakdowns use the selected range window, with the immediately
 	 * preceding window of equal length for the up/down comparison.
 	 *
-	 * @param array<int, array> $rows       Stored rows (any order); each row is normalized here.
-	 * @param int               $now        Current unix seconds.
-	 * @param int               $range_days KPI window (1 = today, 7, 30).
+	 * @param array<int, array>  $rows       Stored rows (any order); each row is normalized here.
+	 * @param int                $now        Current unix seconds.
+	 * @param int                $range_days KPI window (1 = today, 7, 30).
+	 * @param DateTimeZone|null  $tz         Wall-clock zone for the hour×day heatmap (UTC when null).
 	 * @return array
 	 */
-	public static function aggregate( array $rows, int $now, int $range_days ): array {
+	public static function aggregate( array $rows, int $now, int $range_days, ?DateTimeZone $tz = null ): array {
 		$range_days = max( 1, $range_days );
 		$rows       = array_map( array( __CLASS__, 'normalize_row' ), $rows );
+		$tz         = $tz ?? new DateTimeZone( 'UTC' );
 
 		$today_start  = $now - ( $now % self::DAY_SECONDS );
 		$window       = $range_days * self::DAY_SECONDS;
@@ -357,6 +374,12 @@ final class IWSL_Stats_Classifier {
 		$cur_visits      = self::distinct_visits( $cur_views );
 		$prev_visits     = self::distinct_visits( $prev_views );
 
+		$quality      = self::quality( $cur_views );
+		$prev_quality = self::quality( $prev_views );
+		$entry_exit   = self::entry_exit( $cur_views );
+		$grid         = self::hour_dow( $cur_views, $tz );
+		$is_today     = 1 === $range_days;
+
 		return array(
 			'range_days' => $range_days,
 			'generated'  => $now,
@@ -372,6 +395,7 @@ final class IWSL_Stats_Classifier {
 				'visits_delta_pct'  => self::delta_pct( $cur_visits, $prev_visits ),
 			),
 			'series'         => self::daily_series( $rows, $today_start ),
+			'daily_quality'  => self::daily_quality( $rows, $today_start ),
 			'top_pages'      => self::top_by( $cur_views, 'path' ),
 			'top_referrers'  => self::top_by( self::with_field( $cur_all, 'referer_host' ), 'referer_host' ),
 			'search_engines' => self::top_by( self::with_field( $cur_all, 'search_engine' ), 'search_engine' ),
@@ -379,6 +403,23 @@ final class IWSL_Stats_Classifier {
 			'os'             => self::top_by( $cur_views, 'os' ),
 			'devices'        => self::top_by( $cur_views, 'device' ),
 			'countries'      => self::top_by( $cur_views, 'country' ),
+			'channels'       => self::channels( $cur_views ),
+			'entries'        => $entry_exit['entries'],
+			'exits'          => $entry_exit['exits'],
+			'searches'       => self::top_searches( $cur_all ),
+			'heatmap'        => $grid,
+			'heat_summary'   => self::heat_summary( $grid ),
+			'quality'        => array(
+				'bounce_pct'      => $quality['bounce_pct'],
+				'pages_per_visit' => $quality['pages_per_visit'],
+				'bounced'         => $quality['bounced'],
+				'visits'          => $quality['visits'],
+				'prev_bounce_pct' => $prev_quality['bounce_pct'],
+				'prev_ppv'        => $prev_quality['pages_per_visit'],
+			),
+			'hourly'         => $is_today ? self::hourly_series( $rows, $today_start ) : array(),
+			'hourly_prev'    => $is_today ? self::hourly_series( $rows, $today_start - self::DAY_SECONDS ) : array(),
+			'drill'          => self::drill_payload( $cur_views, $today_start ),
 			'recent_events'  => self::recent_events( $cur_all ),
 		);
 	}
@@ -520,6 +561,407 @@ final class IWSL_Stats_Classifier {
 			}
 		);
 		return array_slice( $events, 0, self::MAX_RECENT_EVENTS );
+	}
+
+	// ── engagement quality (bounce, pages/visit) ───────────────────────────────
+
+	/**
+	 * View-row count per visit id (empty ids ignored). The raw material for bounce
+	 * (depth === 1) and pages/visit.
+	 *
+	 * @param array<int, array> $rows
+	 * @return array<string, int> visit_id => view count
+	 */
+	public static function visit_depths( array $rows ): array {
+		$depths = array();
+		foreach ( $rows as $raw ) {
+			$r = self::normalize_row( $raw );
+			if ( self::EVENT_VIEW !== $r['event_type'] || '' === $r['visit_id'] ) {
+				continue;
+			}
+			$depths[ $r['visit_id'] ] = ( isset( $depths[ $r['visit_id'] ] ) ? $depths[ $r['visit_id'] ] : 0 ) + 1;
+		}
+		return $depths;
+	}
+
+	/**
+	 * Engagement quality over a row set: bounce rate (share of visits with exactly one
+	 * view) and pages-per-visit (view rows ÷ distinct visits). Both zero on no visits.
+	 *
+	 * @param array<int, array> $rows
+	 * @return array{ bounce_pct:float, pages_per_visit:float, bounced:int, visits:int }
+	 */
+	public static function quality( array $rows ): array {
+		$depths      = self::visit_depths( $rows );
+		$visits      = count( $depths );
+		$bounced     = 0;
+		$total_views = 0;
+		foreach ( $depths as $depth ) {
+			$total_views += $depth;
+			if ( 1 === $depth ) {
+				$bounced++;
+			}
+		}
+		return array(
+			'bounce_pct'      => $visits > 0 ? round( ( $bounced / $visits ) * 100, 1 ) : 0.0,
+			'pages_per_visit' => $visits > 0 ? round( $total_views / $visits, 2 ) : 0.0,
+			'bounced'         => $bounced,
+			'visits'          => $visits,
+		);
+	}
+
+	/**
+	 * Per-day bounce rate + pages-per-visit for the SERIES_DAYS window ending today,
+	 * oldest → newest, zero-filled — the source for the KPI sparklines.
+	 *
+	 * @param array<int, array> $rows
+	 * @return array<int, array{ day:string, bounce_pct:float, ppv:float }>
+	 */
+	public static function daily_quality( array $rows, int $today_start ): array {
+		$buckets = array();
+		for ( $i = self::SERIES_DAYS - 1; $i >= 0; $i-- ) {
+			$start             = $today_start - ( $i * self::DAY_SECONDS );
+			$buckets[ $start ] = array( 'day' => gmdate( 'Y-m-d', $start ), 'rows' => array() );
+		}
+		$earliest = $today_start - ( ( self::SERIES_DAYS - 1 ) * self::DAY_SECONDS );
+		$latest   = $today_start + self::DAY_SECONDS;
+		foreach ( $rows as $raw ) {
+			$r = self::normalize_row( $raw );
+			if ( self::EVENT_VIEW !== $r['event_type'] ) {
+				continue;
+			}
+			$at = $r['hit_at'];
+			if ( $at < $earliest || $at >= $latest ) {
+				continue;
+			}
+			$start = $at - ( $at % self::DAY_SECONDS );
+			if ( isset( $buckets[ $start ] ) ) {
+				$buckets[ $start ]['rows'][] = $r;
+			}
+		}
+		$out = array();
+		foreach ( $buckets as $b ) {
+			$q     = self::quality( $b['rows'] );
+			$out[] = array(
+				'day'        => $b['day'],
+				'bounce_pct' => $q['bounce_pct'],
+				'ppv'        => $q['pages_per_visit'],
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * A 24-slot hourly view/visit series for the single calendar day starting at
+	 * $day_start (buckets are hours relative to that midnight). Used for the range=1
+	 * "today, by hour" chart and its previous-day compare ghost.
+	 *
+	 * @param array<int, array> $rows
+	 * @return array<int, array{ hour:int, views:int, visits:int }>
+	 */
+	public static function hourly_series( array $rows, int $day_start ): array {
+		$buckets = array();
+		for ( $h = 0; $h < 24; $h++ ) {
+			$buckets[ $h ] = array( 'hour' => $h, 'views' => 0, 'visits' => array() );
+		}
+		$end = $day_start + self::DAY_SECONDS;
+		foreach ( $rows as $raw ) {
+			$r = self::normalize_row( $raw );
+			if ( self::EVENT_VIEW !== $r['event_type'] ) {
+				continue;
+			}
+			$at = $r['hit_at'];
+			if ( $at < $day_start || $at >= $end ) {
+				continue;
+			}
+			$h = (int) floor( ( $at - $day_start ) / 3600 );
+			if ( $h < 0 || $h > 23 ) {
+				continue;
+			}
+			$buckets[ $h ]['views']++;
+			if ( '' !== $r['visit_id'] ) {
+				$buckets[ $h ]['visits'][ $r['visit_id'] ] = true;
+			}
+		}
+		$out = array();
+		foreach ( $buckets as $b ) {
+			$out[] = array( 'hour' => (int) $b['hour'], 'views' => (int) $b['views'], 'visits' => count( $b['visits'] ) );
+		}
+		return $out;
+	}
+
+	// ── acquisition channels ───────────────────────────────────────────────────
+
+	/**
+	 * Classify one hit's acquisition channel from its (already parsed) referrer host
+	 * and search-engine name. Precedence: a search engine → "search"; no referrer host
+	 * → "direct"; a known social host (subdomain-suffix) → "social"; else "referral".
+	 *
+	 * @return string One of direct|search|referral|social.
+	 */
+	public static function channel( string $referer_host, string $search_engine ): string {
+		if ( '' !== trim( $search_engine ) ) {
+			return 'search';
+		}
+		$host = strtolower( trim( $referer_host ) );
+		if ( '' === $host ) {
+			return 'direct';
+		}
+		if ( self::is_social_host( $host ) ) {
+			return 'social';
+		}
+		return 'referral';
+	}
+
+	/** Whether a host equals or is a subdomain of any SOCIAL_HOSTS entry. */
+	public static function is_social_host( string $host ): bool {
+		$host = strtolower( $host );
+		foreach ( self::SOCIAL_HOSTS as $h ) {
+			if ( $host === $h || ( strlen( $host ) > strlen( $h ) && substr( $host, -( strlen( $h ) + 1 ) ) === '.' . $h ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Visits grouped by their ENTRY channel — each visit classified once by its first
+	 * (earliest, ties→row order) view row's referrer/search-engine. Sorted desc, zeros
+	 * dropped. Labels are Title-cased (Direct/Search/Referral/Social).
+	 *
+	 * @param array<int, array> $rows
+	 * @return array<int, array{ label:string, count:int }>
+	 */
+	public static function channels( array $rows ): array {
+		$first = self::first_view_per_visit( $rows );
+		$counts = array( 'Direct' => 0, 'Search' => 0, 'Referral' => 0, 'Social' => 0 );
+		foreach ( $first as $r ) {
+			$counts[ ucfirst( self::channel( $r['referer_host'], $r['search_engine'] ) ) ]++;
+		}
+		return self::top_n( array_filter( $counts ), self::TOP_N );
+	}
+
+	/** The earliest view row per visit id (ties → first in array order). @return array<string, array> */
+	private static function first_view_per_visit( array $rows ): array {
+		$first = array();
+		foreach ( $rows as $raw ) {
+			$r = self::normalize_row( $raw );
+			if ( self::EVENT_VIEW !== $r['event_type'] || '' === $r['visit_id'] ) {
+				continue;
+			}
+			$vid = $r['visit_id'];
+			if ( ! isset( $first[ $vid ] ) || $r['hit_at'] < $first[ $vid ]['hit_at'] ) {
+				$first[ $vid ] = $r;
+			}
+		}
+		return $first;
+	}
+
+	/**
+	 * Top entry + exit pages: for each visit, the path of its earliest and latest view
+	 * row (ties → first in array order); counted and ranked top-N.
+	 *
+	 * @param array<int, array> $rows
+	 * @return array{ entries:array<int, array{label:string,count:int}>, exits:array<int, array{label:string,count:int}> }
+	 */
+	public static function entry_exit( array $rows ): array {
+		$first = array();
+		$last  = array();
+		foreach ( $rows as $raw ) {
+			$r = self::normalize_row( $raw );
+			if ( self::EVENT_VIEW !== $r['event_type'] || '' === $r['visit_id'] ) {
+				continue;
+			}
+			$vid = $r['visit_id'];
+			if ( ! isset( $first[ $vid ] ) || $r['hit_at'] < $first[ $vid ]['hit_at'] ) {
+				$first[ $vid ] = $r;
+			}
+			if ( ! isset( $last[ $vid ] ) || $r['hit_at'] > $last[ $vid ]['hit_at'] ) {
+				$last[ $vid ] = $r;
+			}
+		}
+		return array(
+			'entries' => self::top_by( array_values( $first ), 'path' ),
+			'exits'   => self::top_by( array_values( $last ), 'path' ),
+		);
+	}
+
+	/**
+	 * A 7×24 (Monday row 0 … Sunday row 6) grid of view counts bucketed into the given
+	 * wall-clock zone. Pure: DateTimeZone is injected so the harness can assert UTC.
+	 *
+	 * @param array<int, array> $rows
+	 * @return array<int, array<int, int>>
+	 */
+	public static function hour_dow( array $rows, DateTimeZone $tz ): array {
+		$grid = array();
+		for ( $d = 0; $d < 7; $d++ ) {
+			$grid[ $d ] = array_fill( 0, 24, 0 );
+		}
+		foreach ( $rows as $raw ) {
+			$r = self::normalize_row( $raw );
+			if ( self::EVENT_VIEW !== $r['event_type'] || $r['hit_at'] <= 0 ) {
+				continue;
+			}
+			$dt   = ( new DateTimeImmutable( '@' . $r['hit_at'] ) )->setTimezone( $tz );
+			$dow  = (int) $dt->format( 'N' ) - 1; // 1=Mon..7=Sun → 0..6
+			$hour = (int) $dt->format( 'G' );     // 0..23
+			if ( $dow >= 0 && $dow < 7 && $hour >= 0 && $hour < 24 ) {
+				$grid[ $dow ][ $hour ]++;
+			}
+		}
+		return $grid;
+	}
+
+	/**
+	 * A one-line English summary of a 7×24 heatmap grid: busiest cell + quietest day.
+	 * Deterministic (ties → earliest day/hour). Empty grid → an inviting placeholder.
+	 *
+	 * @param array<int, array<int, int>> $grid
+	 */
+	public static function heat_summary( array $grid ): string {
+		$days = array( 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday' );
+		$best_val  = -1;
+		$best_d    = 0;
+		$best_h    = 0;
+		$day_total = array_fill( 0, 7, 0 );
+		$total     = 0;
+		for ( $d = 0; $d < 7; $d++ ) {
+			for ( $h = 0; $h < 24; $h++ ) {
+				$v = isset( $grid[ $d ][ $h ] ) ? (int) $grid[ $d ][ $h ] : 0;
+				$day_total[ $d ] += $v;
+				$total          += $v;
+				if ( $v > $best_val ) {
+					$best_val = $v;
+					$best_d   = $d;
+					$best_h   = $h;
+				}
+			}
+		}
+		if ( $total <= 0 ) {
+			return 'No activity recorded yet.';
+		}
+		$quiet_d   = 0;
+		$quiet_val = PHP_INT_MAX;
+		for ( $d = 0; $d < 7; $d++ ) {
+			if ( $day_total[ $d ] < $quiet_val ) {
+				$quiet_val = $day_total[ $d ];
+				$quiet_d   = $d;
+			}
+		}
+		return sprintf(
+			'Busiest around %s %02d:00; quietest on %s.',
+			$days[ $best_d ],
+			$best_h,
+			$days[ $quiet_d ]
+		);
+	}
+
+	/** Top on-site search queries (event_type=search) ranked by event_label. */
+	public static function top_searches( array $rows ): array {
+		$searches = array();
+		foreach ( $rows as $raw ) {
+			$r = self::normalize_row( $raw );
+			if ( self::EVENT_SEARCH === $r['event_type'] ) {
+				$searches[] = $r;
+			}
+		}
+		return self::top_by( $searches, 'event_label' );
+	}
+
+	/** Rows whose $field exactly equals $value (normalized). @return array<int, array> */
+	public static function filter_rows( array $rows, string $field, string $value ): array {
+		$out = array();
+		foreach ( $rows as $raw ) {
+			$r = self::normalize_row( $raw );
+			if ( ( isset( $r[ $field ] ) ? (string) $r[ $field ] : '' ) === $value ) {
+				$out[] = $r;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * The bounded per-dimension drill model consumed client-side by the drawer. For the
+	 * four drillable dims (page, referrer, country, channel) it yields, per top-N key
+	 * (≤TOP_N), one entry: window views/visits/share/bounce, a SERIES_DAYS view series,
+	 * and two complementary top-5 pair lists. No key, list, or series is unbounded, so
+	 * the emitted JSON island stays ~15 KB.
+	 *
+	 * @param array<int, array> $rows View rows for the selected window.
+	 * @return array<string, array<string, array>>
+	 */
+	public static function drill_payload( array $rows, int $today_start ): array {
+		$views = array();
+		foreach ( $rows as $raw ) {
+			$r = self::normalize_row( $raw );
+			if ( self::EVENT_VIEW === $r['event_type'] ) {
+				$views[] = $r;
+			}
+		}
+		$total = count( $views );
+		$out   = array(
+			'page'     => array(),
+			'referrer' => array(),
+			'country'  => array(),
+			'channel'  => array(),
+		);
+
+		foreach ( self::top_by( $views, 'path' ) as $row ) {
+			$key                  = $row['label'];
+			$out['page'][ $key ]  = self::drill_entry( self::filter_rows( $views, 'path', $key ), $total, $today_start, 'referer_host', 'country' );
+		}
+		foreach ( self::top_by( self::with_field( $views, 'referer_host' ), 'referer_host' ) as $row ) {
+			$key                      = $row['label'];
+			$out['referrer'][ $key ]  = self::drill_entry( self::filter_rows( $views, 'referer_host', $key ), $total, $today_start, 'path', 'country' );
+		}
+		foreach ( self::top_by( $views, 'country' ) as $row ) {
+			$key                     = $row['label'];
+			$out['country'][ $key ]  = self::drill_entry( self::filter_rows( $views, 'country', $key ), $total, $today_start, 'path', 'device' );
+		}
+
+		$by_channel = array( 'direct' => array(), 'search' => array(), 'referral' => array(), 'social' => array() );
+		foreach ( $views as $r ) {
+			$by_channel[ self::channel( $r['referer_host'], $r['search_engine'] ) ][] = $r;
+		}
+		$a_field = array( 'direct' => 'path', 'search' => 'search_engine', 'referral' => 'referer_host', 'social' => 'referer_host' );
+		$b_field = array( 'direct' => 'country', 'search' => 'path', 'referral' => 'path', 'social' => 'path' );
+		foreach ( $by_channel as $cid => $subset ) {
+			if ( array() === $subset ) {
+				continue;
+			}
+			$out['channel'][ $cid ] = self::drill_entry( $subset, $total, $today_start, $a_field[ $cid ], $b_field[ $cid ] );
+		}
+		return $out;
+	}
+
+	/** One drill entry: window scalars + a SERIES_DAYS view series + two top-5 pair lists. */
+	private static function drill_entry( array $subset, int $total_views, int $today_start, string $a_field, string $b_field ): array {
+		$views  = count( $subset );
+		$visits = self::distinct_visits( $subset );
+		$q      = self::quality( $subset );
+		$series = array();
+		foreach ( self::daily_series( $subset, $today_start ) as $d ) {
+			$series[] = (int) $d['views'];
+		}
+		return array(
+			'views'      => $views,
+			'visits'     => $visits,
+			'share_pct'  => $total_views > 0 ? round( ( $views / $total_views ) * 100, 1 ) : 0.0,
+			'bounce_pct' => $q['bounce_pct'],
+			'series'     => $series,
+			'a'          => self::pairs( self::top_by( self::with_field( $subset, $a_field ), $a_field ), 5 ),
+			'b'          => self::pairs( self::top_by( self::with_field( $subset, $b_field ), $b_field ), 5 ),
+		);
+	}
+
+	/** Flatten the first $n {label,count} rows into compact [label,count] pairs. */
+	private static function pairs( array $rows, int $n ): array {
+		$out = array();
+		foreach ( array_slice( $rows, 0, max( 0, $n ) ) as $r ) {
+			$out[] = array( (string) $r['label'], (int) $r['count'] );
+		}
+		return $out;
 	}
 
 	// ── small helpers ──────────────────────────────────────────────────────────

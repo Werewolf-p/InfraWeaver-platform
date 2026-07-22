@@ -454,7 +454,14 @@ final class IWSL_Maintenance_Mode {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
 		}
-		echo '</ul></div>';
+		echo '</ul>';
+		// A real next step, not a dead end: link to the console when one is known
+		// (see IWSL_Admin::console_url()); otherwise the reason lines stand alone.
+		$console = class_exists( 'IWSL_Admin' ) ? IWSL_Admin::console_url() : '';
+		if ( '' !== $console ) {
+			echo '<p style="margin:8px 0 0;"><a class="button button-primary" href="' . esc_url( $console ) . '" target="_blank" rel="noopener">Open the InfraWeaver console <span class="dashicons dashicons-external" aria-hidden="true"></span></a></p>';
+		}
+		echo '</div>';
 	}
 
 	/** Render (then clear) the current user's PRG result transient. */

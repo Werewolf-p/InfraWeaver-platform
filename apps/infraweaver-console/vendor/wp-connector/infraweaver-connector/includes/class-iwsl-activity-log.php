@@ -294,6 +294,10 @@ final class IWSL_Activity_Log {
 			'summary' => self::clean_text( $summary, self::MAX_FIELD_LEN ),
 		);
 
+		// Optimistic re-read: $entry is built above WITHOUT reading the log, then
+		// merged onto a FRESH entries() read taken immediately before the set — so
+		// an entry a racing writer appended is preserved, never dropped from this
+		// audit trail by merging onto a stale snapshot.
 		$next = array_merge( $this->entries(), array( $entry ) );
 		if ( count( $next ) > self::MAX_ENTRIES ) {
 			$next = array_slice( $next, -self::MAX_ENTRIES ); // FIFO: drop the oldest.
@@ -316,6 +320,23 @@ final class IWSL_Activity_Log {
 		}
 		$this->store->set( self::LOG_KEY, array() );
 		return array( 'ok' => true, 'cleared' => true );
+	}
+
+	/**
+	 * Teardown: permanently remove this feature's footprint — delete the stored
+	 * log ring-buffer option. NOT gated by the entitlement: a full teardown must
+	 * succeed even after the `activity_log` flag has already been revoked (that is
+	 * precisely when a teardown is invoked). Idempotent + cheap: deleting an
+	 * already-absent option key is a no-op.
+	 *
+	 * @return array{ ok:bool, options_removed:string[] }
+	 */
+	public function purge(): array {
+		$this->store->delete( self::LOG_KEY );
+		return array(
+			'ok'              => true,
+			'options_removed' => array( self::LOG_KEY ),
+		);
 	}
 
 	// ── admin-post handler (cap + nonce + gate, PRG) ───────────────────────────

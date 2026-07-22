@@ -572,7 +572,7 @@ final class IWSL_Config_Editor {
 	}
 
 	private function user_ini_manual_step(): string {
-		return 'The .user.ini in the WordPress root is not writable — add the InfraWeaver Config block there by hand to apply the PHP limits.';
+		return 'We could not raise your upload and memory limits automatically because a server file is read-only — ask your host or developer to make this change. Technical detail: The .user.ini in the WordPress root is not writable — add the InfraWeaver Config block there by hand to apply the PHP limits.';
 	}
 
 	// ── PHP-limits mechanism: mod_php (.htaccess) vs FastCGI/FPM (.user.ini) ─────
@@ -661,9 +661,9 @@ final class IWSL_Config_Editor {
 	/** An honest note about WHEN — and whether — a just-written PHP limit takes effect. */
 	private function php_limits_effect_note( string $mechanism ): string {
 		if ( 'htaccess' === $mechanism ) {
-			return 'PHP limits were written to .htaccess (Apache mod_php) and take effect on the NEXT request. This needs the site to permit php_value overrides (AllowOverride Options or All); a front web server that caps the request body (nginx client_max_body_size / Apache LimitRequestBody) still applies on top.';
+			return 'Your new upload and memory limits are saved and will apply the next time the site is loaded — nothing else to do. Technical detail for your host: PHP limits were written to .htaccess (Apache mod_php) and take effect on the NEXT request. This needs the site to permit php_value overrides (AllowOverride Options or All); a front web server that caps the request body (nginx client_max_body_size / Apache LimitRequestBody) still applies on top.';
 		}
-		return 'PHP limits were written to .user.ini (FastCGI/PHP-FPM) and take effect on the NEXT request — and up to user_ini.cache_ttl (' . (string) ini_get( 'user_ini.cache_ttl' ) . 's) later while FPM re-reads the file. A php.ini / pool php_admin_value pin or a front web-server body cap, if present, still overrides this.';
+		return 'Your new upload and memory limits are saved and will apply within a few minutes as the server re-reads its settings — nothing else to do. Technical detail for your host: PHP limits were written to .user.ini (FastCGI/PHP-FPM) and take effect on the NEXT request — and up to user_ini.cache_ttl (' . (string) ini_get( 'user_ini.cache_ttl' ) . 's) later while FPM re-reads the file. A php.ini / pool php_admin_value pin or a front web-server body cap, if present, still overrides this.';
 	}
 
 	/** Skip reason for a PHP-limits write that could not happen (mechanism-accurate). */
@@ -677,7 +677,7 @@ final class IWSL_Config_Editor {
 	/** Manual-remediation hint for an unwritable PHP-limits target (mechanism-accurate). */
 	private function php_limits_manual_step( string $mechanism ): string {
 		if ( 'htaccess' === $mechanism ) {
-			return 'The .htaccess in the WordPress root is not writable — add a `php_value upload_max_filesize …` block (Apache mod_php) there by hand to apply the PHP limits.';
+			return 'We could not raise your upload and memory limits automatically because a server file is read-only — ask your host or developer to make this change. Technical detail: The .htaccess in the WordPress root is not writable — add a `php_value upload_max_filesize …` block (Apache mod_php) there by hand to apply the PHP limits.';
 		}
 		return $this->user_ini_manual_step();
 	}

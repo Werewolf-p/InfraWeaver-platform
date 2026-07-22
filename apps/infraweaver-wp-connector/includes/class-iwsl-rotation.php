@@ -49,7 +49,12 @@ final class IWSL_Rotation {
 		if ( is_array( $pending ) ) {
 			$this->store->delete( 'wp_keys.' . $pending['new_kid'] );
 		}
-		$pair = IWSL_Crypto::ed_keypair();
+		// Idempotent under a concurrent PREPARE for the SAME new_kid: if a keypair
+		// for this epoch is already stored, ADOPT it instead of regenerating —
+		// two racing PREPAREs must converge on one key, never clobber a keypair a
+		// prior call already returned to the console.
+		$existing = $this->store->get( 'wp_keys.' . $new_kid );
+		$pair     = is_array( $existing ) ? $existing : IWSL_Crypto::ed_keypair();
 		$this->store->set( 'wp_keys.' . $new_kid, $pair );
 		$this->store->set(
 			'pending_rotation',

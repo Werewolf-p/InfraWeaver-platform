@@ -88,6 +88,15 @@ $rs = IWSL_Lazy_Load::add_lazy_attributes( $sc, false, 0 );
 iwsl_assert( false !== strpos( $rs, ' />' ), 'self-closing: /> preserved' );
 iwsl_assert( false !== strpos( $rs, 'loading="lazy"' ), 'self-closing: loading added' );
 
+// a `>` inside a quoted attribute must NOT prematurely close the tag: the img is
+// augmented correctly and no attribute-value fragment leaks as visible text.
+$gt  = '<img src="x.png" alt="Q3 > Q2 growth">';
+$rgt = IWSL_Lazy_Load::add_lazy_attributes( $gt, false, 0 );
+iwsl_assert_same( 1, substr_count( $rgt, 'loading="lazy"' ), 'quoted >: image augmented exactly once' );
+iwsl_assert( false !== strpos( $rgt, 'alt="Q3 > Q2 growth"' ), 'quoted >: alt attribute preserved intact' );
+iwsl_assert( false === strpos( $rgt, ' Q2 growth">' ), 'quoted >: no stray text leaked after the tag' );
+iwsl_assert_same( '<img src="x.png" alt="Q3 > Q2 growth" loading="lazy" decoding="async">', $rgt, 'quoted >: attrs injected before the real close bracket' );
+
 // data-loading is NOT a loading attribute — the image is still lazified.
 $dl = '<img src="q.jpg" data-loading="1">';
 $rl = IWSL_Lazy_Load::add_lazy_attributes( $dl, false, 0 );

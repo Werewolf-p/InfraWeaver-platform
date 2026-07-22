@@ -203,3 +203,52 @@ $tampered->envelope->params->privilege = 'admin'; // breaks the signature
 $verifier->verify_command( $tampered );
 iwsl_assert_same( 0, $store->get( 'last_seq' ), 'tampered command commits no seq' );
 iwsl_assert_same( array(), $store->get( 'nonces' ), 'tampered command caches no nonce' );
+
+// --- concurrency: last_seq advances by max() and the nonce ledger is merged ----------
+// A decorating store that returns the REAL committed values on the freshness-check
+// read, but a concurrent worker's HIGHER last_seq and a NON-EMPTY nonce ledger on
+// the pre-write re-read. The commit must (a) never regress last_seq below the raced
+// value, and (b) merge — not clobber — the ledger, so the racing worker's nonce
+// survives alongside the newly claimed one.
+final class IWSL_Race_Store implements IWSL_Store {
+	private $inner;
+	private $race_seq;
+	private $race_nonces;
+	private $seq_reads   = 0;
+	private $nonce_reads = 0;
+	public function __construct( IWSL_Store $inner, int $race_seq, array $race_nonces ) {
+		$this->inner       = $inner;
+		$this->race_seq    = $race_seq;
+		$this->race_nonces = $race_nonces;
+	}
+	public function get( string $key, $default = null ) {
+		if ( 'last_seq' === $key ) {
+			$this->seq_reads++;
+			return $this->seq_reads >= 2 ? $this->race_seq : $this->inner->get( $key, $default );
+		}
+		if ( 'nonces' === $key ) {
+			$this->nonce_reads++;
+			return $this->nonce_reads >= 2 ? $this->race_nonces : $this->inner->get( $key, $default );
+		}
+		return $this->inner->get( $key, $default );
+	}
+	public function set( string $key, $value ): void {
+		$this->inner->set( $key, $value );
+	}
+	public function delete( string $key ): void {
+		$this->inner->delete( $key );
+	}
+	public function add( string $key, $value ): bool {
+		return $this->inner->add( $key, $value );
+	}
+}
+
+$inner = iwsl_seed_store();
+$race  = new IWSL_Race_Store( $inner, 500, array( 'concurrent-nonce' => 9999999999999 ) );
+$rverifier = new IWSL_Verifier( $race, $methods, iwsl_now_t0() );
+$verdict   = $rverifier->verify_command( $f->commands->valid );
+iwsl_assert( $verdict['ok'], 'race: the valid command still verifies through the decorating store' );
+iwsl_assert_same( 500, $inner->get( 'last_seq' ), 'race: last_seq advances by max() — a concurrent higher seq is NOT regressed' );
+$final_nonces = $inner->get( 'nonces' );
+iwsl_assert( isset( $final_nonces['concurrent-nonce'] ), 'race: a concurrent worker nonce is preserved (ledger merged, not clobbered)' );
+iwsl_assert( isset( $final_nonces['fixture-nonce-valid-1'] ), 'race: the newly claimed nonce is also recorded' );

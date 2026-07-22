@@ -86,6 +86,9 @@ final class IWSL_Broken_Link_Scan {
 	/** @var callable(string):array{code:int,error:string} low-level HTTP fetcher. */
 	private $fetcher;
 
+	/** @var callable(string):string host → resolved IP (default gethostbyname). */
+	private $host_resolver;
+
 	/**
 	 * @param IWSL_Entitlements $entitlements   The gate.
 	 * @param IWSL_Store|null   $store          Durable last-scan persistence; defaults
@@ -97,7 +100,9 @@ final class IWSL_Broken_Link_Scan {
 	 * @param callable|null     $posts_provider Returns [{id,title,content}]; defaults to
 	 *                                          a WP get_posts()-backed provider. Injectable.
 	 * @param callable|null     $fetcher        fn(url):{code,error}; defaults to a
-	 *                                          wp_remote_head/get wrapper. Injectable.
+	 *                                          wp_safe_remote_head/get wrapper. Injectable.
+	 * @param callable|null     $host_resolver  fn(host):ip for the SSRF guard; defaults
+	 *                                          to gethostbyname(). Injectable in tests.
 	 */
 	public function __construct(
 		IWSL_Entitlements $entitlements,
@@ -105,7 +110,8 @@ final class IWSL_Broken_Link_Scan {
 		?callable $now_ms = null,
 		?string $home_host = null,
 		?callable $posts_provider = null,
-		?callable $fetcher = null
+		?callable $fetcher = null,
+		?callable $host_resolver = null
 	) {
 		$this->entitlements = $entitlements;
 		$this->store        = null !== $store ? $store : self::default_store();
@@ -115,6 +121,7 @@ final class IWSL_Broken_Link_Scan {
 		$this->home_host      = null !== $home_host ? strtolower( $home_host ) : self::default_home_host();
 		$this->posts_provider = null !== $posts_provider ? $posts_provider : self::default_posts_provider();
 		$this->fetcher        = null !== $fetcher ? $fetcher : self::default_fetcher();
+		$this->host_resolver  = null !== $host_resolver ? $host_resolver : self::default_host_resolver();
 	}
 
 	/** The WP store under WordPress, else an in-memory fallback (never fatals the harness). */
@@ -293,6 +300,17 @@ final class IWSL_Broken_Link_Scan {
 	 * @return array{ broken:bool, status:int|string }
 	 */
 	private function check_external( string $url ): array {
+		// SSRF guard (defense in depth). An author can plant an EXTERNAL link at
+		// 127.0.0.1 / 169.254.169.254 / an RFC1918 host so an operator's "Scan
+		// now" fires an internal request. Any external target whose host resolves
+		// into a loopback / link-local / private range is refused WITHOUT a
+		// request. The site's own host is exempt (same-host links are the site
+		// itself, handled in check_internal); public external hosts still scan —
+		// this is a broken-link scanner. Mirrors the loopback house pattern in
+		// IWSL_Response_Scan::same_host().
+		if ( ! $this->is_internal( $url ) && $this->resolves_to_private_ip( $url ) ) {
+			return array( 'broken' => true, 'status' => 'unsafe-host' );
+		}
 		$result = ( $this->fetcher )( $url );
 		$error  = is_array( $result ) && isset( $result['error'] ) ? (string) $result['error'] : '';
 		$code   = is_array( $result ) && isset( $result['code'] ) ? (int) $result['code'] : 0;
@@ -307,6 +325,35 @@ final class IWSL_Broken_Link_Scan {
 			return array( 'broken' => true, 'status' => $code );
 		}
 		return array( 'broken' => false, 'status' => $code );
+	}
+
+	/**
+	 * Whether a URL's host resolves to a loopback / link-local / private (RFC1918
+	 * or ULA) address — an SSRF target that must never be requested. Returns true
+	 * ONLY when a concrete internal IP is found: a literal internal IP, or a host
+	 * the resolver maps into an internal range. An unresolvable host (a genuinely
+	 * broken external link) is NOT provably internal, so it is left to the
+	 * safe-fetcher (reject_unsafe_urls) — that keeps public hosts scannable.
+	 */
+	private function resolves_to_private_ip( string $url ): bool {
+		$host = $this->host_of( $url );
+		if ( null === $host || '' === $host ) {
+			return false; // Relative / no host to resolve.
+		}
+		$host = strtolower( $host );
+		// Bracketed IPv6 literal → bare address for filter_var.
+		if ( isset( $host[0] ) && '[' === $host[0] && ']' === substr( $host, -1 ) ) {
+			$host = substr( $host, 1, -1 );
+		}
+		// A literal IP is validated as-is; a name is resolved (gethostbyname
+		// returns the name unchanged on failure, which is not a valid IP).
+		$ip = filter_var( $host, FILTER_VALIDATE_IP ) ? $host : (string) ( $this->host_resolver )( $host );
+		if ( false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+			return false; // Did not resolve to a literal IP — not provably internal.
+		}
+		// A PUBLIC IP passes the NO_PRIV|NO_RES filter; a loopback / link-local /
+		// private / reserved one fails it → blocked.
+		return false === filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE );
 	}
 
 	// ── link classification ─────────────────────────────────────────────────────
@@ -435,27 +482,42 @@ final class IWSL_Broken_Link_Scan {
 	}
 
 	/**
-	 * The default HTTP fetcher: wp_remote_head with a GET fallback for HEAD-
-	 * unfriendly servers, normalized to { code:int, error:string }. Returns
-	 * code 0 outside a WP HTTP context so nothing is falsely marked broken.
+	 * The default HTTP fetcher: wp_safe_remote_head with a GET fallback for HEAD-
+	 * unfriendly servers, normalized to { code:int, error:string }. The SAFE
+	 * variants set reject_unsafe_urls, so WordPress' own HTTP API refuses
+	 * loopback/private targets and dangerous redirects — a second layer behind the
+	 * pre-request resolves_to_private_ip() guard. Returns code 0 outside a WP HTTP
+	 * context so nothing is falsely marked broken.
 	 *
 	 * @return callable(string):array
 	 */
 	private static function default_fetcher(): callable {
 		return static function ( string $url ): array {
-			if ( ! function_exists( 'wp_remote_head' ) ) {
+			if ( ! function_exists( 'wp_safe_remote_head' ) ) {
 				return array( 'code' => 0, 'error' => '' );
 			}
 			$args     = array( 'timeout' => self::REMOTE_TIMEOUT_S, 'redirection' => 3, 'sslverify' => true );
-			$response = wp_remote_head( $url, $args );
+			$response = wp_safe_remote_head( $url, $args );
 			$norm     = self::normalize_response( $response );
 			if ( '' === $norm['error']
 				&& in_array( $norm['code'], self::HEAD_RETRY_STATUSES, true )
-				&& function_exists( 'wp_remote_get' ) ) {
-				$response = wp_remote_get( $url, $args );
+				&& function_exists( 'wp_safe_remote_get' ) ) {
+				$response = wp_safe_remote_get( $url, $args );
 				$norm     = self::normalize_response( $response );
 			}
 			return $norm;
+		};
+	}
+
+	/**
+	 * The default host resolver for the SSRF guard: gethostbyname(), which returns
+	 * the resolved IPv4 string, or the host unchanged when it cannot resolve.
+	 *
+	 * @return callable(string):string
+	 */
+	private static function default_host_resolver(): callable {
+		return static function ( string $host ): string {
+			return function_exists( 'gethostbyname' ) ? (string) gethostbyname( $host ) : $host;
 		};
 	}
 

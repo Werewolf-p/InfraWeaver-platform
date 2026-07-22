@@ -294,6 +294,10 @@ final class IWSL_Activity_Log {
 			'summary' => self::clean_text( $summary, self::MAX_FIELD_LEN ),
 		);
 
+		// Optimistic re-read: $entry is built above WITHOUT reading the log, then
+		// merged onto a FRESH entries() read taken immediately before the set — so
+		// an entry a racing writer appended is preserved, never dropped from this
+		// audit trail by merging onto a stale snapshot.
 		$next = array_merge( $this->entries(), array( $entry ) );
 		if ( count( $next ) > self::MAX_ENTRIES ) {
 			$next = array_slice( $next, -self::MAX_ENTRIES ); // FIFO: drop the oldest.

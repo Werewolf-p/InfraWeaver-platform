@@ -315,7 +315,9 @@ final class IWSL_Speed_Pack {
 		// 1. Park protected regions behind opaque placeholders.
 		$stash     = array();
 		$protected = preg_replace_callback(
-			'#<(pre|textarea|script|style|code)\b[^>]*>.*?</\1>#is',
+			// Quote-aware opening tag: a `>` inside a quoted attribute (e.g.
+			// data-x="a>b") must not be mistaken for the opening tag's close.
+			'#<(pre|textarea|script|style|code)\b(?:"[^"]*"|\'[^\']*\'|[^>])*>.*?</\1>#is',
 			static function ( array $m ) use ( &$stash ): string {
 				$token   = '<!--IWSL_SP_' . count( $stash ) . '-->';
 				$stash[] = $m[0];

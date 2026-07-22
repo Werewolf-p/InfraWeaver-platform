@@ -153,15 +153,26 @@ final class IWSL_Verifier {
 		// never reopen the window. The aggregate `nonces` map is the GC ledger
 		// (pruning, debug count, and wipe() enumeration); the per-nonce option
 		// claimed above is the authoritative concurrency guard.
-		$this->store->set( 'last_seq', $envelope->seq );
-		foreach ( $nonces as $nonce => $expires ) {
+		//
+		// Defense in depth against a non-atomic read-modify-write: both aggregates
+		// are RE-READ here, immediately before the write, and merged rather than
+		// overwritten with the stale pre-check snapshot. last_seq only ever
+		// advances via max(), so a command that raced another valid one can never
+		// regress the sequence floor; the GC ledger merges the freshest map so a
+		// concurrent worker's nonce entries are never dropped.
+		$committed_seq = (int) $this->store->get( 'last_seq', 0 );
+		$this->store->set( 'last_seq', max( $committed_seq, $envelope->seq ) );
+
+		$ledger = $this->store->get( 'nonces', array() );
+		$ledger = is_array( $ledger ) ? $ledger : array();
+		foreach ( $ledger as $nonce => $expires ) {
 			if ( $expires < $now ) {
-				unset( $nonces[ $nonce ] );
+				unset( $ledger[ $nonce ] );
 				$this->store->delete( 'nonce.' . $nonce );
 			}
 		}
-		$nonces[ $envelope->nonce ] = $envelope->exp;
-		$this->store->set( 'nonces', $nonces );
+		$ledger[ $envelope->nonce ] = $envelope->exp;
+		$this->store->set( 'nonces', $ledger );
 
 		return array( 'ok' => true, 'reason' => null, 'envelope' => $envelope );
 	}

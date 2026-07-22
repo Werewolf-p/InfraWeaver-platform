@@ -86,6 +86,19 @@ final class IWSL_Duplicate_Post {
 		}
 	}
 
+	/**
+	 * Delete-time teardown scrub. This engine is effectively STATELESS: it clones a
+	 * post into an ordinary WordPress draft (real content the operator owns — never
+	 * removed on disable) and persists no plugin option, no plugin post meta, and no
+	 * cron. purge() is therefore a near-no-op that exists for uniformity across the
+	 * SEO/content engines, always reporting an empty footprint. Idempotent by nature.
+	 *
+	 * @return array{ ok:bool, options:string[], postmeta:array<string,int>, cron:string[] }
+	 */
+	public function purge(): array {
+		return array( 'ok' => true, 'options' => array(), 'postmeta' => array(), 'cron' => array() );
+	}
+
 	// ── list-table row action (STATEMENT 1 is the gate) ────────────────────────
 
 	/**
@@ -286,10 +299,18 @@ final class IWSL_Duplicate_Post {
 		if ( ! is_array( $all ) ) {
 			return 0;
 		}
+		// The skip-list is filterable so sites can protect uniqueness-constrained
+		// keys (SKU, sync-id, …) that must never be cloned onto a copy.
+		$skip = function_exists( 'apply_filters' )
+			? apply_filters( 'iwsl_duplicate_post_skip_meta', self::SKIP_META, $source_id )
+			: self::SKIP_META;
+		if ( ! is_array( $skip ) ) {
+			$skip = self::SKIP_META;
+		}
 		$copied = 0;
 		$rows   = 0;
 		foreach ( $all as $key => $values ) {
-			if ( ! is_string( $key ) || in_array( $key, self::SKIP_META, true ) ) {
+			if ( ! is_string( $key ) || in_array( $key, $skip, true ) ) {
 				continue;
 			}
 			$values = is_array( $values ) ? $values : array( $values );
@@ -320,7 +341,7 @@ final class IWSL_Duplicate_Post {
 		}
 		check_admin_referer( self::NONCE );
 
-		$plus_url = admin_url( 'admin.php?page=infraweaver-plus' );
+		$plus_url = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {

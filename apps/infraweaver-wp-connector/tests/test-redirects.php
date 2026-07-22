@@ -488,6 +488,87 @@ $rd2->snapshot_permalink( 7 );
 $rd2->maybe_auto_redirect( 7, (object) array( 'post_status' => 'publish' ), null );
 iwsl_assert_same( 0, count( $rd2->rules() ), 'auto-redirect glue: unchanged permalink creates no rule' );
 
+// ── 29b. auto-redirect revert: the stale forward rule is superseded ───────────
+// hello → hello-2 creates /hello → /hello-2. Reverting hello-2 → hello must NOT
+// leave /hello (now live again) as a redirect source: the reverse rule would be
+// refused as a cycle, stranding the forward rule so it 301s the live URL to a
+// dead one. The fix drops any rule whose source is the new (live) permalink path
+// before adding the reverse rule.
+$store_rev = new IWSL_Memory_Store();
+$rd_rev    = iwsl_rd_engine( $store_rev, $RD_NOW, new IWSL_Recording_Redirector() );
+
+$GLOBALS['iwsl_rd_perma'] = 'https://fixture-site.test/hello';
+$rd_rev->snapshot_permalink( 77 );
+$GLOBALS['iwsl_rd_perma'] = 'https://fixture-site.test/hello-2'; // slug changed
+$rd_rev->maybe_auto_redirect( 77, (object) array( 'post_status' => 'publish' ), null );
+$fwd = $rd_rev->rules();
+iwsl_assert_same( 1, count( $fwd ), 'revert: forward rule created on first rename' );
+iwsl_assert_same( '/hello', $fwd[0]['source'], 'revert: forward rule source is /hello' );
+
+$GLOBALS['iwsl_rd_perma'] = 'https://fixture-site.test/hello-2';
+$rd_rev->snapshot_permalink( 77 );
+$GLOBALS['iwsl_rd_perma'] = 'https://fixture-site.test/hello'; // slug reverted
+$rd_rev->maybe_auto_redirect( 77, (object) array( 'post_status' => 'publish' ), null );
+
+$stale = false;
+foreach ( $rd_rev->rules() as $rule ) {
+	if ( '/hello' === IWSL_Redirects::normalize_path( (string) $rule['source'] ) ) {
+		$stale = true;
+	}
+}
+iwsl_assert_same( false, $stale, 'revert: no rule maps /hello anywhere (stale forward rule removed)' );
+iwsl_assert_same( false, $rd_rev->apply( '/hello' )['matched'], 'revert: apply(/hello) matched=false (live content)' );
+
+$rec_live = new IWSL_Recording_Redirector();
+$rd_live  = iwsl_rd_engine( $store_rev, $RD_NOW, $rec_live );
+$_SERVER['REQUEST_URI'] = '/hello';
+$rd_live->maybe_redirect();
+iwsl_assert_same( 0, count( $rec_live->calls ), 'revert: /hello resolves live (no redirect issued)' );
+
+// ── 29c. add_rule optimistic re-read: a concurrent rule survives the append ───
+// A second engine over the same store writes a rule AFTER the first read but
+// BEFORE the set; the fresh re-read must merge it in rather than clobber it.
+$store_cc = new IWSL_Memory_Store();
+$rd_cc    = iwsl_rd_engine( $store_cc, $RD_NOW, new IWSL_Recording_Redirector() );
+$rd_cc->add_rule( '/first', '/first-target', 301 );
+$store_cc->set(
+	'redirect_rules',
+	array_merge(
+		$rd_cc->rules(),
+		array( iwsl_rd_make_rule( '/concurrent', '/concurrent-target', 301 ) )
+	)
+);
+$rd_cc->add_rule( '/second', '/second-target', 301 );
+$sources_cc = array_map(
+	static function ( array $rule ): string {
+		return (string) $rule['source'];
+	},
+	$rd_cc->rules()
+);
+iwsl_assert( in_array( '/concurrent', $sources_cc, true ), 'add_rule re-read: the concurrently-written rule survives the append' );
+iwsl_assert( in_array( '/second', $sources_cc, true ), 'add_rule re-read: the new rule is stored' );
+iwsl_assert_same( 3, count( $sources_cc ), 'add_rule re-read: all three rules present (none clobbered)' );
+
+// ── 29d. delete_rule optimistic re-read: a concurrent rule survives the delete ─
+$store_dd = new IWSL_Memory_Store();
+$rd_dd    = iwsl_rd_engine( $store_dd, $RD_NOW, new IWSL_Recording_Redirector() );
+$add_dd   = $rd_dd->add_rule( '/doomed', '/doomed-target', 301 );
+$store_dd->set(
+	'redirect_rules',
+	array_merge(
+		$rd_dd->rules(),
+		array( iwsl_rd_make_rule( '/late', '/late-target', 301 ) )
+	)
+);
+$rd_dd->delete_rule( $add_dd['rule']['id'] );
+$sources_dd = array_map(
+	static function ( array $rule ): string {
+		return (string) $rule['source'];
+	},
+	$rd_dd->rules()
+);
+iwsl_assert_same( array( '/late' ), $sources_dd, 'delete_rule re-read: target removed, concurrent rule preserved' );
+
 unset( $GLOBALS['iwsl_rd_actions'], $GLOBALS['iwsl_rd_perma'], $GLOBALS['iwsl_rd_status'] );
 unset( $_SERVER['REQUEST_URI'] );
 

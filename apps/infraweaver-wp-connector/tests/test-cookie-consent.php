@@ -446,6 +446,21 @@ iwsl_assert( false !== strpos( $cc_bar_out, 'reopen"){show();}' ), 'reopen: open
 iwsl_assert( false !== strpos( $cc_bar_out, 'close-modal"){' ), 'runtime: close-modal handler wired' );
 iwsl_assert( false !== strpos( $cc_bar_out, 'dismiss"){hide();' ), 'runtime: dismiss handler returns to the floating handle' );
 
+// ── 12b. Equal-prominence Accept/Reject (no dark pattern) + a11y announce ─────
+$cc_prom = $cc->transform( $cc_page, $cc->sanitize_settings( array( 'enabled' => '1', 'categories' => array( 'statistics' => '1' ) ) ) );
+iwsl_assert( false !== strpos( $cc_prom, '.iwsl-cc-accept,.iwsl-cc-reject{background:var(--iwsl-cc-accent)' ), 'consent: reject shares the accent-filled treatment with accept (equal prominence, no dark pattern)' );
+iwsl_assert( false === strpos( $cc_prom, '.iwsl-cc-reject{background:transparent' ), 'consent: reject is no longer only the muted ghost button' );
+iwsl_assert( false !== strpos( $cc_prom, 'iwsl-cc-banner" role="dialog" aria-modal="false" aria-live="polite"' ), 'a11y: banner is an aria-live region so screen readers announce the prompt' );
+iwsl_assert( false !== strpos( $cc_prom, '.iwsl-cc-btn");if(fa)' ), 'a11y: show() moves focus to the banner first actionable control' );
+
+// ── 12c. Accent contrast guardrail: pale accent → dark text (auto foreground) ─
+$cc_pale = $cc->transform( $cc_page, $cc->sanitize_settings( array( 'enabled' => '1', 'accent' => '#eeeeee', 'categories' => array( 'statistics' => '1' ) ) ) );
+iwsl_assert( false !== strpos( $cc_pale, '--iwsl-cc-accent:#eeeeee' ), 'contrast: pale accent injected as the custom property' );
+iwsl_assert( false !== strpos( $cc_pale, 'background:var(--iwsl-cc-accent);color:#111' ), 'contrast: pale accent gets dark (#111) button text' );
+iwsl_assert( false === strpos( $cc_pale, 'background:var(--iwsl-cc-accent);color:#fff' ), 'contrast: no unreadable white-on-pale button text' );
+$cc_dark = $cc->transform( $cc_page, $cc->sanitize_settings( array( 'enabled' => '1', 'accent' => '#2a6df0', 'categories' => array( 'statistics' => '1' ) ) ) );
+iwsl_assert( false !== strpos( $cc_dark, 'background:var(--iwsl-cc-accent);color:#fff' ), 'contrast: a mid/dark accent keeps readable white button text' );
+
 // ── 13. purge(): teardown removes settings + log + salt (idempotent, ungated) ─
 
 $store13 = new IWSL_Memory_Store();

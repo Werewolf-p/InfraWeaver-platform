@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.9.1
+ * Version: 0.12.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.9.1' );
+define( 'IWSL_CONNECTOR_VERSION', '0.12.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -26,6 +26,27 @@ define( 'IWSL_MAX_BODY_BYTES', 65536 );
 /** True when the request body is within IWSL_MAX_BODY_BYTES. */
 function iwsl_body_within_limit( WP_REST_Request $request ): bool {
 	return strlen( (string) $request->get_body() ) <= IWSL_MAX_BODY_BYTES;
+}
+
+/**
+ * Load the connector's translations so the wp-admin UI auto-adapts to the site
+ * language (e.g. a Dutch nl_NL install shows Dutch out of the box). The compiled
+ * catalogs live in languages/ as infraweaver-connector-{locale}.mo. Every admin
+ * string is wrapped with the 'infraweaver-connector' text domain; without this
+ * call none of those translations would ever load. Hooked on `init` so the
+ * current locale (which WordPress resolves before `init`) is already known.
+ * Guarded for the zero-dependency test harness, which loads classes directly
+ * without a WordPress runtime and never fires `init`.
+ */
+function iwsl_load_textdomain(): void {
+	load_plugin_textdomain(
+		'infraweaver-connector',
+		false,
+		dirname( plugin_basename( __FILE__ ) ) . '/languages'
+	);
+}
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'init', 'iwsl_load_textdomain' );
 }
 
 require_once __DIR__ . '/includes/class-iwsl-jcs.php';
@@ -65,6 +86,8 @@ require_once __DIR__ . '/includes/class-iwsl-db-optimizer.php';
 require_once __DIR__ . '/includes/class-iwsl-config-editor.php';
 // ── Plus feature engines (wave 2): each gated, self-contained, console-granted ──
 require_once __DIR__ . '/includes/class-iwsl-lazy-load.php';
+require_once __DIR__ . '/includes/class-iwsl-media-protection.php';
+require_once __DIR__ . '/includes/class-iwsl-elementor-blocks.php';
 require_once __DIR__ . '/includes/class-iwsl-cdn-rewrite.php';
 require_once __DIR__ . '/includes/class-iwsl-duplicate-post.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-audit.php';
@@ -82,8 +105,11 @@ require_once __DIR__ . '/includes/class-iwsl-cookie-consent.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-analyzer.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-head.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-sitemap.php';
+require_once __DIR__ . '/includes/class-iwsl-seo-alt-text.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-suite.php';
 require_once __DIR__ . '/includes/class-iwsl-perf-audit.php';
+require_once __DIR__ . '/includes/class-iwsl-response-scan.php';
+require_once __DIR__ . '/includes/class-iwsl-teardown.php';
 require_once __DIR__ . '/includes/class-iwsl-admin.php';
 
 function iwsl_plugin(): IWSL_Plugin {
@@ -108,6 +134,12 @@ $iwsl_switches = new IWSL_Feature_Switches( iwsl_plugin()->entitlements(), new I
 
 if ( is_admin() ) {
 	( new IWSL_Admin( iwsl_plugin(), switches: $iwsl_switches ) )->register();
+	// Self-heal at init (admin-only): purge the footprint of any tier-gated
+	// feature that is switched OFF or no longer entitled, so a disabled feature
+	// leaves nothing behind and the plugin is clean at init. Each engine purge is
+	// cheap when there's nothing to remove, so the all-active case is near-free;
+	// the front-end hot path never runs this.
+	IWSL_Teardown::clean_at_init( $iwsl_switches, iwsl_plugin()->entitlements(), new IWSL_WP_Store() );
 }
 
 // Load-Time Audit (FREE — no entitlement gate, no feature switch). The passive
@@ -166,8 +198,16 @@ $iwsl_ent = iwsl_plugin()->entitlements();
 // Small helper: the PRG admin-post handler shared shape for settings-style saves
 // that expose an update_settings()/handler method. cap + nonce + gate, then run,
 // stash a per-user result transient, and redirect back to the Plus page.
-$iwsl_plus_redirect = static function (): string {
-	return admin_url( 'admin.php?page=infraweaver-plus' );
+$iwsl_plus_redirect = static function ( string $feature_id = '' ): string {
+	// Return to the SAME category sub-page the settings form was submitted from,
+	// anchored to the acting feature's card (see IWSL_Admin::iwsl_plus_return_url),
+	// so a save keeps the operator exactly where they were instead of bouncing to
+	// the Overview dashboard. Falls back to the shared referer-based base if the
+	// admin class is somehow unavailable on this request.
+	if ( class_exists( 'IWSL_Admin' ) && method_exists( 'IWSL_Admin', 'iwsl_plus_return_url' ) ) {
+		return IWSL_Admin::iwsl_plus_return_url( $feature_id );
+	}
+	return iwsl_plus_redirect_base();
 };
 
 // Lazy-Load Media (Pro, `lazy_load`).
@@ -183,9 +223,52 @@ if ( $iwsl_switches->is_on( IWSL_Lazy_Load::FEATURE ) ) {
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( IWSL_Lazy_Load::RESULT_PREFIX . get_current_user_id(), $result, 60 );
 		}
-		wp_safe_redirect( $iwsl_plus_redirect() );
+		wp_safe_redirect( $iwsl_plus_redirect( 'lazy-load' ) );
 		exit;
 	} );
+}
+
+// Media Protection (Pro, `media_protection`). Marks selected images harder to
+// right-click-save / drag-copy; register() self-wires its attachment-field + the
+// front-end deterrent filters, each gating on the entitlement as statement 1.
+$iwsl_media_protection = new IWSL_Media_Protection( $iwsl_ent, new IWSL_WP_Store() );
+if ( $iwsl_switches->is_on( IWSL_Media_Protection::FEATURE ) ) {
+	$iwsl_media_protection->register();
+	add_action( 'admin_post_' . IWSL_Media_Protection::SETTINGS_ACTION, static function () use ( $iwsl_media_protection, $iwsl_plus_redirect ): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
+		}
+		check_admin_referer( IWSL_Media_Protection::SETTINGS_NONCE );
+		$result = $iwsl_media_protection->update_settings( $_POST );
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( IWSL_Media_Protection::RESULT_PREFIX . get_current_user_id(), $result, 60 );
+		}
+		wp_safe_redirect( $iwsl_plus_redirect( 'media-protect' ) );
+		exit;
+	} );
+	add_action( 'admin_post_' . IWSL_Media_Protection::MARK_ALL_ACTION, static function () use ( $iwsl_media_protection, $iwsl_plus_redirect ): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
+		}
+		check_admin_referer( IWSL_Media_Protection::MARK_ALL_NONCE );
+		$protect = ! ( isset( $_POST['mode'] ) && 'unprotect' === $_POST['mode'] );
+		$result  = $iwsl_media_protection->bulk_mark_all( $protect );
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( IWSL_Media_Protection::BULK_RESULT_PREFIX . get_current_user_id(), $result, 60 );
+		}
+		wp_safe_redirect( $iwsl_plus_redirect( 'media-protect' ) );
+		exit;
+	} );
+}
+
+// Elementor Blocks (Pro, `elementor_blocks`). Registers a set of InfraWeaver
+// Elementor widgets under their own category. register() self-gates on the
+// entitlement as statement 1 AND on Elementor being loaded, so a locked site —
+// or any site without Elementor — attaches no hooks and pays nothing. No settings
+// form, so there is no admin-post handler to wire. Registered on every request
+// because Elementor's registration hooks fire outside admin (the editor preview).
+if ( $iwsl_switches->is_on( IWSL_Elementor_Blocks::FEATURE ) ) {
+	( new IWSL_Elementor_Blocks( $iwsl_ent, new IWSL_WP_Store() ) )->register();
 }
 
 // CDN URL Rewrite (Ultimate, `cdn_rewrite`).
@@ -201,7 +284,7 @@ if ( $iwsl_switches->is_on( IWSL_CDN_Rewrite::FEATURE ) ) {
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( IWSL_CDN_Rewrite::RESULT_PREFIX . get_current_user_id(), $result, 60 );
 		}
-		wp_safe_redirect( $iwsl_plus_redirect() );
+		wp_safe_redirect( $iwsl_plus_redirect( 'cdn' ) );
 		exit;
 	} );
 }
@@ -261,6 +344,12 @@ if ( $iwsl_switches->is_on( IWSL_Speed_Pack::FEATURE ) ) {
 } else {
 	// Switched off while still entitled → strip the managed .htaccess block now.
 	$iwsl_speed_pack->disable();
+}
+
+// Response Time Scanner (Pro, `response_scan`). Active loopback probe of the site's
+// OWN public URLs via wp_remote_get; register() self-wires its two admin-post handlers.
+if ( $iwsl_switches->is_on( IWSL_Response_Scan::FEATURE ) ) {
+	( new IWSL_Response_Scan( $iwsl_ent, new IWSL_WP_Store() ) )->register();
 }
 
 // Site Statistics (Ultimate, `statistics`) + Cookie Consent (Ultimate,

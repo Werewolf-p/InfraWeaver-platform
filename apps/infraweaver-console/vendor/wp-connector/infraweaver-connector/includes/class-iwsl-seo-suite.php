@@ -76,8 +76,18 @@ final class IWSL_SEO_Suite {
 	const MAX_KW_LEN    = 200;
 	const MAX_URL_LEN   = 2048;
 
+	/** Cap on image URLs folded into a single sitemap entry. */
+	const MAX_SITEMAP_IMAGES = 100;
+
 	/** Default templates when a type has none configured. */
 	const DEFAULT_TITLE_TEMPLATE = '%%title%% %%sep%% %%sitename%%';
+
+	/**
+	 * Title/meta template buckets. Singular/front: post, page, home. Archive
+	 * contexts: author, search, archive (category/tag/tax/date/post_type_archive
+	 * all fall into 'archive').
+	 */
+	const TEMPLATE_TYPES = array( 'post', 'page', 'home', 'author', 'search', 'archive' );
 
 	/** @var IWSL_Entitlements */
 	private $entitlements;
@@ -138,6 +148,11 @@ final class IWSL_SEO_Suite {
 		add_action( 'add_meta_boxes', array( $this, 'register_meta_boxes' ) );
 		add_action( 'save_post', array( $this, 'handle_save_post' ), 10, 2 );
 
+		// Auto-fill missing image alt text on upload (free, deterministic, gated by
+		// seo_suite; the callback re-checks the gate and never clobbers an author
+		// alt). No new FEATURE flag — this rides the SEO Suite entitlement.
+		add_action( 'add_attachment', array( $this, 'auto_fill_alt_text' ) );
+
 		// Breadcrumb shortcode.
 		if ( function_exists( 'add_shortcode' ) ) {
 			add_shortcode( 'iwseo_breadcrumb', array( $this, 'shortcode_breadcrumb' ) );
@@ -181,7 +196,9 @@ final class IWSL_SEO_Suite {
 		$meta_in = isset( $input['meta_templates'] ) && is_array( $input['meta_templates'] ) ? $input['meta_templates'] : array();
 		$title_templates = array();
 		$meta_templates = array();
-		foreach ( array( 'post', 'page', 'home' ) as $type ) {
+		// post/page/home are the singular/front buckets; author/search/archive are
+		// the archive-context buckets (a term/date/CPT archive all use 'archive').
+		foreach ( self::TEMPLATE_TYPES as $type ) {
 			$title_templates[ $type ] = self::clean_line( self::pluck( $templates_in, $type ), self::MAX_TITLE_LEN );
 			$meta_templates[ $type ] = self::clean_line( self::pluck( $meta_in, $type ), self::MAX_DESC_LEN );
 		}
@@ -237,7 +254,71 @@ final class IWSL_SEO_Suite {
 		$clean = $this->sanitize_settings( $input );
 		$clean['saved_at'] = $this->now_seconds();
 		$this->store->set( self::SETTINGS_KEY, $clean );
+
+		// SEO head output (title/meta/canonical/OG/JSON-LD) is front-end-visible, so a
+		// settings change must invalidate any full-page cache. The teardown helper is
+		// built by a peer; class_exists-guarded so this is a harmless no-op without it.
+		if ( class_exists( 'IWSL_Teardown' ) && method_exists( 'IWSL_Teardown', 'flush_page_cache' ) ) {
+			IWSL_Teardown::flush_page_cache();
+		}
+
 		return array( 'ok' => true, 'settings' => $clean );
+	}
+
+	// ── teardown (idempotent, cheap-when-clean, returns what was removed) ─────────
+
+	/**
+	 * The plugin-created per-post meta keys this engine owns. All `_iwseo_*`, all
+	 * written only by save_post_meta(). NOTE: the image alt-text key
+	 * (IWSL_SEO_Alt_Text::ALT_META_KEY, i.e. WordPress core's own
+	 * `_wp_attachment_image_alt`) is deliberately EXCLUDED — it is not ours to remove.
+	 *
+	 * @return string[]
+	 */
+	private static function purge_meta_keys(): array {
+		return array(
+			self::META_TITLE, self::META_DESC, self::META_FOCUSKW, self::META_SYNONYMS, self::META_RELATED,
+			self::META_CANONICAL, self::META_NOINDEX, self::META_NOFOLLOW, self::META_ROBOTS_ADV,
+			self::META_OG_TITLE, self::META_OG_DESC, self::META_OG_IMAGE, self::META_TW_TITLE, self::META_TW_DESC,
+			self::META_TW_IMAGE, self::META_CORNERSTONE, self::META_PAGE_TYPE, self::META_ARTICLE_TYPE,
+			self::META_BCTITLE, self::META_SCORE, self::META_READ_SCORE,
+		);
+	}
+
+	/**
+	 * Delete-time teardown scrub for the SEO Suite. Removes ONLY plugin-created
+	 * state: the site-wide settings option AND every per-post `_iwseo_*` override
+	 * meta row this engine writes. Never touches core post content, core meta, or any
+	 * non-plugin meta key. Idempotent and cheap when there is nothing to remove; the
+	 * option is dropped only when present, and each meta key is removed with a single
+	 * `$wpdb->delete()` keyed by the exact plugin meta_key. Every WP/$wpdb call is
+	 * guarded so the engine purges harmlessly under the zero-WP harness. No cron is
+	 * scheduled by this engine, so none is cleared.
+	 *
+	 * @return array{ ok:bool, options:string[], postmeta:array<string,int>, meta_rows:int, cron:string[] }
+	 */
+	public function purge(): array {
+		$removed = array( 'ok' => true, 'options' => array(), 'postmeta' => array(), 'meta_rows' => 0, 'cron' => array() );
+
+		// 1) Site-wide settings option (only when present — cheap-when-clean).
+		if ( null !== $this->store->get( self::SETTINGS_KEY, null ) ) {
+			$this->store->delete( self::SETTINGS_KEY );
+			$removed['options'][] = self::SETTINGS_KEY;
+		}
+
+		// 2) Per-post `_iwseo_*` override meta — one bounded DELETE per plugin key.
+		$wpdb = isset( $GLOBALS['wpdb'] ) && is_object( $GLOBALS['wpdb'] ) ? $GLOBALS['wpdb'] : null;
+		if ( null !== $wpdb && isset( $wpdb->postmeta ) && method_exists( $wpdb, 'delete' ) ) {
+			foreach ( self::purge_meta_keys() as $key ) {
+				$rows = $wpdb->delete( $wpdb->postmeta, array( 'meta_key' => $key ) );
+				if ( is_int( $rows ) && $rows > 0 ) {
+					$removed['postmeta'][ $key ] = $rows;
+					$removed['meta_rows']        += $rows;
+				}
+			}
+		}
+
+		return $removed;
 	}
 
 	// ── per-post save (STATEMENT 1 is the gate) ─────────────────────────────────
@@ -395,6 +476,52 @@ final class IWSL_SEO_Suite {
 			'locale'       => function_exists( 'get_locale' ) ? (string) get_locale() : 'en_US',
 		);
 		$this->save_post_meta( $post_id, $input );
+	}
+
+	/**
+	 * `add_attachment`. STATEMENT 1 is the gate. When a freshly uploaded image has
+	 * no author-written alt text, fill it with a derived value (attachment title →
+	 * humanized filename → parent title). Never overwrites an existing alt. Every
+	 * WP call is guarded; the decision itself is the pure IWSL_SEO_Alt_Text.
+	 *
+	 * @param mixed $post_id
+	 */
+	public function auto_fill_alt_text( $post_id ): void {
+		if ( ! $this->unlocked() ) {
+			return;
+		}
+		$post_id = (int) $post_id;
+		if ( $post_id <= 0 || ! function_exists( 'get_post_meta' ) || ! function_exists( 'update_post_meta' ) ) {
+			return;
+		}
+		// Only decorate images.
+		if ( function_exists( 'wp_attachment_is_image' ) && ! wp_attachment_is_image( $post_id ) ) {
+			return;
+		}
+		$current = (string) get_post_meta( $post_id, IWSL_SEO_Alt_Text::ALT_META_KEY, true );
+
+		$title        = '';
+		$parent_title = '';
+		$filename     = '';
+		$post = function_exists( 'get_post' ) ? get_post( $post_id ) : null;
+		if ( is_object( $post ) ) {
+			$title = isset( $post->post_title ) ? (string) $post->post_title : '';
+			$parent = isset( $post->post_parent ) ? (int) $post->post_parent : 0;
+			if ( $parent > 0 && function_exists( 'get_the_title' ) ) {
+				$parent_title = (string) get_the_title( $parent );
+			}
+		}
+		if ( function_exists( 'get_attached_file' ) ) {
+			$file = get_attached_file( $post_id );
+			if ( is_string( $file ) && '' !== $file ) {
+				$filename = basename( $file );
+			}
+		}
+
+		$alt = IWSL_SEO_Alt_Text::resolve_fill( $current, $title, $filename, $parent_title );
+		if ( null !== $alt ) {
+			update_post_meta( $post_id, IWSL_SEO_Alt_Text::ALT_META_KEY, $alt );
+		}
 	}
 
 	// ── front-end: title / robots / head ────────────────────────────────────────
@@ -608,9 +735,36 @@ final class IWSL_SEO_Suite {
 				'loc'     => function_exists( 'get_permalink' ) ? (string) get_permalink( $id ) : '',
 				'lastmod' => function_exists( 'get_post_modified_time' ) ? (string) get_post_modified_time( 'c', true, $id ) : '',
 				'noindex' => $noindex,
+				'images'  => $this->post_images( $id ),
 			);
 		}
 		return $entries;
+	}
+
+	/**
+	 * Image URLs for a post's sitemap entry: the featured image first, then every
+	 * in-content <img src>, deduped and bounded. Wires the image sitemap the XML
+	 * builder already supports (its 'images' key was previously never populated).
+	 * Every WP call is guarded so it returns [] harmlessly under the harness.
+	 *
+	 * @return string[]
+	 */
+	private function post_images( int $id ): array {
+		$images = array();
+		if ( function_exists( 'get_the_post_thumbnail_url' ) ) {
+			$thumb = get_the_post_thumbnail_url( $id, 'full' );
+			if ( is_string( $thumb ) && '' !== $thumb ) {
+				$images[] = $thumb;
+			}
+		}
+		$post = function_exists( 'get_post' ) ? get_post( $id ) : null;
+		$content = is_object( $post ) && isset( $post->post_content ) ? (string) $post->post_content : '';
+		if ( '' !== $content ) {
+			foreach ( IWSL_SEO_Analyzer::extract_image_srcs( $content ) as $src ) {
+				$images[] = $src;
+			}
+		}
+		return array_slice( array_values( array_unique( $images ) ), 0, self::MAX_SITEMAP_IMAGES );
 	}
 
 	/** `robots_txt` filter: append the sitemap index line (spec §9.2). */
@@ -696,7 +850,9 @@ final class IWSL_SEO_Suite {
 		$is_singular = function_exists( 'is_singular' ) && is_singular();
 		$is_front = function_exists( 'is_front_page' ) && is_front_page();
 		if ( ! $is_singular && ! $is_front ) {
-			return null;
+			// Archive / taxonomy / author / date / search / CPT-archive views get a
+			// self-referencing canonical + archive templates + a noindex policy.
+			return $this->build_archive_context();
 		}
 
 		$post = function_exists( 'get_queried_object' ) ? get_queried_object() : null;
@@ -771,6 +927,225 @@ final class IWSL_SEO_Suite {
 		);
 	}
 
+	// ── archive / taxonomy / author / search context ────────────────────────────
+
+	/**
+	 * The pure noindex decision for an archive-family view. `noindex,follow` is
+	 * returned (true) for: search-result pages, zero-post archives (nothing worth
+	 * indexing), and author archives on a single-author site (a duplicate of the
+	 * blog). Everything else stays indexable. Unit-testable with a plain ctx array.
+	 *
+	 * @param array{ archive_type?:string, post_count?:int, single_author_site?:bool } $ctx
+	 */
+	public static function should_noindex_archive( array $ctx ): bool {
+		$type = isset( $ctx['archive_type'] ) ? (string) $ctx['archive_type'] : '';
+		if ( 'search' === $type ) {
+			return true;
+		}
+		if ( isset( $ctx['post_count'] ) && (int) $ctx['post_count'] < 1 ) {
+			return true;
+		}
+		if ( 'author' === $type && ! empty( $ctx['single_author_site'] ) ) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Assemble the head context for an archive-family view, or null when the
+	 * current query is not one we decorate. Self-referencing canonical (page ≥ 2 is
+	 * NOT collapsed to page 1); archive/author/search title + meta templates; the
+	 * noindex policy from should_noindex_archive(). Every WP call is guarded.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	private function build_archive_context(): ?array {
+		if ( ! $this->is_archive_view() ) {
+			return null;
+		}
+		$settings = $this->settings();
+		$type = $this->archive_type();
+		$canonical = $this->archive_canonical();
+		$name = $this->archive_object_name( $type );
+		$title = $this->archive_title( $type, $settings, $name );
+		$desc = $this->archive_description( $type, $settings, $name );
+
+		$noindex = self::should_noindex_archive(
+			array(
+				'archive_type'       => $type,
+				'post_count'         => $this->archive_post_count(),
+				'single_author_site' => 'author' === $type ? $this->is_single_author_site() : false,
+			)
+		);
+
+		$org = isset( $settings['org'] ) && is_array( $settings['org'] ) ? $settings['org'] : array();
+		return array(
+			'site_name'   => $this->bloginfo( 'name' ),
+			'site_desc'   => $this->bloginfo( 'description' ),
+			'home_url'    => $this->home_url(),
+			'canonical'   => $canonical,
+			'title'       => $title,
+			'description' => $desc,
+			'locale'      => $this->locale_tag(),
+			'noindex'     => $noindex,
+			'nofollow'    => false,
+			'robots_adv'  => array(),
+			'published'   => '',
+			'modified'    => '',
+			'author'      => '',
+			'og'          => array(
+				'type'          => 'website',
+				'title'         => $title,
+				'description'   => $desc,
+				'image'         => '',
+				'default_image' => (string) $settings['default_social_image'],
+			),
+			'twitter'     => array(
+				'card' => 'summary_large_image',
+				'site' => (string) $settings['twitter_site'],
+			),
+			'schema'      => array(
+				'representation' => array(
+					'type'    => isset( $org['type'] ) ? $org['type'] : 'organization',
+					'name'    => isset( $org['name'] ) && '' !== $org['name'] ? $org['name'] : $this->bloginfo( 'name' ),
+					'logo'    => isset( $org['logo'] ) ? $org['logo'] : '',
+					'same_as' => isset( $org['same_as'] ) ? $org['same_as'] : array(),
+				),
+				'page_type'    => 'CollectionPage',
+				'article_type' => '',
+				'breadcrumbs'  => $this->breadcrumb_trail(),
+			),
+		);
+	}
+
+	/** Whether the current query is an archive-family view (guarded). */
+	private function is_archive_view(): bool {
+		foreach ( array( 'is_search', 'is_archive', 'is_author', 'is_category', 'is_tag', 'is_tax', 'is_date', 'is_post_type_archive' ) as $fn ) {
+			if ( function_exists( $fn ) && $fn() ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Which template/noindex bucket the current archive falls in. */
+	private function archive_type(): string {
+		if ( function_exists( 'is_search' ) && is_search() ) {
+			return 'search';
+		}
+		if ( function_exists( 'is_author' ) && is_author() ) {
+			return 'author';
+		}
+		return 'archive';
+	}
+
+	/** The human name of the queried archive object (term / author / search / CPT). */
+	private function archive_object_name( string $type ): string {
+		if ( 'search' === $type ) {
+			return function_exists( 'get_search_query' ) ? (string) get_search_query() : '';
+		}
+		$obj = function_exists( 'get_queried_object' ) ? get_queried_object() : null;
+		if ( ! is_object( $obj ) ) {
+			return '';
+		}
+		if ( 'author' === $type && isset( $obj->display_name ) ) {
+			return (string) $obj->display_name;
+		}
+		if ( isset( $obj->name ) ) {
+			return (string) $obj->name; // taxonomy term.
+		}
+		if ( isset( $obj->labels ) && is_object( $obj->labels ) && isset( $obj->labels->name ) ) {
+			return (string) $obj->labels->name; // post-type archive.
+		}
+		return '';
+	}
+
+	private function archive_title( string $type, array $settings, string $name ): string {
+		$tpl = isset( $settings['title_templates'][ $type ] ) ? (string) $settings['title_templates'][ $type ] : '';
+		$vars = $this->archive_vars( $settings, $name );
+		if ( '' !== $tpl ) {
+			return IWSL_SEO_Head::replace_vars( $tpl, $vars );
+		}
+		$sitename = $this->bloginfo( 'name' );
+		if ( '' !== $name ) {
+			$sep = isset( $vars['sep'] ) ? (string) $vars['sep'] : '-';
+			return trim( $name . ' ' . $sep . ' ' . $sitename );
+		}
+		return $sitename;
+	}
+
+	private function archive_description( string $type, array $settings, string $name ): string {
+		$tpl = isset( $settings['meta_templates'][ $type ] ) ? (string) $settings['meta_templates'][ $type ] : '';
+		if ( '' !== $tpl ) {
+			return IWSL_SEO_Head::replace_vars( $tpl, $this->archive_vars( $settings, $name ) );
+		}
+		// Term/tax archives expose a description; use it when present.
+		$obj = function_exists( 'get_queried_object' ) ? get_queried_object() : null;
+		if ( is_object( $obj ) && isset( $obj->description ) && '' !== (string) $obj->description ) {
+			return self::clean_line( (string) $obj->description, self::MAX_DESC_LEN );
+		}
+		return '';
+	}
+
+	/** Replacement-variable map for an archive view. @return array<string, string> */
+	private function archive_vars( array $settings, string $name ): array {
+		$sep = isset( $settings['separator'] ) ? (string) $settings['separator'] : '-';
+		return array(
+			'title'        => $name,
+			'term_title'   => $name,
+			'name'         => $name,
+			'searchphrase' => $name,
+			'sitename'     => $this->bloginfo( 'name' ),
+			'sitedesc'     => $this->bloginfo( 'description' ),
+			'sep'          => $sep,
+			'page'         => $this->current_page_num() > 1 ? (string) $this->current_page_num() : '',
+			'currentyear'  => gmdate( 'Y' ),
+			'currentdate'  => gmdate( 'Y-m-d' ),
+		);
+	}
+
+	/** Self-referencing canonical for the current archive page (page ≥ 2 preserved). */
+	private function archive_canonical(): string {
+		$paged = $this->current_page_num();
+		if ( function_exists( 'get_pagenum_link' ) ) {
+			$link = get_pagenum_link( max( 1, $paged ) );
+			if ( is_string( $link ) && '' !== $link ) {
+				return $link;
+			}
+		}
+		$path = $this->request_path();
+		return $this->home_url() . ( is_string( $path ) ? $path : '/' );
+	}
+
+	/** The current paginated page number (>= 1). */
+	private function current_page_num(): int {
+		if ( function_exists( 'get_query_var' ) ) {
+			$paged = (int) get_query_var( 'paged' );
+			if ( $paged < 1 ) {
+				$paged = (int) get_query_var( 'page' );
+			}
+			return max( 1, $paged );
+		}
+		return 1;
+	}
+
+	/** Total posts matched by the current archive query (1 when unknown — no over-noindex). */
+	private function archive_post_count(): int {
+		if ( isset( $GLOBALS['wp_query'] ) && is_object( $GLOBALS['wp_query'] ) && isset( $GLOBALS['wp_query']->found_posts ) ) {
+			return (int) $GLOBALS['wp_query']->found_posts;
+		}
+		return 1;
+	}
+
+	/** Whether the site has fewer than two post authors (author archive == blog). */
+	private function is_single_author_site(): bool {
+		if ( ! function_exists( 'get_users' ) ) {
+			return false;
+		}
+		$users = get_users( array( 'capability' => array( 'edit_posts' ), 'number' => 2, 'fields' => 'ID' ) );
+		return is_array( $users ) && count( $users ) < 2;
+	}
+
 	// ── resolution helpers (title / description / canonical / robots) ───────────
 
 	/** Resolve the SEO title for the current view (meta override → template). */
@@ -800,6 +1175,12 @@ final class IWSL_SEO_Suite {
 		return IWSL_SEO_Head::replace_vars( $tpl, $vars );
 	}
 
+	/**
+	 * Resolve the meta description with an automated cascade (more hands-off than
+	 * Yoast, which leaves it blank): per-post override → per-type template →
+	 * hand-written excerpt → content-derived auto-excerpt. The last step derives a
+	 * clean snippet from the post body so a page never ships without a description.
+	 */
 	private function resolve_description( int $post_id, $post ): string {
 		$custom = (string) $this->post_meta( $post_id, self::META_DESC );
 		if ( '' !== $custom ) {
@@ -808,10 +1189,20 @@ final class IWSL_SEO_Suite {
 		$settings = $this->settings();
 		$type = is_object( $post ) && isset( $post->post_type ) ? (string) $post->post_type : 'post';
 		$tpl = isset( $settings['meta_templates'][ $type ] ) ? (string) $settings['meta_templates'][ $type ] : '';
-		if ( '' === $tpl && is_object( $post ) && isset( $post->post_excerpt ) && '' !== $post->post_excerpt ) {
+		if ( '' !== $tpl ) {
+			$resolved = IWSL_SEO_Head::replace_vars( $tpl, is_object( $post ) ? $this->post_vars( $post, $settings ) : array() );
+			if ( '' !== $resolved ) {
+				return $resolved;
+			}
+		}
+		if ( is_object( $post ) && isset( $post->post_excerpt ) && '' !== trim( (string) $post->post_excerpt ) ) {
 			return self::clean_line( (string) $post->post_excerpt, self::MAX_DESC_LEN );
 		}
-		return IWSL_SEO_Head::replace_vars( $tpl, is_object( $post ) ? $this->post_vars( $post, $settings ) : array() );
+		// Final fallback: derive a description straight from the post content.
+		if ( is_object( $post ) && isset( $post->post_content ) ) {
+			return IWSL_SEO_Head::auto_excerpt( (string) $post->post_content );
+		}
+		return '';
 	}
 
 	private function resolve_canonical( int $post_id ): string {
@@ -830,16 +1221,31 @@ final class IWSL_SEO_Suite {
 
 	/** The per-post robots context (noindex/nofollow/adv) for the current view. @return array */
 	private function current_robots_ctx(): array {
-		$post_id = 0;
-		if ( function_exists( 'is_singular' ) && is_singular() && function_exists( 'get_queried_object_id' ) ) {
+		$is_singular = function_exists( 'is_singular' ) && is_singular();
+		if ( $is_singular && function_exists( 'get_queried_object_id' ) ) {
 			$post_id = (int) get_queried_object_id();
+			$adv = self::csv_list( (string) $this->post_meta( $post_id, self::META_ROBOTS_ADV ) );
+			return array(
+				'noindex'    => '1' === (string) $this->post_meta( $post_id, self::META_NOINDEX ),
+				'nofollow'   => '1' === (string) $this->post_meta( $post_id, self::META_NOFOLLOW ),
+				'robots_adv' => $adv,
+			);
 		}
-		$adv = self::csv_list( (string) $this->post_meta( $post_id, self::META_ROBOTS_ADV ) );
-		return array(
-			'noindex'    => '1' === (string) $this->post_meta( $post_id, self::META_NOINDEX ),
-			'nofollow'   => '1' === (string) $this->post_meta( $post_id, self::META_NOFOLLOW ),
-			'robots_adv' => $adv,
-		);
+		// Archive-family views (never the front page) honour the archive noindex
+		// policy so zero-post / search / single-author archives emit noindex,follow.
+		$is_front = function_exists( 'is_front_page' ) && is_front_page();
+		if ( ! $is_front && $this->is_archive_view() ) {
+			$type = $this->archive_type();
+			$noindex = self::should_noindex_archive(
+				array(
+					'archive_type'       => $type,
+					'post_count'         => $this->archive_post_count(),
+					'single_author_site' => 'author' === $type ? $this->is_single_author_site() : false,
+				)
+			);
+			return array( 'noindex' => $noindex, 'nofollow' => false, 'robots_adv' => array() );
+		}
+		return array( 'noindex' => false, 'nofollow' => false, 'robots_adv' => array() );
 	}
 
 	private function template_for( string $type, array $settings ): string {
@@ -1116,7 +1522,7 @@ final class IWSL_SEO_Suite {
 		if ( function_exists( 'check_admin_referer' ) ) {
 			check_admin_referer( self::SAVE_NONCE );
 		}
-		$redirect = function_exists( 'admin_url' ) ? admin_url( 'admin.php?page=infraweaver-plus' ) : '';
+		$redirect = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {

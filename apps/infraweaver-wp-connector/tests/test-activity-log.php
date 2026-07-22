@@ -214,3 +214,30 @@ $al10_locked = new IWSL_Activity_Log( iwsl_al_entitlements( $AL_NOW, 'active', 6
 $p10l        = $al10_locked->purge();
 iwsl_assert_same( true, $p10l['ok'], 'purge: works even when the entitlement is locked/revoked' );
 iwsl_assert_same( null, $store10l->get( IWSL_Activity_Log::LOG_KEY ), 'purge (locked): log option removed despite the lock' );
+
+// ── 11. record() optimistic re-read: a concurrent entry survives the append ───
+// record() builds its entry WITHOUT reading the log, then merges onto a FRESH
+// entries() read taken immediately before the set. An entry a racing writer
+// appended between two records must be preserved — an audit trail must not drop
+// entries by merging onto a stale snapshot.
+$store11 = new IWSL_Memory_Store();
+$al11    = new IWSL_Activity_Log( iwsl_al_unlocked( $AL_NOW ), $store11, $al_clock );
+$al11->record( 'first_action', 'obj1', 'sum1' );
+// A concurrent writer appends directly to the store between the two records.
+$store11->set(
+	IWSL_Activity_Log::LOG_KEY,
+	array_merge(
+		$al11->entries(),
+		array( array( 'at' => 123, 'actor' => 'racer', 'action' => 'concurrent_action', 'object' => 'o', 'summary' => 's' ) )
+	)
+);
+$al11->record( 'second_action', 'obj2', 'sum2' );
+$actions11 = array_map(
+	static function ( array $e ): string {
+		return (string) $e['action'];
+	},
+	$al11->entries()
+);
+iwsl_assert( in_array( 'concurrent_action', $actions11, true ), 'record re-read: the concurrently-written entry survives' );
+iwsl_assert( in_array( 'second_action', $actions11, true ), 'record re-read: the new entry is stored' );
+iwsl_assert_same( 3, count( $actions11 ), 'record re-read: all three entries present (audit trail intact)' );

@@ -21,6 +21,14 @@
  *    raw IP) recorded server-side from the first-party consent cookie on the next
  *    render, so NO public/nopriv endpoint is added.
  *  - VERSIONED POLICY. Bumping the policy version re-prompts every visitor.
+ *  - ONE-CLICK AUTO SETUP. recommended_defaults() is a complete, GDPR-safe settings
+ *    map (opt-in, Consent Mode, GPC, all categories, auto-detected policy URL);
+ *    apply_recommended_defaults() persists it through the same gated save path, so
+ *    the admin wizard can turn the whole feature on correctly in ONE action.
+ *  - ADMIN PREVIEW. A logged-in administrator appending ?iwsl_cc_preview=1 to any
+ *    front-end URL sees the banner exactly as a fresh visitor would (their own
+ *    consent cookie is ignored for display) — logged-in visitors are otherwise
+ *    never touched. Preview changes ONLY what that admin's own browser renders.
  *
  * TRUST MODEL. Console-authoritative, mirroring every other Plus feature: the
  * `cookie_consent` flag is written ONLY by the dual-signed `entitlements.set`
@@ -75,6 +83,9 @@ final class IWSL_Cookie_Consent {
 
 	/** First-party cookie the banner persists the visitor's choice in. */
 	const COOKIE_NAME = 'iwsl_consent';
+
+	/** Query parameter a logged-in administrator uses to preview the banner. */
+	const PREVIEW_PARAM = 'iwsl_cc_preview';
 
 	/** Hard FIFO cap on stored consent records — bounds option size. */
 	const MAX_LOG_ENTRIES = 500;
@@ -186,8 +197,22 @@ final class IWSL_Cookie_Consent {
 		if ( empty( $settings['enabled'] ) ) {
 			return $html;
 		}
+		if ( ! self::looks_like_html( $html ) ) {
+			return $html; // JSON/XML/other non-document buffer — never inject into it.
+		}
 		$out = $this->transform( $html, $settings );
 		return is_string( $out ) ? $out : $html;
+	}
+
+	/**
+	 * Whether a buffered payload is an HTML document the banner may be injected
+	 * into. A template that emits JSON, XML or plain text (sitemaps, exports)
+	 * must be served byte-identical — injecting markup would corrupt it.
+	 */
+	private static function looks_like_html( string $html ): bool {
+		return false !== stripos( $html, '<html' )
+			|| false !== stripos( $html, '<!doctype' )
+			|| false !== stripos( $html, '</body>' );
 	}
 
 	/**
@@ -283,6 +308,74 @@ final class IWSL_Cookie_Consent {
 		return $sigs;
 	}
 
+	// ── one-click automation (the wizard surface) ────────────────────────────────
+
+	/**
+	 * Whether the admin has ever saved (or auto-applied) consent settings. False on
+	 * a fresh install — the wizard uses this to offer the one-click setup.
+	 */
+	public function is_configured(): bool {
+		return 0 < (int) $this->settings()['saved_at'];
+	}
+
+	/**
+	 * The complete GDPR-safe recommended settings map (classifier defaults plus the
+	 * site's own privacy-policy URL when WordPress knows one). Pure read — nothing
+	 * is persisted; the wizard renders this as "what one click will apply". The map
+	 * still passes the full save-time gauntlet in apply_recommended_defaults().
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function recommended_defaults(): array {
+		$defaults = IWSL_Consent_Classifier::recommended_defaults();
+		$policy   = function_exists( 'get_privacy_policy_url' ) ? (string) get_privacy_policy_url() : '';
+		if ( '' !== $policy ) {
+			$defaults['policy_url'] = $policy; // re-validated by the sanitizer on save.
+		}
+		return $defaults;
+	}
+
+	/**
+	 * ONE CLICK: persist the recommended defaults (optionally overridden field-by-
+	 * field, e.g. a brand accent) through the normal gated save path — STATEMENT 1
+	 * of save_settings() is the authoritative entitlement gate, so a locked site
+	 * stores nothing. After this the banner + prior-blocking are live for visitors.
+	 *
+	 * @param array<string,mixed> $overrides sparse map merged over the defaults.
+	 * @return array{ ok:bool, reason?:string, settings?:array, gate?:array }
+	 */
+	public function apply_recommended_defaults( array $overrides = array() ): array {
+		// First-time setup starts from the GDPR-safe recommended baseline; a RE-RUN on
+		// an ALREADY-configured site starts from the site's CURRENT settings, so the
+		// wizard's sparse overrides (accent / layout / policy URL / title / message)
+		// change only those fields and never silently reset the operator's category
+		// toggles, per-vendor overrides, legal model, or GPC/DNT choices made in the
+		// full settings form below the wizard.
+		$base = $this->is_configured() ? $this->settings() : $this->recommended_defaults();
+		return $this->save_settings( array_merge( $base, $overrides ) );
+	}
+
+	/**
+	 * Auto-detect known third-party trackers in a page's HTML (vendor => label,
+	 * category, count), honoring the admin's per-vendor overrides. Pure analysis —
+	 * nothing is rewritten or stored; the wizard uses it to show "found on your
+	 * site" evidence. Self-contained: the caller supplies the HTML (no network).
+	 *
+	 * @return array<string, array{ label:string, category:string, count:int }>
+	 */
+	public function detect_trackers( string $html ): array {
+		return IWSL_Consent_Classifier::detect_vendors( $html, $this->effective_signatures( $this->settings() ) );
+	}
+
+	/**
+	 * The front-end URL a logged-in administrator opens to preview the live banner
+	 * (their own prior consent cookie is ignored for display, nothing else changes).
+	 */
+	public function preview_url(): string {
+		$base = function_exists( 'home_url' ) ? (string) home_url( '/' ) : '/';
+		return $base . ( false === strpos( $base, '?' ) ? '?' : '&' ) . self::PREVIEW_PARAM . '=1';
+	}
+
 	// ── mutators (STATEMENT 1 is the authoritative gate) ─────────────────────────
 
 	/**
@@ -301,6 +394,14 @@ final class IWSL_Cookie_Consent {
 		$clean             = $this->sanitize_settings( $input );
 		$clean['saved_at'] = $this->now_seconds();
 		$this->store->set( self::SETTINGS_KEY, $clean );
+		// The banner (or its absence) is baked into the front-end HTML a page cache
+		// may be serving. Flush it so enabling/disabling/reconfiguring the banner
+		// (including the one-click apply_recommended_defaults() path, which calls
+		// this method directly) never leaves a stale banner behind. IWSL_Teardown
+		// is a peer engine; guarded so this class has no hard dependency on it.
+		if ( class_exists( 'IWSL_Teardown' ) ) {
+			IWSL_Teardown::flush_page_cache();
+		}
 		return array( 'ok' => true, 'settings' => $clean );
 	}
 
@@ -352,6 +453,27 @@ final class IWSL_Cookie_Consent {
 	}
 
 	/**
+	 * Teardown: permanently remove this feature's footprint — delete the sanitized
+	 * settings, the consent-record log and the anonymization salt (the three
+	 * option keys this engine owns). NOT gated by the entitlement: a full teardown
+	 * must succeed even after `cookie_consent` has already been revoked (that is
+	 * precisely when a teardown is invoked). Idempotent + cheap: deleting an
+	 * already-absent option key is a no-op.
+	 *
+	 * @return array{ ok:bool, options_removed:string[] }
+	 */
+	public function purge(): array {
+		$options = array( self::SETTINGS_KEY, self::LOG_KEY, self::SALT_KEY );
+		foreach ( $options as $key ) {
+			$this->store->delete( $key );
+		}
+		return array(
+			'ok'              => true,
+			'options_removed' => $options,
+		);
+	}
+
+	/**
 	 * Record the visitor's consent from the first-party cookie, server-side, on a
 	 * front-end render — so proof-of-consent needs NO public endpoint. Deduped: a
 	 * fresh page load whose cookie matches the most recent record for the same
@@ -397,7 +519,7 @@ final class IWSL_Cookie_Consent {
 	 * @return array<string,mixed>
 	 */
 	public function sanitize_settings( array $input ): array {
-		$layout = isset( $input['banner_layout'] ) && 'box' === $input['banner_layout'] ? 'box' : 'bar';
+		$layout = isset( $input['banner_layout'] ) && in_array( $input['banner_layout'], array( 'box', 'center' ), true ) ? (string) $input['banner_layout'] : 'bar';
 		$model  = isset( $input['default_model'] ) && IWSL_Consent_Classifier::valid_model( (string) $input['default_model'] )
 			? (string) $input['default_model'] : IWSL_Consent_Classifier::MODEL_OPT_IN;
 
@@ -455,6 +577,27 @@ final class IWSL_Cookie_Consent {
 	private static function clean_color( string $value ): string {
 		$value = trim( $value );
 		return 1 === preg_match( '/^#[0-9a-fA-F]{6}$/', $value ) ? strtolower( $value ) : '#2a6df0';
+	}
+
+	/**
+	 * A readable button-text color (`#fff` or `#111`) for a 6-hex background, chosen
+	 * by WCAG relative luminance so a pale admin-picked accent never leaves white
+	 * text on a light fill (an invisible primary button). Pure — no WP dependency.
+	 */
+	private static function readable_foreground( string $hex ): string {
+		$hex = ltrim( trim( $hex ), '#' );
+		if ( 6 !== strlen( $hex ) || 1 !== preg_match( '/^[0-9a-fA-F]{6}$/', $hex ) ) {
+			return '#fff';
+		}
+		$linear = static function ( int $c ): float {
+			$s = $c / 255;
+			return $s <= 0.03928 ? $s / 12.92 : pow( ( $s + 0.055 ) / 1.055, 2.4 );
+		};
+		$r = $linear( (int) hexdec( substr( $hex, 0, 2 ) ) );
+		$g = $linear( (int) hexdec( substr( $hex, 2, 2 ) ) );
+		$b = $linear( (int) hexdec( substr( $hex, 4, 2 ) ) );
+		$luminance = 0.2126 * $r + 0.7152 * $g + 0.0722 * $b;
+		return $luminance > 0.5 ? '#111' : '#fff';
 	}
 
 	/**
@@ -557,6 +700,7 @@ final class IWSL_Cookie_Consent {
 			'consentMode' => ! empty( $settings['consent_mode'] ),
 			'respectGpc'  => ! empty( $settings['respect_gpc'] ),
 			'respectDnt'  => ! empty( $settings['respect_dnt'] ),
+			'preview'     => $this->is_preview(),
 		);
 		return '<script type="application/json" id="iwsl-consent-config">' . self::json( $config ) . '</script>';
 	}
@@ -570,7 +714,7 @@ final class IWSL_Cookie_Consent {
 	 */
 	private function banner_html( array $settings, string $model ): string {
 		$accent  = self::clean_color( (string) $settings['accent'] );
-		$layout  = 'box' === $settings['banner_layout'] ? 'box' : 'bar';
+		$layout  = in_array( $settings['banner_layout'], array( 'box', 'center' ), true ) ? (string) $settings['banner_layout'] : 'bar';
 		$title   = '' !== (string) $settings['title'] ? (string) $settings['title'] : 'We value your privacy';
 		$message = '' !== (string) $settings['message'] ? (string) $settings['message']
 			: 'We use cookies to enhance your experience, analyze traffic and for marketing. Choose which categories to allow. Necessary cookies are always on.';
@@ -586,8 +730,13 @@ final class IWSL_Cookie_Consent {
 		$h  = '<div id="iwsl-cc" class="iwsl-cc iwsl-cc-' . self::esc_attr_safe( $layout ) . '" data-model="' . self::esc_attr_safe( $model ) . '" hidden>';
 		$h .= '<style>' . $this->banner_css( $accent ) . '</style>';
 
+		// Full-viewport blurred scrim — only visible in the centered-popup layout while
+		// the banner is open (toggled by the runtime's iwsl-cc-open class on the root).
+		$h .= '<div class="iwsl-cc-scrim" aria-hidden="true"></div>';
+
 		// Banner.
-		$h .= '<div class="iwsl-cc-banner" role="dialog" aria-modal="false" aria-labelledby="iwsl-cc-title" aria-describedby="iwsl-cc-desc">';
+		$h .= '<div class="iwsl-cc-banner" role="dialog" aria-modal="false" aria-live="polite" aria-labelledby="iwsl-cc-title" aria-describedby="iwsl-cc-desc">';
+		$h .= '<button type="button" class="iwsl-cc-x iwsl-cc-banner-x" data-iwsl-action="dismiss" aria-label="Close">&times;</button>';
 		$h .= '<div class="iwsl-cc-copy">';
 		$h .= '<h2 id="iwsl-cc-title">' . self::esc_html_safe( $title ) . '</h2>';
 		$h .= '<p id="iwsl-cc-desc">' . nl2br( self::esc_html_safe( $message ) );
@@ -604,6 +753,7 @@ final class IWSL_Cookie_Consent {
 		// Preferences modal.
 		$h .= '<div class="iwsl-cc-modal" role="dialog" aria-modal="true" aria-labelledby="iwsl-cc-modal-title" hidden>';
 		$h .= '<div class="iwsl-cc-modal-card">';
+		$h .= '<button type="button" class="iwsl-cc-x iwsl-cc-modal-close" data-iwsl-action="close-modal" aria-label="Close preferences">&times;</button>';
 		$h .= '<h2 id="iwsl-cc-modal-title">Manage cookie preferences</h2>';
 		$h .= '<div class="iwsl-cc-cats">';
 		foreach ( $cat_labels as $key => $meta ) {
@@ -634,6 +784,7 @@ final class IWSL_Cookie_Consent {
 
 	/** The banner CSS with the validated accent injected as a custom property. */
 	private function banner_css( string $accent ): string {
+		$fg = self::readable_foreground( $accent );
 		return ':root{--iwsl-cc-accent:' . $accent . '}'
 			. '.iwsl-cc,.iwsl-cc *{box-sizing:border-box}'
 			. '.iwsl-cc{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.5}'
@@ -652,7 +803,10 @@ final class IWSL_Cookie_Consent {
 			. 'background:rgba(255,255,255,.08);color:#e7edf3}'
 			. '.iwsl-cc-btn:hover{background:rgba(255,255,255,.14)}'
 			. '.iwsl-cc-btn:focus-visible{outline:2px solid var(--iwsl-cc-accent);outline-offset:2px}'
-			. '.iwsl-cc-accept{background:var(--iwsl-cc-accent);color:#fff;border-color:var(--iwsl-cc-accent)}'
+			// Accept AND Reject share one filled-accent treatment: equal size, weight and
+			// prominence (GDPR/consent — neither choice is nudged). Foreground is picked
+			// by luminance so the label stays readable even on a pale accent.
+			. '.iwsl-cc-accept,.iwsl-cc-reject{background:var(--iwsl-cc-accent);color:' . $fg . ';border-color:var(--iwsl-cc-accent)}'
 			. '.iwsl-cc-manage{background:transparent;border-color:rgba(255,255,255,.22)}'
 			. '.iwsl-cc-modal{position:fixed;inset:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;'
 			. 'padding:20px;background:rgba(4,7,11,.66)}'
@@ -667,7 +821,25 @@ final class IWSL_Cookie_Consent {
 			. '.iwsl-cc-handle{position:fixed;z-index:2147483000;left:18px;bottom:18px;width:46px;height:46px;border-radius:50%;'
 			. 'border:1px solid rgba(255,255,255,.14);background:#0b0f14;color:#fff;font-size:20px;cursor:pointer;'
 			. 'box-shadow:0 10px 30px -10px rgba(0,0,0,.6)}'
+			// Close/dismiss "×" on the banner and the preferences modal.
+			. '.iwsl-cc-modal-card{position:relative}'
+			. '.iwsl-cc-x{position:absolute;top:12px;right:12px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;'
+			. 'background:transparent;border:0;border-radius:8px;font-size:22px;line-height:1;cursor:pointer;color:#a9b6c4}'
+			. '.iwsl-cc-x:hover{background:rgba(255,255,255,.10);color:#fff}'
+			. '.iwsl-cc-x:focus-visible{outline:2px solid var(--iwsl-cc-accent);outline-offset:2px}'
+			. '.iwsl-cc-banner{padding-right:46px}'
+			// Centered popup layout: a full-viewport blurred scrim behind a centered card.
+			. '.iwsl-cc-scrim{display:none}'
+			. '.iwsl-cc-center .iwsl-cc-scrim{position:fixed;inset:0;z-index:2147482999;background:rgba(4,7,11,.55);'
+			. 'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}'
+			. '.iwsl-cc-center.iwsl-cc-open .iwsl-cc-scrim{display:block}'
+			. '.iwsl-cc-center .iwsl-cc-banner{left:50%;right:auto;top:50%;bottom:auto;transform:translate(-50%,-50%);'
+			. 'width:calc(100% - 40px);max-width:480px;flex-direction:column;align-items:flex-start;'
+			. 'border:1px solid rgba(255,255,255,.12);border-radius:18px;box-shadow:0 30px 80px -20px rgba(0,0,0,.75)}'
+			. '@media (prefers-reduced-motion:reduce){.iwsl-cc-center .iwsl-cc-scrim{backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}}'
 			. '@media (prefers-color-scheme:light){.iwsl-cc-banner{background:#fff;color:#1b2431;border-top-color:rgba(0,0,0,.08)}'
+			. '.iwsl-cc-x{color:#516072}.iwsl-cc-x:hover{background:rgba(0,0,0,.06);color:#0b0f14}'
+			. '.iwsl-cc-center .iwsl-cc-scrim{background:rgba(0,0,0,.32)}.iwsl-cc-center .iwsl-cc-banner{border-color:rgba(0,0,0,.10)}'
 			. '.iwsl-cc-box .iwsl-cc-banner{border-color:rgba(0,0,0,.10)}.iwsl-cc h2{color:#0b0f14}.iwsl-cc p{color:#516072}'
 			. '.iwsl-cc-btn{background:rgba(0,0,0,.06);color:#1b2431}.iwsl-cc-btn:hover{background:rgba(0,0,0,.10)}'
 			. '.iwsl-cc-modal-card{background:#fff;color:#1b2431}.iwsl-cc-cat{border-color:rgba(0,0,0,.08)}'
@@ -707,8 +879,9 @@ final class IWSL_Cookie_Consent {
 			. 'functionality_storage:"granted",personalization_storage:g.preferences?"granted":"denied",security_storage:"granted"});}'
 			. 'function apply(cats){var g=granted(cats);ALL.forEach(function(c){if(g[c])unblock(c);});consentMode(g);}'
 			. 'function save(cats,method){apply(cats);write(cats,method);hide();if(handle)handle.hidden=false;}'
-			. 'function show(){root.hidden=false;if(banner)banner.style.display="";if(handle)handle.hidden=true;}'
-			. 'function hide(){if(modal)modal.hidden=true;if(banner)banner.style.display="none";}'
+			. 'function show(){root.hidden=false;root.classList.add("iwsl-cc-open");if(banner)banner.style.display="";if(handle)handle.hidden=true;'
+			. 'if(banner){var fa=banner.querySelector(".iwsl-cc-btn");if(fa){try{fa.focus();}catch(e){}}}}'
+			. 'function hide(){root.classList.remove("iwsl-cc-open");if(modal)modal.hidden=true;if(banner)banner.style.display="none";}'
 			. 'function openModal(){if(!modal)return;var st=read();var have=st&&st.c?st.c:defaults();'
 			. 'modal.querySelectorAll(".iwsl-cc-toggle").forEach(function(t){var c=t.getAttribute("data-cat");if(c!=="necessary")t.checked=have.indexOf(c)>-1;});'
 			. 'modal.hidden=false;root.hidden=false;var f=modal.querySelector(".iwsl-cc-toggle:not([disabled]),.iwsl-cc-btn");if(f)f.focus();}'
@@ -722,12 +895,14 @@ final class IWSL_Cookie_Consent {
 			. 'else if(a==="reject")save(["necessary"],"reject_all");'
 			. 'else if(a==="save")save(chosen(),"custom");'
 			. 'else if(a==="manage")openModal();'
-			. 'else if(a==="reopen"){show();openModal();}});'
-			. 'root.addEventListener("keydown",function(e){if(e.key==="Escape"&&modal&&!modal.hidden){modal.hidden=true;}'
+			. 'else if(a==="close-modal"){if(modal)modal.hidden=true;var mb=banner&&banner.querySelector(".iwsl-cc-manage");if(mb)mb.focus();}'
+			. 'else if(a==="dismiss"){hide();if(handle)handle.hidden=false;}'
+			. 'else if(a==="reopen"){show();}});'
+			. 'root.addEventListener("keydown",function(e){if(e.key==="Escape"){if(modal&&!modal.hidden){modal.hidden=true;var mb=banner&&banner.querySelector(".iwsl-cc-manage");if(mb)mb.focus();}else if(banner&&banner.style.display!=="none"){hide();if(handle)handle.hidden=false;}}'
 			. 'if(e.key==="Tab"&&modal&&!modal.hidden){var f=modal.querySelectorAll("button,input:not([disabled]),a[href]");if(!f.length)return;'
 			. 'var first=f[0],last=f[f.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}'
 			. 'else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}}});'
-			. 'var st=read();if(st&&st.v===CFG.version){apply(st.c||["necessary"]);root.hidden=false;if(banner)banner.style.display="none";if(handle)handle.hidden=false;}'
+			. 'var st=read();if(!CFG.preview&&st&&st.v===CFG.version){apply(st.c||["necessary"]);root.hidden=false;if(banner)banner.style.display="none";if(handle)handle.hidden=false;}'
 			. 'else if(CFG.model==="none"){save(["necessary"].concat(ALL),"implied");}'
 			. 'else if(CFG.model==="opt-out"||CFG.model==="info"){apply(defaults());show();}'
 			. 'else{apply(["necessary"]);show();}'
@@ -814,7 +989,32 @@ final class IWSL_Cookie_Consent {
 		return (int) floor( ( $this->now_ms )() / 1000 );
 	}
 
-	/** Whether this is an anonymous front-end render (never admin/REST/cron/login/logged-in). */
+	/**
+	 * Whether THIS request is an administrator's banner preview
+	 * (?iwsl_cc_preview=1). Read from the injected server map's query string so
+	 * the engine stays pure/testable. Preview only changes what that admin's own
+	 * browser renders — the gate and the enabled switch still apply in full.
+	 */
+	private function is_preview(): bool {
+		$qs = isset( $this->server['QUERY_STRING'] ) && is_string( $this->server['QUERY_STRING'] )
+			? $this->server['QUERY_STRING'] : '';
+		if ( '' === $qs && isset( $this->server['REQUEST_URI'] ) && is_string( $this->server['REQUEST_URI'] ) ) {
+			$qs = (string) parse_url( $this->server['REQUEST_URI'], PHP_URL_QUERY );
+		}
+		if ( '' === $qs ) {
+			return false;
+		}
+		parse_str( $qs, $vars );
+		return isset( $vars[ self::PREVIEW_PARAM ] ) && '1' === (string) $vars[ self::PREVIEW_PARAM ];
+	}
+
+	/**
+	 * Whether this is an anonymous front-end HTML render (never admin/REST/cron/
+	 * AJAX/login/feed/embed/trackback/robots/XML-RPC/JSON/XML/customizer). A
+	 * logged-in user is excluded UNLESS an administrator is explicitly previewing
+	 * the banner (?iwsl_cc_preview=1) — that was the owner's "I can't tell if it
+	 * even works" gap: logged-in test views never showed the banner.
+	 */
 	private static function default_is_front(): callable {
 		return static function (): bool {
 			if ( function_exists( 'is_admin' ) && is_admin() ) {
@@ -829,12 +1029,41 @@ final class IWSL_Cookie_Consent {
 			if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
 				return false;
 			}
+			if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
+				return false;
+			}
 			if ( isset( $GLOBALS['pagenow'] ) && 'wp-login.php' === $GLOBALS['pagenow'] ) {
 				return false;
 			}
-			// Logged-in users see the site untouched — consent UI targets the public.
-			if ( function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
+			// Non-HTML front-end responses: injecting banner markup would corrupt them.
+			if ( function_exists( 'is_feed' ) && is_feed() ) {
 				return false;
+			}
+			if ( function_exists( 'is_embed' ) && is_embed() ) {
+				return false;
+			}
+			if ( function_exists( 'is_trackback' ) && is_trackback() ) {
+				return false;
+			}
+			if ( function_exists( 'is_robots' ) && is_robots() ) {
+				return false;
+			}
+			if ( function_exists( 'wp_is_json_request' ) && wp_is_json_request() ) {
+				return false;
+			}
+			if ( function_exists( 'wp_is_xml_request' ) && wp_is_xml_request() ) {
+				return false;
+			}
+			if ( function_exists( 'is_customize_preview' ) && is_customize_preview() ) {
+				return false;
+			}
+			// Logged-in users see the site untouched — consent UI targets the public.
+			// Exception: an administrator explicitly previewing the banner.
+			if ( function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
+				$wants_preview = isset( $_GET[ self::PREVIEW_PARAM ] ) && '1' === (string) $_GET[ self::PREVIEW_PARAM ]; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+				if ( ! ( $wants_preview && function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) ) ) {
+					return false;
+				}
 			}
 			return true;
 		};
@@ -914,7 +1143,7 @@ final class IWSL_Cookie_Consent {
 
 		return array(
 			'enabled'          => isset( $_POST['iwsl_cc_enabled'] ), // phpcs:ignore WordPress.Security.NonceVerification.Missing
-			'banner_layout'    => 'box' === $text( 'iwsl_cc_layout' ) ? 'box' : 'bar',
+			'banner_layout'    => in_array( $text( 'iwsl_cc_layout' ), array( 'box', 'center' ), true ) ? $text( 'iwsl_cc_layout' ) : 'bar',
 			'default_model'    => $text( 'iwsl_cc_model' ),
 			'consent_mode'     => isset( $_POST['iwsl_cc_consent_mode'] ), // phpcs:ignore WordPress.Security.NonceVerification.Missing
 			'respect_gpc'      => isset( $_POST['iwsl_cc_gpc'] ), // phpcs:ignore WordPress.Security.NonceVerification.Missing
@@ -1036,9 +1265,17 @@ final class IWSL_Cookie_Consent {
 		$this->row_checkbox( 'iwsl_cc_gpc', 'Global Privacy Control', 'Honor the Sec-GPC "do not sell/share" browser signal', ! empty( $s['respect_gpc'] ), 'Respects a browser’s built-in “do not sell my data” setting.' );
 		$this->row_checkbox( 'iwsl_cc_dnt', 'Do Not Track', 'Honor the legacy DNT browser signal', ! empty( $s['respect_dnt'] ), 'Respects a browser’s older “do not track me” request.' );
 
-		echo '<tr><th scope="row">' . self::esc_html_safe( 'Banner layout' ) . ' ' . iwsl_field_help( 'Show the notice as a full-width bar or a small corner box.' ) . '</th><td>';
-		echo '<select name="iwsl_cc_layout"><option value="bar"' . ( 'box' !== $s['banner_layout'] ? ' selected' : '' ) . '>Bar (full width)</option>'
-			. '<option value="box"' . ( 'box' === $s['banner_layout'] ? ' selected' : '' ) . '>Box (corner card)</option></select></td></tr>';
+		echo '<tr><th scope="row">' . self::esc_html_safe( 'Banner layout' ) . ' ' . iwsl_field_help( 'Full-width bar, a small corner box, or a centered popup that blurs the page.' ) . '</th><td>';
+		$layouts = array(
+			'bar'    => 'Bar (full width)',
+			'box'    => 'Box (corner card)',
+			'center' => 'Center popup (blur the page)',
+		);
+		echo '<select name="iwsl_cc_layout">';
+		foreach ( $layouts as $val => $label ) {
+			echo '<option value="' . self::esc_attr_safe( $val ) . '"' . ( (string) $s['banner_layout'] === $val ? ' selected' : '' ) . '>' . self::esc_html_safe( $label ) . '</option>';
+		}
+		echo '</select></td></tr>';
 
 		$this->row_text( 'iwsl_cc_title', 'Banner title', (string) $s['title'], 'We value your privacy', 'The heading shown at the top of the cookie notice.' );
 		echo '<tr><th scope="row"><label for="iwsl_cc_message">' . self::esc_html_safe( 'Banner message' ) . '</label> ' . iwsl_field_help( 'The message shown to visitors in the cookie notice.' ) . '</th><td>'

@@ -66,3 +66,44 @@ $lr = $rotation->last_reroll();
 iwsl_assert_same( false, $lr['ok'], 'abort marks last_reroll failed' );
 iwsl_assert_same( 3, $lr['kid'], 'last_reroll records the aborted kid' );
 iwsl_assert_same( 'aborted', $lr['reason'], 'aborted reroll carries a reason' );
+
+// --- PREPARE is idempotent on new_kid under concurrency (no clobber) ------------------
+// Two racing PREPAREs for the SAME new_kid must converge on ONE stored key. We
+// model the pre-`pending_rotation` window a second worker observes by clearing
+// pending after the first prepare: the second call must ADOPT the stored keypair,
+// not regenerate and overwrite the one already returned to the console.
+$store_i = new IWSL_Memory_Store();
+$store_i->set( 'site_id', 'site-idem' );
+$store_i->set( 'wp_keys.1', IWSL_Crypto::ed_keypair() );
+$store_i->set( 'wp_current_kid', 1 );
+$store_i->set( 'wp_epoch_floor', 1 );
+$rot_i = new IWSL_Rotation( $store_i );
+
+$p1 = $rot_i->prepare( 'rot-idem', 2 );
+iwsl_assert( $p1['ok'], 'idempotent-prepare: first prepare stores a keypair' );
+$key_after_first = $store_i->get( 'wp_keys.2' );
+
+$store_i->delete( 'pending_rotation' ); // model a concurrent worker that saw pending=null
+$p2 = $rot_i->prepare( 'rot-idem', 2 );
+iwsl_assert( $p2['ok'], 'idempotent-prepare: racing prepare for the same new_kid accepted' );
+iwsl_assert_same( $p1['new_wp_pk'], $p2['new_wp_pk'], 'idempotent-prepare: same public key — no second key minted' );
+iwsl_assert_same( $key_after_first, $store_i->get( 'wp_keys.2' ), 'idempotent-prepare: stored keypair NOT overwritten' );
+
+// --- responder fails CLOSED when the requested epoch key is missing --------------------
+// §8 chain of custody: signing under the wrong epoch is forbidden. When the
+// explicitly requested kid has no stored keypair, build() returns null (the
+// caller emits an `internal` error) rather than silently signing with the
+// current key.
+$store_r = new IWSL_Memory_Store();
+$store_r->set( 'site_id', 'site-resp' );
+$store_r->set( 'wp_keys.5', IWSL_Crypto::ed_keypair() );
+$store_r->set( 'wp_current_kid', 5 );
+$store_r->set( 'wp_epoch_floor', 5 );
+$rot_r  = new IWSL_Rotation( $store_r );
+$resp_r = new IWSL_Responder( $store_r, $rot_r, iwsl_now_t0() );
+
+$ok_resp = $resp_r->build( 'nonce-ok', true, array(), 5 );
+iwsl_assert( is_array( $ok_resp ) && 5 === $ok_resp['envelope']['kid'], 'responder: signs under an existing requested kid' );
+
+$missing_resp = $resp_r->build( 'nonce-x', true, array(), 6 );
+iwsl_assert_same( null, $missing_resp, 'responder: fails closed (null) when the requested epoch key is missing — no fallback to the current key' );

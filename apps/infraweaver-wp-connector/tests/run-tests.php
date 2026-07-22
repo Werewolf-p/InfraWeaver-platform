@@ -159,7 +159,7 @@ function iwsl_now_t0( int $offset_ms = 5000 ): callable {
 	};
 }
 
-$suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin', 'purge', 'entitlements', 'feature-switches', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache', 'config-editor', 'ui-help',
+$suites = array( 'jcs', 'slhdsa', 'slhdsa-192f', 'verifier', 'enrollment', 'wp-store', 'rotation', 'plugin', 'command-handler', 'purge', 'entitlements', 'feature-switches', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache', 'config-editor', 'ui-help',
 	// Wave 2 feature suites. broken-link-scan runs after media-optimizer (whose
 	// global stubs it is designed around); speed-pack MUST be last (it defines
 	// remove_action/remove_filter recorder stubs).

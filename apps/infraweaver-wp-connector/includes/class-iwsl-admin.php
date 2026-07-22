@@ -227,6 +227,51 @@ final class IWSL_Admin {
 	}
 
 	/**
+	 * The InfraWeaver console URL an operator opens to LINK this site or change its
+	 * plan. The connector ships no built-in console address — a fleet self-hosts its
+	 * own — so this reads the stored `iwsl_console_url` option (empty by default)
+	 * and always runs it through the `iwsl_console_url` filter, letting a host
+	 * mu-plugin supply it fleet-wide. Returns '' when none is known; callers MUST
+	 * then show plain guidance text, never a dead link.
+	 */
+	public static function console_url(): string {
+		$url = function_exists( 'get_option' ) ? (string) get_option( 'iwsl_console_url', '' ) : '';
+		if ( function_exists( 'apply_filters' ) ) {
+			$url = (string) apply_filters( 'iwsl_console_url', $url );
+		}
+		$url = trim( $url );
+		if ( '' === $url ) {
+			return '';
+		}
+		// Only a safe absolute http(s) URL is a real destination; treat anything
+		// else as unset so no dead / javascript: link can ever be emitted.
+		if ( function_exists( 'esc_url_raw' ) ) {
+			$url = (string) esc_url_raw( $url, array( 'http', 'https' ) );
+		}
+		return $url;
+	}
+
+	/**
+	 * Emit a real console link when {@see console_url()} is known, else plain
+	 * guidance text — never a "#"/dead anchor. Shared by every "connect / upgrade
+	 * from the console" prompt so the behaviour stays identical everywhere.
+	 *
+	 * @param string $link_text  Call-to-action label when a URL is known.
+	 * @param string $empty_text Sentence shown when no console URL is configured.
+	 * @param string $class      Anchor CSS classes (default: a primary button).
+	 */
+	public static function render_console_cta( string $link_text, string $empty_text, string $class = 'button button-primary' ): void {
+		$url = self::console_url();
+		if ( '' !== $url ) {
+			echo '<a class="' . esc_attr( $class ) . '" href="' . esc_url( $url ) . '" target="_blank" rel="noopener">'
+				. esc_html( $link_text )
+				. ' <span class="dashicons dashicons-external" aria-hidden="true"></span></a>';
+			return;
+		}
+		echo '<span class="description">' . esc_html( $empty_text ) . '</span>';
+	}
+
+	/**
 	 * The URL a save / run / toggle handler should send the operator BACK to after a
 	 * POST: the SAME InfraWeaver Plus sub-page the action came from — anchored to the
 	 * acting feature's card so the browser returns to the exact card — instead of
@@ -1382,6 +1427,22 @@ final class IWSL_Admin {
 			array( 'strong' => array() )
 		) . '</p>';
 		self::render_gate_table( $gate );
+
+		// When this site isn't linked yet, the gate table alone is a dead end — give
+		// the owner a real next step: what connecting does, the console link (when
+		// one is known) and the site address they'll enter there to add it.
+		if ( empty( $gate['linked'] ) ) {
+			echo '<div class="iwsl-connect" style="margin-top:14px;padding:14px 16px;border:1px solid var(--iw-line);border-radius:12px;background:color-mix(in oklch, var(--iw-panel) 60%, transparent);">';
+			echo '<h4 style="margin:0 0 6px;">' . esc_html__( 'Connect this site', 'infraweaver-connector' ) . '</h4>';
+			echo '<p style="margin:0 0 10px;">' . esc_html__( 'Connecting links this site to the InfraWeaver console so it can grant plans and turn Plus features on for you.', 'infraweaver-connector' ) . '</p>';
+			/* translators: %s: this site's web address. */
+			echo '<p style="margin:0 0 10px;">' . esc_html( sprintf( __( 'In the console, add this site by its address: %s', 'infraweaver-connector' ), $pretty ) ) . '</p>';
+			self::render_console_cta(
+				__( 'Open the InfraWeaver console', 'infraweaver-connector' ),
+				__( 'Open the InfraWeaver console where this connector was set up, then add this site by the address above.', 'infraweaver-connector' )
+			);
+			echo '</div>';
+		}
 		echo '</div>';
 
 		echo '</section>';
@@ -1696,6 +1757,7 @@ JS;
 				echo '<span class="dashicons dashicons-lock iwsl-jump__lock" aria-hidden="true"></span>';
 			} else {
 				echo '<span class="iwsl-jump__dot iwsl-jump__dot--' . esc_attr( $state ) . '" aria-hidden="true"></span>';
+				echo '<span class="screen-reader-text"> ' . ( 'on' === $state ? esc_html__( '(on)', 'infraweaver-connector' ) : esc_html__( '(off)', 'infraweaver-connector' ) ) . '</span>';
 			}
 			echo '</a>';
 		}
@@ -1748,7 +1810,12 @@ JS;
 			if ( $granted ) {
 				self::render_feature_switch( $flag, $label, $switch_on );
 			} else {
-				echo '<span class="iwsl-card__lock"><span class="dashicons dashicons-lock" aria-hidden="true"></span>' . esc_html__( 'Upgrade to unlock', 'infraweaver-connector' ) . '</span>';
+				$upgrade_url = self::console_url();
+				if ( '' !== $upgrade_url ) {
+					echo '<a class="iwsl-card__lock" href="' . esc_url( $upgrade_url ) . '" target="_blank" rel="noopener"><span class="dashicons dashicons-lock" aria-hidden="true"></span>' . esc_html__( 'Upgrade to unlock', 'infraweaver-connector' ) . '</a>';
+				} else {
+					echo '<span class="iwsl-card__lock"><span class="dashicons dashicons-lock" aria-hidden="true"></span>' . esc_html__( 'Upgrade to unlock', 'infraweaver-connector' ) . '</span>';
+				}
 			}
 			echo '</div>';
 		}
@@ -2107,6 +2174,7 @@ JS;
 				echo '<span class="screen-reader-text"> ' . esc_html__( '(locked — not included in this plan)', 'infraweaver-connector' ) . '</span>';
 			} elseif ( 'core' !== $state ) {
 				echo '<span class="iwsl-tab__status iwsl-tab__status--' . esc_attr( $state ) . '" aria-hidden="true"></span>';
+				echo '<span class="screen-reader-text"> ' . ( 'on' === $state ? esc_html__( '(on)', 'infraweaver-connector' ) : esc_html__( '(off)', 'infraweaver-connector' ) ) . '</span>';
 			}
 			echo '</button>';
 		}
@@ -3124,10 +3192,10 @@ JS;
 	private static function render_locked_notice( array $gate, string $feature_label = '', string $requires_plus_msg = '' ): void {
 		$requires = '' !== $requires_plus_msg
 			? $requires_plus_msg
-			: __( 'This is a Plus feature. Turn it on for this site from your InfraWeaver dashboard.', 'infraweaver-connector' );
+			: __( 'This is a Plus feature. Turn it on for this site from the InfraWeaver console.', 'infraweaver-connector' );
 		$messages = array(
-			'not-linked'      => __( 'This site isn&#8217;t connected to your InfraWeaver account yet &mdash; connect it from your dashboard to turn this on.', 'infraweaver-connector' ),
-			'heartbeat-stale' => __( 'Your InfraWeaver connection needs to refresh &mdash; we haven&#8217;t heard from your account recently. It usually reconnects on its own; if it doesn&#8217;t, reconnect from your dashboard.', 'infraweaver-connector' ),
+			'not-linked'      => __( 'This site isn&#8217;t connected to the InfraWeaver console yet &mdash; connect it there to turn this on.', 'infraweaver-connector' ),
+			'heartbeat-stale' => __( 'Your InfraWeaver connection needs to refresh &mdash; we haven&#8217;t heard from the console recently. It usually reconnects on its own; if it doesn&#8217;t, reconnect from the InfraWeaver console.', 'infraweaver-connector' ),
 			'requires-plus'   => $requires,
 		);
 		/* translators: %s: the feature name. */
@@ -3137,7 +3205,12 @@ JS;
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
 		}
-		echo '</ul></div>';
+		echo '</ul>';
+		$console = self::console_url();
+		if ( '' !== $console ) {
+			echo '<p style="margin:8px 0 0;"><a class="button button-primary" href="' . esc_url( $console ) . '" target="_blank" rel="noopener">' . esc_html__( 'Open the InfraWeaver console', 'infraweaver-connector' ) . ' <span class="dashicons dashicons-external" aria-hidden="true"></span></a></p>';
+		}
+		echo '</div>';
 	}
 
 	// ── Section 2: Lossless Image Optimization ─────────────────────────────────
@@ -3151,7 +3224,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'Image Optimization', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( 'Image Optimization', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( 'Re-encode this site&#8217;s images to WebP — lossless for PNG, GIF, BMP and TIFF; near-lossless for JPEG. Smaller files, identical-looking pixels, run entirely on this server — no external service is called.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
@@ -3162,7 +3235,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_locked_notice( $gate, __( 'Image Optimization', 'infraweaver-connector' ), __( 'Image Optimization is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.', 'infraweaver-connector' ) );
+			self::render_locked_notice( $gate, __( 'Image Optimization', 'infraweaver-connector' ), __( 'Image Optimization is part of the Pro plan. Turn on Pro for this site from the InfraWeaver console.', 'infraweaver-connector' ) );
 			return;
 		}
 
@@ -4049,7 +4122,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'SMTP Email Delivery & Log', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( 'SMTP Email Delivery & Log', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( "Route this site's outgoing mail through an SMTP server and keep a bounded local log of what was sent. Runs entirely on this server; the message body is never stored — only recipients and subjects are recorded.", 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from a handler after a locked POST (layer-2 defence tripped).
@@ -4060,7 +4133,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_locked_notice( $gate, 'Email Delivery', 'Email Delivery is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.' );
+			self::render_locked_notice( $gate, 'Email Delivery', 'Email Delivery is part of the Pro plan. Turn on Pro for this site from the InfraWeaver console.' );
 			return;
 		}
 
@@ -4529,7 +4602,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( '301 Redirect Manager', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( '301 Redirect Manager', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( 'Send visitors from old URLs to new ones with permanent (301) or temporary (302) redirects — evaluated entirely on this server.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from a handler after a locked POST (layer-2 defence tripped).
@@ -4540,7 +4613,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_locked_notice( $gate, 'Redirect Manager', 'The Redirect Manager is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.' );
+			self::render_locked_notice( $gate, 'Redirect Manager', 'The Redirect Manager is part of the Pro plan. Turn on Pro for this site from the InfraWeaver console.' );
 			return;
 		}
 
@@ -4672,7 +4745,8 @@ JS;
 				wp_nonce_field( self::REDIRECT_DELETE_NONCE );
 				echo '<input type="hidden" name="action" value="' . esc_attr( self::REDIRECT_DELETE_ACTION ) . '">';
 				echo '<input type="hidden" name="rule_id" value="' . esc_attr( $id ) . '">';
-				echo '<button type="submit" class="button button-link-delete">' . esc_html__( 'Delete', 'infraweaver-connector' ) . '</button>';
+				$rd_confirm = esc_js( __( 'Delete this redirect rule? Visitors to its old address will no longer be sent on. This cannot be undone.', 'infraweaver-connector' ) );
+				echo '<button type="submit" class="button button-link-delete" onclick="return confirm(\'' . $rd_confirm . '\');">' . esc_html__( 'Delete', 'infraweaver-connector' ) . '</button>';
 				echo '</form>';
 				echo '</td>';
 				echo '</tr>';
@@ -4851,7 +4925,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_White_Label::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'Custom Login & Admin White-Label', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( 'Custom Login & Admin White-Label', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( 'Replace the WordPress login logo, header link, login message, and admin footer credit with your own brand — applied entirely on this server. Revoking the entitlement instantly restores the default WordPress chrome.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
@@ -4862,7 +4936,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_locked_notice( $gate, 'White-Label', 'White-Label is part of the Ultimate plan. Turn on Ultimate for this site from your InfraWeaver dashboard.' );
+			self::render_locked_notice( $gate, 'White-Label', 'White-Label is part of the Ultimate plan. Turn on Ultimate for this site from the InfraWeaver console.' );
 			return;
 		}
 
@@ -5077,7 +5151,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_DB_Optimizer::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'Database Cleanup & Optimization', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( 'Database Cleanup & Optimization', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( 'Reclaim space by clearing expired transients, old post revisions, auto-drafts, trashed posts and comments, spam, and orphaned metadata — then optimize the core tables. Runs entirely on this server; Preview never changes anything.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
@@ -5094,7 +5168,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_locked_notice( $gate, 'Database Cleanup &amp; Optimization', 'Database Cleanup &amp; Optimization is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.' );
+			self::render_locked_notice( $gate, 'Database Cleanup &amp; Optimization', 'Database Cleanup &amp; Optimization is part of the Pro plan. Turn on Pro for this site from the InfraWeaver console.' );
 			return;
 		}
 
@@ -5263,7 +5337,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'Page Cache', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( 'Page Cache', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( 'Serve a static HTML copy of public pages to anonymous visitors — faster loads with no external service. Logged-in users, password-protected posts and carts always bypass the cache, and content changes purge it automatically.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from a handler after a locked POST (layer-2 defence tripped).
@@ -5274,7 +5348,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_locked_notice( $gate, 'Page Cache', 'Page Cache is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.' );
+			self::render_locked_notice( $gate, 'Page Cache', 'Page Cache is part of the Pro plan. Turn on Pro for this site from the InfraWeaver console.' );
 			return;
 		}
 
@@ -5996,9 +6070,9 @@ JS;
 		$php_file_bare = ( 'htaccess' === $php_mech ) ? '.htaccess' : '.user.ini';
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'Configuration', 'infraweaver-connector' )
+		echo '<h3>' . esc_html__( 'Configuration', 'infraweaver-connector' )
 			. ' <span class="iwsl-adv-badge" style="display:inline-block;margin-left:8px;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;vertical-align:middle;color:var(--iw-ink);border:1px solid color-mix(in oklch, var(--iw-warn) 55%, transparent);background:color-mix(in oklch, var(--iw-warn) 22%, transparent);">'
-			. esc_html__( 'Advanced', 'infraweaver-connector' ) . '</span></h2>';
+			. esc_html__( 'Advanced', 'infraweaver-connector' ) . '</span></h3>';
 		echo '<p class="iwsl-adv-warn" style="display:flex;gap:7px;align-items:center;margin:6px 0 10px;font-size:13px;font-weight:600;color:var(--iw-ink);">'
 			. '<span class="dashicons dashicons-warning" aria-hidden="true" style="color:var(--iw-warn);font-size:17px;width:17px;height:17px;flex:0 0 auto;"></span>'
 			. esc_html__( 'Advanced — changing these can take your site offline. Only edit if you know what you\'re doing.', 'infraweaver-connector' )

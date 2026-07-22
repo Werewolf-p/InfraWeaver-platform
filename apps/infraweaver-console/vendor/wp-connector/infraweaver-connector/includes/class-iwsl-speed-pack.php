@@ -315,7 +315,9 @@ final class IWSL_Speed_Pack {
 		// 1. Park protected regions behind opaque placeholders.
 		$stash     = array();
 		$protected = preg_replace_callback(
-			'#<(pre|textarea|script|style|code)\b[^>]*>.*?</\1>#is',
+			// Quote-aware opening tag: a `>` inside a quoted attribute (e.g.
+			// data-x="a>b") must not be mistaken for the opening tag's close.
+			'#<(pre|textarea|script|style|code)\b(?:"[^"]*"|\'[^\']*\'|[^>])*>.*?</\1>#is',
 			static function ( array $m ) use ( &$stash ): string {
 				$token   = '<!--IWSL_SP_' . count( $stash ) . '-->';
 				$stash[] = $m[0];
@@ -825,6 +827,32 @@ final class IWSL_Speed_Pack {
 		return $this->remove_server_config();
 	}
 
+	/**
+	 * Full teardown for an uninstall/unlink sweep: strip the managed .htaccess
+	 * block regardless of entitlement (mirrors disable()/the operator kill-switch),
+	 * then delete BOTH option keys this feature owns — the settings map
+	 * (OPTION_KEY) and the htaccess-written flag (HTACCESS_WRITTEN_KEY) — entirely,
+	 * so a fresh read after purge() falls back to defaults rather than a stale
+	 * persisted map.
+	 *
+	 * Idempotent + cheap-when-clean: disable() short-circuits on a missing/blockless
+	 * .htaccess (a couple of is_file()/strpos() checks), and deleting an absent
+	 * option key is a cheap no-op.
+	 *
+	 * @return array{ ok:bool, removed:bool, settings_deleted:bool }
+	 */
+	public function purge(): array {
+		$disabled     = $this->disable();
+		$had_settings = null !== $this->store->get( self::OPTION_KEY, null );
+		$this->store->delete( self::OPTION_KEY );
+		$this->store->delete( self::HTACCESS_WRITTEN_KEY );
+		return array(
+			'ok'               => true,
+			'removed'          => ! empty( $disabled['removed'] ),
+			'settings_deleted' => $had_settings,
+		);
+	}
+
 	/** Write when server_headers is on, strip when off. Returns the write result. */
 	private function reconcile_server_config( array $settings ): array {
 		return ! empty( $settings['server_headers'] )
@@ -1142,7 +1170,7 @@ final class IWSL_Speed_Pack {
 		}
 		check_admin_referer( self::SAVE_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = iwsl_plus_redirect_base();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {

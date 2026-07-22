@@ -299,10 +299,18 @@ final class IWSL_Duplicate_Post {
 		if ( ! is_array( $all ) ) {
 			return 0;
 		}
+		// The skip-list is filterable so sites can protect uniqueness-constrained
+		// keys (SKU, sync-id, …) that must never be cloned onto a copy.
+		$skip = function_exists( 'apply_filters' )
+			? apply_filters( 'iwsl_duplicate_post_skip_meta', self::SKIP_META, $source_id )
+			: self::SKIP_META;
+		if ( ! is_array( $skip ) ) {
+			$skip = self::SKIP_META;
+		}
 		$copied = 0;
 		$rows   = 0;
 		foreach ( $all as $key => $values ) {
-			if ( ! is_string( $key ) || in_array( $key, self::SKIP_META, true ) ) {
+			if ( ! is_string( $key ) || in_array( $key, $skip, true ) ) {
 				continue;
 			}
 			$values = is_array( $values ) ? $values : array( $values );

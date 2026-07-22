@@ -152,8 +152,25 @@ final class IWSL_CDN_Rewrite {
 			'host'    => $host,
 		);
 		$this->store->set( self::OPTION_KEY, $settings );
+		if ( class_exists( 'IWSL_Teardown' ) ) {
+			IWSL_Teardown::flush_page_cache(); // a settings change invalidates any cached HTML.
+		}
 
 		return array( 'ok' => true, 'settings' => $settings );
+	}
+
+	/**
+	 * Teardown for an uninstall/unlink sweep: delete this feature's settings
+	 * option key entirely, so a fresh read falls back to settings()' defaults
+	 * (disabled, empty host) rather than a stale persisted map.
+	 * Idempotent + cheap: deleting an absent key is a single no-op store call.
+	 *
+	 * @return array{ ok:bool, deleted:bool }
+	 */
+	public function purge(): array {
+		$had = null !== $this->store->get( self::OPTION_KEY, null );
+		$this->store->delete( self::OPTION_KEY );
+		return array( 'ok' => true, 'deleted' => $had );
 	}
 
 	// ── the rewrite filters (STATEMENT 1 is the authoritative gate) ────────────

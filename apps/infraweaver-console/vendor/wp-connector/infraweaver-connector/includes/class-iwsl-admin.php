@@ -36,6 +36,16 @@ final class IWSL_Admin {
 	/** Nonce action guarding the run form. */
 	const OPTIMIZE_NONCE = 'iwsl_media_optimize';
 
+	/**
+	 * Authenticated (logged-in only) admin-ajax actions powering the progress
+	 * popup's auto-loop: a read-only library-stats poll and a single bounded batch
+	 * run. Both carry the SAME defence as the admin-post handler — manage_options,
+	 * the OPTIMIZE_NONCE via check_ajax_referer(), and the authoritative entitlement
+	 * gate inside IWSL_Media_Optimizer::run(). There is deliberately NO nopriv twin.
+	 */
+	const MO_STATUS_ACTION = 'iwsl_mo_status';
+	const MO_BATCH_ACTION  = 'iwsl_mo_run_batch';
+
 	/** admin-post action + nonce for the SMTP settings save. */
 	const EMAIL_SETTINGS_ACTION = 'iwsl_email_settings';
 	const EMAIL_SETTINGS_NONCE  = 'iwsl_email_settings';
@@ -53,6 +63,8 @@ final class IWSL_Admin {
 	const REDIRECT_DELETE_NONCE  = 'iwsl_redirects_delete';
 	const REDIRECT_LOG_ACTION    = 'iwsl_redirects_log';
 	const REDIRECT_LOG_NONCE     = 'iwsl_redirects_log';
+	const REDIRECT_AUTO_ACTION   = 'iwsl_redirects_auto';
+	const REDIRECT_AUTO_NONCE    = 'iwsl_redirects_auto';
 
 	/** admin-post action + nonce for the white-label settings save. */
 	const WHITE_LABEL_ACTION = 'iwsl_white_label_save';
@@ -77,6 +89,11 @@ final class IWSL_Admin {
 	const FEATURE_TOGGLE_NONCE  = 'iwsl_feature_toggle';
 	/** Per-user transient prefix for the toggle result toast. */
 	const FEATURE_TOGGLE_RESULT = 'iwsl_feature_toggle_result_';
+
+	/** One-click "guided setup" for Cookie Consent (applies GDPR-safe defaults). */
+	const CONSENT_WIZARD_ACTION = 'iwsl_consent_wizard';
+	const CONSENT_WIZARD_NONCE  = 'iwsl_consent_wizard';
+	const CONSENT_WIZARD_RESULT = 'iwsl_consent_wizard_result_';
 
 	/** @var IWSL_Plugin */
 	private $plugin;
@@ -143,6 +160,8 @@ final class IWSL_Admin {
 			'whitelabel'        => IWSL_White_Label::FEATURE,
 			'cache'             => IWSL_Page_Cache::FEATURE,
 			'lazy-load'         => IWSL_Lazy_Load::FEATURE,
+			'media-protect'     => IWSL_Media_Protection::FEATURE,
+			'elementor'         => IWSL_Elementor_Blocks::FEATURE,
 			'cdn'               => IWSL_CDN_Rewrite::FEATURE,
 			'duplicate'         => IWSL_Duplicate_Post::FEATURE,
 			'seo-audit'         => IWSL_SEO_Audit::FEATURE,
@@ -153,6 +172,7 @@ final class IWSL_Admin {
 			'activity-log'      => IWSL_Activity_Log::FEATURE,
 			'auto-convert'      => IWSL_Auto_Convert::FEATURE,
 			'speed'             => IWSL_Speed_Pack::FEATURE,
+			'response-scan'     => IWSL_Response_Scan::FEATURE,
 			'statistics'        => IWSL_Statistics::FEATURE,
 			'consent'           => IWSL_Cookie_Consent::FEATURE,
 			'seo'               => IWSL_SEO_Suite::FEATURE,
@@ -163,6 +183,132 @@ final class IWSL_Admin {
 	private static function feature_flag_for( string $id ): ?string {
 		$map = self::feature_flag_map();
 		return $map[ $id ] ?? null;
+	}
+
+	/** The tab/card id a FEATURE flag belongs to, or '' when the flag is unmapped. */
+	private static function tab_id_for_flag( string $flag ): string {
+		foreach ( self::feature_flag_map() as $id => $mapped ) {
+			if ( $mapped === $flag ) {
+				return (string) $id;
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * The category sub-page slug a feature/tab id lives on — e.g. 'cache'
+	 * (Performance) → 'infraweaver-plus-performance'. '' when the id is unknown or
+	 * its group carries no slug. Derived from the SAME tab/group maps that build the
+	 * sidebar sub-pages, so it can never drift from where the card actually renders.
+	 */
+	private static function feature_page_slug( string $feature_id ): string {
+		if ( '' === $feature_id ) {
+			return '';
+		}
+		$group = '';
+		foreach ( self::tab_defs() as $tab ) {
+			if ( isset( $tab['id'] ) && (string) $tab['id'] === $feature_id ) {
+				$group = isset( $tab['group'] ) ? (string) $tab['group'] : '';
+				break;
+			}
+		}
+		if ( '' === $group ) {
+			return '';
+		}
+		$meta = self::group_meta();
+		return isset( $meta[ $group ]['slug'] ) ? 'infraweaver-plus-' . (string) $meta[ $group ]['slug'] : '';
+	}
+
+	/** Build an absolute admin URL for one of this plugin's page slugs (test-harness-safe). */
+	private static function iwsl_plus_admin_url( string $page_slug ): string {
+		return function_exists( 'admin_url' )
+			? admin_url( 'admin.php?page=' . $page_slug )
+			: 'admin.php?page=' . $page_slug;
+	}
+
+	/**
+	 * The InfraWeaver console URL an operator opens to LINK this site or change its
+	 * plan. The connector ships no built-in console address — a fleet self-hosts its
+	 * own — so this reads the stored `iwsl_console_url` option (empty by default)
+	 * and always runs it through the `iwsl_console_url` filter, letting a host
+	 * mu-plugin supply it fleet-wide. Returns '' when none is known; callers MUST
+	 * then show plain guidance text, never a dead link.
+	 */
+	public static function console_url(): string {
+		$url = function_exists( 'get_option' ) ? (string) get_option( 'iwsl_console_url', '' ) : '';
+		if ( function_exists( 'apply_filters' ) ) {
+			$url = (string) apply_filters( 'iwsl_console_url', $url );
+		}
+		$url = trim( $url );
+		if ( '' === $url ) {
+			return '';
+		}
+		// Only a safe absolute http(s) URL is a real destination; treat anything
+		// else as unset so no dead / javascript: link can ever be emitted.
+		if ( function_exists( 'esc_url_raw' ) ) {
+			$url = (string) esc_url_raw( $url, array( 'http', 'https' ) );
+		}
+		return $url;
+	}
+
+	/**
+	 * Emit a real console link when {@see console_url()} is known, else plain
+	 * guidance text — never a "#"/dead anchor. Shared by every "connect / upgrade
+	 * from the console" prompt so the behaviour stays identical everywhere.
+	 *
+	 * @param string $link_text  Call-to-action label when a URL is known.
+	 * @param string $empty_text Sentence shown when no console URL is configured.
+	 * @param string $class      Anchor CSS classes (default: a primary button).
+	 */
+	public static function render_console_cta( string $link_text, string $empty_text, string $class = 'button button-primary' ): void {
+		$url = self::console_url();
+		if ( '' !== $url ) {
+			echo '<a class="' . esc_attr( $class ) . '" href="' . esc_url( $url ) . '" target="_blank" rel="noopener">'
+				. esc_html( $link_text )
+				. ' <span class="dashicons dashicons-external" aria-hidden="true"></span></a>';
+			return;
+		}
+		echo '<span class="description">' . esc_html( $empty_text ) . '</span>';
+	}
+
+	/**
+	 * The URL a save / run / toggle handler should send the operator BACK to after a
+	 * POST: the SAME InfraWeaver Plus sub-page the action came from — anchored to the
+	 * acting feature's card so the browser returns to the exact card — instead of
+	 * bouncing to the Overview dashboard.
+	 *
+	 * Resolved most-trusted first:
+	 *   1. The request referer, when it is one of THIS plugin's own admin pages
+	 *      (page= begins `infraweaver-plus`), via the shared {@see iwsl_plus_redirect_base()}.
+	 *   2. If that resolved to only the bare landing (referer missing/foreign) but we
+	 *      know which feature acted, the feature's own category sub-page.
+	 *   3. The bare landing, only when neither of the above resolves.
+	 * When a feature id is known, `#iwsl-card-<id>` is appended LAST; WordPress
+	 * add_query_arg() keeps a fragment at the tail, so a caller's result/locked query
+	 * flags still land ahead of it, and wp_safe_redirect() is fragment-safe.
+	 * Capability + nonce gating is untouched — this only computes a redirect target.
+	 *
+	 * @param string $feature_id Tab/card id the handler acted on ('' when unknown).
+	 */
+	public static function iwsl_plus_return_url( string $feature_id = '' ): string {
+		$base = function_exists( 'iwsl_plus_redirect_base' )
+			? iwsl_plus_redirect_base()
+			: self::iwsl_plus_admin_url( 'infraweaver-plus' );
+
+		$anchor = preg_replace( '/[^a-z0-9\-]/', '', $feature_id );
+		if ( ! is_string( $anchor ) || '' === $anchor ) {
+			return $base;
+		}
+
+		// Referer gave only the bare landing → upgrade to the feature's own page.
+		if ( $base === self::iwsl_plus_admin_url( 'infraweaver-plus' ) ) {
+			$slug = self::feature_page_slug( $anchor );
+			if ( '' !== $slug ) {
+				$base = self::iwsl_plus_admin_url( $slug );
+			}
+		}
+
+		return $base . '#iwsl-card-' . $anchor;
 	}
 
 	/**
@@ -178,9 +324,12 @@ final class IWSL_Admin {
 			'cdn'               => __( 'Serves your images and files from servers closer to each visitor, so they load quicker.', 'infraweaver-connector' ),
 			'lazy-load'         => __( 'Loads images only when a visitor scrolls to them, so the page opens sooner.', 'infraweaver-connector' ),
 			'perf-audit'        => __( 'Times how long your server takes to build each page for visitors, so you can spot the slow ones. Free.', 'infraweaver-connector' ),
+			'response-scan'     => __( 'Times the full round-trip to load each of your pages — connection, server and download — so you can compare before and after a change. Pro.', 'infraweaver-connector' ),
 			'images'            => __( 'Shrinks image file sizes so pages load faster, without making pictures look worse.', 'infraweaver-connector' ),
 			'auto-convert'      => __( 'Automatically turns your images into a smaller, faster format for you.', 'infraweaver-connector' ),
 			'svg'               => __( 'Lets you safely upload logo and icon files that stay crisp at any size.', 'infraweaver-connector' ),
+			'media-protect'     => __( 'Makes images you mark harder to right-click-save or drag-copy. A deterrent, not a lock.', 'infraweaver-connector' ),
+				'elementor'         => __( 'Adds ready-made InfraWeaver blocks — a call-to-action, feature grid, pricing table and notice — you can drop into the Elementor page builder.', 'infraweaver-connector' ),
 			'seo'               => __( 'Helps Google understand your pages so more people can find your site.', 'infraweaver-connector' ),
 			'seo-audit'         => __( 'Checks your pages for common Google mistakes and tells you what to fix.', 'infraweaver-connector' ),
 			'duplicate'         => __( 'Copies a post or page in one click so you don’t start from scratch.', 'infraweaver-connector' ),
@@ -204,23 +353,431 @@ final class IWSL_Admin {
 		return isset( $map[ $id ] ) ? (string) $map[ $id ] : '';
 	}
 
+	/**
+	 * The central, warm, jargon-free "explainer" for every feature — one entry per
+	 * feature tab id (~24). Each entry is copy meant for a NON-TECHNICAL owner:
+	 *   - what      : one plain sentence, benefit-first (what it does for them).
+	 *   - why       : why a normal owner would want it (the payoff).
+	 *   - should    : plain guidance on whether to turn it on.
+	 *   - steps     : 1–3 tiny plain steps of what to actually DO.
+	 *   - on_effect : (optional) "when you switch it on, this happens" consequence,
+	 *                 shown on the OFF card so the owner can decide before flipping.
+	 *   - active    : (optional) the "it’s working — here’s what it’s doing" line,
+	 *                 shown on a toggle feature’s panel once it is on.
+	 * This is copy only — it changes no gate, save, field, or toggle behavior.
+	 *
+	 * @return array<string, array<string, mixed>>
+	 */
+	private static function feature_explainer_map(): array {
+		return array(
+			// ── Performance ──────────────────────────────────────────────
+			'speed' => array(
+				'what'      => __( 'Trims the extra bits of code and files your pages send, so they open faster for visitors.', 'infraweaver-connector' ),
+				'why'       => __( 'Faster pages keep people from leaving, and search engines like quick sites too.', 'infraweaver-connector' ),
+				'should'    => __( 'Good for almost every site. Turn it on, then have a quick look that everything still looks right.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Look over your site on a phone and a computer to check nothing changed.', 'infraweaver-connector' ),
+					__( 'That’s it — it keeps working on its own.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Your pages start sending less code, so they load a little quicker straight away.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s tidying up the code on every page as it loads, so visitors get a lighter, faster page.', 'infraweaver-connector' ),
+			),
+			'cache' => array(
+				'what'      => __( 'Saves a ready-made copy of each page so the next visitor gets it instantly.', 'infraweaver-connector' ),
+				'why'       => __( 'Your site does the hard work once, then hands out the saved copy — so pages appear much faster.', 'infraweaver-connector' ),
+				'should'    => __( 'Great for most sites, especially blogs and brochure sites. If you run a shop or members area, check that logged-in pages still update.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Open a few pages to make sure they look right.', 'infraweaver-connector' ),
+					__( 'It refreshes the saved copies for you automatically.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Visitors start getting a saved copy of each page, which loads much faster than building it fresh every time.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s handing visitors a saved, ready-made copy of each page instead of rebuilding it on every visit.', 'infraweaver-connector' ),
+			),
+			'cdn' => array(
+				'what'      => __( 'Serves your images and files from computers around the world, closer to each visitor.', 'infraweaver-connector' ),
+				'why'       => __( 'Someone far away gets your pictures from a nearby computer instead of one across the globe, so they load quicker.', 'infraweaver-connector' ),
+				'should'    => __( 'Worth it if you have visitors in many countries, or lots of images. You’ll need a delivery-network account first (a service that stores copies of your files worldwide).', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Sign up with a delivery network and copy the web address it gives you.', 'infraweaver-connector' ),
+					__( 'Use the short guided setup above to paste that address in.', 'infraweaver-connector' ),
+					__( 'Save — your files start loading from the nearest computer.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Your images, styles and scripts start loading from a nearby delivery computer instead of only your own.', 'infraweaver-connector' ),
+			),
+			'lazy-load' => array(
+				'what'      => __( 'Waits to load each image until a visitor scrolls down to it.', 'infraweaver-connector' ),
+				'why'       => __( 'The top of your page appears sooner, because the browser isn’t loading pictures nobody has looked at yet.', 'infraweaver-connector' ),
+				'should'    => __( 'Good for almost every site, especially long pages with lots of images.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Scroll one of your image-heavy pages to see pictures appear as you go.', 'infraweaver-connector' ),
+					__( 'It works automatically from then on.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Off-screen images wait to load until a visitor scrolls to them, so the page opens sooner.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s holding back off-screen images and loading each one only as visitors scroll to it.', 'infraweaver-connector' ),
+			),
+			'perf-audit' => array(
+				'what'      => __( 'Times how long your site takes to build each page, so you can spot the slow ones.', 'infraweaver-connector' ),
+				'why'       => __( 'You see which pages are dragging, so you know where to focus before visitors notice.', 'infraweaver-connector' ),
+				'should'    => __( 'Handy for everyone — it only measures, it never changes your site. Free.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Leave it on and browse your own site normally.', 'infraweaver-connector' ),
+					__( 'Come back here to see which pages took the longest to build.', 'infraweaver-connector' ),
+					__( 'Nothing else to do — it just watches quietly.', 'infraweaver-connector' ),
+				),
+				'active'    => __( 'it’s quietly timing each page as it loads and keeping a list of the slowest ones for you.', 'infraweaver-connector' ),
+			),
+			'response-scan' => array(
+				'what'      => __( 'Loads your pages a few times and measures the full trip, so you can compare speed before and after a change.', 'infraweaver-connector' ),
+				'why'       => __( 'You get real numbers that prove a change actually made your site faster — not just a feeling.', 'infraweaver-connector' ),
+				'should'    => __( 'Useful when you’re tuning speed and want proof. Otherwise you can leave it for later. Pro.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Use the short setup above to pick which pages to time.', 'infraweaver-connector' ),
+					__( 'Run your first check to record a starting point.', 'infraweaver-connector' ),
+					__( 'Make a change, then run it again to compare.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'You’ll be able to pick pages, time them, and keep before-and-after speed results here.', 'infraweaver-connector' ),
+			),
+
+			// ── Media ────────────────────────────────────────────────────
+			'images' => array(
+				'what'      => __( 'Shrinks the file size of your pictures without making them look any worse.', 'infraweaver-connector' ),
+				'why'       => __( 'Smaller pictures mean faster pages and less storage used — and no one can tell the difference.', 'infraweaver-connector' ),
+				'should'    => __( 'Good for almost every site. It keeps your original pictures untouched, so it’s safe to try.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Choose the pictures to shrink, or let it work through your whole library.', 'infraweaver-connector' ),
+					__( 'Start the run and let it work through them.', 'infraweaver-connector' ),
+					__( 'Done — your pages now use the lighter versions.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'You can pick pictures and it will make lighter copies of them, leaving your originals safe.', 'infraweaver-connector' ),
+			),
+			'auto-convert' => array(
+				'what'      => __( 'Automatically turns new pictures you upload into a smaller, faster format for you.', 'infraweaver-connector' ),
+				'why'       => __( 'You never have to remember to shrink pictures — it happens quietly every time you add one.', 'infraweaver-connector' ),
+				'should'    => __( 'Great if you add pictures often. If you rarely upload, you may not need it.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Upload a picture as usual.', 'infraweaver-connector' ),
+					__( 'It quietly makes a lighter version behind the scenes.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'From now on, pictures you upload get a smaller, faster version made automatically.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s watching for new uploads and quietly making a lighter version of each one.', 'infraweaver-connector' ),
+			),
+			'svg' => array(
+				'what'      => __( 'Lets you safely upload logo and icon files (a type called SVG) that stay sharp at any size.', 'infraweaver-connector' ),
+				'why'       => __( 'Your logo looks crisp on every screen, big or small, and the file stays tiny.', 'infraweaver-connector' ),
+				'should'    => __( 'Turn it on if you want to upload a logo or icons that never look blurry. Each file is checked for safety first.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Upload your logo or icon like any other picture.', 'infraweaver-connector' ),
+					__( 'It’s cleaned and added safely to your library.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'You’ll be able to upload sharp logo and icon files, and each one is safety-checked before it’s saved.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s letting you upload crisp logo and icon files, cleaning each one for safety first.', 'infraweaver-connector' ),
+			),
+			'media-protect' => array(
+				'what'      => __( 'Makes the pictures you choose harder for visitors to right-click, save, or drag away.', 'infraweaver-connector' ),
+				'why'       => __( 'It discourages casual copying of your photos — a gentle deterrent, not a lock.', 'infraweaver-connector' ),
+				'should'    => __( 'Nice if you show original photos or artwork. Remember: nothing online can be made truly impossible to copy.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Try right-clicking one of your pictures to see the difference.', 'infraweaver-connector' ),
+					__( 'That’s it — it protects them from then on.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Right-click and drag-to-save get discouraged on your pictures, making casual copying harder.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s making your pictures harder to right-click or drag away, as a gentle deterrent.', 'infraweaver-connector' ),
+			),
+			'elementor' => array(
+				'what'      => __( 'Adds a handful of ready-made InfraWeaver blocks to the Elementor page builder — a call-to-action, a feature grid, a pricing table and a notice.', 'infraweaver-connector' ),
+				'why'       => __( 'You get polished, on-brand sections you can drop into a page and fill in, instead of building them from scratch.', 'infraweaver-connector' ),
+				'should'    => __( 'Handy if you build pages with Elementor. You’ll need the free Elementor page builder installed first.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Make sure the free Elementor page builder is installed and active.', 'infraweaver-connector' ),
+					__( 'Edit any page with Elementor and open the widgets panel.', 'infraweaver-connector' ),
+					__( 'Find the “InfraWeaver” category and drag a block onto your page.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'The InfraWeaver blocks appear in Elementor’s widgets panel, ready to drag onto your pages.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s adding InfraWeaver blocks to your Elementor widgets panel for you to drop into any page.', 'infraweaver-connector' ),
+			),
+
+			// ── SEO & Content ────────────────────────────────────────────
+			'seo' => array(
+				'what'      => __( 'Helps search engines and social networks understand your pages, so more people can find you.', 'infraweaver-connector' ),
+				'why'       => __( 'Better-described pages can show up higher in search and look nicer when shared, bringing more visitors.', 'infraweaver-connector' ),
+				'should'    => __( 'Recommended for almost every site that wants to be found. A short setup gets the basics right.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Use the guided setup above to add your site name and a sharing picture.', 'infraweaver-connector' ),
+					__( 'Turn on the site map so search engines can find every page (a site map is a list of all your pages).', 'infraweaver-connector' ),
+					__( 'Fine-tune the rest later if you like.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Your pages start sending clear titles and descriptions to search engines and social networks.', 'infraweaver-connector' ),
+			),
+			'seo-audit' => array(
+				'what'      => __( 'Checks your pages for common search-engine mistakes and tells you exactly what to fix.', 'infraweaver-connector' ),
+				'why'       => __( 'You get a plain to-do list instead of guessing what’s holding your pages back.', 'infraweaver-connector' ),
+				'should'    => __( 'Helpful for anyone who wants more visitors from search. It only checks — it changes nothing.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Look through the list of pages and suggestions.', 'infraweaver-connector' ),
+					__( 'Fix the ones you can — small changes add up.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'It starts checking your pages and building a plain list of things you could improve for search.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s reviewing your pages and listing simple fixes that could help you show up in search.', 'infraweaver-connector' ),
+			),
+			'duplicate' => array(
+				'what'      => __( 'Copies any post or page in one click, so you don’t have to rebuild it from scratch.', 'infraweaver-connector' ),
+				'why'       => __( 'Reuse a page you already like as a starting point and just change what’s different.', 'infraweaver-connector' ),
+				'should'    => __( 'Handy if you make similar pages often. There’s no downside to leaving it on.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Find a post or page in your list and click “Duplicate”.', 'infraweaver-connector' ),
+					__( 'Edit the fresh copy however you like.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'A “Duplicate” link appears on your posts and pages so you can copy any one in a click.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s adding a one-click “Duplicate” option to your posts and pages.', 'infraweaver-connector' ),
+			),
+			'links' => array(
+				'what'      => __( 'Finds links on your site that lead nowhere, so you can fix them.', 'infraweaver-connector' ),
+				'why'       => __( 'Dead links frustrate visitors and can hurt how search engines see your site — this catches them for you.', 'infraweaver-connector' ),
+				'should'    => __( 'Good for most sites, especially older ones with lots of pages. It only looks — it won’t change your content.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Let it scan, then review the broken links it found.', 'infraweaver-connector' ),
+					__( 'Update or remove them so every link works.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'It starts checking your links and lists any that lead to a missing page.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s scanning your pages for links that lead nowhere and listing them for you to fix.', 'infraweaver-connector' ),
+			),
+			'redirects' => array(
+				'what'      => __( 'Sends visitors from an old web address to the right page, instead of a “not found” error.', 'infraweaver-connector' ),
+				'why'       => __( 'When you rename or move a page, people (and search engines) still land in the right place.', 'infraweaver-connector' ),
+				'should'    => __( 'Turn it on when you change a page’s web address, or reorganise your site.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Add the old web address and the new one you want it to go to.', 'infraweaver-connector' ),
+					__( 'Save — anyone visiting the old link now arrives at the new page.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'You’ll be able to point old or changed web addresses at the right page, so visitors never hit a dead end.', 'infraweaver-connector' ),
+			),
+
+			// ── Analytics ────────────────────────────────────────────────
+			'statistics' => array(
+				'what'      => __( 'Shows how many people visit your site, kept private with no outside trackers.', 'infraweaver-connector' ),
+				'why'       => __( 'You see what’s popular and how you’re growing, without handing your visitors’ data to anyone else.', 'infraweaver-connector' ),
+				'should'    => __( 'Great for almost any owner who’s curious about their traffic. It respects visitor privacy.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Let a little time pass so visits are recorded.', 'infraweaver-connector' ),
+					__( 'Come back here to see your visitor numbers.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'It starts counting visits privately on your own site, with no third-party trackers.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s privately counting your visitors right here, without sharing anything with outside companies.', 'infraweaver-connector' ),
+			),
+			'activity-log' => array(
+				'what'      => __( 'Keeps a record of who changed what in your site’s admin area.', 'infraweaver-connector' ),
+				'why'       => __( 'If something changes unexpectedly, you can see who did it and when — great when more than one person helps.', 'infraweaver-connector' ),
+				'should'    => __( 'Useful if several people manage the site, or you just like a paper trail. It runs quietly in the background.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Carry on managing your site as normal.', 'infraweaver-connector' ),
+					__( 'Check the log any time to see recent changes.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'It starts noting each important change in your admin, with who did it and when.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s quietly recording who changes what in your admin, so you always have a history.', 'infraweaver-connector' ),
+			),
+
+			// ── Privacy & Site ───────────────────────────────────────────
+			'consent' => array(
+				'what'      => __( 'Shows visitors a friendly cookie notice, so you follow privacy rules.', 'infraweaver-connector' ),
+				'why'       => __( 'Many privacy laws require it, and it shows visitors you handle their data respectfully.', 'infraweaver-connector' ),
+				'should'    => __( 'Recommended if you have visitors in Europe, or just want to be careful with privacy. One click applies safe defaults.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Use the guided setup above to apply the recommended settings.', 'infraweaver-connector' ),
+					__( 'Adjust the wording or colour if you like.', 'infraweaver-connector' ),
+					__( 'Save — visitors now see your cookie notice.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Visitors start seeing a cookie notice, and their choice is remembered.', 'infraweaver-connector' ),
+			),
+			'maintenance' => array(
+				'what'      => __( 'Shows visitors a friendly “be right back” page while you work on the site.', 'infraweaver-connector' ),
+				'why'       => __( 'People see a tidy message instead of a half-finished or broken-looking site during changes.', 'infraweaver-connector' ),
+				'should'    => __( 'Turn it on only while you’re making big changes, then turn it off when you’re done. You can still see the real site while signed in.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above when you start working.', 'infraweaver-connector' ),
+					__( 'Make your changes — visitors see the “be right back” page.', 'infraweaver-connector' ),
+					__( 'Switch it off to open the site to everyone again.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Visitors see a friendly “be right back” page, while you (signed in) still see the real site.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s showing visitors a friendly “be right back” page — remember to switch it off when you’re done.', 'infraweaver-connector' ),
+			),
+			'whitelabel' => array(
+				'what'      => __( 'Replaces the WordPress name and logo on the login and admin screens with your own.', 'infraweaver-connector' ),
+				'why'       => __( 'The dashboard feels like your brand — nice for clients, or just a tidier look for you.', 'infraweaver-connector' ),
+				'should'    => __( 'A finishing touch, mainly if you hand the site to clients. It’s purely for looks and changes nothing about how the site works.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Add your own logo and name in the settings.', 'infraweaver-connector' ),
+					__( 'Save — the login and admin now wear your brand.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Your own logo and name replace the WordPress branding on the login and admin screens.', 'infraweaver-connector' ),
+			),
+
+			// ── System ───────────────────────────────────────────────────
+			'database' => array(
+				'what'      => __( 'Clears out old clutter in your site’s behind-the-scenes storage, so it stays lean and quick.', 'infraweaver-connector' ),
+				'why'       => __( 'Over time your site piles up leftovers (old drafts, spam, junk) — tidying them keeps it nimble.', 'infraweaver-connector' ),
+				'should'    => __( 'Good for most sites now and then. It shows you a preview first and never touches your real content.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Review the preview of what it would clean.', 'infraweaver-connector' ),
+					__( 'Run the cleanup when you’re happy — your posts and pages stay safe.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'You’ll be able to preview and clear out old clutter, while your posts and pages stay untouched.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s ready to preview and tidy old clutter from your storage, always leaving your real content alone.', 'infraweaver-connector' ),
+			),
+			'scheduled-cleanup' => array(
+				'what'      => __( 'Tidies that behind-the-scenes clutter automatically on a schedule, so you don’t have to remember.', 'infraweaver-connector' ),
+				'why'       => __( 'Your site stays lean by itself — set it once and forget it.', 'infraweaver-connector' ),
+				'should'    => __( 'Nice if you’d rather not do the tidy-up by hand. It sticks to safe limits and never removes your content.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Pick how often it should tidy up.', 'infraweaver-connector' ),
+					__( 'Save — it takes care of the rest on its own.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'It starts tidying old clutter on a repeating schedule, within safe limits, on its own.', 'infraweaver-connector' ),
+			),
+			'email' => array(
+				'what'      => __( 'Helps your site’s emails — like password resets and contact forms — actually reach people’s inboxes.', 'infraweaver-connector' ),
+				'why'       => __( 'By default many hosts send email that lands in spam or vanishes; this makes it far more reliable.', 'infraweaver-connector' ),
+				'should'    => __( 'Recommended if your site sends any email at all. You’ll need the sending details from your email provider.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Enter your email provider’s sending details below.', 'infraweaver-connector' ),
+					__( 'Send a test email to check it arrives.', 'infraweaver-connector' ),
+					__( 'Save — your site’s emails now go out reliably.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'Your site’s emails start going out through your chosen provider, so they’re far more likely to arrive.', 'infraweaver-connector' ),
+			),
+			'config' => array(
+				'what'      => __( 'Advanced switches for how WordPress runs behind the scenes.', 'infraweaver-connector' ),
+				'why'       => __( 'Lets an experienced person tune technical limits — most owners never need to touch this.', 'infraweaver-connector' ),
+				'should'    => __( 'Best left alone unless someone technical is helping you. Changing the wrong thing here can affect the site.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Only change something here if you know exactly what it does.', 'infraweaver-connector' ),
+					__( 'When unsure, leave the defaults as they are.', 'infraweaver-connector' ),
+					__( 'Save only after double-checking the value.', 'infraweaver-connector' ),
+				),
+			),
+		);
+	}
+
+	/** The explainer entry for a tab id, or an empty array if none. */
+	private static function feature_explainer( string $id ): array {
+		$map = self::feature_explainer_map();
+		return isset( $map[ $id ] ) && is_array( $map[ $id ] ) ? $map[ $id ] : array();
+	}
+
+	/**
+	 * The toggle-only features (no guided wizard of their own) that become a fully
+	 * GUIDED card: they show the "it’s working — here’s what it’s doing" confirmation
+	 * line once switched on. The list mirrors the simple on/off engines.
+	 *
+	 * @return string[]
+	 */
+	private static function toggle_guided_ids(): array {
+		return array(
+			'cache', 'lazy-load', 'statistics', 'media-protect', 'maintenance', 'svg',
+			'duplicate', 'auto-convert', 'database', 'activity-log', 'speed',
+			'perf-audit', 'links', 'seo-audit',
+		);
+	}
+
+	/**
+	 * The calm, reusable "explainer" card drawn at the TOP of every feature panel —
+	 * an icon plus "What this does", the payoff, a "Should I turn this on?" line and
+	 * 1–3 tiny steps, all in plain, warm, jargon-free language for a non-technical
+	 * owner. Styled with the existing .iwsl-* / --iw-* tokens and reads cleanly on
+	 * mobile. Pure output — reads no request input, changes no state.
+	 *
+	 * $context tunes the closing line only:
+	 *   - 'active' : (feature is on) a green confirmation for toggle-only features.
+	 *   - 'off'    : (granted but off) a "when you switch it on…" consequence.
+	 *   - 'locked' : (higher plan) explainer only; the card’s upgrade note follows.
+	 * Renders nothing when the id has no explainer entry.
+	 */
+	private static function render_feature_intro( string $id, string $context = 'active' ): void {
+		$x = self::feature_explainer( $id );
+		if ( array() === $x ) {
+			return;
+		}
+		$tab_icons = array();
+		foreach ( self::tab_defs() as $tab ) {
+			if ( isset( $tab['id'] ) ) {
+				$tab_icons[ (string) $tab['id'] ] = (string) ( $tab['icon'] ?? 'lightbulb' );
+			}
+		}
+		$icon = $tab_icons[ $id ] ?? 'lightbulb';
+
+		echo '<div class="iwsl-intro">';
+		echo '<span class="iwsl-intro__icon" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span></span>';
+		echo '<div class="iwsl-intro__body">';
+
+		if ( ! empty( $x['what'] ) ) {
+			echo '<p class="iwsl-intro__what"><span class="iwsl-intro__lead">' . esc_html__( 'What this does', 'infraweaver-connector' ) . '</span>' . esc_html( (string) $x['what'] ) . '</p>';
+		}
+		if ( ! empty( $x['why'] ) ) {
+			echo '<p class="iwsl-intro__why">' . esc_html( (string) $x['why'] ) . '</p>';
+		}
+		if ( ! empty( $x['should'] ) ) {
+			echo '<p class="iwsl-intro__should"><span class="iwsl-intro__lead">' . esc_html__( 'Should I turn this on?', 'infraweaver-connector' ) . '</span>' . esc_html( (string) $x['should'] ) . '</p>';
+		}
+		if ( ! empty( $x['steps'] ) && is_array( $x['steps'] ) ) {
+			echo '<p class="iwsl-intro__lead iwsl-intro__lead--steps">' . esc_html__( 'What to do', 'infraweaver-connector' ) . '</p>';
+			echo '<ol class="iwsl-intro__steps">';
+			foreach ( $x['steps'] as $step ) {
+				echo '<li>' . esc_html( (string) $step ) . '</li>';
+			}
+			echo '</ol>';
+		}
+
+		if ( 'active' === $context && ! empty( $x['active'] ) && in_array( $id, self::toggle_guided_ids(), true ) ) {
+			echo '<p class="iwsl-intro__state iwsl-intro__state--on"><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span><span>'
+				. '<strong>' . esc_html__( 'It’s working —', 'infraweaver-connector' ) . '</strong> '
+				. esc_html( (string) $x['active'] ) . '</span></p>';
+		} elseif ( 'off' === $context && ! empty( $x['on_effect'] ) ) {
+			echo '<p class="iwsl-intro__state iwsl-intro__state--off"><span class="dashicons dashicons-arrow-up-alt" aria-hidden="true"></span><span>'
+				. '<strong>' . esc_html__( 'When you switch it on:', 'infraweaver-connector' ) . '</strong> '
+				. esc_html( (string) $x['on_effect'] ) . '</span></p>';
+		}
+
+		echo '</div>'; // .iwsl-intro__body
+		echo '</div>'; // .iwsl-intro
+	}
+
 	/** Hook the admin menu + the image-optimization + email-delivery + redirect + db-optimize admin-post handlers. */
 	public function register(): void {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'admin_post_' . self::OPTIMIZE_ACTION, array( $this, 'handle_media_optimize' ) );
+		// Logged-in-only AJAX surface for the image-optimizer progress popup. Same
+		// cap + nonce + entitlement gate as the admin-post handler; no nopriv twin.
+		add_action( 'wp_ajax_' . self::MO_STATUS_ACTION, array( $this, 'handle_mo_status_ajax' ) );
+		add_action( 'wp_ajax_' . self::MO_BATCH_ACTION, array( $this, 'handle_mo_run_batch_ajax' ) );
 		add_action( 'admin_post_' . self::EMAIL_SETTINGS_ACTION, array( $this, 'handle_email_settings_save' ) );
 		add_action( 'admin_post_' . self::EMAIL_LOG_CLEAR_ACTION, array( $this, 'handle_email_log_clear' ) );
 		add_action( 'admin_post_' . self::EMAIL_TEST_ACTION, array( $this, 'handle_email_test' ) );
 		add_action( 'admin_post_' . self::REDIRECT_ADD_ACTION, array( $this, 'handle_redirects_add' ) );
 		add_action( 'admin_post_' . self::REDIRECT_DELETE_ACTION, array( $this, 'handle_redirects_delete' ) );
 		add_action( 'admin_post_' . self::REDIRECT_LOG_ACTION, array( $this, 'handle_redirects_log' ) );
+		add_action( 'admin_post_' . self::REDIRECT_AUTO_ACTION, array( $this, 'handle_redirects_auto' ) );
 		add_action( 'admin_post_' . self::WHITE_LABEL_ACTION, array( $this, 'handle_white_label_save' ) );
 		add_action( 'admin_post_' . self::DB_OPTIMIZE_ACTION, array( $this, 'handle_db_optimize' ) );
 		add_action( 'admin_post_' . self::PAGE_CACHE_TOGGLE_ACTION, array( $this, 'handle_page_cache_toggle' ) );
 		add_action( 'admin_post_' . self::PAGE_CACHE_PURGE_ACTION, array( $this, 'handle_page_cache_purge' ) );
 		add_action( 'admin_post_' . self::CONFIG_SAVE_ACTION, array( $this, 'handle_config_save' ) );
 		add_action( 'admin_post_' . self::FEATURE_TOGGLE_ACTION, array( $this, 'handle_feature_toggle' ) );
+		add_action( 'admin_post_' . self::CONSENT_WIZARD_ACTION, array( $this, 'handle_cookie_wizard' ) );
 	}
 
 	/**
@@ -239,15 +796,55 @@ final class IWSL_Admin {
 		$on      = isset( $_POST['enable'] ) && '1' === (string) $_POST['enable'];
 		$result  = $this->switches()->set( $feature, $on );
 
+		// A deliberate disable purges the feature's footprint immediately (rather
+		// than waiting for the next admin init sweep). `$feature` is already the
+		// entitlement/FEATURE flag the switch keys on, so it maps straight to an
+		// engine. Only on a successful OFF flip; the purge is isolation-safe.
+		if ( ! $on && ! empty( $result['ok'] ) ) {
+			IWSL_Teardown::purge( $feature, $this->plugin->entitlements(), new IWSL_WP_Store() );
+		}
+
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( self::FEATURE_TOGGLE_RESULT . get_current_user_id(), $result, 60 );
 		}
 
-		$back = wp_get_referer();
-		if ( ! is_string( $back ) || '' === $back ) {
-			$back = admin_url( 'admin.php?page=infraweaver-plus' );
+		// Stay on the originating category sub-page and return to THIS feature's
+		// card ($feature is the FEATURE flag → map back to its tab/card id), instead
+		// of bouncing to the Overview dashboard.
+		wp_safe_redirect( self::iwsl_plus_return_url( self::tab_id_for_flag( $feature ) ) );
+		exit;
+	}
+
+	/**
+	 * One-click Cookie Consent guided setup: applies the GDPR-safe recommended
+	 * defaults (turning the banner ON) plus any optional look-and-feel overrides
+	 * the operator picked in the wizard. cap + nonce; the entitlement gate is
+	 * re-checked inside apply_recommended_defaults() (STATEMENT 1 of save), so a
+	 * locked site writes nothing. PRG back to the section the wizard was run from.
+	 */
+	public function handle_cookie_wizard(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
 		}
-		wp_safe_redirect( $back );
+		check_admin_referer( self::CONSENT_WIZARD_NONCE );
+
+		$overrides = array();
+		foreach ( array( 'accent', 'banner_layout', 'policy_url', 'title' ) as $key ) {
+			if ( isset( $_POST[ $key ] ) && '' !== (string) $_POST[ $key ] ) {
+				$overrides[ $key ] = sanitize_text_field( wp_unslash( (string) $_POST[ $key ] ) );
+			}
+		}
+		if ( isset( $_POST['message'] ) && '' !== (string) $_POST['message'] ) {
+			$overrides['message'] = sanitize_textarea_field( wp_unslash( (string) $_POST['message'] ) );
+		}
+
+		$cc     = new IWSL_Cookie_Consent( $this->plugin->entitlements(), new IWSL_WP_Store() );
+		$result = $cc->apply_recommended_defaults( $overrides ); // gate is STATEMENT 1 inside.
+
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( self::CONSENT_WIZARD_RESULT . get_current_user_id(), $result, 60 );
+		}
+		wp_safe_redirect( self::iwsl_plus_return_url( 'consent' ) );
 		exit;
 	}
 
@@ -274,18 +871,22 @@ final class IWSL_Admin {
 		}
 		$this->page_hooks[] = (string) add_submenu_page(
 			'infraweaver-plus',
-			'InfraWeaver Plus — Dashboard',
-			'Dashboard',
+			'InfraWeaver Plus — ' . __( 'Dashboard', 'infraweaver-connector' ),
+			__( 'Dashboard', 'infraweaver-connector' ),
 			'manage_options',
 			'infraweaver-plus',
 			array( $this, 'render_landing' )
 		);
 		foreach ( self::group_meta() as $label => $meta ) {
+			// $group stays the canonical English key (it drives render_group_page()
+			// lookups and the tab 'group' matching); $group_label is the translated
+			// display form for the sidebar + browser-tab title only.
 			$group             = (string) $label;
+			$group_label       = __( $group, 'infraweaver-connector' );
 			$this->page_hooks[] = (string) add_submenu_page(
 				'infraweaver-plus',
-				'InfraWeaver Plus — ' . $group,
-				$group,
+				'InfraWeaver Plus — ' . $group_label,
+				$group_label,
 				'manage_options',
 				'infraweaver-plus-' . $meta['slug'],
 				function () use ( $group ) {
@@ -375,13 +976,16 @@ final class IWSL_Admin {
 	 * here is the order the groups appear everywhere.
 	 */
 	private static function group_meta(): array {
+		// The array KEY is the canonical group identifier (matched against each tab's
+		// 'group' and passed to render_group_page()), so it stays English. Only the
+		// display-only 'blurb' is wrapped for translation; 'slug'/'icon' are identifiers.
 		return array(
-			'Performance'    => array( 'slug' => 'performance', 'icon' => 'superhero', 'blurb' => 'Speed, caching, and delivery — make every page load fast.' ),
-			'Media'          => array( 'slug' => 'media', 'icon' => 'format-image', 'blurb' => 'Compress, convert, and safely serve images and SVG.' ),
-			'SEO & Content'  => array( 'slug' => 'seo', 'icon' => 'chart-area', 'blurb' => 'Metadata, audits, duplicates, links, and redirects.' ),
-			'Analytics'      => array( 'slug' => 'analytics', 'icon' => 'chart-bar', 'blurb' => 'Private, first-party traffic and activity insight.' ),
-			'Privacy & Site' => array( 'slug' => 'privacy', 'icon' => 'privacy', 'blurb' => 'Consent, maintenance, and white-label presentation.' ),
-			'System'         => array( 'slug' => 'system', 'icon' => 'admin-generic', 'blurb' => 'Database hygiene, email delivery, and configuration.' ),
+			'Performance'    => array( 'slug' => 'performance', 'icon' => 'superhero', 'blurb' => __( 'Speed, caching, and delivery — make every page load fast.', 'infraweaver-connector' ) ),
+			'Media'          => array( 'slug' => 'media', 'icon' => 'format-image', 'blurb' => __( 'Compress, convert, and safely serve images and SVG.', 'infraweaver-connector' ) ),
+			'SEO & Content'  => array( 'slug' => 'seo', 'icon' => 'chart-area', 'blurb' => __( 'Metadata, audits, duplicates, links, and redirects.', 'infraweaver-connector' ) ),
+			'Analytics'      => array( 'slug' => 'analytics', 'icon' => 'chart-bar', 'blurb' => __( 'Private, first-party traffic and activity insight.', 'infraweaver-connector' ) ),
+			'Privacy & Site' => array( 'slug' => 'privacy', 'icon' => 'privacy', 'blurb' => __( 'Consent, maintenance, and white-label presentation.', 'infraweaver-connector' ) ),
+			'System'         => array( 'slug' => 'system', 'icon' => 'admin-generic', 'blurb' => __( 'Database hygiene, email delivery, and configuration.', 'infraweaver-connector' ) ),
 		);
 	}
 
@@ -394,6 +998,58 @@ final class IWSL_Admin {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * The single most useful feature to try first in each category, with a plain
+	 * one-line reason — the target of the "New here? Start with…" nudge at the top
+	 * of every category page. Keyed by the group display label.
+	 *
+	 * @return array<string, array<string, string>>
+	 */
+	private static function group_starthere(): array {
+		return array(
+			'Performance'    => array( 'id' => 'cache', 'why' => __( 'it’s the biggest, safest speed boost for most sites.', 'infraweaver-connector' ) ),
+			'Media'          => array( 'id' => 'images', 'why' => __( 'it shrinks your pictures so pages load faster, and your originals stay safe.', 'infraweaver-connector' ) ),
+			'SEO & Content'  => array( 'id' => 'seo', 'why' => __( 'a quick setup helps search engines find and show your pages.', 'infraweaver-connector' ) ),
+			'Analytics'      => array( 'id' => 'statistics', 'why' => __( 'it shows who visits your site, kept completely private.', 'infraweaver-connector' ) ),
+			'Privacy & Site' => array( 'id' => 'consent', 'why' => __( 'one click applies privacy-friendly cookie settings.', 'infraweaver-connector' ) ),
+			'System'         => array( 'id' => 'email', 'why' => __( 'it makes sure your site’s emails actually reach people.', 'infraweaver-connector' ) ),
+		);
+	}
+
+	/**
+	 * A calm "New here? Start with <feature> — <reason>" line at the top of a
+	 * category page, linking to that feature's card on the same page. Renders
+	 * nothing if the group has no recommendation or the feature isn't present.
+	 */
+	private static function render_group_starthere( string $group, array $tabs ): void {
+		$map = self::group_starthere();
+		if ( ! isset( $map[ $group ] ) ) {
+			return;
+		}
+		$rec   = $map[ $group ];
+		$rid   = (string) ( $rec['id'] ?? '' );
+		$label = '';
+		foreach ( $tabs as $tab ) {
+			if ( isset( $tab['id'] ) && (string) $tab['id'] === $rid ) {
+				$label = (string) $tab['label'];
+				break;
+			}
+		}
+		if ( '' === $label ) {
+			return;
+		}
+		$link = '<a href="' . esc_attr( '#iwsl-card-' . $rid ) . '">' . esc_html( $label ) . '</a>';
+		echo '<p class="iwsl-starthere">';
+		echo '<span class="dashicons dashicons-lightbulb" aria-hidden="true"></span>';
+		echo '<span>' . sprintf(
+			/* translators: 1: linked feature name (HTML), 2: plain-language reason to start there. */
+			esc_html__( 'New here? Start with %1$s — %2$s', 'infraweaver-connector' ),
+			$link,
+			esc_html( (string) ( $rec['why'] ?? '' ) )
+		) . '</span>';
+		echo '</p>';
 	}
 
 	/**
@@ -421,8 +1077,11 @@ final class IWSL_Admin {
 		$ent = $this->plugin->entitlements();
 		return array(
 			'speed'             => array( 'Speed Pack', function () use ( $ent ) { ( new IWSL_Speed_Pack( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'response-scan'     => array( 'Response Time Scanner', function () use ( $ent ) { ( new IWSL_Response_Scan( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'cdn'               => array( 'CDN URL Rewrite', function () use ( $ent ) { ( new IWSL_CDN_Rewrite( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'lazy-load'         => array( 'Lazy-Load Media', function () use ( $ent ) { ( new IWSL_Lazy_Load( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'media-protect'     => array( 'Media Protection', function () use ( $ent ) { ( new IWSL_Media_Protection( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+				'elementor'         => array( 'Elementor Blocks', function () use ( $ent ) { ( new IWSL_Elementor_Blocks( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'auto-convert'      => array( 'Scheduled Auto-Convert', function () use ( $ent ) { ( new IWSL_Auto_Convert( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'svg'               => array( 'SVG Uploads', function () use ( $ent ) { ( new IWSL_SVG_Upload( $ent ) )->render_section(); } ),
 			'seo-audit'         => array( 'SEO Meta Audit', function () use ( $ent ) { ( new IWSL_SEO_Audit( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
@@ -445,6 +1104,12 @@ final class IWSL_Admin {
 	 * pattern. Gating/nonce/entitlement logic is untouched — this only routes.
 	 */
 	private function render_panel_for( string $id, array $unlocked ): void {
+		// A calm, plain-English explainer at the TOP of every feature panel, so a
+		// non-technical owner always sees what the feature does, why it helps, and
+		// what to do — before any controls. This is the ON context (the card only
+		// renders this body when the feature is granted and switched on).
+		self::render_feature_intro( $id, 'active' );
+
 		switch ( $id ) {
 			case 'images':
 				$this->render_image_optimization_section();
@@ -470,15 +1135,183 @@ final class IWSL_Admin {
 			case 'perf-audit':
 				$this->render_perf_audit_section();
 				return;
+			case 'consent':
+				$this->render_consent_section( ! empty( $unlocked['consent'] ) );
+				return;
 		}
 		$new = $this->new_engine_panels();
 		if ( isset( $new[ $id ] ) ) {
 			if ( ! empty( $unlocked[ $id ] ) ) {
+				// A guided-setup wizard sits ABOVE the engine's own form when the
+				// feature is unconfigured; the engine's full form always renders below.
+				$this->maybe_render_engine_wizard( $id );
 				( $new[ $id ][1] )();
 			} else {
 				self::render_locked_panel( (string) $new[ $id ][0] );
 			}
 		}
+	}
+
+	/**
+	 * Render a guided-setup wizard for an engine-owned panel (CDN, Response Time
+	 * Scanner, SEO Suite) when that feature is unconfigured. Each wizard submits to
+	 * the ENGINE'S EXISTING admin-post save action + nonce, reusing its exact field
+	 * names — no new save endpoint is introduced. The engine's own render_section()
+	 * still draws the full form beneath, so the page works with JavaScript disabled.
+	 */
+	private function maybe_render_engine_wizard( string $id ): void {
+		$ent = $this->plugin->entitlements();
+		switch ( $id ) {
+			case 'cdn':
+				$this->maybe_render_cdn_wizard( new IWSL_CDN_Rewrite( $ent, new IWSL_WP_Store() ) );
+				return;
+			case 'seo':
+				$this->maybe_render_seo_wizard( new IWSL_SEO_Suite( $ent, new IWSL_WP_Store() ) );
+				return;
+		}
+	}
+
+	/**
+	 * CDN URL Rewrite wizard — shown only when no CDN host is configured. Submits to
+	 * IWSL_CDN_Rewrite::SETTINGS_ACTION with the engine's own `host` + `enabled`
+	 * fields; the engine's full form still renders below.
+	 */
+	private function maybe_render_cdn_wizard( IWSL_CDN_Rewrite $cdn ): void {
+		$settings = $cdn->settings();
+		if ( '' !== (string) ( $settings['host'] ?? '' ) ) {
+			return; // a host is set — already configured.
+		}
+		$this->wizard_open(
+			'cdn',
+			__( 'Point your CDN at this site — guided setup', 'infraweaver-connector' ),
+			array(
+				'action' => IWSL_CDN_Rewrite::SETTINGS_ACTION,
+				'nonce'  => IWSL_CDN_Rewrite::SETTINGS_NONCE,
+				'icon'   => 'cloud',
+				'submit' => __( 'Save changes', 'infraweaver-connector' ),
+				'launch' => array(
+					'heading' => __( 'Serve images & files from your CDN', 'infraweaver-connector' ),
+					'body'    => __( 'A CDN serves your static files from servers closer to each visitor, so pages load quicker. A short walk-through connects yours.', 'infraweaver-connector' ),
+					'button'  => __( 'Connect a CDN in 2 steps', 'infraweaver-connector' ),
+				),
+				'steps'  => array(
+					array(
+						'title' => __( 'Before you start', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'This rewrites the address of your images, CSS, JavaScript and fonts to your CDN host. Your pages, admin and login always stay on this site.', 'infraweaver-connector' ) . '</p>';
+							echo '<p class="iwsl-wz__note">' . esc_html__( 'Your delivery network needs to be set up to fetch files from this site first (this is often called a “pull zone”). If it can’t reach your site, your images and files won’t show up — so set that up before turning this on.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+					array(
+						'title' => __( 'Your CDN host', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'Enter the hostname your CDN gave you — just the host, no https:// and no trailing path.', 'infraweaver-connector' ) . '</p>';
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_field( 'text', 'host', __( 'CDN host', 'infraweaver-connector' ), '', 'cdn.example.com' );
+							echo '</div>';
+							self::wizard_checkbox( 'enabled', __( 'Start serving static assets from the CDN now', 'infraweaver-connector' ), true );
+						},
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * Response Time Scanner wizard — shown only when no URLs are configured and no
+	 * scan has ever run. Submits to IWSL_Response_Scan::SCAN_ACTION with the
+	 * engine's own `iwsl_rs_*` fields, which both saves the URL list and runs the
+	 * first scan; the engine's full form still renders below.
+	 */
+	private function maybe_render_response_scan_wizard( IWSL_Response_Scan $scan ): void {
+		$settings = $scan->settings();
+		$has_urls = '' !== trim( (string) ( $settings['urls'] ?? '' ) );
+		if ( $has_urls || array() !== $scan->snapshots() ) {
+			return; // URLs chosen, or at least one scan already taken.
+		}
+		$runs = isset( $settings['runs'] ) ? (int) $settings['runs'] : IWSL_Response_Scan::RUNS_DEFAULT;
+		$this->wizard_open(
+			'response-scan',
+			__( 'Choose which pages to time — guided setup', 'infraweaver-connector' ),
+			array(
+				'action' => IWSL_Response_Scan::SCAN_ACTION,
+				'nonce'  => IWSL_Response_Scan::SCAN_NONCE,
+				'icon'   => 'chart-line',
+				'submit' => __( 'Run my first scan', 'infraweaver-connector' ),
+				'launch' => array(
+					'heading' => __( 'Measure how fast your pages load', 'infraweaver-connector' ),
+					'body'    => __( 'Times the full round-trip to load your pages so you can compare before and after a change. Pick which pages to time and run the first scan.', 'infraweaver-connector' ),
+					'button'  => __( 'Set up in 2 steps', 'infraweaver-connector' ),
+				),
+				'steps'  => array(
+					array(
+						'title' => __( 'What this does', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'It loads each page a few times and keeps the middle result, so one slow blip doesn’t throw off the number. It counts the whole trip — connecting, your site building the page, and downloading it.', 'infraweaver-connector' ) . '</p>';
+							echo '<p>' . esc_html__( 'Your home page is always included. Add any other important pages below.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+					array(
+						'title' => __( 'Which pages to time', 'infraweaver-connector' ),
+						'body'  => static function () use ( $runs ): void {
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_textarea( 'iwsl_rs_urls', __( 'Extra URLs (one per line)', 'infraweaver-connector' ), '', rtrim( (string) home_url(), '/' ) . "/shop/\n" . rtrim( (string) home_url(), '/' ) . '/about/', 4 );
+							self::wizard_field( 'number', 'iwsl_rs_runs', __( 'Loads per page (we keep the middle result)', 'infraweaver-connector' ), (string) $runs, '', array( 'min' => (string) IWSL_Response_Scan::RUNS_MIN, 'max' => (string) IWSL_Response_Scan::RUNS_MAX ) );
+							self::wizard_field( 'text', 'iwsl_rs_label', __( 'Label for this baseline (optional)', 'infraweaver-connector' ), '', __( 'e.g. before lossless images', 'infraweaver-connector' ) );
+							echo '</div>';
+							self::wizard_checkbox( 'iwsl_rs_include_sitemap', __( 'Also time a few top pages from my sitemap', 'infraweaver-connector' ), false );
+						},
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * SEO Suite quick-setup wizard — shown only when the SEO settings have never
+	 * been saved (settings()['saved_at'] === 0). Submits to
+	 * IWSL_SEO_Suite::SAVE_ACTION with the engine's own `iwseo_*` fields; the
+	 * engine's full Search Appearance form still renders below.
+	 */
+	private function maybe_render_seo_wizard( IWSL_SEO_Suite $seo ): void {
+		$settings = $seo->settings();
+		if ( ! empty( $settings['saved_at'] ) ) {
+			return; // already configured.
+		}
+		$this->wizard_open(
+			'seo',
+			__( 'SEO basics — guided setup', 'infraweaver-connector' ),
+			array(
+				'action' => IWSL_SEO_Suite::SAVE_ACTION,
+				'nonce'  => IWSL_SEO_Suite::SAVE_NONCE,
+				'icon'   => 'search',
+				'submit' => __( 'Save SEO settings', 'infraweaver-connector' ),
+				'launch' => array(
+					'heading' => __( 'Help Google understand your site', 'infraweaver-connector' ),
+					'body'    => __( 'Set your brand name, a default sharing picture and turn on a site map (a list of all your pages) so search engines can find every page. Fine-tune everything afterwards.', 'infraweaver-connector' ),
+					'button'  => __( 'Set up SEO basics', 'infraweaver-connector' ),
+				),
+				'steps'  => array(
+					array(
+						'title' => __( 'What this does', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'These three basics cover most of what search engines and social networks look for. You can fine-tune your page titles, wording and more on the full form afterwards.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+					array(
+						'title' => __( 'Your brand & sitemap', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_field( 'text', 'iwseo_org_name', __( 'Site / brand name', 'infraweaver-connector' ), (string) get_bloginfo( 'name' ), get_bloginfo( 'name' ) );
+							self::wizard_field( 'text', 'iwseo_default_social_image', __( 'Default share image URL', 'infraweaver-connector' ), '', '/wp-content/uploads/brand/social.png' );
+							echo '</div>';
+							echo '<p class="description">' . esc_html__( 'The share image is used when a page is posted to social media and has no image of its own.', 'infraweaver-connector' ) . '</p>';
+							self::wizard_checkbox( 'iwseo_sitemap_enabled', __( 'Turn on the site map (recommended)', 'infraweaver-connector' ), true, __( 'Creates a tidy list of all your pages and points search engines to it, so every page gets found.', 'infraweaver-connector' ) );
+						},
+					),
+				),
+			)
+		);
 	}
 
 	/**
@@ -522,11 +1355,23 @@ final class IWSL_Admin {
 		$unlocked = $this->unlocked_map();
 		$tier     = self::infer_tier( $unlocked, ! empty( $gate['unlocked'] ) );
 
+		// First-run "explain everything" guide: auto-opens once per user, then can be
+		// reopened on demand from the "Show guide" button. Marking it seen at render
+		// time (not on dismissal) means it pops up exactly once and never nags again.
+		$seen            = ( function_exists( 'get_user_meta' ) && function_exists( 'get_current_user_id' ) )
+			? get_user_meta( get_current_user_id(), 'iwsl_seen_welcome', true ) : '1';
+		$auto_open_guide = empty( $seen );
+		if ( $auto_open_guide && function_exists( 'update_user_meta' ) && function_exists( 'get_current_user_id' ) ) {
+			update_user_meta( get_current_user_id(), 'iwsl_seen_welcome', 1 );
+		}
+
 		echo '<div class="wrap iwsl-shell iwsl-shell--landing" data-iwsl-scope="landing">';
 		self::render_shell_styles();
 		$this->render_hero( $gate );
 
 		echo '<div class="iwsl-panels"><div class="iwsl-landing">';
+
+		self::render_welcome_wizard( $auto_open_guide );
 
 		$this->render_landing_status( $tier, $gate );
 		self::render_landing_cards( $unlocked );
@@ -582,6 +1427,22 @@ final class IWSL_Admin {
 			array( 'strong' => array() )
 		) . '</p>';
 		self::render_gate_table( $gate );
+
+		// When this site isn't linked yet, the gate table alone is a dead end — give
+		// the owner a real next step: what connecting does, the console link (when
+		// one is known) and the site address they'll enter there to add it.
+		if ( empty( $gate['linked'] ) ) {
+			echo '<div class="iwsl-connect" style="margin-top:14px;padding:14px 16px;border:1px solid var(--iw-line);border-radius:12px;background:color-mix(in oklch, var(--iw-panel) 60%, transparent);">';
+			echo '<h4 style="margin:0 0 6px;">' . esc_html__( 'Connect this site', 'infraweaver-connector' ) . '</h4>';
+			echo '<p style="margin:0 0 10px;">' . esc_html__( 'Connecting links this site to the InfraWeaver console so it can grant plans and turn Plus features on for you.', 'infraweaver-connector' ) . '</p>';
+			/* translators: %s: this site's web address. */
+			echo '<p style="margin:0 0 10px;">' . esc_html( sprintf( __( 'In the console, add this site by its address: %s', 'infraweaver-connector' ), $pretty ) ) . '</p>';
+			self::render_console_cta(
+				__( 'Open the InfraWeaver console', 'infraweaver-connector' ),
+				__( 'Open the InfraWeaver console where this connector was set up, then add this site by the address above.', 'infraweaver-connector' )
+			);
+			echo '</div>';
+		}
 		echo '</div>';
 
 		echo '</section>';
@@ -610,7 +1471,7 @@ final class IWSL_Admin {
 			echo '<span class="iwsl-card__go" aria-hidden="true"><span class="dashicons dashicons-arrow-right-alt"></span></span>';
 			echo '<span class="iwsl-card__icon" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '"></span></span>';
 			echo '<span class="iwsl-card__head">';
-			echo '<span class="iwsl-card__title">' . esc_html( (string) $group ) . '</span>';
+			echo '<span class="iwsl-card__title">' . esc_html( __( (string) $group, 'infraweaver-connector' ) ) . '</span>';
 			echo '<span class="iwsl-card__count">' . esc_html( sprintf( /* translators: 1: active feature count, 2: total feature count. */ __( '%1$d of %2$d active', 'infraweaver-connector' ), $open, $total ) ) . '</span>';
 			echo '</span>';
 			echo '<span class="iwsl-card__blurb">' . esc_html( $meta['blurb'] ) . '</span>';
@@ -627,6 +1488,198 @@ final class IWSL_Admin {
 			echo '</a>';
 		}
 		echo '</nav>';
+	}
+
+	/**
+	 * The first-run "explain everything" guide: a dismissible <dialog> that greets
+	 * the owner, says in one line what InfraWeaver Plus is, then walks the six
+	 * feature categories (group_meta blurbs + each feature's plain-English help
+	 * one-liner) and ends with links into every category page. Auto-opens once per
+	 * user (see render_landing); a "Show guide" button reopens it any time.
+	 * Self-contained inline CSS/JS under .iwsl-shell — no external asset.
+	 */
+	private static function render_welcome_wizard( bool $auto_open ): void {
+		self::render_welcome_wizard_styles();
+
+		// The reopen control — always present, so the guide is never a one-shot.
+		echo '<div class="iwsl-welcome-bar">';
+		echo '<button type="button" class="button button-secondary" data-ww-open="1"><span class="dashicons dashicons-book-alt" aria-hidden="true"></span>' . esc_html__( 'Show guide', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+
+		$greeting = self::welcome_greeting();
+		$auto     = $auto_open ? ' data-ww-auto="1"' : '';
+
+		echo '<dialog class="iwsl-ww" id="iwsl-ww-dialog" aria-labelledby="iwsl-ww-title"' . $auto . '>';
+		echo '<div class="iwsl-ww__inner">';
+
+		echo '<div class="iwsl-ww__head">';
+		echo '<span class="iwsl-ww__mark" aria-hidden="true"><span class="dashicons dashicons-shield"></span></span>';
+		echo '<h2 class="iwsl-ww__title" id="iwsl-ww-title">' . esc_html( $greeting ) . '</h2>';
+		echo '<button type="button" class="iwsl-ww__x" data-ww-close="1" aria-label="' . esc_attr__( 'Close', 'infraweaver-connector' ) . '">&times;</button>';
+		echo '</div>';
+		echo '<p class="iwsl-ww__progress" data-ww-tpl="' . esc_attr__( 'Step {n} of {t}', 'infraweaver-connector' ) . '" aria-hidden="true"></p>';
+
+		echo '<div class="iwsl-ww__steps">';
+
+		// Step 1 — Intro: one line on what InfraWeaver Plus is.
+		echo '<section class="iwsl-ww__step" aria-label="' . esc_attr__( 'Welcome', 'infraweaver-connector' ) . '">';
+		echo '<p class="iwsl-ww__lede">' . esc_html__( 'InfraWeaver Plus is a suite of console-granted power features for this site — speed, media, SEO, analytics, privacy and system tools, all managed from one place.', 'infraweaver-connector' ) . '</p>';
+		echo '<p>' . esc_html__( 'This quick tour explains what each group of features does. It only pops up once — reopen it any time with “Show guide”.', 'infraweaver-connector' ) . '</p>';
+		echo '</section>';
+
+		// Steps 2..7 — one per category: the group blurb + per-feature help lines.
+		foreach ( self::group_meta() as $label => $meta ) {
+			$group = (string) $label;
+			$tabs        = self::group_tabs( $group );
+			$group_label = __( $group, 'infraweaver-connector' );
+			echo '<section class="iwsl-ww__step" aria-label="' . esc_attr( $group_label ) . '">';
+			echo '<div class="iwsl-ww__cat">';
+			echo '<span class="iwsl-ww__cat-icon" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '"></span></span>';
+			echo '<div><h3>' . esc_html( $group_label ) . '</h3><p>' . esc_html( $meta['blurb'] ) . '</p></div>';
+			echo '</div>';
+			echo '<ul class="iwsl-ww__feats">';
+			foreach ( $tabs as $tab ) {
+				$help = self::feature_help( (string) $tab['id'] );
+				echo '<li><span class="iwsl-ww__feat-name">' . esc_html( (string) $tab['label'] ) . '</span>';
+				if ( '' !== $help ) {
+					echo '<span class="iwsl-ww__feat-help">' . esc_html( $help ) . '</span>';
+				}
+				echo '</li>';
+			}
+			echo '</ul>';
+			echo '</section>';
+		}
+
+		// Final step — how to turn things on + links into every category page.
+		echo '<section class="iwsl-ww__step" aria-label="' . esc_attr__( 'Next steps', 'infraweaver-connector' ) . '">';
+		echo '<h3>' . esc_html__( 'That’s the tour', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'Every feature has its own page. Open a category, then flip a feature on with its switch — anything your plan includes turns on right away.', 'infraweaver-connector' ) . '</p>';
+		echo '<div class="iwsl-ww__links">';
+		foreach ( self::group_meta() as $label => $meta ) {
+			$href = admin_url( 'admin.php?page=infraweaver-plus-' . $meta['slug'] );
+			echo '<a class="button button-secondary" href="' . esc_url( $href ) . '"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '" aria-hidden="true"></span>' . esc_html( __( (string) $label, 'infraweaver-connector' ) ) . '</a>';
+		}
+		echo '</div>';
+		echo '</section>';
+
+		echo '</div>'; // .iwsl-ww__steps
+
+		echo '<div class="iwsl-ww__nav">';
+		echo '<button type="button" class="button button-secondary" data-ww-back="1">' . esc_html__( 'Back', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="button" class="button button-primary" data-ww-next="1">' . esc_html__( 'Next', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="button" class="button button-primary" data-ww-done="1" hidden>' . esc_html__( 'Got it', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+
+		echo '</div>'; // .iwsl-ww__inner
+		echo '</dialog>';
+
+		self::render_welcome_wizard_script();
+	}
+
+	/** A friendly greeting using the current user's display name when available. */
+	private static function welcome_greeting(): string {
+		$who = '';
+		if ( function_exists( 'wp_get_current_user' ) ) {
+			$user = wp_get_current_user();
+			if ( is_object( $user ) && ! empty( $user->display_name ) ) {
+				$who = (string) $user->display_name;
+			}
+		}
+		return '' !== $who
+			/* translators: %s is the current user's display name. */
+			? sprintf( __( 'Welcome, %s', 'infraweaver-connector' ), $who )
+			: __( 'Welcome to InfraWeaver Plus', 'infraweaver-connector' );
+	}
+
+	/** Scoped styles for the first-run guide bar + <dialog>. Reuses the shell --iw-* tokens. */
+	private static function render_welcome_wizard_styles(): void {
+		echo "<style>\n";
+		echo <<<'CSS'
+.iwsl-shell .iwsl-welcome-bar{ display: flex; justify-content: flex-end; margin: 0 0 12px; }
+.iwsl-shell .iwsl-ww{ width: min(600px, calc(100vw - 32px)); max-width: 600px; max-height: calc(100vh - 48px); padding: 0; color: var(--iw-ink); background: var(--iw-panel); border: 1px solid var(--iw-line-2); border-radius: 16px; box-shadow: 0 40px 90px -30px rgba(0,0,0,.85); }
+.iwsl-shell .iwsl-ww::backdrop{ background: rgba(4,7,11,.62); backdrop-filter: blur(2px); }
+.iwsl-shell .iwsl-ww__inner{ padding: 22px 24px 20px; }
+.iwsl-shell .iwsl-ww__head{ display: flex; align-items: center; gap: 12px; }
+.iwsl-shell .iwsl-ww__mark{ display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; color: var(--iw-signal-ink); background: linear-gradient(155deg, var(--iw-signal-2), var(--iw-signal)); flex: 0 0 auto; }
+.iwsl-shell .iwsl-ww__mark .dashicons{ font-size: 19px; width: 19px; height: 19px; }
+.iwsl-shell .iwsl-ww__title{ margin: 0; font-size: 18px; }
+.iwsl-shell .iwsl-ww__x{ margin-left: auto; padding: 2px 6px; background: none; border: 0; border-radius: 8px; color: var(--iw-faint); font-size: 24px; line-height: 1; cursor: pointer; }
+.iwsl-shell .iwsl-ww__x:hover{ color: var(--iw-ink); background: color-mix(in oklch, white 8%, transparent); }
+.iwsl-shell .iwsl-ww__progress{ margin: 6px 0 12px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--iw-faint); }
+.iwsl-shell .iwsl-ww__steps{ min-height: 190px; max-height: 60vh; overflow-y: auto; }
+.iwsl-shell .iwsl-ww__step{ display: none; }
+.iwsl-shell .iwsl-ww__step.is-active{ display: block; }
+@media (prefers-reduced-motion: no-preference){ .iwsl-shell .iwsl-ww__step.is-active{ animation: iwsl-rise .28s var(--iw-ease) both; } }
+.iwsl-shell .iwsl-ww__step h3{ margin: 0 0 6px; font-size: 16px; text-transform: none; letter-spacing: 0; }
+.iwsl-shell .iwsl-ww__step h3::before{ display: none; }
+.iwsl-shell .iwsl-ww__lede{ font-size: 14px; color: var(--iw-muted); }
+.iwsl-shell .iwsl-ww__cat{ display: flex; gap: 12px; align-items: flex-start; }
+.iwsl-shell .iwsl-ww__cat-icon{ display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; background: var(--iw-panel-2); border: 1px solid var(--iw-line-2); flex: 0 0 auto; }
+.iwsl-shell .iwsl-ww__cat-icon .dashicons{ font-size: 20px; width: 20px; height: 20px; color: var(--iw-signal-2); }
+.iwsl-shell .iwsl-ww__cat h3{ margin: 0; }
+.iwsl-shell .iwsl-ww__cat p{ margin: 2px 0 0; }
+.iwsl-shell .iwsl-ww__feats{ list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.iwsl-shell .iwsl-ww__feats li{ display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--iw-line); border-radius: 10px; background: var(--iw-panel-2); }
+.iwsl-shell .iwsl-ww__feat-name{ font-size: 13px; font-weight: 600; color: var(--iw-ink); }
+.iwsl-shell .iwsl-ww__feat-help{ font-size: 12.5px; color: var(--iw-muted); }
+.iwsl-shell .iwsl-ww__links{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.iwsl-shell .iwsl-ww__nav{ display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--iw-line); }
+.iwsl-shell .iwsl-ww__nav [data-ww-back]{ margin-right: auto; }
+CSS;
+		echo "\n</style>\n";
+	}
+
+	/** The tiny scoped pager for the first-run guide dialog (auto-open once, Next/Back/Done, Esc/backdrop close). No external asset. */
+	private static function render_welcome_wizard_script(): void {
+		echo "<script>\n";
+		echo <<<'JS'
+(function(){
+	var dlg = document.getElementById('iwsl-ww-dialog');
+	if (!dlg) { return; }
+	var steps = Array.prototype.slice.call(dlg.querySelectorAll('.iwsl-ww__step'));
+	if (!steps.length) { return; }
+	var nextBtn = dlg.querySelector('[data-ww-next]');
+	var backBtn = dlg.querySelector('[data-ww-back]');
+	var doneBtn = dlg.querySelector('[data-ww-done]');
+	var prog = dlg.querySelector('.iwsl-ww__progress');
+	var region = dlg.querySelector('.iwsl-ww__steps');
+	var tpl = prog ? (prog.getAttribute('data-ww-tpl') || 'Step {n} of {t}') : '';
+	var cur = 0;
+	function render(){
+		steps.forEach(function(s, i){ s.classList.toggle('is-active', i === cur); });
+		var last = cur === steps.length - 1;
+		if (backBtn) { backBtn.style.visibility = cur === 0 ? 'hidden' : 'visible'; }
+		if (nextBtn) { nextBtn.hidden = last; }
+		if (doneBtn) { doneBtn.hidden = !last; }
+		if (prog) { prog.textContent = tpl.replace('{n}', String(cur + 1)).replace('{t}', String(steps.length)); }
+		if (region) { region.scrollTop = 0; }
+		if (cur !== 0) {
+			var f = steps[cur].querySelector('a, button, input');
+			if (f) { try { f.focus(); } catch (e) {} }
+		}
+	}
+	function go(i){ cur = Math.max(0, Math.min(steps.length - 1, i)); render(); }
+	function close(){ try { dlg.close(); } catch (e) { dlg.removeAttribute('open'); } }
+	function open(){
+		cur = 0;
+		if (typeof dlg.showModal === 'function') { try { dlg.showModal(); } catch (e) { dlg.setAttribute('open', ''); } }
+		else { dlg.setAttribute('open', ''); }
+		render();
+	}
+	Array.prototype.slice.call(document.querySelectorAll('[data-ww-open]')).forEach(function(b){
+		b.addEventListener('click', function(e){ e.preventDefault(); open(); });
+	});
+	dlg.addEventListener('click', function(e){
+		if (e.target.closest('[data-ww-next]')) { go(cur + 1); }
+		else if (e.target.closest('[data-ww-back]')) { go(cur - 1); }
+		else if (e.target.closest('[data-ww-done]') || e.target.closest('[data-ww-close]')) { close(); }
+		else if (e.target === dlg) { close(); }
+	});
+	render();
+	if (dlg.getAttribute('data-ww-auto') === '1') { open(); }
+})();
+JS;
+		echo "\n</script>\n";
 	}
 
 	/**
@@ -665,6 +1718,10 @@ final class IWSL_Admin {
 		$this->render_group_hero( $group, $meta[ $group ], $tier, $gate );
 		$this->render_toggle_toast();
 
+		// A friendly "New here? Start with…" nudge that points a first-time owner at
+		// the single most useful feature in this category before the full list.
+		self::render_group_starthere( $group, $tabs );
+
 		// One panel per area (no sub-tabs): a sticky jump-rail + every feature
 		// stacked as a card. Each card carries a tier-aware enable/disable switch
 		// and reveals its controls only when granted AND switched on.
@@ -700,6 +1757,7 @@ final class IWSL_Admin {
 				echo '<span class="dashicons dashicons-lock iwsl-jump__lock" aria-hidden="true"></span>';
 			} else {
 				echo '<span class="iwsl-jump__dot iwsl-jump__dot--' . esc_attr( $state ) . '" aria-hidden="true"></span>';
+				echo '<span class="screen-reader-text"> ' . ( 'on' === $state ? esc_html__( '(on)', 'infraweaver-connector' ) : esc_html__( '(off)', 'infraweaver-connector' ) ) . '</span>';
 			}
 			echo '</a>';
 		}
@@ -716,7 +1774,6 @@ final class IWSL_Admin {
 	private function render_feature_card( array $tab, array $unlocked ): void {
 		$id    = (string) $tab['id'];
 		$label = (string) $tab['label'];
-		$icon  = (string) $tab['icon'];
 		$flag  = self::feature_flag_for( $id );
 
 		$granted   = null === $flag ? true : ! empty( $unlocked[ $id ] );
@@ -732,8 +1789,6 @@ final class IWSL_Admin {
 		echo '<section class="iwsl-card iwsl-card--' . esc_attr( $state ) . '" id="iwsl-card-' . esc_attr( $id ) . '" tabindex="-1">';
 
 		echo '<header class="iwsl-card__head">';
-		echo '<span class="iwsl-card__mark" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span></span>';
-		echo '<div class="iwsl-card__id">';
 		echo '<div class="iwsl-card__titlerow">';
 		echo '<h2 class="iwsl-card__title">' . esc_html( $label ) . '</h2>';
 		$help = self::feature_help( $id );
@@ -746,18 +1801,26 @@ final class IWSL_Admin {
 			echo '</span>';
 		}
 		echo '</div>';
-		echo '<span class="iwsl-card__state iwsl-card__state--' . esc_attr( $state ) . '">' . esc_html( $state_label[ $state ] ) . '</span>';
-		echo '</div>';
 
+		// The on/off control (the switch) sits DIRECTLY beside the feature name,
+		// grouped left — never pushed to the far right — so it reads as part of the
+		// feature. The state label follows it, keeping the head as one tidy group.
 		if ( null !== $flag ) {
 			echo '<div class="iwsl-card__control">';
 			if ( $granted ) {
 				self::render_feature_switch( $flag, $label, $switch_on );
 			} else {
-				echo '<span class="iwsl-card__lock"><span class="dashicons dashicons-lock" aria-hidden="true"></span>' . esc_html__( 'Upgrade to unlock', 'infraweaver-connector' ) . '</span>';
+				$upgrade_url = self::console_url();
+				if ( '' !== $upgrade_url ) {
+					echo '<a class="iwsl-card__lock" href="' . esc_url( $upgrade_url ) . '" target="_blank" rel="noopener"><span class="dashicons dashicons-lock" aria-hidden="true"></span>' . esc_html__( 'Upgrade to unlock', 'infraweaver-connector' ) . '</a>';
+				} else {
+					echo '<span class="iwsl-card__lock"><span class="dashicons dashicons-lock" aria-hidden="true"></span>' . esc_html__( 'Upgrade to unlock', 'infraweaver-connector' ) . '</span>';
+				}
 			}
 			echo '</div>';
 		}
+
+		echo '<span class="iwsl-card__state iwsl-card__state--' . esc_attr( $state ) . '">' . esc_html( $state_label[ $state ] ) . '</span>';
 		echo '</header>';
 
 		if ( 'on' === $state ) {
@@ -765,9 +1828,19 @@ final class IWSL_Admin {
 			$this->render_panel_for( $id, $unlocked );
 			echo '</div>';
 		} elseif ( 'off' === $state ) {
-			echo '<div class="iwsl-card__body iwsl-card__body--muted"><p>' . esc_html__( 'This feature is switched off. Turn it on to configure and use it.', 'infraweaver-connector' ) . '</p></div>';
+			// A GUIDED card even when off: the same plain-English explainer (so the
+			// owner can decide with confidence), a "what happens when you turn it on"
+			// line, then a gentle pointer to the On switch above. The explainer is a
+			// no-op for any id without copy, in which case the pointer stands alone.
+			echo '<div class="iwsl-card__body">';
+			self::render_feature_intro( $id, 'off' );
+			echo '<p class="iwsl-card__hint"><span class="dashicons dashicons-arrow-up-alt2" aria-hidden="true"></span>' . esc_html__( 'Ready when you are — use the On switch above to turn it on.', 'infraweaver-connector' ) . '</p>';
+			echo '</div>';
 		} else {
-			echo '<div class="iwsl-card__body iwsl-card__body--muted"><p>' . esc_html__( 'Included in a higher plan. Upgrade this site from the InfraWeaver console to unlock it.', 'infraweaver-connector' ) . '</p></div>';
+			echo '<div class="iwsl-card__body">';
+			self::render_feature_intro( $id, 'locked' );
+			echo '<p class="iwsl-card__hint">' . esc_html__( 'Included in a higher plan. Upgrade this site from the InfraWeaver console to unlock it.', 'infraweaver-connector' ) . '</p>';
+			echo '</div>';
 		}
 
 		echo '</section>';
@@ -832,7 +1905,7 @@ final class IWSL_Admin {
 
 .iwsl-shell .iwsl-cards{ display: flex; flex-direction: column; gap: 16px; }
 .iwsl-shell .iwsl-card{ border: 1px solid var(--iw-line); border-radius: var(--iw-r-sm, 12px); background: var(--iw-panel); overflow: visible; scroll-margin-top: 96px; }
-.iwsl-shell .iwsl-card__titlerow{ display: flex; align-items: center; gap: 7px; }
+.iwsl-shell .iwsl-card__titlerow{ display: flex; align-items: center; gap: 7px; min-width: 0; }
 .iwsl-shell .iwsl-help{ position: relative; display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--iw-line-2); background: var(--iw-panel-2); color: var(--iw-ink-2); cursor: help; flex: 0 0 auto; }
 .iwsl-shell .iwsl-help__q{ font-size: 11px; font-weight: 700; line-height: 1; }
 .iwsl-shell .iwsl-help--field{ width: 15px; height: 15px; margin-left: 5px; vertical-align: middle; }
@@ -843,11 +1916,8 @@ final class IWSL_Admin {
 .iwsl-shell .iwsl-help:hover .iwsl-help__tip, .iwsl-shell .iwsl-help:focus-visible .iwsl-help__tip{ opacity: 1; visibility: visible; }
 .iwsl-shell .iwsl-card--off{ opacity: .92; }
 .iwsl-shell .iwsl-card--locked{ opacity: .7; }
-.iwsl-shell .iwsl-card__head{ display: flex; align-items: center; gap: 13px; padding: 15px 18px; border-bottom: 1px solid transparent; }
+.iwsl-shell .iwsl-card__head{ display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid transparent; }
 .iwsl-shell .iwsl-card--on .iwsl-card__head{ border-bottom-color: var(--iw-line); }
-.iwsl-shell .iwsl-card__mark{ display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: var(--iw-panel-2); border: 1px solid var(--iw-line-2); flex: 0 0 auto; }
-.iwsl-shell .iwsl-card__mark .dashicons{ font-size: 20px; width: 20px; height: 20px; color: var(--iw-ink); }
-.iwsl-shell .iwsl-card__id{ display: flex; flex-direction: column; gap: 3px; margin-right: auto; }
 .iwsl-shell .iwsl-card__title{ margin: 0; font-size: 16px; line-height: 1.1; color: var(--iw-ink); }
 .iwsl-shell .iwsl-card__state{ font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 .iwsl-shell .iwsl-card__state--on{ color: var(--iw-good); }
@@ -886,18 +1956,55 @@ final class IWSL_Admin {
 .iwsl-shell details.iwsl-adv > summary:hover{ color: var(--iw-ink); }
 .iwsl-shell details.iwsl-adv[open] > summary{ color: var(--iw-ink); }
 .iwsl-shell details.iwsl-adv > .iwsl-adv__body{ padding: 6px 2px 4px; }
-@media (max-width: 782px){ .iwsl-shell .iwsl-jump{ top: 0; } .iwsl-shell .iwsl-card__head{ flex-wrap: wrap; } }
+@media (max-width: 782px){
+	.iwsl-shell .iwsl-jump{ top: 0; }
+	/* Keep the feature title, its on/off toggle and the state label on ONE tidy row
+	   instead of wrapping the toggle far below the name; the title group shrinks
+	   (titlerow min-width:0) and the title text wraps in place. */
+	.iwsl-shell .iwsl-card__head{ flex-wrap: nowrap; gap: 10px; padding: 13px 14px; }
+	.iwsl-shell .iwsl-card__title{ overflow-wrap: anywhere; }
+	.iwsl-shell .iwsl-card__body{ padding: 14px 14px 16px; }
+}
+
+/* ── "Start here" helper line at the top of each category page ─────────── */
+.iwsl-shell .iwsl-starthere{ display: flex; gap: 10px; align-items: center; margin: 0 0 14px; padding: 11px 15px; border-radius: var(--iw-r-sm, 12px); border: 1px solid color-mix(in oklch, var(--iw-signal) 24%, var(--iw-line-2)); background: color-mix(in oklch, var(--iw-signal) 7%, var(--iw-panel)); font-size: 13.5px; line-height: 1.5; color: var(--iw-muted); }
+.iwsl-shell .iwsl-starthere .dashicons{ color: var(--iw-signal); flex: 0 0 auto; font-size: 18px; width: 18px; height: 18px; }
+.iwsl-shell .iwsl-starthere a{ font-weight: 650; }
+
+/* ── Per-feature "explainer" card at the top of every panel ───────────── */
+.iwsl-shell .iwsl-intro{ display: flex; gap: 14px; align-items: flex-start; padding: 15px 17px; margin: 0 0 16px; border: 1px solid color-mix(in oklch, var(--iw-signal) 20%, var(--iw-line)); border-radius: var(--iw-r-sm, 12px); background: color-mix(in oklch, var(--iw-signal) 6%, var(--iw-panel-2)); }
+.iwsl-shell .iwsl-intro__icon{ display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto; color: var(--iw-signal-ink); background: linear-gradient(155deg, var(--iw-signal-2), var(--iw-signal)); }
+.iwsl-shell .iwsl-intro__icon .dashicons{ font-size: 19px; width: 19px; height: 19px; }
+.iwsl-shell .iwsl-intro__body{ flex: 1 1 auto; min-width: 0; }
+.iwsl-shell .iwsl-intro__body > p{ margin: 0 0 8px; font-size: 13.5px; line-height: 1.5; color: var(--iw-muted); }
+.iwsl-shell .iwsl-intro__what{ color: var(--iw-ink) !important; }
+.iwsl-shell .iwsl-intro__lead{ display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--iw-faint); margin-bottom: 2px; }
+.iwsl-shell .iwsl-intro__lead--steps{ margin: 12px 0 4px; }
+.iwsl-shell .iwsl-intro__steps{ margin: 4px 0 4px; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; list-style: decimal; }
+.iwsl-shell .iwsl-intro__steps li{ font-size: 13px; line-height: 1.45; color: var(--iw-ink); }
+.iwsl-shell .iwsl-intro__state{ display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 0 !important; padding: 9px 11px; border-radius: 10px; font-size: 13px !important; line-height: 1.45; }
+.iwsl-shell .iwsl-intro__state .dashicons{ flex: 0 0 auto; margin-top: 1px; font-size: 16px; width: 16px; height: 16px; }
+.iwsl-shell .iwsl-intro__state strong{ font-weight: 700; }
+.iwsl-shell .iwsl-intro__state--on{ background: color-mix(in oklch, var(--iw-good) 13%, transparent); border: 1px solid color-mix(in oklch, var(--iw-good) 34%, var(--iw-line)); color: var(--iw-ink) !important; }
+.iwsl-shell .iwsl-intro__state--on .dashicons{ color: var(--iw-good); }
+.iwsl-shell .iwsl-intro__state--off{ background: color-mix(in oklch, var(--iw-signal) 8%, transparent); border: 1px solid color-mix(in oklch, var(--iw-signal) 26%, var(--iw-line)); color: var(--iw-muted) !important; }
+.iwsl-shell .iwsl-intro__state--off .dashicons{ color: var(--iw-signal); }
+.iwsl-shell .iwsl-card__hint{ display: flex; gap: 7px; align-items: center; margin: 12px 0 0; font-size: 12.5px; color: var(--iw-faint); }
+.iwsl-shell .iwsl-card__hint .dashicons{ font-size: 15px; width: 15px; height: 15px; flex: 0 0 auto; }
+@media (max-width: 600px){
+	.iwsl-shell .iwsl-intro{ flex-direction: column; gap: 11px; padding: 14px; }
+	.iwsl-shell .iwsl-intro__icon{ width: 30px; height: 30px; }
+}
 </style>';
 	}
 
-	/** The category sub-page header: back-crumb, group identity, live posture chips + tier badge. */
+	/** The category sub-page header: back-crumb, group identity, one compact connection pill + tier badge. */
 	private function render_group_hero( string $group, array $meta, string $tier, array $gate ): void {
-		$chips = array(
-			array( 'label' => 'Linked', 'ok' => ! empty( $gate['linked'] ) ),
-			array( 'label' => 'Heartbeat', 'ok' => ! empty( $gate['heartbeat_fresh'] ) ),
-			array( 'label' => 'Plus', 'ok' => ! empty( $gate['plus'] ) ),
-		);
-		$home = admin_url( 'admin.php?page=infraweaver-plus' );
+		// Category pages don't repeat the full Linked/Heartbeat/Plus gate table (that
+		// lives on the landing). Here the posture collapses to ONE compact pill —
+		// linked + fresh heartbeat = "Connected" — beside the plan tier badge.
+		$connected = ! empty( $gate['linked'] ) && ! empty( $gate['heartbeat_fresh'] );
+		$home      = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		echo '<header class="iwsl-hero iwsl-hero--group">';
 		echo '<div class="iwsl-hero__glow" aria-hidden="true"></div>';
@@ -905,21 +2012,19 @@ final class IWSL_Admin {
 		echo '<span class="iwsl-hero__mark" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '"></span></span>';
 		echo '<div>';
 		echo '<a class="iwsl-hero__crumb" href="' . esc_url( $home ) . '"><span class="dashicons dashicons-arrow-left-alt2" aria-hidden="true"></span>' . esc_html__( 'InfraWeaver Plus', 'infraweaver-connector' ) . '</a>';
-		echo '<h1 class="iwsl-hero__title">' . esc_html( $group ) . '</h1>';
+		echo '<h1 class="iwsl-hero__title">' . esc_html( __( $group, 'infraweaver-connector' ) ) . '</h1>';
 		echo '<p class="iwsl-hero__sub">' . esc_html( $meta['blurb'] ) . '</p>';
 		echo '</div>';
 		echo '</div>';
 
 		echo '<div class="iwsl-hero__posture" role="group" aria-label="' . esc_attr__( 'Link posture', 'infraweaver-connector' ) . '">';
 		self::render_tier_badge( $tier );
-		foreach ( $chips as $chip ) {
-			$cls = $chip['ok'] ? 'is-ok' : 'is-off';
-			echo '<span class="iwsl-chip ' . esc_attr( $cls ) . '">';
-			echo '<span class="iwsl-chip__dot" aria-hidden="true"></span>';
-			echo esc_html( $chip['label'] );
-			echo '<span class="screen-reader-text">: ' . ( $chip['ok'] ? esc_html__( 'active', 'infraweaver-connector' ) : esc_html__( 'inactive', 'infraweaver-connector' ) ) . '</span>';
-			echo '</span>';
-		}
+		$pill_cls = $connected ? 'is-ok' : 'is-off';
+		echo '<span class="iwsl-chip ' . esc_attr( $pill_cls ) . '">';
+		echo '<span class="iwsl-chip__dot" aria-hidden="true"></span>';
+		echo esc_html( $connected ? __( 'Connected', 'infraweaver-connector' ) : __( 'Not connected', 'infraweaver-connector' ) );
+		echo '<span class="screen-reader-text">: ' . ( $connected ? esc_html__( 'this site is linked with a fresh signed heartbeat', 'infraweaver-connector' ) : esc_html__( 'this site is not linked, or its heartbeat is stale — see the landing page for full detail', 'infraweaver-connector' ) ) . '</span>';
+		echo '</span>';
 		echo '</div>';
 		echo '</header>';
 	}
@@ -944,53 +2049,60 @@ final class IWSL_Admin {
 	 * last). Shared by the nav and the per-tab status dots.
 	 */
 	private static function tab_defs(): array {
+		// The 'label' is display-only (the 'id' is the stable lookup key), so each
+		// is wrapped for translation here — the single source every nav / card /
+		// jump-rail render reads from. 'id', 'icon' and 'group' are identifiers and
+		// stay verbatim ('group' matches a group_meta() key).
 		return array(
-			array( 'id' => 'overview', 'label' => 'Overview', 'icon' => 'shield' ),
+			array( 'id' => 'overview', 'label' => __( 'Overview', 'infraweaver-connector' ), 'icon' => 'shield' ),
 
 			// Performance
-			array( 'id' => 'speed', 'label' => 'Speed', 'icon' => 'superhero', 'group' => 'Performance' ),
-			array( 'id' => 'cache', 'label' => 'Cache', 'icon' => 'performance', 'group' => 'Performance' ),
-			array( 'id' => 'cdn', 'label' => 'CDN', 'icon' => 'cloud', 'group' => 'Performance' ),
-			array( 'id' => 'lazy-load', 'label' => 'Lazy Load', 'icon' => 'images-alt2', 'group' => 'Performance' ),
-			array( 'id' => 'perf-audit', 'label' => 'Load Time', 'icon' => 'dashboard', 'group' => 'Performance' ),
+			array( 'id' => 'speed', 'label' => __( 'Speed', 'infraweaver-connector' ), 'icon' => 'superhero', 'group' => 'Performance' ),
+			array( 'id' => 'cache', 'label' => __( 'Cache', 'infraweaver-connector' ), 'icon' => 'performance', 'group' => 'Performance' ),
+			array( 'id' => 'cdn', 'label' => __( 'CDN', 'infraweaver-connector' ), 'icon' => 'cloud', 'group' => 'Performance' ),
+			array( 'id' => 'lazy-load', 'label' => __( 'Lazy Load', 'infraweaver-connector' ), 'icon' => 'images-alt2', 'group' => 'Performance' ),
+			array( 'id' => 'perf-audit', 'label' => __( 'Load Time', 'infraweaver-connector' ), 'icon' => 'dashboard', 'group' => 'Performance' ),
+			array( 'id' => 'response-scan', 'label' => __( 'Response Time', 'infraweaver-connector' ), 'icon' => 'chart-line', 'group' => 'Performance' ),
 
 			// Media
-			array( 'id' => 'images', 'label' => 'Images', 'icon' => 'format-image', 'group' => 'Media' ),
-			array( 'id' => 'auto-convert', 'label' => 'Auto-Convert', 'icon' => 'update', 'group' => 'Media' ),
-			array( 'id' => 'svg', 'label' => 'SVG', 'icon' => 'media-code', 'group' => 'Media' ),
+			array( 'id' => 'images', 'label' => __( 'Images', 'infraweaver-connector' ), 'icon' => 'format-image', 'group' => 'Media' ),
+			array( 'id' => 'auto-convert', 'label' => __( 'Auto-Convert', 'infraweaver-connector' ), 'icon' => 'update', 'group' => 'Media' ),
+			array( 'id' => 'svg', 'label' => __( 'SVG', 'infraweaver-connector' ), 'icon' => 'media-code', 'group' => 'Media' ),
+			array( 'id' => 'media-protect', 'label' => __( 'Media Protection', 'infraweaver-connector' ), 'icon' => 'lock', 'group' => 'Media' ),
+			array( 'id' => 'elementor', 'label' => __( 'Elementor Blocks', 'infraweaver-connector' ), 'icon' => 'layout', 'group' => 'Media' ),
 
 			// SEO & Content
-			array( 'id' => 'seo', 'label' => 'SEO', 'icon' => 'chart-area', 'group' => 'SEO & Content' ),
-			array( 'id' => 'seo-audit', 'label' => 'SEO Audit', 'icon' => 'search', 'group' => 'SEO & Content' ),
-			array( 'id' => 'duplicate', 'label' => 'Duplicate', 'icon' => 'admin-page', 'group' => 'SEO & Content' ),
-			array( 'id' => 'links', 'label' => 'Links', 'icon' => 'admin-links', 'group' => 'SEO & Content' ),
-			array( 'id' => 'redirects', 'label' => 'Redirects', 'icon' => 'randomize', 'group' => 'SEO & Content' ),
+			array( 'id' => 'seo', 'label' => __( 'SEO', 'infraweaver-connector' ), 'icon' => 'chart-area', 'group' => 'SEO & Content' ),
+			array( 'id' => 'seo-audit', 'label' => __( 'SEO Audit', 'infraweaver-connector' ), 'icon' => 'search', 'group' => 'SEO & Content' ),
+			array( 'id' => 'duplicate', 'label' => __( 'Duplicate', 'infraweaver-connector' ), 'icon' => 'admin-page', 'group' => 'SEO & Content' ),
+			array( 'id' => 'links', 'label' => __( 'Links', 'infraweaver-connector' ), 'icon' => 'admin-links', 'group' => 'SEO & Content' ),
+			array( 'id' => 'redirects', 'label' => __( 'Redirects', 'infraweaver-connector' ), 'icon' => 'randomize', 'group' => 'SEO & Content' ),
 
 			// Analytics
-			array( 'id' => 'statistics', 'label' => 'Statistics', 'icon' => 'chart-bar', 'group' => 'Analytics' ),
-			array( 'id' => 'activity-log', 'label' => 'Activity Log', 'icon' => 'list-view', 'group' => 'Analytics' ),
+			array( 'id' => 'statistics', 'label' => __( 'Statistics', 'infraweaver-connector' ), 'icon' => 'chart-bar', 'group' => 'Analytics' ),
+			array( 'id' => 'activity-log', 'label' => __( 'Activity Log', 'infraweaver-connector' ), 'icon' => 'list-view', 'group' => 'Analytics' ),
 
 			// Privacy & Site
-			array( 'id' => 'consent', 'label' => 'Cookie Consent', 'icon' => 'privacy', 'group' => 'Privacy & Site' ),
-			array( 'id' => 'maintenance', 'label' => 'Maintenance', 'icon' => 'hammer', 'group' => 'Privacy & Site' ),
-			array( 'id' => 'whitelabel', 'label' => 'White-Label', 'icon' => 'art', 'group' => 'Privacy & Site' ),
+			array( 'id' => 'consent', 'label' => __( 'Cookie Consent', 'infraweaver-connector' ), 'icon' => 'privacy', 'group' => 'Privacy & Site' ),
+			array( 'id' => 'maintenance', 'label' => __( 'Maintenance', 'infraweaver-connector' ), 'icon' => 'hammer', 'group' => 'Privacy & Site' ),
+			array( 'id' => 'whitelabel', 'label' => __( 'White-Label', 'infraweaver-connector' ), 'icon' => 'art', 'group' => 'Privacy & Site' ),
 
 			// System
-			array( 'id' => 'database', 'label' => 'Database', 'icon' => 'database', 'group' => 'System' ),
-			array( 'id' => 'scheduled-cleanup', 'label' => 'Scheduled Cleanup', 'icon' => 'clock', 'group' => 'System' ),
-			array( 'id' => 'email', 'label' => 'Email', 'icon' => 'email-alt', 'group' => 'System' ),
-			array( 'id' => 'config', 'label' => 'Config', 'icon' => 'admin-generic', 'group' => 'System' ),
+			array( 'id' => 'database', 'label' => __( 'Database', 'infraweaver-connector' ), 'icon' => 'database', 'group' => 'System' ),
+			array( 'id' => 'scheduled-cleanup', 'label' => __( 'Scheduled Cleanup', 'infraweaver-connector' ), 'icon' => 'clock', 'group' => 'System' ),
+			array( 'id' => 'email', 'label' => __( 'Email', 'infraweaver-connector' ), 'icon' => 'email-alt', 'group' => 'System' ),
+			array( 'id' => 'config', 'label' => __( 'Config', 'infraweaver-connector' ), 'icon' => 'admin-generic', 'group' => 'System' ),
 
-			array( 'id' => 'roadmap', 'label' => 'Roadmap', 'icon' => 'flag' ),
+			array( 'id' => 'roadmap', 'label' => __( 'Roadmap', 'infraweaver-connector' ), 'icon' => 'flag' ),
 		);
 	}
 
 	/** The branded header: identity, connector version, and three live posture chips. */
 	private function render_hero( array $gate ): void {
 		$chips = array(
-			array( 'label' => 'Linked', 'ok' => ! empty( $gate['linked'] ) ),
-			array( 'label' => 'Heartbeat', 'ok' => ! empty( $gate['heartbeat_fresh'] ) ),
-			array( 'label' => 'Plus', 'ok' => ! empty( $gate['plus'] ) ),
+			array( 'label' => __( 'Linked', 'infraweaver-connector' ), 'ok' => ! empty( $gate['linked'] ) ),
+			array( 'label' => __( 'Heartbeat', 'infraweaver-connector' ), 'ok' => ! empty( $gate['heartbeat_fresh'] ) ),
+			array( 'label' => __( 'Plus', 'infraweaver-connector' ), 'ok' => ! empty( $gate['plus'] ) ),
 		);
 		$version = defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : '';
 
@@ -1062,6 +2174,7 @@ final class IWSL_Admin {
 				echo '<span class="screen-reader-text"> ' . esc_html__( '(locked — not included in this plan)', 'infraweaver-connector' ) . '</span>';
 			} elseif ( 'core' !== $state ) {
 				echo '<span class="iwsl-tab__status iwsl-tab__status--' . esc_attr( $state ) . '" aria-hidden="true"></span>';
+				echo '<span class="screen-reader-text"> ' . ( 'on' === $state ? esc_html__( '(on)', 'infraweaver-connector' ) : esc_html__( '(off)', 'infraweaver-connector' ) ) . '</span>';
 			}
 			echo '</button>';
 		}
@@ -1674,12 +2787,106 @@ body:not(.admin-bar) .iwsl-tabnav{ top: 0; }
 	.iwsl-shell table.form-table th{ width: auto; display: block; padding-bottom: 4px; }
 	.iwsl-shell table.form-table td{ display: block; }
 	.iwsl-cards{ grid-template-columns: 1fr; }
+	/* Compact category cards on phones: icon sits BESIDE the title (not above
+	   it, which left a big empty gap), and the blurb + feature chips flow full
+	   width beneath. Tighter padding, smaller icon — cleaner on a narrow screen.
+	   Scoped to `a.iwsl-card` (the LANDING category nav-cards) so it never leaks
+	   onto feature `section.iwsl-card`s, which have their own head/body layout —
+	   the leak forced those into a 2-col grid that clipped the body off-screen. */
+	a.iwsl-card{ display: grid; grid-template-columns: auto 1fr; column-gap: 13px; row-gap: 9px; align-items: center; padding: 16px 16px 15px; }
+	.iwsl-card__icon{ width: 38px; height: 38px; }
+	.iwsl-card__icon .dashicons{ font-size: 21px; width: 21px; height: 21px; }
+	.iwsl-card__blurb, .iwsl-card__list{ grid-column: 1 / -1; }
+	.iwsl-card__go{ top: 16px; right: 14px; }
 }
 /* Below 600px the WordPress admin bar stops being position:fixed and scrolls
    away with the page — so reserving its height as a sticky offset would leave an
    empty band above the rail. Pin the rail to the very top there instead. */
 @media screen and (max-width: 600px){
 	.iwsl-tabnav{ top: 0; }
+}
+
+/* ══ Phone-friendly layer — additive, mobile-only ═════════════════════════
+   Every rule below is scoped to .iwsl-shell AND to a max-width media query (or
+   to a wrapper class emitted only on this page), so the desktop layout above is
+   left untouched. Goal: fit a 360–390px viewport with NO horizontal page
+   scroll, comfortable spacing, and finger-friendly tap targets. */
+
+/* Reusable horizontal-scroll shell for wide data tables: a too-wide table
+   scrolls sideways WITHIN this box instead of pushing the whole page sideways.
+   No-op on desktop (the table already fits, so nothing scrolls). */
+.iwsl-shell .iwsl-tablewrap{
+	max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+	overscroll-behavior-x: contain;
+	scrollbar-width: thin; scrollbar-color: var(--iw-line-2) transparent;
+}
+.iwsl-shell .iwsl-tablewrap::-webkit-scrollbar{ height: 8px; }
+.iwsl-shell .iwsl-tablewrap::-webkit-scrollbar-thumb{ background: var(--iw-line-2); border-radius: 999px; }
+.iwsl-shell .iwsl-tablewrap::-webkit-scrollbar-track{ background: transparent; }
+/* Defensive: no table may exceed its column, and long cell tokens wrap rather
+   than stretching a row off-screen. */
+.iwsl-shell table{ max-width: 100%; }
+.iwsl-shell th, .iwsl-shell td{ word-break: break-word; }
+
+@media (max-width: 782px){
+	/* Neutralise fixed inline width caps (max-width:520/600/640/720/900px …) so
+	   tables, forms and result cards use the full narrow column and never force a
+	   box wider than the viewport. */
+	.iwsl-shell [style*="max-width"]{ max-width: 100% !important; }
+	/* Any multi-column grid collapses to one readable column. */
+	.iwsl-shell .iwsl-status,
+	.iwsl-shell .iwsl-cards,
+	.iwsl-shell .iwsl-grid,
+	.iwsl-shell [style*="grid-template-columns"]{ grid-template-columns: 1fr !important; }
+	/* Component + inline flex rows wrap instead of overflowing. */
+	.iwsl-shell .iwsl-primary,
+	.iwsl-shell .iwsl-row,
+	.iwsl-shell .iwsl-actions,
+	.iwsl-shell form p{ flex-wrap: wrap; }
+	/* Media & preformatted blocks stay inside the column. */
+	.iwsl-shell img,
+	.iwsl-shell svg,
+	.iwsl-shell canvas,
+	.iwsl-shell pre{ max-width: 100%; height: auto; }
+	.iwsl-shell pre{ overflow-x: auto; }
+	/* WP form-table: label stacks above field, no left indent. */
+	.iwsl-shell .form-table th,
+	.iwsl-shell .form-table td{ display: block; width: auto; padding-left: 0; }
+	/* Roomier tap targets. */
+	.iwsl-shell .button,
+	.iwsl-shell .button-primary,
+	.iwsl-shell .button-secondary,
+	.iwsl-shell .iwsl-switch,
+	.iwsl-shell .iwsl-jump__item{ min-height: 40px; }
+}
+
+@media (max-width: 600px){
+	/* Sticky jump rail scrolls sideways as one strip rather than wrapping into a
+	   tall multi-row block that eats the screen; items keep their size. */
+	.iwsl-shell .iwsl-jump{ flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+	.iwsl-shell .iwsl-jump::-webkit-scrollbar{ display: none; }
+	.iwsl-shell .iwsl-jump__item{ flex: 0 0 auto; }
+}
+
+@media (max-width: 480px){
+	/* Tighter shell padding so content isn't crammed against the edges. */
+	.iwsl-shell .iwsl-hero{ padding: 18px 14px; }
+	.iwsl-shell .iwsl-panels{ padding: 16px 12px 24px; }
+	/* Full-width form fields + buttons — the standard phone pattern. Excludes the
+	   inline toggle switch, jump pills and the tiny text-style delete link so they
+	   keep their natural inline size. */
+	.iwsl-shell input[type="text"],
+	.iwsl-shell input[type="email"],
+	.iwsl-shell input[type="url"],
+	.iwsl-shell input[type="number"],
+	.iwsl-shell input[type="password"],
+	.iwsl-shell select,
+	.iwsl-shell textarea{ width: 100%; box-sizing: border-box; }
+	.iwsl-shell .button:not(.button-link-delete),
+	.iwsl-shell .button-primary,
+	.iwsl-shell .button-secondary{ width: 100%; justify-content: center; }
+	/* Ad-hoc inline flex rows wrap so nothing overflows. */
+	.iwsl-shell [style*="display:flex"]{ flex-wrap: wrap !important; }
 }
 CSS;
 		echo "\n</style>\n";
@@ -1937,56 +3144,73 @@ JS;
 		$heartbeat_detail = self::heartbeat_detail( $gate );
 		$rows             = array(
 			array(
-				'label'  => 'Linked',
+				'label'  => __( 'Connected', 'infraweaver-connector' ),
 				'ok'     => ! empty( $gate['linked'] ),
-				'detail' => 'Enrollment state: ' . (string) $gate['state'],
+				/* translators: %s: the raw link state (e.g. active, pending). */
+				'detail' => sprintf( __( 'Connection status: %s', 'infraweaver-connector' ), (string) $gate['state'] ),
 			),
 			array(
-				'label'  => 'Heartbeat fresh',
+				'label'  => __( 'Connection active', 'infraweaver-connector' ),
 				'ok'     => ! empty( $gate['heartbeat_fresh'] ),
 				'detail' => $heartbeat_detail,
 			),
 			array(
-				'label'  => 'Plus granted',
+				'label'  => __( 'Plan active', 'infraweaver-connector' ),
 				'ok'     => ! empty( $gate['plus'] ),
-				'detail' => ! empty( $gate['plus'] ) ? 'Entitlement present' : 'Not granted from the console',
+				'detail' => ! empty( $gate['plus'] ) ? __( 'Included in your plan', 'infraweaver-connector' ) : __( 'Not included in your plan yet', 'infraweaver-connector' ),
 			),
 		);
 
-		echo '<table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
-		echo '<th>Gate</th><th>State</th><th>Detail</th></tr></thead><tbody>';
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
+		echo '<th>' . esc_html__( 'Gate', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'State', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Detail', 'infraweaver-connector' ) . '</th></tr></thead><tbody>';
 		foreach ( $rows as $row ) {
 			$marker = $row['ok']
-				? '<span style="color:#1a7f37;font-weight:600;">&#10004; pass</span>'
-				: '<span style="color:#b3261e;font-weight:600;">&#10008; blocked</span>';
+				? '<span style="color:#1a7f37;font-weight:600;">&#10004; ' . esc_html__( 'pass', 'infraweaver-connector' ) . '</span>'
+				: '<span style="color:#b3261e;font-weight:600;">&#10008; ' . esc_html__( 'blocked', 'infraweaver-connector' ) . '</span>';
 			echo '<tr><th scope="row">' . esc_html( $row['label'] ) . '</th><td>' . $marker . '</td><td>' . esc_html( $row['detail'] ) . '</td></tr>';
 		}
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 	}
 
 	private static function heartbeat_detail( array $gate ): string {
 		if ( null === $gate['last_verified_at'] ) {
-			return 'No verified signed contact yet';
+			return __( 'No connection confirmed yet', 'infraweaver-connector' );
 		}
 		$age_ms    = (int) $gate['heartbeat_age_ms'];
 		$age_min   = (int) floor( $age_ms / 60000 );
 		$limit_min = (int) floor( (int) $gate['heartbeat_threshold_ms'] / 60000 );
-		return sprintf( 'Last verified contact %d min ago (fresh window: %d min)', max( 0, $age_min ), $limit_min );
+		/* translators: 1: minutes since last heartbeat, 2: freshness window in minutes. */
+		return sprintf( __( 'Last connected %1$d min ago (stays active for %2$d min)', 'infraweaver-connector' ), max( 0, $age_min ), $limit_min );
 	}
 
-	/** Human, one-line-per-reason explanation of the Plus lock. */
-	private static function render_locked_notice( array $gate ): void {
+	/**
+	 * Human, one-line-per-reason explanation of why a Plus feature is locked.
+	 * @param array  $gate             Entitlement gate with a `reasons` array.
+	 * @param string $feature_label    Feature name for the heading (blank = generic).
+	 * @param string $requires_plus_msg Feature-specific "needs a plan" line (blank = generic).
+	 */
+	private static function render_locked_notice( array $gate, string $feature_label = '', string $requires_plus_msg = '' ): void {
+		$requires = '' !== $requires_plus_msg
+			? $requires_plus_msg
+			: __( 'This is a Plus feature. Turn it on for this site from the InfraWeaver console.', 'infraweaver-connector' );
 		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Plus entitlement is not granted. Grant it from the console (per-site toggle).',
+			'not-linked'      => __( 'This site isn&#8217;t connected to the InfraWeaver console yet &mdash; connect it there to turn this on.', 'infraweaver-connector' ),
+			'heartbeat-stale' => __( 'Your InfraWeaver connection needs to refresh &mdash; we haven&#8217;t heard from the console recently. It usually reconnects on its own; if it doesn&#8217;t, reconnect from the InfraWeaver console.', 'infraweaver-connector' ),
+			'requires-plus'   => $requires,
 		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Plus feature locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
+		/* translators: %s: the feature name. */
+		$heading = '' !== $feature_label ? sprintf( __( '%s is locked.', 'infraweaver-connector' ), esc_html( $feature_label ) ) : __( 'This feature is locked.', 'infraweaver-connector' );
+		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>&#128274; ' . $heading . '</strong></p><ul style="list-style:disc;margin-left:20px;">';
 		foreach ( (array) $gate['reasons'] as $reason ) {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
 		}
-		echo '</ul></div>';
+		echo '</ul>';
+		$console = self::console_url();
+		if ( '' !== $console ) {
+			echo '<p style="margin:8px 0 0;"><a class="button button-primary" href="' . esc_url( $console ) . '" target="_blank" rel="noopener">' . esc_html__( 'Open the InfraWeaver console', 'infraweaver-connector' ) . ' <span class="dashicons dashicons-external" aria-hidden="true"></span></a></p>';
+		}
+		echo '</div>';
 	}
 
 	// ── Section 2: Lossless Image Optimization ─────────────────────────────────
@@ -2000,8 +3224,8 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>Image Optimization</h2>';
-		echo '<p>Re-encode this site&#8217;s images to WebP — lossless for PNG, GIF, BMP and TIFF; near-lossless for JPEG. Smaller files, identical-looking pixels, run entirely on this server — no external service is called.</p>';
+		echo '<h3>' . esc_html__( 'Image Optimization', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'Re-encode this site&#8217;s images to WebP — lossless for PNG, GIF, BMP and TIFF; near-lossless for JPEG. Smaller files, identical-looking pixels, run entirely on this server — no external service is called.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
 		if ( isset( $_GET['iwsl_mo_locked'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -2011,7 +3235,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_optimization_locked_notice( $gate );
+			self::render_locked_notice( $gate, __( 'Image Optimization', 'infraweaver-connector' ), __( 'Image Optimization is part of the Pro plan. Turn on Pro for this site from the InfraWeaver console.', 'infraweaver-connector' ) );
 			return;
 		}
 
@@ -2022,35 +3246,18 @@ JS;
 		echo '<p class="description" style="margin-top:8px;">' . esc_html__( 'Originals are never modified; derivatives are written alongside them.', 'infraweaver-connector' ) . '</p>';
 	}
 
-	/** Reason lines for a locked image-optimization gate (no form). */
-	private static function render_optimization_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the image-optimization-specific message.
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Image Optimization entitlement is not granted — assign the Pro tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Image Optimization is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
-		}
-		echo '</ul></div>';
-	}
-
 	/** Engine capability table — one row per registered converter. */
 	private function render_capability_table(): void {
 		$caps = $this->optimizer()->capabilities();
-		echo '<table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
-		echo '<th>Converter</th><th>Accepts</th><th>Engine</th><th>Status</th></tr></thead><tbody>';
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
+		echo '<th>' . esc_html__( 'Converter', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Accepts', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Engine', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th></tr></thead><tbody>';
 		foreach ( $caps as $cap ) {
 			$avail  = is_array( $cap['availability'] ) ? $cap['availability'] : array();
 			$ok     = ! empty( $avail['ok'] );
 			$engine = isset( $avail['engine'] ) ? (string) $avail['engine'] : 'none';
 			$marker = $ok
-				? '<span style="color:#1a7f37;font-weight:600;">&#10004; ready</span>'
-				: '<span style="color:#b3261e;font-weight:600;">&#10008; blocked</span>';
+				? '<span style="color:#1a7f37;font-weight:600;">&#10004; ' . esc_html__( 'ready', 'infraweaver-connector' ) . '</span>'
+				: '<span style="color:#b3261e;font-weight:600;">&#10008; ' . esc_html__( 'blocked', 'infraweaver-connector' ) . '</span>';
 			$detail = $ok ? $engine : ( $engine . ' (' . (string) ( $avail['reason'] ?? 'unavailable' ) . ')' );
 			echo '<tr>';
 			echo '<th scope="row">' . esc_html( (string) $cap['label'] ) . '</th>';
@@ -2059,7 +3266,7 @@ JS;
 			echo '<td>' . $marker . '</td>';
 			echo '</tr>';
 		}
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 	}
 
 	/** The nonce-protected run form (POST → admin-post.php). */
@@ -2070,10 +3277,14 @@ JS;
 
 		// PRIMARY one-click action — safe defaults apply (Auto types, keep original +
 		// add WebP, only smaller results kept). Open Advanced to tune before running.
+		// With JS the two buttons open the progress popup and auto-loop the AJAX queue
+		// to completion; without JS they POST one bounded batch (the no-JS fallback).
 		echo '<div class="iwsl-primary">';
 		echo '<span class="iwsl-primary__meta">' . esc_html__( 'Re-encodes to WebP — originals kept, only smaller results are saved.', 'infraweaver-connector' ) . '</span>';
-		echo '<button type="submit" name="op" value="run" class="button button-primary">' . esc_html__( 'Optimize all images', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="submit" id="iwsl-mo-run-all" name="op" value="run" class="button button-primary">' . esc_html__( 'Optimize all images', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="submit" id="iwsl-mo-replace-all" name="op" value="replace-all" class="button button-link-delete">' . esc_html__( 'Replace all larger files with lossless', 'infraweaver-connector' ) . '</button>';
 		echo '</div>';
+		echo '<p class="description" id="iwsl-mo-replace-all-note" style="margin:-6px 0 4px;">' . esc_html__( 'Replace mode swaps each original for its WebP only where the WebP is smaller, then deletes the original — any hardcoded file link in post content will break.', 'infraweaver-connector' ) . '</p>';
 
 		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
 
@@ -2102,13 +3313,17 @@ JS;
 			IWSL_Media_Optimizer::MAX_REQUEST
 		) ) . '</span></td></tr>';
 
+		echo '<tr><th scope="row">' . esc_html__( 'Skip done', 'infraweaver-connector' ) . iwsl_field_help( 'Only work on images that have not been optimized yet, so re-running never duplicates.' ) . '</th><td>';
+		echo '<label style="display:block;"><input type="checkbox" name="iwsl_mo_skip_optimized" value="1" checked> <strong>' . esc_html__( 'Only optimize images not already optimized', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Recommended. Each run skips images already converted and moves on to new ones — so running it again never re-processes or duplicates anything. Uncheck to re-scan every image (already-optimized ones are still skipped unless the original file changed).', 'infraweaver-connector' ) . '</span></label>';
+		echo '</td></tr>';
+
 		echo '<tr><th scope="row">' . esc_html__( 'Output', 'infraweaver-connector' ) . iwsl_field_help( 'Keep the original image too, or overwrite it with the smaller one.' ) . '</th><td>';
 		echo '<label style="display:block;margin-bottom:8px;"><input type="radio" name="mode" value="copy" checked> <strong>' . esc_html__( 'Keep original + add WebP copy', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Safe. Nothing is deleted — the WebP sits beside the original.', 'infraweaver-connector' ) . '</span></label>';
 		echo '<label style="display:block;"><input type="radio" name="mode" value="replace"> <strong>' . esc_html__( 'Replace original with WebP', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Smaller storage and faster pages. Deletes the original file — any hardcoded .png link in post content will break.', 'infraweaver-connector' ) . '</span></label>';
 		echo '</td></tr>';
 
 		echo '<tr><th scope="row">' . esc_html__( 'On your pages', 'infraweaver-connector' ) . iwsl_field_help( 'Swap the pictures shown on your pages to the smaller ones.' ) . '</th><td>';
-		echo '<label style="display:block;"><input type="checkbox" name="rewrite" value="1"> <strong>' . esc_html__( 'Replace the images on my pages with the optimized WebP', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Rewrites the image URLs in post & page content (including srcset) to point at the new WebP — even when you keep the original copy. Applies to images optimized in this run.', 'infraweaver-connector' ) . '</span></label>';
+		echo '<label style="display:block;"><input type="checkbox" name="rewrite" value="1" checked> <strong>' . esc_html__( 'Replace the images on my pages with the optimized WebP', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'On by default. Rewrites the image URLs in post & page content (including srcset) to point at the new WebP — even when you keep the original copy. Applies to images optimized in this run.', 'infraweaver-connector' ) . '</span></label>';
 		echo '</td></tr>';
 
 		echo '</tbody></table>';
@@ -2128,6 +3343,322 @@ JS;
 		echo '</div></details>';
 		echo '</form>';
 		self::render_media_picker_script();
+		$this->render_optimizer_progress_ui();
+	}
+
+	/**
+	 * The self-contained progress popup + its auto-loop orchestrator, injected ONLY
+	 * on this (unlocked Image Optimization) page. No external assets: inline CSS +
+	 * one nowdoc script, keyed off a JSON config (ajax url, the OPTIMIZE_NONCE, the
+	 * two AJAX action names, i18n labels). The script hijacks the two primary buttons
+	 * to open the modal and loop iwsl_mo_run_batch until `remaining` hits 0 OR a
+	 * no-progress guard trips; the plain form POST remains the no-JS fallback. Server
+	 * stays authoritative — the JS sends only already-form-validated fields, and every
+	 * one is re-validated server-side by read_media_optimize_request().
+	 */
+	private function render_optimizer_progress_ui(): void {
+		$cfg = array(
+			'ajaxUrl'         => admin_url( 'admin-ajax.php' ),
+			'nonce'           => wp_create_nonce( self::OPTIMIZE_NONCE ),
+			'statusAction'    => self::MO_STATUS_ACTION,
+			'batchAction'     => self::MO_BATCH_ACTION,
+			'maxRequest'      => IWSL_Media_Optimizer::MAX_REQUEST,
+			// Stop the loop after this many consecutive batches that make no headway
+			// (e.g. every remaining image has no smaller lossless version) — the guard
+			// against an infinite loop when `remaining` can never reach exactly 0.
+			'noProgressLimit' => 3,
+			'replaceConfirm'  => __( 'Replace every original with its smaller WebP across your whole library? Each original is deleted once its WebP copy is confirmed smaller. This cannot be undone.', 'infraweaver-connector' ),
+			'i18n'            => array(
+				'titleOptimize' => __( 'Optimizing images', 'infraweaver-connector' ),
+				'titleReplace'  => __( 'Replacing with lossless WebP', 'infraweaver-connector' ),
+				'total'         => __( 'Total images', 'infraweaver-connector' ),
+				'optimized'     => __( 'Already lossless', 'infraweaver-connector' ),
+				'remaining'     => __( 'Remaining', 'infraweaver-connector' ),
+				'starting'      => __( 'Starting…', 'infraweaver-connector' ),
+				/* translators: 1: images done so far, 2: total images. */
+				'converting'    => __( 'Converting… %1$s of %2$s', 'infraweaver-connector' ),
+				'done'          => __( 'All done ✓ — every image has a lossless copy.', 'infraweaver-connector' ),
+				'doneLeftovers' => __( 'All done ✓ — remaining images have no smaller lossless version and were left unchanged.', 'infraweaver-connector' ),
+				'stopped'       => __( 'Stopped. You can close this and re-open it to continue.', 'infraweaver-connector' ),
+				'errNetwork'    => __( 'Network error — could not reach the server. Nothing was lost; try again.', 'infraweaver-connector' ),
+				'errLocked'     => __( 'Image Optimization is not granted for this site.', 'infraweaver-connector' ),
+				'errForbidden'  => __( 'You do not have permission to run this action.', 'infraweaver-connector' ),
+				'errGeneric'    => __( 'The run was refused by the server.', 'infraweaver-connector' ),
+				'close'         => __( 'Close', 'infraweaver-connector' ),
+			),
+		);
+
+		// Modal shell — hidden until a run starts. role=dialog + aria-modal, an
+		// aria-live log line, and a labelled progress bar for assistive tech.
+		$title     = esc_html( $cfg['i18n']['titleOptimize'] );
+		$lbl_total = esc_html( $cfg['i18n']['total'] );
+		$lbl_opt   = esc_html( $cfg['i18n']['optimized'] );
+		$lbl_rem   = esc_html( $cfg['i18n']['remaining'] );
+		$lbl_close = esc_html( $cfg['i18n']['close'] );
+
+		echo '<div id="iwsl-mo-modal" class="iwsl-mo-modal" hidden role="dialog" aria-modal="true" aria-labelledby="iwsl-mo-modal-title">';
+		echo '<div class="iwsl-mo-modal__backdrop" data-iwsl-mo-close></div>';
+		echo '<div class="iwsl-mo-modal__panel" role="document">';
+		echo '<h2 id="iwsl-mo-modal-title" class="iwsl-mo-modal__title">' . $title . '</h2>';
+		echo '<div class="iwsl-mo-stats">';
+		echo '<div class="iwsl-mo-stat"><span class="iwsl-mo-stat__label">' . $lbl_total . '</span><span class="iwsl-mo-stat__num" id="iwsl-mo-total">–</span></div>';
+		echo '<div class="iwsl-mo-stat"><span class="iwsl-mo-stat__label">' . $lbl_opt . '</span><span class="iwsl-mo-stat__num" id="iwsl-mo-optimized">–</span></div>';
+		echo '<div class="iwsl-mo-stat"><span class="iwsl-mo-stat__label">' . $lbl_rem . '</span><span class="iwsl-mo-stat__num" id="iwsl-mo-remaining">–</span></div>';
+		echo '</div>';
+		echo '<div class="iwsl-mo-bar" id="iwsl-mo-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="iwsl-mo-bar__fill" id="iwsl-mo-bar-fill"></div></div>';
+		echo '<p class="iwsl-mo-log" id="iwsl-mo-log" role="status" aria-live="polite"></p>';
+		echo '<div class="iwsl-mo-modal__actions">';
+		echo '<button type="button" class="button button-primary" id="iwsl-mo-modal-close" data-iwsl-mo-close>' . $lbl_close . '</button>';
+		echo '</div>';
+		echo '</div></div>';
+
+		// Scoped styles — theme-neutral, uses WP admin palette; high z-index overlay.
+		echo '<style>
+.iwsl-mo-modal{ position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; }
+.iwsl-mo-modal[hidden]{ display:none; }
+.iwsl-mo-modal__backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.55); }
+.iwsl-mo-modal__panel{ position:relative; background:#fff; color:#1d2327; width:min(460px,92vw); max-height:90vh; overflow:auto; border-radius:10px; padding:22px 24px; box-shadow:0 12px 40px rgba(0,0,0,.35); }
+.iwsl-mo-modal__title{ margin:0 0 14px; font-size:18px; }
+.iwsl-mo-stats{ display:flex; gap:10px; flex-wrap:wrap; margin:0 0 14px; }
+.iwsl-mo-stat{ flex:1 1 120px; background:#f0f0f1; border-radius:8px; padding:10px 12px; text-align:center; }
+.iwsl-mo-stat__label{ display:block; font-size:12px; color:#50575e; }
+.iwsl-mo-stat__num{ display:block; font-size:22px; font-weight:600; margin-top:2px; }
+.iwsl-mo-bar{ height:12px; background:#dcdcde; border-radius:999px; overflow:hidden; margin:0 0 12px; }
+.iwsl-mo-bar__fill{ height:100%; width:0; background:#2271b1; transition:width .25s ease; }
+.iwsl-mo-log{ margin:0 0 16px; min-height:1.4em; font-size:13px; color:#3c434a; }
+.iwsl-mo-log.is-error{ color:#b32d2e; font-weight:600; }
+.iwsl-mo-log.is-done{ color:#1a7f37; font-weight:600; }
+.iwsl-mo-modal__actions{ display:flex; justify-content:flex-end; }
+@media (prefers-color-scheme: dark){
+	.iwsl-mo-modal__panel{ background:#1d2327; color:#e0e0e2; }
+	.iwsl-mo-stat{ background:#2c3338; }
+	.iwsl-mo-stat__label{ color:#a7aaad; }
+	.iwsl-mo-bar{ background:#3c434a; }
+	.iwsl-mo-log{ color:#c3c4c7; }
+}
+</style>';
+
+		echo '<script>window.iwslMoCfg = ' . wp_json_encode( $cfg ) . ';</script>';
+		self::render_optimizer_progress_script();
+	}
+
+	/**
+	 * The progress-popup controller. Vanilla JS, no dependencies: hijacks the two
+	 * primary buttons, opens the modal (focus-managed, Esc to close), then loops the
+	 * iwsl_mo_run_batch AJAX action — updating Total / Already lossless / Remaining
+	 * from each response's `stats` — until remaining hits 0 or the no-progress guard
+	 * trips. Reads run parameters straight from the visible form so the loop mirrors
+	 * exactly what a no-JS POST would submit (server re-validates regardless).
+	 */
+	private static function render_optimizer_progress_script(): void {
+		echo "<script>\n";
+		echo <<<'JS'
+(function(){
+	var cfg = window.iwslMoCfg;
+	if (!cfg) { return; }
+	var form = document.querySelector('.iwsl-mo-form');
+	var modal = document.getElementById('iwsl-mo-modal');
+	if (!form || !modal) { return; }
+
+	var runBtn = document.getElementById('iwsl-mo-run-all');
+	var repBtn = document.getElementById('iwsl-mo-replace-all');
+	var closeEls = modal.querySelectorAll('[data-iwsl-mo-close]');
+	var lastFocus = null;
+	var busy = false;
+	var stopRequested = false;
+
+	function el(id){ return document.getElementById(id); }
+	function setText(id, v){ var n = el(id); if (n) { n.textContent = String(v); } }
+	function fmt(tpl, a, b){ return String(tpl).replace('%1$s', a).replace('%2$s', b); }
+
+	function setLog(msg, state){
+		var n = el('iwsl-mo-log');
+		if (!n) { return; }
+		n.textContent = msg;
+		n.className = 'iwsl-mo-log' + (state ? ' is-' + state : '');
+	}
+
+	function setBar(total, optimized, remaining){
+		var pct = total > 0 ? Math.round(optimized / total * 100) : (remaining === 0 ? 100 : 0);
+		if (pct < 0) { pct = 0; } if (pct > 100) { pct = 100; }
+		var fill = el('iwsl-mo-bar-fill'); if (fill) { fill.style.width = pct + '%'; }
+		var bar = el('iwsl-mo-bar'); if (bar) { bar.setAttribute('aria-valuenow', String(pct)); }
+	}
+
+	function applyStats(stats){
+		stats = stats || {};
+		var total = parseInt(stats.total, 10) || 0;
+		var optimized = parseInt(stats.optimized, 10) || 0;
+		var remaining = parseInt(stats.remaining, 10);
+		if (isNaN(remaining)) { remaining = Math.max(0, total - optimized); }
+		setText('iwsl-mo-total', total);
+		setText('iwsl-mo-optimized', optimized);
+		setText('iwsl-mo-remaining', remaining);
+		setBar(total, optimized, remaining);
+		return { total: total, optimized: optimized, remaining: remaining };
+	}
+
+	function focusable(){
+		return Array.prototype.slice.call(
+			modal.querySelectorAll('button:not([disabled]), [href], input, [tabindex]:not([tabindex="-1"])')
+		).filter(function(n){ return n.offsetParent !== null; });
+	}
+	function onKeydown(e){
+		if (e.key === 'Escape' || e.keyCode === 27) { e.preventDefault(); closeModal(); return; }
+		if (e.key === 'Tab' || e.keyCode === 9) {
+			var f = focusable();
+			if (!f.length) { return; }
+			var first = f[0], last = f[f.length - 1];
+			if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+			else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+		}
+	}
+
+	function openModal(title){
+		lastFocus = document.activeElement;
+		var t = el('iwsl-mo-modal-title'); if (t) { t.textContent = title; }
+		modal.hidden = false;
+		document.addEventListener('keydown', onKeydown, true);
+		var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); }
+	}
+	function closeModal(){
+		stopRequested = true;
+		modal.hidden = true;
+		document.removeEventListener('keydown', onKeydown, true);
+		if (lastFocus && lastFocus.focus) { lastFocus.focus(); }
+	}
+	for (var i = 0; i < closeEls.length; i++) {
+		closeEls[i].addEventListener('click', function(e){ e.preventDefault(); closeModal(); });
+	}
+
+	function fieldVal(name){
+		var n = form.querySelector('[name="' + name + '"]');
+		return n ? n.value : '';
+	}
+	function modeVal(){
+		var r = form.querySelector('input[name="mode"]:checked');
+		return r ? r.value : 'copy';
+	}
+	function checkedVal(name){
+		var n = form.querySelector('input[name="' + name + '"]');
+		return (n && n.checked) ? '1' : '';
+	}
+
+	// Build the POST body for one batch. `override` lets Replace-All force a
+	// full-library replace pass regardless of the form's current selections.
+	function batchBody(override){
+		var body = new URLSearchParams();
+		body.set('action', cfg.batchAction);
+		body.set('nonce', cfg.nonce);
+		body.set('converter', fieldVal('converter') || 'webp_lossless');
+		body.set('types', fieldVal('types') || 'auto');
+		if (override && override.mode) {
+			body.set('mode', override.mode);
+			body.set('count', String(cfg.maxRequest));
+			body.set('ids', '');
+			body.set('rewrite', '');
+			body.set('iwsl_mo_skip_optimized', override.skip ? '1' : '');
+		} else {
+			body.set('mode', modeVal());
+			body.set('count', fieldVal('count') || '25');
+			body.set('ids', fieldVal('ids') || '');
+			body.set('rewrite', checkedVal('rewrite'));
+			body.set('iwsl_mo_skip_optimized', checkedVal('iwsl_mo_skip_optimized'));
+		}
+		return body;
+	}
+
+	function post(body){
+		return fetch(cfg.ajaxUrl, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+			body: body.toString()
+		}).then(function(res){ return res.json().catch(function(){ return null; }); });
+	}
+
+	function errorMessage(payload){
+		var reason = payload && payload.data && payload.data.reason;
+		if (reason === 'entitlement-locked') { return cfg.i18n.errLocked; }
+		if (reason === 'forbidden') { return cfg.i18n.errForbidden; }
+		return cfg.i18n.errGeneric;
+	}
+
+	function finish(kind){
+		busy = false;
+		if (kind === 'done') { setLog(cfg.i18n.done, 'done'); }
+		else if (kind === 'leftovers') { setLog(cfg.i18n.doneLeftovers, 'done'); }
+		else if (kind === 'stopped') { setLog(cfg.i18n.stopped); }
+		var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); }
+	}
+
+	function loop(override){
+		var noProgress = 0;
+		var lastRemaining = null;
+
+		function step(){
+			if (stopRequested) { finish('stopped'); return; }
+			post(batchBody(override)).then(function(payload){
+				if (stopRequested) { finish('stopped'); return; }
+				if (!payload || !payload.success) { busy = false; setLog(errorMessage(payload), 'error'); var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); } return; }
+				var data = payload.data || {};
+				var s = applyStats(data.stats);
+				setLog(fmt(cfg.i18n.converting, s.optimized, s.total));
+				var converted = (data.summary && parseInt(data.summary.converted, 10)) || 0;
+				if (s.remaining <= 0) { finish('done'); return; }
+				if (lastRemaining !== null && s.remaining >= lastRemaining && converted === 0) { noProgress++; }
+				else { noProgress = 0; }
+				lastRemaining = s.remaining;
+				if (noProgress >= cfg.noProgressLimit) { finish('leftovers'); return; }
+				step();
+			}).catch(function(){
+				busy = false;
+				setLog(cfg.i18n.errNetwork, 'error');
+				var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); }
+			});
+		}
+		step();
+	}
+
+	function start(title, override){
+		if (busy) { return; }
+		busy = true;
+		stopRequested = false;
+		applyStats({ total: 0, optimized: 0, remaining: 0 });
+		setText('iwsl-mo-total', '–'); setText('iwsl-mo-optimized', '–'); setText('iwsl-mo-remaining', '–');
+		setLog(cfg.i18n.starting);
+		openModal(title);
+		// Seed the counters from the read-only status endpoint, then loop batches.
+		var probe = new URLSearchParams();
+		probe.set('action', cfg.statusAction);
+		probe.set('nonce', cfg.nonce);
+		post(probe).then(function(payload){
+			if (stopRequested) { finish('stopped'); return; }
+			if (payload && payload.success && payload.data) { applyStats(payload.data.stats); }
+			else if (payload && !payload.success) { busy = false; setLog(errorMessage(payload), 'error'); return; }
+			loop(override);
+		}).catch(function(){
+			// Status probe failed — still attempt the loop (batches carry their own stats).
+			if (!stopRequested) { loop(override); }
+		});
+	}
+
+	if (runBtn) {
+		runBtn.addEventListener('click', function(e){
+			e.preventDefault();
+			start(cfg.i18n.titleOptimize, null);
+		});
+	}
+	if (repBtn) {
+		repBtn.addEventListener('click', function(e){
+			e.preventDefault();
+			if (!window.confirm(cfg.replaceConfirm)) { return; }
+			start(cfg.i18n.titleReplace, { mode: 'replace', skip: false });
+		});
+	}
+})();
+JS;
+		echo "\n</script>\n";
 	}
 
 	/**
@@ -2283,7 +3814,7 @@ JS;
 		}
 
 		if ( array() !== $items ) {
-			echo '<table class="widefat striped" style="max-width:640px;"><thead><tr><th>File</th><th>Result</th></tr></thead><tbody>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;"><thead><tr><th>File</th><th>Result</th></tr></thead><tbody>';
 			foreach ( array_slice( $items, 0, 60 ) as $item ) {
 				$basename = isset( $item['basename'] ) ? (string) $item['basename'] : '';
 				$outcome  = isset( $item['outcome'] ) ? (string) $item['outcome'] : '';
@@ -2301,7 +3832,7 @@ JS;
 				}
 				echo '<tr><td>' . esc_html( $basename ) . '</td><td>' . esc_html( $detail ) . '</td></tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 		self::toast_close();
 	}
@@ -2355,7 +3886,7 @@ JS;
 
 		$items = isset( $summary['items'] ) && is_array( $summary['items'] ) ? $summary['items'] : array();
 		if ( array() !== $items ) {
-			echo '<table class="widefat striped" style="max-width:640px;"><thead><tr><th>File</th><th>Result</th></tr></thead><tbody>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;"><thead><tr><th>File</th><th>Result</th></tr></thead><tbody>';
 			foreach ( array_slice( $items, 0, 60 ) as $item ) {
 				$basename = isset( $item['basename'] ) ? (string) $item['basename'] : '';
 				$outcome  = isset( $item['outcome'] ) ? (string) $item['outcome'] : '';
@@ -2364,7 +3895,7 @@ JS;
 					: $outcome;
 				echo '<tr><td>' . esc_html( $basename ) . '</td><td>' . esc_html( $detail ) . '</td></tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 		self::toast_close();
 	}
@@ -2418,7 +3949,7 @@ JS;
 		}
 		check_admin_referer( self::OPTIMIZE_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'images' );
 
 		// LAYER 2: re-check the gate before touching any file.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
@@ -2427,28 +3958,18 @@ JS;
 			exit;
 		}
 
-		// Inputs that cross the boundary: nonce + an allow-listed converter id
-		// validated against the registry keys, an integer count, two closed
-		// enums (mode, op), and — optionally — a picker-supplied id list
-		// (validated further below, never trusted as-is).
-		$requested = isset( $_POST['converter'] ) ? sanitize_key( wp_unslash( $_POST['converter'] ) ) : 'webp_lossless';
+		// All boundary-crossing inputs (converter / count / mode / types / picked
+		// ids / rewrite / skip-done) are sanitised + validated by the shared helper —
+		// the SAME code the AJAX batch path calls, so neither surface can ever drift
+		// from the other's security posture. `op` is the handler-only control flow.
 		$optimizer = $this->optimizer();
-		$converter = in_array( $requested, $optimizer->converter_ids(), true ) ? $requested : 'webp_lossless';
-
-		$count = isset( $_POST['count'] ) ? (int) $_POST['count'] : IWSL_Media_Optimizer::MAX_BATCH;
-		$count = max( 1, min( IWSL_Media_Optimizer::MAX_REQUEST, $count ) );
-		$mode  = ( isset( $_POST['mode'] ) && IWSL_Media_Optimizer::MODE_REPLACE === $_POST['mode'] )
-			? IWSL_Media_Optimizer::MODE_REPLACE
-			: IWSL_Media_Optimizer::MODE_COPY;
-		$op         = isset( $_POST['op'] ) ? sanitize_key( wp_unslash( $_POST['op'] ) ) : 'run';
-		$is_preview = 'preview' === $op;
-		// Opt-in: rewrite the image URLs on posts/pages to the WebP (copy mode too).
-		$rewrite = isset( $_POST['rewrite'] ) && '1' === (string) $_POST['rewrite'];
+		$p         = $this->read_media_optimize_request();
+		$op        = isset( $_POST['op'] ) ? sanitize_key( wp_unslash( $_POST['op'] ) ) : 'run';
 
 		// De-duplicate branch: delete originals that already have an optimized copy.
 		// `dedupe-preview` is a safe dry run; `dedupe` deletes (repointing pages first).
 		if ( 'dedupe' === $op || 'dedupe-preview' === $op ) {
-			$summary = $optimizer->remove_optimized_duplicates( 'dedupe-preview' === $op, true, $count );
+			$summary = $optimizer->remove_optimized_duplicates( 'dedupe-preview' === $op, true, $p['count'] );
 			if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 				set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );
 			}
@@ -2456,21 +3977,66 @@ JS;
 			exit;
 		}
 
-		// Source-type filter: 'auto' (every accepted type) or one exact MIME,
-		// validated against a closed list before it reaches the engine.
+		// LAYER 3 (the authoritative gate) is inside run()/preview(). This is also the
+		// no-JS fallback for the JS-driven buttons: `replace-all` forces a full-library
+		// REPLACE pass (one time-bounded batch — the progress popup loops it to
+		// completion, but without JS the summary's `partial` flag tells the operator to
+		// re-run); `preview` is a dry-run estimate; anything else is a normal
+		// copy/replace run honouring the form's Output radio + picked ids.
+		if ( 'replace-all' === $op ) {
+			$summary = $optimizer->run( $p['converter'], $p['count'], IWSL_Media_Optimizer::MODE_REPLACE, false, $p['types'], array(), false, false );
+		} elseif ( 'preview' === $op ) {
+			$summary = $optimizer->preview( $p['converter'], $p['count'], $p['types'], $p['ids'], $p['skip_optimized'] );
+		} else {
+			$summary = $optimizer->run( $p['converter'], $p['count'], $p['mode'], false, $p['types'], $p['ids'], $p['rewrite'], $p['skip_optimized'] );
+		}
+
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );
+		}
+		wp_safe_redirect( $redirect );
+		exit;
+	}
+
+	/**
+	 * Sanitise + validate every boundary-crossing input of an image-optimization run
+	 * from $_POST. Extracted so the admin-post handler AND the AJAX batch endpoint
+	 * share ONE validation path — the AJAX surface can never be weaker than the POST
+	 * surface. Returns a fully-typed, engine-ready param bag; NONE of it is trusted
+	 * downstream (the optimizer re-resolves paths + re-validates picked ids itself).
+	 *
+	 * @return array{ converter:string, count:int, mode:string, types:string, ids:int[], rewrite:bool, skip_optimized:bool }
+	 */
+	private function read_media_optimize_request(): array {
+		// Converter: an allow-listed id validated against the live registry keys.
+		$requested = isset( $_POST['converter'] ) ? sanitize_key( wp_unslash( $_POST['converter'] ) ) : 'webp_lossless'; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$converter = in_array( $requested, $this->optimizer()->converter_ids(), true ) ? $requested : 'webp_lossless';
+
+		// Count: integer, clamped to [1, MAX_REQUEST].
+		$count = isset( $_POST['count'] ) ? (int) $_POST['count'] : IWSL_Media_Optimizer::MAX_BATCH; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$count = max( 1, min( IWSL_Media_Optimizer::MAX_REQUEST, $count ) );
+
+		// Output mode: a closed enum — 'replace' or (default) 'copy'.
+		$mode = ( isset( $_POST['mode'] ) && IWSL_Media_Optimizer::MODE_REPLACE === $_POST['mode'] ) // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			? IWSL_Media_Optimizer::MODE_REPLACE
+			: IWSL_Media_Optimizer::MODE_COPY;
+
+		// Opt-in flags: rewrite page references, and skip already-optimized sources.
+		$rewrite        = isset( $_POST['rewrite'] ) && '1' === (string) $_POST['rewrite']; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$skip_optimized = isset( $_POST['iwsl_mo_skip_optimized'] ) && '1' === (string) $_POST['iwsl_mo_skip_optimized']; // phpcs:ignore WordPress.Security.NonceVerification.Missing
+
+		// Source-type filter: 'auto' or one exact MIME, against a closed allow-list.
 		$allowed_types = array( 'auto', 'image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/tiff' );
-		$types         = isset( $_POST['types'] ) ? sanitize_text_field( wp_unslash( $_POST['types'] ) ) : 'auto';
+		$types         = isset( $_POST['types'] ) ? sanitize_text_field( wp_unslash( $_POST['types'] ) ) : 'auto'; // phpcs:ignore WordPress.Security.NonceVerification.Missing
 		if ( ! in_array( $types, $allowed_types, true ) ) {
 			$types = 'auto';
 		}
 
-		// Optional explicit selection from the media-library picker. This is the
-		// ONLY place an attachment id crosses the request boundary, and it is
-		// treated as UNTRUSTED: the optimizer re-validates every id server-side
-		// (real attachment + accepted MIME) before it is ever handed to
-		// convert_one(), which itself still runs the full guard_source() gauntlet.
-		// An empty list falls back to the existing count-driven auto-selection.
-		$ids_raw = isset( $_POST['ids'] ) ? sanitize_text_field( wp_unslash( $_POST['ids'] ) ) : '';
+		// Optional media-library selection — the ONLY place an attachment id crosses
+		// the boundary. UNTRUSTED: parsed to positive ints, deduped, capped; the
+		// optimizer re-validates each (real attachment + accepted MIME) server-side
+		// before convert_one() ever resolves a path. Empty → count-driven auto batch.
+		$ids_raw = isset( $_POST['ids'] ) ? sanitize_text_field( wp_unslash( $_POST['ids'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing
 		$ids     = array();
 		if ( '' !== $ids_raw ) {
 			$ids = array_map( 'intval', explode( ',', $ids_raw ) );
@@ -2480,16 +4046,68 @@ JS;
 			$ids = array_slice( $ids, 0, IWSL_Media_Optimizer::MAX_REQUEST );
 		}
 
-		// LAYER 3 (authoritative gate) is inside run()/preview().
-		$summary = $is_preview
-			? $optimizer->preview( $converter, $count, $types, $ids )
-			: $optimizer->run( $converter, $count, $mode, false, $types, $ids, $rewrite );
+		return array(
+			'converter'      => $converter,
+			'count'          => $count,
+			'mode'           => $mode,
+			'types'          => $types,
+			'ids'            => $ids,
+			'rewrite'        => $rewrite,
+			'skip_optimized' => $skip_optimized,
+		);
+	}
 
-		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
-			set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );
+	/**
+	 * AJAX: read-only whole-library optimization counters for the progress popup.
+	 * Same gate as the run: manage_options + OPTIMIZE_NONCE + the entitlement check.
+	 * Emits { stats: { total, optimized, remaining } } on success.
+	 */
+	public function handle_mo_status_ajax(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'reason' => 'forbidden' ), 403 );
 		}
-		wp_safe_redirect( $redirect );
-		exit;
+		check_ajax_referer( self::OPTIMIZE_NONCE, 'nonce' );
+
+		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_send_json_error( array( 'reason' => 'entitlement-locked' ), 403 );
+		}
+
+		wp_send_json_success( array( 'stats' => $this->optimizer()->library_stats() ) );
+	}
+
+	/**
+	 * AJAX: run ONE bounded batch, then report the fresh library stats so the popup
+	 * can decide whether to loop again. Identical defence to handle_media_optimize():
+	 * capability + OPTIMIZE_NONCE (check_ajax_referer) + LAYER-2 entitlement re-check,
+	 * with the authoritative LAYER-3 gate inside run(). Server stays authoritative —
+	 * every run parameter is re-validated here via the shared helper; the JS only
+	 * orchestrates the loop. Emits { summary, stats } on success.
+	 */
+	public function handle_mo_run_batch_ajax(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'reason' => 'forbidden' ), 403 );
+		}
+		check_ajax_referer( self::OPTIMIZE_NONCE, 'nonce' );
+
+		// LAYER 2: re-check the gate before touching any file.
+		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_send_json_error( array( 'reason' => 'entitlement-locked' ), 403 );
+		}
+
+		$optimizer = $this->optimizer();
+		$p         = $this->read_media_optimize_request();
+
+		// One batch only — never a dry run, never a preview. LAYER 3 lives in run().
+		$summary = $optimizer->run( $p['converter'], $p['count'], $p['mode'], false, $p['types'], $p['ids'], $p['rewrite'], $p['skip_optimized'] );
+
+		wp_send_json_success(
+			array(
+				'summary' => $summary,
+				'stats'   => $optimizer->library_stats(),
+			)
+		);
 	}
 
 	// ── Section 3: SMTP Email Delivery & Log ───────────────────────────────────
@@ -2504,7 +4122,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'SMTP Email Delivery & Log', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( 'SMTP Email Delivery & Log', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( "Route this site's outgoing mail through an SMTP server and keep a bounded local log of what was sent. Runs entirely on this server; the message body is never stored — only recipients and subjects are recorded.", 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from a handler after a locked POST (layer-2 defence tripped).
@@ -2515,31 +4133,109 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_email_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'Email Delivery', 'Email Delivery is part of the Pro plan. Turn on Pro for this site from the InfraWeaver console.' );
 			return;
 		}
 
 		$this->render_email_result_notice();
+		$this->maybe_render_email_wizard();
 		$this->render_email_settings_form();
 		$this->render_email_test_form();
 		$this->render_email_log_table();
 	}
 
-	/** Reason lines for a locked email-delivery gate (no form). */
-	private static function render_email_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the email-delivery-specific message (Pro tier).
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Email Delivery entitlement is not granted — assign the Pro tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Email Delivery is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
+	/**
+	 * The SMTP "Set up email in 3 steps" wizard — shown only when SMTP is not yet
+	 * configured (no host, or a host with no usable password). Submits to the
+	 * EXISTING EMAIL_SETTINGS_ACTION handler with the EXISTING field names; the
+	 * password-storage opt-in (allow_option_password) is surfaced in the final
+	 * step, never bypassed. The full settings form still renders below (no-JS safe).
+	 */
+	private function maybe_render_email_wizard(): void {
+		$s        = $this->email_delivery()->settings_for_render();
+		$host     = isset( $s['host'] ) ? (string) $s['host'] : '';
+		$port     = isset( $s['port'] ) ? (int) $s['port'] : 0;
+		$username = isset( $s['username'] ) ? (string) $s['username'] : '';
+		$from     = isset( $s['from_email'] ) ? (string) $s['from_email'] : '';
+		$fname    = isset( $s['from_name'] ) ? (string) $s['from_name'] : '';
+		$secure   = isset( $s['secure'] ) ? (string) $s['secure'] : '';
+		$auth     = ! empty( $s['auth'] );
+		$has_pw   = ! empty( $s['has_password'] );
+		$pw_src   = isset( $s['password_source'] ) ? (string) $s['password_source'] : 'none';
+		$constant = ( 'constant' === $pw_src );
+
+		// Configured = a host is set AND a password is available (stored or constant).
+		$configured = ( '' !== $host ) && ( $has_pw || $constant );
+		if ( $configured ) {
+			return;
 		}
-		echo '</ul></div>';
+
+		$mode_labels = array( '' => __( 'None', 'infraweaver-connector' ), 'ssl' => 'SSL', 'tls' => 'TLS' );
+
+		$this->wizard_open(
+			'smtp',
+			__( 'Set up email in 3 steps', 'infraweaver-connector' ),
+			array(
+				'action' => self::EMAIL_SETTINGS_ACTION,
+				'nonce'  => self::EMAIL_SETTINGS_NONCE,
+				'icon'   => 'email',
+				'submit' => __( 'Save SMTP settings', 'infraweaver-connector' ),
+				'launch' => array(
+					'heading' => __( 'Set up email in 3 steps', 'infraweaver-connector' ),
+					'body'    => __( 'Make sure this site’s emails — password resets, order receipts, contact forms — actually reach inboxes. A short guided walk-through connects your email provider.', 'infraweaver-connector' ),
+					'button'  => __( 'Set up email in 3 steps', 'infraweaver-connector' ),
+				),
+				'steps'  => array(
+					array(
+						'title' => __( 'What this does', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'Right now WordPress hands mail straight to your server, where it often lands in spam or vanishes. Routing it through a real email provider (SMTP) fixes that.', 'infraweaver-connector' ) . '</p>';
+							echo '<p>' . esc_html__( 'You’ll need a few details from your email provider — usually shown on a page called “SMTP”, “Sending” or “Mail settings”. Have them open in another tab, then continue.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+					array(
+						'title' => __( 'Your email server', 'infraweaver-connector' ),
+						'body'  => static function () use ( $host, $port, $secure, $auth, $username, $mode_labels ): void {
+							echo '<p>' . esc_html__( 'Copy these from your provider exactly as shown.', 'infraweaver-connector' ) . '</p>';
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_field( 'text', 'host', __( 'SMTP host', 'infraweaver-connector' ), $host, 'smtp.example.com' );
+							self::wizard_field( 'number', 'port', __( 'Port', 'infraweaver-connector' ), $port > 0 ? (string) $port : '', '587', array( 'min' => '1', 'max' => '65535' ) );
+							echo '<label class="iwsl-wz__field"><span>' . esc_html__( 'Encryption', 'infraweaver-connector' ) . '</span><select name="secure">';
+							foreach ( IWSL_Email_Delivery::SECURE_MODES as $mode ) {
+								$label = isset( $mode_labels[ $mode ] ) ? $mode_labels[ $mode ] : $mode;
+								echo '<option value="' . esc_attr( $mode ) . '"' . selected( $secure, $mode, false ) . '>' . esc_html( $label ) . '</option>';
+							}
+							echo '</select></label>';
+							self::wizard_field( 'text', 'username', __( 'Username', 'infraweaver-connector' ), $username, 'you@example.com' );
+							echo '</div>';
+							self::wizard_checkbox( 'auth', __( 'My email service needs a login (usual)', 'infraweaver-connector' ), $auth );
+						},
+					),
+					array(
+						'title' => __( 'Sender & password', 'infraweaver-connector' ),
+						'body'  => static function () use ( $from, $fname, $has_pw, $constant ): void {
+							echo '<p>' . esc_html__( 'Who your mail appears to come from, and the account password.', 'infraweaver-connector' ) . '</p>';
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_field( 'text', 'from_email', __( 'From email', 'infraweaver-connector' ), $from, 'noreply@yourdomain.com' );
+							self::wizard_field( 'text', 'from_name', __( 'From name', 'infraweaver-connector' ), $fname, get_bloginfo( 'name' ) );
+							echo '<label class="iwsl-wz__field"><span>' . esc_html__( 'Password', 'infraweaver-connector' ) . '</span><input type="password" name="password" value="" autocomplete="new-password"' . ( $has_pw ? ' placeholder="****"' : '' ) . '></label>';
+							echo '</div>';
+							if ( $constant ) {
+								echo '<p class="iwsl-wz__note">' . esc_html__( 'IWSL_SMTP_PASS is already defined in wp-config.php — that value is used and no database password is stored. You can leave the password blank.', 'infraweaver-connector' ) . '</p>';
+							} else {
+								self::wizard_checkbox(
+									'allow_option_password',
+									__( 'Store this password in the database (I understand the risk)', 'infraweaver-connector' ),
+									false,
+									__( 'Required to save a password here. For better security, set IWSL_SMTP_PASS in wp-config.php instead and leave this off.', 'infraweaver-connector' )
+								);
+							}
+							echo '<p class="iwsl-wz__note">' . esc_html__( 'After saving, use “Send a test email” below to confirm delivery end-to-end.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+				),
+			)
+		);
 	}
 
 	/** Render (then clear) the current user's PRG result transient. */
@@ -2576,8 +4272,22 @@ JS;
 				$err = esc_html__( 'Enter a valid recipient email address.', 'infraweaver-connector' );
 			} elseif ( 'send-failed' === $reason ) {
 				$err = esc_html__( 'Test send failed — check the SMTP settings above and the log below.', 'infraweaver-connector' );
+			} elseif ( 'password-storage-not-allowed' === $reason ) {
+				// The commonest confusing failure: a password was typed but the
+				// opt-in to store it lives in the collapsed "Advanced settings".
+				$err = esc_html__( 'To save a password, first open “Advanced settings” below and tick “Store password in the database”. For better security, set IWSL_SMTP_PASS in wp-config.php instead — then you don’t need to store a password here at all.', 'infraweaver-connector' );
+			} elseif ( 'password-encryption-unavailable' === $reason ) {
+				$err = esc_html__( 'The password could not be encrypted for storage on this server, so it was not saved. Set IWSL_SMTP_PASS in wp-config.php instead.', 'infraweaver-connector' );
+			} elseif ( 'bad-password' === $reason ) {
+				$err = esc_html__( 'That password contains a line break, which SMTP does not allow. Re-enter it without newlines.', 'infraweaver-connector' );
+			} elseif ( 'entitlement-locked' === $reason ) {
+				$err = esc_html__( 'Email delivery is not unlocked on this site’s plan. Upgrade from the InfraWeaver console to use it.', 'infraweaver-connector' );
 			} else {
-				$err = esc_html( sprintf( 'Could not save: %s', $reason ) );
+				$err = esc_html( sprintf(
+					/* translators: %s is a short machine reason code. */
+					__( 'Could not save: %s', 'infraweaver-connector' ),
+					$reason
+				) );
 			}
 			self::toast_open( 'error' );
 			echo '<p>' . $err . '</p>';
@@ -2651,11 +4361,12 @@ JS;
 
 		// Power-user knob only — all SMTP credentials above stay visible. Storing
 		// the secret in the database is opt-in and risky, so it lives in Advanced.
-		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
+		echo '<details class="iwsl-adv" id="iwsl-ed-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
 		echo '<table class="form-table" role="presentation"><tbody>';
 		echo '<tr><th scope="row">' . esc_html__( 'Password storage', 'infraweaver-connector' ) . iwsl_field_help( 'Save the email password in the database (less secure).' ) . '</th><td>';
 		$disabled = $constant_defined ? ' disabled' : '';
-		echo '<label><input type="checkbox" name="allow_option_password" value="1"' . checked( $allow_password, true, false ) . $disabled . '> ' . esc_html__( 'Store password in the database (I understand the risk)', 'infraweaver-connector' ) . '</label>';
+		echo '<label><input type="checkbox" id="iwsl-ed-allow-password" name="allow_option_password" value="1"' . checked( $allow_password, true, false ) . $disabled . '> ' . esc_html__( 'Store password in the database (I understand the risk)', 'infraweaver-connector' ) . '</label>';
+		echo '<p class="description iwsl-ed-pw-hint" id="iwsl-ed-pw-hint" hidden style="color:var(--iw-bad,#c0392b);">' . esc_html__( 'You entered a password above. To save it here, tick this box — or cancel and set IWSL_SMTP_PASS in wp-config.php for better security.', 'infraweaver-connector' ) . '</p>';
 		if ( $constant_defined ) {
 			echo '<p class="description">' . esc_html__( 'Disabled because IWSL_SMTP_PASS is defined in wp-config.php.', 'infraweaver-connector' ) . '</p>';
 		}
@@ -2665,6 +4376,25 @@ JS;
 
 		echo '<p><button type="submit" class="button button-primary">' . esc_html__( 'Save SMTP settings', 'infraweaver-connector' ) . '</button></p>';
 		echo '</form>';
+
+		// Pre-submit nudge: if a password was typed but the "store in database"
+		// opt-in (buried in Advanced) is unticked, the server would reject with an
+		// opaque reason. Catch it in-context first — reveal Advanced, point at the
+		// checkbox, and let the operator confirm or clear the field. No constant →
+		// only fires when a real choice is needed. The server gate still enforces.
+		if ( ! $constant_defined ) {
+			echo '<script>(function(){'
+				. 'var f=document.getElementById("iwsl-ed-adv");if(!f)return;'
+				. 'var form=f.closest("form");if(!form)return;'
+				. 'var pw=form.querySelector("#iwsl-ed-password"),ok=form.querySelector("#iwsl-ed-allow-password"),hint=form.querySelector("#iwsl-ed-pw-hint");'
+				. 'if(!pw||!ok)return;'
+				. 'form.addEventListener("submit",function(e){'
+				. 'if(pw.value!==""&&!ok.checked){e.preventDefault();f.open=true;if(hint)hint.hidden=false;'
+				. 'ok.focus();ok.scrollIntoView({block:"center"});}'
+				. '});'
+				. 'ok.addEventListener("change",function(){if(ok.checked&&hint)hint.hidden=true;});'
+				. '})();</script>';
+		}
 	}
 
 	/** A send-a-test-email form so the operator can verify SMTP end-to-end. */
@@ -2697,7 +4427,7 @@ JS;
 			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
 		}
 		check_admin_referer( self::EMAIL_TEST_NONCE );
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'email' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -2741,7 +4471,7 @@ JS;
 		if ( array() === $log ) {
 			echo '<p>' . esc_html__( 'No email activity recorded yet.', 'infraweaver-connector' ) . '</p>';
 		} else {
-			echo '<table class="widefat striped" style="max-width:900px;"><thead><tr>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:900px;"><thead><tr>';
 			echo '<th>' . esc_html__( 'Time', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'To', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'Subject', 'infraweaver-connector' ) . '</th>';
@@ -2766,7 +4496,7 @@ JS;
 				echo '<td>' . esc_html( $detail ) . '</td>';
 				echo '</tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:12px;">';
@@ -2801,7 +4531,7 @@ JS;
 		}
 		check_admin_referer( self::EMAIL_SETTINGS_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'email' );
 
 		// LAYER 2: re-check the gate before touching any stored setting.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
@@ -2843,7 +4573,7 @@ JS;
 		}
 		check_admin_referer( self::EMAIL_LOG_CLEAR_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'email' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -2872,7 +4602,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( '301 Redirect Manager', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( '301 Redirect Manager', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( 'Send visitors from old URLs to new ones with permanent (301) or temporary (302) redirects — evaluated entirely on this server.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from a handler after a locked POST (layer-2 defence tripped).
@@ -2883,7 +4613,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_redirects_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'Redirect Manager', 'The Redirect Manager is part of the Pro plan. Turn on Pro for this site from the InfraWeaver console.' );
 			return;
 		}
 
@@ -2894,25 +4624,59 @@ JS;
 		// The 404 log + its logging toggle are secondary extras — the rules table
 		// and add form above stay visible; only the log is progressively disclosed.
 		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
+		$this->render_redirects_auto_toggle();
 		$this->render_redirects_404_log();
 		echo '</div></details>';
 	}
 
-	/** Reason lines for a locked redirect-manager gate (no forms). */
-	private static function render_redirects_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the redirect-manager-specific message (Pro tier).
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Redirect Manager entitlement is not granted — assign the Pro tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Redirect Manager is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
+	/**
+	 * The auto-redirect-on-slug-change toggle. When on (the default), renaming a
+	 * published post/page auto-creates a 301 from its old URL to the new one — so
+	 * links and search results never land on a 404 after a rename. More automated
+	 * than Yoast (which hides this behind a Premium setting the owner must find).
+	 */
+	private function render_redirects_auto_toggle(): void {
+		$enabled = $this->redirects()->is_auto_redirect_enabled();
+
+		echo '<h3 style="margin-top:8px;">' . esc_html__( 'Automatic redirects', 'infraweaver-connector' ) . '</h3>';
+		echo '<p class="description" style="margin-bottom:8px;">' . esc_html__( 'Rename a published page and we create the 301 for you — no broken links, no manual rule.', 'infraweaver-connector' ) . '</p>';
+
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( self::REDIRECT_AUTO_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::REDIRECT_AUTO_ACTION ) . '">';
+		echo '<input type="hidden" name="enabled" value="' . esc_attr( $enabled ? '0' : '1' ) . '">';
+		$label = $enabled
+			? esc_html__( 'Disable auto-redirect on slug change', 'infraweaver-connector' )
+			: esc_html__( 'Enable auto-redirect on slug change', 'infraweaver-connector' );
+		echo '<button type="submit" class="button">' . $label . '</button>';
+		echo ' <span class="description">' . ( $enabled
+			? esc_html__( 'On — renaming a published post auto-creates a 301.', 'infraweaver-connector' )
+			: esc_html__( 'Off.', 'infraweaver-connector' ) ) . '</span>';
+		echo '</form>';
+	}
+
+	/**
+	 * admin-post handler: flip the auto-redirect-on-slug-change setting. LAYER 2
+	 * of the gate (capability + nonce + entitlement re-check); set_auto_redirect()
+	 * is LAYER 3. POST-redirect-GET back to the section the form was submitted from.
+	 */
+	public function handle_redirects_auto(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
 		}
-		echo '</ul></div>';
+		check_admin_referer( self::REDIRECT_AUTO_NONCE );
+
+		$redirect = self::iwsl_plus_return_url( 'redirects' );
+		$gate     = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_safe_redirect( add_query_arg( 'iwsl_rd_locked', '1', $redirect ) );
+			exit;
+		}
+
+		$enabled = isset( $_POST['enabled'] ) && '1' === (string) $_POST['enabled'];
+		$this->redirects()->set_auto_redirect( $enabled ); // LAYER 3 inside.
+		wp_safe_redirect( $redirect );
+		exit;
 	}
 
 	/** Render (then clear) the current user's PRG result transient. */
@@ -2956,7 +4720,7 @@ JS;
 		if ( array() === $rules ) {
 			echo '<p>' . esc_html__( 'No redirects defined yet.', 'infraweaver-connector' ) . '</p>';
 		} else {
-			echo '<table class="widefat striped" style="max-width:900px;"><thead><tr>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:900px;"><thead><tr>';
 			echo '<th>' . esc_html__( 'Source', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'Target', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'Type', 'infraweaver-connector' ) . '</th>';
@@ -2981,12 +4745,13 @@ JS;
 				wp_nonce_field( self::REDIRECT_DELETE_NONCE );
 				echo '<input type="hidden" name="action" value="' . esc_attr( self::REDIRECT_DELETE_ACTION ) . '">';
 				echo '<input type="hidden" name="rule_id" value="' . esc_attr( $id ) . '">';
-				echo '<button type="submit" class="button button-link-delete">' . esc_html__( 'Delete', 'infraweaver-connector' ) . '</button>';
+				$rd_confirm = esc_js( __( 'Delete this redirect rule? Visitors to its old address will no longer be sent on. This cannot be undone.', 'infraweaver-connector' ) );
+				echo '<button type="submit" class="button button-link-delete" onclick="return confirm(\'' . $rd_confirm . '\');">' . esc_html__( 'Delete', 'infraweaver-connector' ) . '</button>';
 				echo '</form>';
 				echo '</td>';
 				echo '</tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 
 		echo '<p class="description">' . esc_html( sprintf( '%d of %d rules used.', $count, IWSL_Redirects::MAX_RULES ) ) . '</p>';
@@ -3034,7 +4799,7 @@ JS;
 		if ( array() === $log ) {
 			echo '<p>' . esc_html__( 'No not-found paths recorded yet.', 'infraweaver-connector' ) . '</p>';
 		} else {
-			echo '<table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
 			echo '<th>' . esc_html__( 'Path', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'Count', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'Last seen', 'infraweaver-connector' ) . '</th>';
@@ -3050,7 +4815,7 @@ JS;
 				echo '<td>' . esc_html( $time ) . '</td>';
 				echo '</tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 
 		echo '<p class="description">' . esc_html( sprintf( 'Logs at most %d recent not-found paths.', IWSL_Redirects::MAX_404_LOG ) ) . '</p>';
@@ -3068,7 +4833,7 @@ JS;
 		}
 		check_admin_referer( self::REDIRECT_ADD_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'redirects' );
 
 		// LAYER 2: re-check the gate before touching any stored rule.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
@@ -3101,7 +4866,7 @@ JS;
 		}
 		check_admin_referer( self::REDIRECT_DELETE_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'redirects' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -3129,7 +4894,7 @@ JS;
 		}
 		check_admin_referer( self::REDIRECT_LOG_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'redirects' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -3160,7 +4925,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_White_Label::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'Custom Login & Admin White-Label', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( 'Custom Login & Admin White-Label', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( 'Replace the WordPress login logo, header link, login message, and admin footer credit with your own brand — applied entirely on this server. Revoking the entitlement instantly restores the default WordPress chrome.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
@@ -3171,30 +4936,78 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_white_label_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'White-Label', 'White-Label is part of the Ultimate plan. Turn on Ultimate for this site from the InfraWeaver console.' );
 			return;
 		}
 
 		$this->render_white_label_result_notice();
+		$this->maybe_render_white_label_wizard();
 		$this->render_white_label_capability_table();
 		$this->render_white_label_form();
 	}
 
-	/** Reason lines for a locked white-label gate (no form). */
-	private static function render_white_label_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the white-label-specific message (Ultimate tier).
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The White-Label entitlement is not granted — assign the Ultimate tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 White-Label is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
+	/**
+	 * The White-Label "brand your login & admin" wizard — shown only when the
+	 * feature has never been saved (settings_for_render()['saved_at'] === 0).
+	 * Submits to the EXISTING WHITE_LABEL_ACTION handler with the EXISTING field
+	 * names. The full settings form still renders below (no-JS safe).
+	 */
+	private function maybe_render_white_label_wizard(): void {
+		$s = $this->white_label()->settings_for_render();
+		if ( ! empty( $s['saved_at'] ) ) {
+			return; // already configured — the wizard would be noise.
 		}
-		echo '</ul></div>';
+		$logo    = isset( $s['login_logo_url'] ) ? (string) $s['login_logo_url'] : '';
+		$link    = isset( $s['login_header_url'] ) ? (string) $s['login_header_url'] : '';
+		$message = isset( $s['login_message'] ) ? (string) $s['login_message'] : '';
+		$footer  = isset( $s['admin_footer_text'] ) ? (string) $s['admin_footer_text'] : '';
+		$hide    = ! empty( $s['hide_wp_logo'] );
+
+		$this->wizard_open(
+			'whitelabel',
+			__( 'Brand your login & admin — guided setup', 'infraweaver-connector' ),
+			array(
+				'action' => self::WHITE_LABEL_ACTION,
+				'nonce'  => self::WHITE_LABEL_NONCE,
+				'icon'   => 'admin-appearance',
+				'submit' => __( 'Save white-label settings', 'infraweaver-connector' ),
+				'launch' => array(
+					'heading' => __( 'Put your own brand on the login & admin', 'infraweaver-connector' ),
+					'body'    => __( 'Replace the WordPress logo and footer credit with your own on the login screen and dashboard. A short guided walk-through gets the essentials set.', 'infraweaver-connector' ),
+					'button'  => __( 'Brand it in 3 steps', 'infraweaver-connector' ),
+				),
+				'steps'  => array(
+					array(
+						'title' => __( 'What this does', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'Your login page and dashboard footer show WordPress branding by default. This swaps in your own logo, link and credit — applied entirely on this server.', 'infraweaver-connector' ) . '</p>';
+							echo '<p>' . esc_html__( 'Nothing here is permanent: clearing a field, or losing the entitlement, restores the default WordPress chrome instantly.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+					array(
+						'title' => __( 'Your login logo', 'infraweaver-connector' ),
+						'body'  => static function () use ( $logo, $link ): void {
+							echo '<p>' . esc_html__( 'Point to your logo image and where clicking it should go. Leave blank to keep the WordPress defaults.', 'infraweaver-connector' ) . '</p>';
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_field( 'text', 'login_logo_url', __( 'Login logo URL', 'infraweaver-connector' ), $logo, '/wp-content/uploads/brand/logo.png' );
+							self::wizard_field( 'text', 'login_header_url', __( 'Logo link URL', 'infraweaver-connector' ), $link, 'https://example.com' );
+							echo '</div>';
+						},
+					),
+					array(
+						'title' => __( 'Message & footer', 'infraweaver-connector' ),
+						'body'  => static function () use ( $message, $footer, $hide ): void {
+							echo '<p>' . esc_html__( 'Optional finishing touches. All of these can be changed later on this page.', 'infraweaver-connector' ) . '</p>';
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_textarea( 'login_message', __( 'Login message', 'infraweaver-connector' ), $message, __( 'Welcome back — please sign in.', 'infraweaver-connector' ), 2 );
+							self::wizard_field( 'text', 'admin_footer_text', __( 'Admin footer credit', 'infraweaver-connector' ), $footer, get_bloginfo( 'name' ) );
+							echo '</div>';
+							self::wizard_checkbox( 'hide_wp_logo', __( 'Remove the WordPress logo from the admin bar', 'infraweaver-connector' ), $hide );
+						},
+					),
+				),
+			)
+		);
 	}
 
 	/** Render (then clear) the current user's PRG result transient. */
@@ -3224,14 +5037,14 @@ JS;
 	/** Surface → WordPress-hooks capability table (one row per registered surface). */
 	private function render_white_label_capability_table(): void {
 		$caps = $this->white_label()->capabilities();
-		echo '<table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
 		echo '<th>' . esc_html__( 'Surface', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'WordPress hooks', 'infraweaver-connector' ) . '</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $caps as $cap ) {
 			$hooks = implode( ', ', array_map( 'strval', (array) $cap['hooks'] ) );
 			echo '<tr><th scope="row">' . esc_html( (string) $cap['label'] ) . '</th><td><code>' . esc_html( $hooks ) . '</code></td></tr>';
 		}
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 	}
 
 	/** The nonce-protected white-label settings form (POST → admin-post.php). */
@@ -3296,7 +5109,7 @@ JS;
 		}
 		check_admin_referer( self::WHITE_LABEL_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'whitelabel' );
 
 		// LAYER 2: re-check the gate before touching any stored setting.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_White_Label::FEATURE );
@@ -3338,7 +5151,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_DB_Optimizer::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'Database Cleanup & Optimization', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( 'Database Cleanup & Optimization', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( 'Reclaim space by clearing expired transients, old post revisions, auto-drafts, trashed posts and comments, spam, and orphaned metadata — then optimize the core tables. Runs entirely on this server; Preview never changes anything.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
@@ -3355,7 +5168,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_db_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'Database Cleanup &amp; Optimization', 'Database Cleanup &amp; Optimization is part of the Pro plan. Turn on Pro for this site from the InfraWeaver console.' );
 			return;
 		}
 
@@ -3364,23 +5177,6 @@ JS;
 		$this->render_db_forms();
 
 		echo '<p class="description" style="margin-top:8px;">' . esc_html( sprintf( 'Each cleaner removes at most %d rows per run; run again to continue on large sites. Nothing is ever dropped, truncated, or altered.', IWSL_DB_Optimizer::MAX_ROWS ) ) . '</p>';
-	}
-
-	/** Reason lines for a locked db-optimization gate (no forms). */
-	private static function render_db_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the db-optimization-specific message (Pro tier).
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Database Optimization entitlement is not granted — assign the Pro tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Database Cleanup & Optimization is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
-		}
-		echo '</ul></div>';
 	}
 
 	/** Live, read-only per-cleaner preview counts (a dry run issued on render). */
@@ -3395,7 +5191,7 @@ JS;
 		}
 
 		$cleaners = ( isset( $summary['cleaners'] ) && is_array( $summary['cleaners'] ) ) ? $summary['cleaners'] : array();
-		echo '<table class="widefat striped" style="max-width:640px;margin-top:8px;"><thead><tr>';
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;margin-top:8px;"><thead><tr>';
 		echo '<th>' . esc_html__( 'Cleaner', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Rows to clean', 'infraweaver-connector' ) . '</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $cleaners as $row ) {
@@ -3404,7 +5200,7 @@ JS;
 			echo '<tr><th scope="row">' . esc_html( $label ) . '</th><td>' . esc_html( (string) $count ) . '</td></tr>';
 		}
 		echo '<tr><th scope="row"><strong>' . esc_html__( 'Total', 'infraweaver-connector' ) . '</strong></th><td><strong>' . esc_html( (string) (int) ( $summary['total'] ?? 0 ) ) . '</strong></td></tr>';
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 	}
 
 	/** The Preview (re-scan) form + the confirmed Clean-now form (both nonce-protected). */
@@ -3475,13 +5271,13 @@ JS;
 
 		$cleaners = ( isset( $summary['cleaners'] ) && is_array( $summary['cleaners'] ) ) ? $summary['cleaners'] : array();
 		if ( array() !== $cleaners ) {
-			echo '<table class="widefat striped" style="max-width:600px;"><thead><tr><th>' . esc_html__( 'Cleaner', 'infraweaver-connector' ) . '</th><th>' . $col . '</th></tr></thead><tbody>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:600px;"><thead><tr><th>' . esc_html__( 'Cleaner', 'infraweaver-connector' ) . '</th><th>' . $col . '</th></tr></thead><tbody>';
 			foreach ( $cleaners as $row ) {
 				$label = isset( $row['label'] ) ? (string) $row['label'] : '';
 				$value = ( 'run' === $mode ) ? (int) ( $row['deleted'] ?? 0 ) : (int) ( $row['count'] ?? 0 );
 				echo '<tr><td>' . esc_html( $label ) . '</td><td>' . esc_html( (string) $value ) . '</td></tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 		self::toast_close();
 	}
@@ -3500,7 +5296,7 @@ JS;
 		}
 		check_admin_referer( self::DB_OPTIMIZE_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'database' );
 
 		// LAYER 2: re-check the gate before touching the database.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_DB_Optimizer::FEATURE );
@@ -3541,7 +5337,7 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'Page Cache', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( 'Page Cache', 'infraweaver-connector' ) . '</h3>';
 		echo '<p>' . esc_html__( 'Serve a static HTML copy of public pages to anonymous visitors — faster loads with no external service. Logged-in users, password-protected posts and carts always bypass the cache, and content changes purge it automatically.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from a handler after a locked POST (layer-2 defence tripped).
@@ -3552,29 +5348,12 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_page_cache_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'Page Cache', 'Page Cache is part of the Pro plan. Turn on Pro for this site from the InfraWeaver console.' );
 			return;
 		}
 
 		$this->render_page_cache_result_notice();
 		$this->render_page_cache_status_and_controls();
-	}
-
-	/** Reason lines for a locked page-cache gate (no controls). */
-	private static function render_page_cache_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the page-cache-specific message (Pro tier).
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Page Cache entitlement is not granted — assign the Pro tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Page Cache is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
-		}
-		echo '</ul></div>';
 	}
 
 	/** Render (then clear) the current user's PRG result transient. */
@@ -3659,7 +5438,7 @@ JS;
 
 		// Diagnostic status + freshness (TTL) — secondary detail.
 		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
-		echo '<table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
 		echo '<th>' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Value', 'infraweaver-connector' ) . '</th></tr></thead><tbody>';
 		self::render_page_cache_status_row( esc_html__( 'Cache active', 'infraweaver-connector' ), $enabled );
 		self::render_page_cache_status_row( esc_html__( 'Drop-in installed', 'infraweaver-connector' ), ! empty( $status['dropin_present'] ) && ! empty( $status['dropin_is_ours'] ) );
@@ -3668,7 +5447,7 @@ JS;
 		echo '<tr><th scope="row">' . esc_html__( 'Cached pages', 'infraweaver-connector' ) . '</th><td>' . esc_html( (string) (int) $status['entries'] ) . '</td></tr>';
 		echo '<tr><th scope="row">' . esc_html__( 'Cache size', 'infraweaver-connector' ) . '</th><td>' . esc_html( self::format_bytes( (int) $status['total_bytes'] ) ) . '</td></tr>';
 		echo '<tr><th scope="row">' . esc_html__( 'Freshness (TTL)', 'infraweaver-connector' ) . '</th><td>' . esc_html( sprintf( '%d seconds', (int) $status['ttl'] ) ) . '</td></tr>';
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 		echo '<p class="description" style="margin-top:8px;">' . esc_html__( 'Only anonymous visitors are served cached pages; logged-in users and carts always bypass. Content changes purge the cache automatically.', 'infraweaver-connector' ) . '</p>';
 		echo '</div></details>';
 	}
@@ -3693,7 +5472,7 @@ JS;
 		}
 		check_admin_referer( self::PAGE_CACHE_TOGGLE_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'cache' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -3738,7 +5517,7 @@ JS;
 		}
 		check_admin_referer( self::PAGE_CACHE_PURGE_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'cache' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -3779,6 +5558,504 @@ JS;
 		( new IWSL_Perf_Audit( new IWSL_WP_Store() ) )->render_section();
 	}
 
+	/**
+	 * The Cookie Consent panel: a guided 1-minute setup wizard layered on top of the
+	 * full manual form. A locked site shows the calm placeholder. Otherwise: a
+	 * per-user PRG result toast, then either a prominent "set up in 1 minute" call to
+	 * action (fresh install) or a compact "your banner is on" bar with a live preview
+	 * link + a "re-run guided setup" button — and ALWAYS the engine's own manual
+	 * settings form + consent log below, so nothing is hidden behind the wizard. The
+	 * wizard is a self-contained <dialog> (inline CSS/JS, no external asset) that
+	 * POSTs exactly once to the gated handle_cookie_wizard() PRG.
+	 */
+	private function render_consent_section( bool $unlocked ): void {
+		if ( ! $unlocked ) {
+			self::render_locked_panel( 'Cookie Consent' );
+			return;
+		}
+		$cc = new IWSL_Cookie_Consent( $this->plugin->entitlements(), new IWSL_WP_Store() );
+
+		$this->render_consent_wizard_toast();
+
+		if ( ! $cc->is_configured() ) {
+			echo '<div class="iwsl-cw-cta">';
+			echo '<div class="iwsl-cw-cta__text">';
+			echo '<h3>' . esc_html__( 'Set up your cookie banner in 1 minute', 'infraweaver-connector' ) . '</h3>';
+			echo '<p>' . esc_html__( 'A short guided walk-through turns on a privacy-safe cookie banner that pauses trackers until visitors agree. You can fine-tune everything afterwards.', 'infraweaver-connector' ) . '</p>';
+			echo '</div>';
+			echo '<button type="button" class="button button-primary" data-cw-open="1"><span class="dashicons dashicons-shield" aria-hidden="true"></span>' . esc_html__( 'Start guided setup', 'infraweaver-connector' ) . '</button>';
+			echo '</div>';
+		} else {
+			echo '<div class="iwsl-cw-bar">';
+			echo '<span class="iwsl-cw-bar__on"><span class="dashicons dashicons-yes-alt" aria-hidden="true"></span>' . esc_html__( 'Your cookie banner is on.', 'infraweaver-connector' ) . '</span>';
+			echo '<a class="button button-secondary" href="' . esc_url( $cc->preview_url() ) . '" target="_blank" rel="noopener noreferrer"><span class="dashicons dashicons-visibility" aria-hidden="true"></span>' . esc_html__( 'Preview banner', 'infraweaver-connector' ) . '</a>';
+			echo '<button type="button" class="button button-secondary" data-cw-open="1"><span class="dashicons dashicons-update" aria-hidden="true"></span>' . esc_html__( 'Re-run guided setup', 'infraweaver-connector' ) . '</button>';
+			echo '</div>';
+			echo '<p class="description" style="margin:8px 0 0;">' . esc_html__( 'You are logged in, so you won’t see the banner normally — open the preview to view it as a brand-new visitor.', 'infraweaver-connector' ) . '</p>';
+		}
+
+		$this->render_consent_wizard_modal( $cc );
+
+		$cc->render_section();
+	}
+
+	/** The Cookie Consent wizard's one-shot PRG result toast (per-user transient). */
+	private function render_consent_wizard_toast(): void {
+		if ( ! function_exists( 'get_transient' ) || ! function_exists( 'get_current_user_id' ) ) {
+			return;
+		}
+		$key = self::CONSENT_WIZARD_RESULT . get_current_user_id();
+		$r   = get_transient( $key );
+		if ( function_exists( 'delete_transient' ) ) {
+			delete_transient( $key );
+		}
+		if ( ! is_array( $r ) ) {
+			return;
+		}
+		if ( ! empty( $r['ok'] ) ) {
+			self::toast_open( 'success' );
+			echo '<p>' . esc_html__( 'Cookie banner is live — visitors will now see it.', 'infraweaver-connector' ) . '</p>';
+			self::toast_close();
+			return;
+		}
+		$reason = (string) ( $r['reason'] ?? 'unknown' );
+		if ( 'entitlement-locked' === $reason ) {
+			$err = esc_html__( 'Cookie Consent is not unlocked on this site’s plan. Upgrade from the InfraWeaver console to use it.', 'infraweaver-connector' );
+		} else {
+			$err = esc_html( sprintf(
+				/* translators: %s is a short machine reason code. */
+				__( 'Could not turn on the cookie banner: %s', 'infraweaver-connector' ),
+				$reason
+			) );
+		}
+		self::toast_open( 'error' );
+		echo '<p>' . $err . '</p>';
+		self::toast_close();
+	}
+
+	/**
+	 * The guided-setup <dialog>: five plain-English steps (Welcome → what happens
+	 * automatically → recommended setup → optional look-and-feel → turn it on),
+	 * paged with Next/Back. One POST form to the gated handle_cookie_wizard() — the
+	 * ONLY write. A native <dialog> gives Esc-to-close + focus containment for free;
+	 * the paging is a small scoped IIFE. Self-contained: no external asset.
+	 */
+	private function render_consent_wizard_modal( IWSL_Cookie_Consent $cc ): void {
+		$rec = $cc->recommended_defaults();
+
+		self::render_consent_wizard_styles();
+
+		echo '<dialog class="iwsl-cw" id="iwsl-cw-dialog" aria-labelledby="iwsl-cw-title">';
+		echo '<form class="iwsl-cw__inner" method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( self::CONSENT_WIZARD_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::CONSENT_WIZARD_ACTION ) . '">';
+
+		echo '<div class="iwsl-cw__head">';
+		echo '<span class="iwsl-cw__mark" aria-hidden="true"><span class="dashicons dashicons-shield"></span></span>';
+		echo '<h2 class="iwsl-cw__title" id="iwsl-cw-title">' . esc_html__( 'Cookie banner — guided setup', 'infraweaver-connector' ) . '</h2>';
+		echo '<button type="button" class="iwsl-cw__x" data-cw-close="1" aria-label="' . esc_attr__( 'Close', 'infraweaver-connector' ) . '">&times;</button>';
+		echo '</div>';
+		echo '<p class="iwsl-cw__progress" data-cw-tpl="' . esc_attr__( 'Step {n} of {t}', 'infraweaver-connector' ) . '" aria-hidden="true"></p>';
+
+		echo '<div class="iwsl-cw__steps">';
+
+		// Step 1 — Welcome.
+		echo '<section class="iwsl-cw__step" data-step="1" aria-label="' . esc_attr__( 'Welcome', 'infraweaver-connector' ) . '">';
+		echo '<h3>' . esc_html__( 'Welcome', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'This turns on a cookie banner that pauses trackers until visitors agree. Nothing changes until the final step.', 'infraweaver-connector' ) . '</p>';
+		echo '</section>';
+
+		// Step 2 — What happens automatically.
+		echo '<section class="iwsl-cw__step" data-step="2" aria-label="' . esc_attr__( 'What happens automatically', 'infraweaver-connector' ) . '">';
+		echo '<h3>' . esc_html__( 'What happens automatically', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'Common tools (Google Analytics, Facebook Pixel, and the like) are detected and paused until a visitor consents — you don’t configure each one.', 'infraweaver-connector' ) . '</p>';
+		echo '</section>';
+
+		// Step 3 — Recommended setup (read-only summary of recommended_defaults()).
+		$model_val    = isset( $rec['default_model'] ) ? (string) $rec['default_model'] : 'opt-in';
+		$model_human  = 'opt-in' === $model_val ? __( 'Ask first (opt-in)', 'infraweaver-connector' ) : ucfirst( $model_val );
+		$cmode_human  = ! empty( $rec['consent_mode'] ) ? __( 'On', 'infraweaver-connector' ) : __( 'Off', 'infraweaver-connector' );
+		$us_human     = ! empty( $rec['respect_gpc'] )
+			? __( '“Do Not Sell or Share” + Global Privacy Control honored', 'infraweaver-connector' )
+			: __( 'Opt-out (on by default)', 'infraweaver-connector' );
+		$cat_labels   = array(
+			'preferences' => __( 'Preferences', 'infraweaver-connector' ),
+			'statistics'  => __( 'Statistics', 'infraweaver-connector' ),
+			'marketing'   => __( 'Marketing', 'infraweaver-connector' ),
+		);
+		$cats = array();
+		foreach ( $cat_labels as $ckey => $clabel ) {
+			if ( ! isset( $rec['categories'] ) || ! is_array( $rec['categories'] ) || ! empty( $rec['categories'][ $ckey ] ) ) {
+				$cats[] = $clabel;
+			}
+		}
+		$cats_human = empty( $cats ) ? __( 'Necessary only', 'infraweaver-connector' ) : implode( ', ', $cats );
+		$facts = array(
+			array( __( 'EU & UK visitors', 'infraweaver-connector' ), __( 'Asked before any tracker runs', 'infraweaver-connector' ) ),
+			array( __( 'US visitors', 'infraweaver-connector' ), $us_human ),
+			array( __( 'Default consent model', 'infraweaver-connector' ), $model_human ),
+			array( __( 'Google Consent Mode v2', 'infraweaver-connector' ), $cmode_human ),
+			array( __( 'Cookie categories offered', 'infraweaver-connector' ), $cats_human ),
+		);
+		echo '<section class="iwsl-cw__step" data-step="3" aria-label="' . esc_attr__( 'Recommended setup', 'infraweaver-connector' ) . '">';
+		echo '<h3>' . esc_html__( 'Recommended setup', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'These privacy-safe defaults will be applied. You can change any of them later on this page.', 'infraweaver-connector' ) . '</p>';
+		echo '<ul class="iwsl-cw__facts">';
+		foreach ( $facts as $fact ) {
+			echo '<li><span class="iwsl-cw__fact-k">' . esc_html( (string) $fact[0] ) . '</span><span class="iwsl-cw__fact-v">' . esc_html( (string) $fact[1] ) . '</span></li>';
+		}
+		echo '</ul>';
+		echo '</section>';
+
+		// Step 4 — Make it yours (all optional; blank uses the built-in defaults).
+		echo '<section class="iwsl-cw__step" data-step="4" aria-label="' . esc_attr__( 'Make it yours', 'infraweaver-connector' ) . '">';
+		echo '<h3>' . esc_html__( 'Make it yours (optional)', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'Leave anything blank to use the sensible defaults — you can change all of this later.', 'infraweaver-connector' ) . '</p>';
+		echo '<div class="iwsl-cw__fields">';
+		echo '<label class="iwsl-cw__field"><span>' . esc_html__( 'Accent color', 'infraweaver-connector' ) . '</span>';
+		echo '<input type="text" name="accent" value="" placeholder="#2a6df0" pattern="#?[0-9A-Fa-f]{6}" autocomplete="off"></label>';
+		echo '<label class="iwsl-cw__field"><span>' . esc_html__( 'Banner shape', 'infraweaver-connector' ) . '</span>';
+		echo '<select name="banner_layout"><option value="bar">' . esc_html__( 'Bar across the bottom', 'infraweaver-connector' ) . '</option><option value="box">' . esc_html__( 'Floating box in a corner', 'infraweaver-connector' ) . '</option><option value="center">' . esc_html__( 'Center popup (blurs the page)', 'infraweaver-connector' ) . '</option></select></label>';
+		echo '<label class="iwsl-cw__field"><span>' . esc_html__( 'Privacy-policy link', 'infraweaver-connector' ) . '</span>';
+		echo '<input type="url" name="policy_url" value="" placeholder="https://example.com/privacy" autocomplete="off"></label>';
+		echo '<label class="iwsl-cw__field"><span>' . esc_html__( 'Banner title', 'infraweaver-connector' ) . '</span>';
+		echo '<input type="text" name="title" value="" placeholder="' . esc_attr__( 'We value your privacy', 'infraweaver-connector' ) . '" autocomplete="off"></label>';
+		echo '<label class="iwsl-cw__field iwsl-cw__field--wide"><span>' . esc_html__( 'Banner message', 'infraweaver-connector' ) . '</span>';
+		echo '<textarea name="message" rows="3" placeholder="' . esc_attr__( 'We use cookies to improve your experience, analyze traffic and for marketing.', 'infraweaver-connector' ) . '"></textarea></label>';
+		echo '</div>';
+		echo '</section>';
+
+		// Step 5 — Turn it on (the submit; the only write).
+		echo '<section class="iwsl-cw__step" data-step="5" aria-label="' . esc_attr__( 'Turn it on', 'infraweaver-connector' ) . '">';
+		echo '<h3>' . esc_html__( 'Turn it on', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'Ready. This applies the settings above and shows the banner to visitors right away.', 'infraweaver-connector' ) . '</p>';
+		echo '<p class="iwsl-cw__note">' . esc_html__( 'You are logged in, so you won’t see the banner yourself — use the preview link afterwards to view it as a new visitor would.', 'infraweaver-connector' ) . '</p>';
+		echo '<button type="submit" class="button button-primary iwsl-cw__go"><span class="dashicons dashicons-shield" aria-hidden="true"></span>' . esc_html__( 'Turn on my cookie banner', 'infraweaver-connector' ) . '</button>';
+		echo '</section>';
+
+		echo '</div>'; // .iwsl-cw__steps
+
+		echo '<div class="iwsl-cw__nav">';
+		echo '<button type="button" class="button button-secondary" data-cw-back="1">' . esc_html__( 'Back', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="button" class="button button-primary" data-cw-next="1">' . esc_html__( 'Next', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+
+		echo '</form>';
+		echo '</dialog>';
+
+		self::render_consent_wizard_script();
+	}
+
+	/** Scoped styles for the Cookie Consent CTA / bar / guided-setup dialog. Reuses the shell --iw-* tokens. */
+	private static function render_consent_wizard_styles(): void {
+		echo "<style>\n";
+		echo <<<'CSS'
+.iwsl-shell .iwsl-cw-cta{ display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 18px 20px; margin: 0 0 16px; border: 1px solid color-mix(in oklch, var(--iw-signal) 34%, var(--iw-line-2)); border-radius: 14px; background: color-mix(in oklch, var(--iw-signal) 8%, var(--iw-panel)); }
+.iwsl-shell .iwsl-cw-cta__text{ flex: 1 1 300px; }
+.iwsl-shell .iwsl-cw-cta__text h3{ margin: 0 0 4px; text-transform: none; letter-spacing: 0; }
+.iwsl-shell .iwsl-cw-cta__text h3::before{ display: none; }
+.iwsl-shell .iwsl-cw-cta__text p{ margin: 0; }
+.iwsl-shell .iwsl-cw-bar{ display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 4px; }
+.iwsl-shell .iwsl-cw-bar__on{ display: inline-flex; align-items: center; gap: 7px; margin-right: auto; font-weight: 600; color: var(--iw-good); }
+.iwsl-shell .iwsl-cw-bar__on .dashicons{ font-size: 18px; width: 18px; height: 18px; }
+
+.iwsl-shell .iwsl-cw{ width: min(560px, calc(100vw - 32px)); max-width: 560px; max-height: calc(100vh - 48px); overflow: auto; padding: 0; color: var(--iw-ink); background: var(--iw-panel); border: 1px solid var(--iw-line-2); border-radius: 16px; box-shadow: 0 40px 90px -30px rgba(0,0,0,.85); }
+.iwsl-shell .iwsl-cw::backdrop{ background: rgba(4,7,11,.62); backdrop-filter: blur(2px); }
+.iwsl-shell .iwsl-cw__inner{ margin: 0; padding: 22px 24px 20px; }
+.iwsl-shell .iwsl-cw__head{ display: flex; align-items: center; gap: 12px; }
+.iwsl-shell .iwsl-cw__mark{ display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; color: var(--iw-signal-ink); background: linear-gradient(155deg, var(--iw-signal-2), var(--iw-signal)); flex: 0 0 auto; }
+.iwsl-shell .iwsl-cw__mark .dashicons{ font-size: 19px; width: 19px; height: 19px; }
+.iwsl-shell .iwsl-cw__title{ margin: 0; font-size: 17px; }
+.iwsl-shell .iwsl-cw__x{ margin-left: auto; padding: 2px 6px; background: none; border: 0; border-radius: 8px; color: var(--iw-faint); font-size: 24px; line-height: 1; cursor: pointer; }
+.iwsl-shell .iwsl-cw__x:hover{ color: var(--iw-ink); background: color-mix(in oklch, white 8%, transparent); }
+.iwsl-shell .iwsl-cw__progress{ margin: 6px 0 12px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--iw-faint); }
+.iwsl-shell .iwsl-cw__steps{ min-height: 150px; }
+.iwsl-shell .iwsl-cw__step{ display: none; }
+.iwsl-shell .iwsl-cw__step.is-active{ display: block; }
+@media (prefers-reduced-motion: no-preference){ .iwsl-shell .iwsl-cw__step.is-active{ animation: iwsl-rise .28s var(--iw-ease) both; } }
+.iwsl-shell .iwsl-cw__step h3{ margin: 0 0 8px; font-size: 15px; text-transform: none; letter-spacing: 0; }
+.iwsl-shell .iwsl-cw__step h3::before{ display: none; }
+.iwsl-shell .iwsl-cw__facts{ list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--iw-line); border-radius: 12px; overflow: hidden; }
+.iwsl-shell .iwsl-cw__facts li{ display: flex; gap: 12px; justify-content: space-between; padding: 10px 14px; background: var(--iw-panel-2); }
+.iwsl-shell .iwsl-cw__fact-k{ color: var(--iw-muted); font-size: 12.5px; }
+.iwsl-shell .iwsl-cw__fact-v{ color: var(--iw-ink); font-size: 12.5px; font-weight: 600; text-align: right; }
+.iwsl-shell .iwsl-cw__fields{ display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.iwsl-shell .iwsl-cw__field{ display: flex; flex-direction: column; gap: 5px; }
+.iwsl-shell .iwsl-cw__field > span{ font-size: 12.5px; color: var(--iw-muted); }
+.iwsl-shell .iwsl-cw__note{ margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; background: color-mix(in oklch, var(--iw-signal) 8%, transparent); border: 1px solid color-mix(in oklch, var(--iw-signal) 26%, var(--iw-line)); }
+.iwsl-shell .iwsl-cw__go{ margin-top: 14px; }
+.iwsl-shell .iwsl-cw__nav{ display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--iw-line); }
+CSS;
+		echo "\n</style>\n";
+	}
+
+	/** The tiny scoped pager for the Cookie Consent guided-setup dialog (open, Next/Back, Esc/backdrop close). No external asset. */
+	private static function render_consent_wizard_script(): void {
+		echo "<script>\n";
+		echo <<<'JS'
+(function(){
+	var dlg = document.getElementById('iwsl-cw-dialog');
+	if (!dlg) { return; }
+	var steps = Array.prototype.slice.call(dlg.querySelectorAll('.iwsl-cw__step'));
+	if (!steps.length) { return; }
+	var nextBtn = dlg.querySelector('[data-cw-next]');
+	var backBtn = dlg.querySelector('[data-cw-back]');
+	var prog = dlg.querySelector('.iwsl-cw__progress');
+	var tpl = prog ? (prog.getAttribute('data-cw-tpl') || 'Step {n} of {t}') : '';
+	var cur = 0;
+	function render(){
+		steps.forEach(function(s, i){ s.classList.toggle('is-active', i === cur); });
+		if (backBtn) { backBtn.style.visibility = cur === 0 ? 'hidden' : 'visible'; }
+		if (nextBtn) { nextBtn.hidden = (cur === steps.length - 1); }
+		if (prog) { prog.textContent = tpl.replace('{n}', String(cur + 1)).replace('{t}', String(steps.length)); }
+		if (cur !== 0) {
+			var f = steps[cur].querySelector('input, select, textarea, button');
+			if (f) { try { f.focus(); } catch (e) {} }
+		}
+	}
+	function go(i){ cur = Math.max(0, Math.min(steps.length - 1, i)); render(); }
+	function close(){ try { dlg.close(); } catch (e) { dlg.removeAttribute('open'); } }
+	function open(){
+		cur = 0;
+		if (typeof dlg.showModal === 'function') { try { dlg.showModal(); } catch (e) { dlg.setAttribute('open', ''); } }
+		else { dlg.setAttribute('open', ''); }
+		render();
+	}
+	Array.prototype.slice.call(document.querySelectorAll('[data-cw-open]')).forEach(function(b){
+		b.addEventListener('click', function(e){ e.preventDefault(); open(); });
+	});
+	dlg.addEventListener('click', function(e){
+		if (e.target.closest('[data-cw-next]')) { go(cur + 1); }
+		else if (e.target.closest('[data-cw-back]')) { go(cur - 1); }
+		else if (e.target.closest('[data-cw-close]')) { close(); }
+		else if (e.target === dlg) { close(); }
+	});
+	render();
+})();
+JS;
+		echo "\n</script>\n";
+	}
+
+	// ── Reusable guided-setup wizard (launcher CTA + native <dialog> stepper) ───
+	//
+	// One helper drives every feature setup wizard: a prominent launcher card plus
+	// a self-contained <dialog> whose FINAL step submits a normal POST to that
+	// feature's EXISTING admin-post save handler (reusing its action + nonce +
+	// field names — no new save endpoints). Mirrors the proven Cookie-Consent
+	// wizard: labelled dialog, Esc/backdrop close, Back/Next paging, focusable,
+	// scoped inline CSS/JS under .iwsl-shell, no external assets. Degrades without
+	// JS: the feature's full existing form is always rendered below the launcher.
+
+	/**
+	 * Render a guided-setup wizard: a launcher CTA + a stepped modal form.
+	 *
+	 * @param string $id    Unique slug (e.g. 'smtp'); scopes the dialog id + launcher.
+	 * @param string $title Dialog title (plain text).
+	 * @param array  $spec  {
+	 *     action: string  EXISTING admin-post action the final step submits to.
+	 *     nonce:  string  EXISTING nonce action for wp_nonce_field().
+	 *     submit: string  Final-step submit-button label.
+	 *     icon:   string  dashicon slug (sans the `dashicons-` prefix).
+	 *     launch: array{ heading:string, body:string, button:string }  Launcher copy.
+	 *     steps:  array<int, array{ title:string, body:callable():void }>  Ordered steps;
+	 *             each body() echoes the step's plain-English copy + any form fields.
+	 * }
+	 */
+	private function wizard_open( string $id, string $title, array $spec ): void {
+		self::render_wizard_assets();
+
+		$action = (string) ( $spec['action'] ?? '' );
+		$nonce  = (string) ( $spec['nonce'] ?? '' );
+		$submit = (string) ( $spec['submit'] ?? __( 'Finish setup', 'infraweaver-connector' ) );
+		$icon   = (string) ( $spec['icon'] ?? 'admin-generic' );
+		$launch = ( isset( $spec['launch'] ) && is_array( $spec['launch'] ) ) ? $spec['launch'] : array();
+		$steps  = ( isset( $spec['steps'] ) && is_array( $spec['steps'] ) ) ? array_values( $spec['steps'] ) : array();
+		if ( '' === $action || array() === $steps ) {
+			return; // nothing to submit to, or nothing to show — render nothing.
+		}
+		$dialog_id = 'iwsl-wz-' . $id;
+
+		// Launcher CTA — prominent; the caller only invokes this when unconfigured.
+		echo '<div class="iwsl-wz-cta">';
+		echo '<div class="iwsl-wz-cta__text">';
+		echo '<h3>' . esc_html( (string) ( $launch['heading'] ?? $title ) ) . '</h3>';
+		if ( ! empty( $launch['body'] ) ) {
+			echo '<p>' . esc_html( (string) $launch['body'] ) . '</p>';
+		}
+		echo '</div>';
+		echo '<button type="button" class="button button-primary" data-wz-open="' . esc_attr( $id ) . '"><span class="dashicons dashicons-' . esc_attr( $icon ) . '" aria-hidden="true"></span>' . esc_html( (string) ( $launch['button'] ?? __( 'Start guided setup', 'infraweaver-connector' ) ) ) . '</button>';
+		echo '</div>';
+
+		echo '<dialog class="iwsl-wz" id="' . esc_attr( $dialog_id ) . '" data-wz-dialog="' . esc_attr( $id ) . '" aria-labelledby="' . esc_attr( $dialog_id ) . '-title">';
+		echo '<form class="iwsl-wz__inner" method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( $nonce );
+		echo '<input type="hidden" name="action" value="' . esc_attr( $action ) . '">';
+
+		echo '<div class="iwsl-wz__head">';
+		echo '<span class="iwsl-wz__mark" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span></span>';
+		echo '<h2 class="iwsl-wz__title" id="' . esc_attr( $dialog_id ) . '-title">' . esc_html( $title ) . '</h2>';
+		echo '<button type="button" class="iwsl-wz__x" data-wz-close="1" aria-label="' . esc_attr__( 'Close', 'infraweaver-connector' ) . '">&times;</button>';
+		echo '</div>';
+		echo '<p class="iwsl-wz__progress" data-wz-tpl="' . esc_attr__( 'Step {n} of {t}', 'infraweaver-connector' ) . '" aria-hidden="true"></p>';
+
+		echo '<div class="iwsl-wz__steps">';
+		$last = count( $steps ) - 1;
+		foreach ( $steps as $i => $step ) {
+			$stitle = (string) ( $step['title'] ?? '' );
+			echo '<section class="iwsl-wz__step" aria-label="' . esc_attr( '' !== $stitle ? $stitle : $title ) . '">';
+			if ( '' !== $stitle ) {
+				echo '<h3>' . esc_html( $stitle ) . '</h3>';
+			}
+			$body = $step['body'] ?? null;
+			if ( is_callable( $body ) ) {
+				$body();
+			}
+			if ( $i === $last ) {
+				echo '<button type="submit" class="button button-primary iwsl-wz__go"><span class="dashicons dashicons-yes" aria-hidden="true"></span>' . esc_html( $submit ) . '</button>';
+			}
+			echo '</section>';
+		}
+		echo '</div>'; // .iwsl-wz__steps
+
+		echo '<div class="iwsl-wz__nav">';
+		echo '<button type="button" class="button button-secondary" data-wz-back="1">' . esc_html__( 'Back', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="button" class="button button-primary" data-wz-next="1">' . esc_html__( 'Next', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+
+		echo '</form>';
+		echo '</dialog>';
+	}
+
+	/** A labelled text/url/email/number field inside a wizard step. */
+	private static function wizard_field( string $type, string $name, string $label, string $value = '', string $placeholder = '', array $attrs = array() ): void {
+		echo '<label class="iwsl-wz__field"><span>' . esc_html( $label ) . '</span>';
+		echo '<input type="' . esc_attr( $type ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"';
+		if ( '' !== $placeholder ) {
+			echo ' placeholder="' . esc_attr( $placeholder ) . '"';
+		}
+		foreach ( $attrs as $k => $v ) {
+			echo ' ' . esc_attr( (string) $k ) . '="' . esc_attr( (string) $v ) . '"';
+		}
+		echo '></label>';
+	}
+
+	/** A labelled textarea field inside a wizard step. */
+	private static function wizard_textarea( string $name, string $label, string $value = '', string $placeholder = '', int $rows = 3 ): void {
+		echo '<label class="iwsl-wz__field"><span>' . esc_html( $label ) . '</span>';
+		echo '<textarea name="' . esc_attr( $name ) . '" rows="' . esc_attr( (string) $rows ) . '" class="large-text code"';
+		if ( '' !== $placeholder ) {
+			echo ' placeholder="' . esc_attr( $placeholder ) . '"';
+		}
+		echo '>' . esc_textarea( $value ) . '</textarea></label>';
+	}
+
+	/** A labelled checkbox inside a wizard step, with optional helper text. */
+	private static function wizard_checkbox( string $name, string $label, bool $checked = false, string $help = '' ): void {
+		echo '<label class="iwsl-wz__check"><input type="checkbox" name="' . esc_attr( $name ) . '" value="1"' . ( $checked ? ' checked' : '' ) . '> <span>' . esc_html( $label );
+		if ( '' !== $help ) {
+			echo '<br><span class="description">' . esc_html( $help ) . '</span>';
+		}
+		echo '</span></label>';
+	}
+
+	/** Emit the shared wizard CSS + JS exactly once per request (many wizards, one asset). */
+	private static function render_wizard_assets(): void {
+		static $done = false;
+		if ( $done ) {
+			return;
+		}
+		$done = true;
+
+		echo "<style>\n";
+		echo <<<'CSS'
+.iwsl-shell .iwsl-wz-cta{ display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 18px 20px; margin: 0 0 16px; border: 1px solid color-mix(in oklch, var(--iw-signal) 34%, var(--iw-line-2)); border-radius: 14px; background: color-mix(in oklch, var(--iw-signal) 8%, var(--iw-panel)); }
+.iwsl-shell .iwsl-wz-cta__text{ flex: 1 1 300px; }
+.iwsl-shell .iwsl-wz-cta__text h3{ margin: 0 0 4px; text-transform: none; letter-spacing: 0; }
+.iwsl-shell .iwsl-wz-cta__text h3::before{ display: none; }
+.iwsl-shell .iwsl-wz-cta__text p{ margin: 0; }
+.iwsl-shell .iwsl-wz{ width: min(580px, calc(100vw - 32px)); max-width: 580px; max-height: calc(100vh - 48px); overflow: auto; padding: 0; color: var(--iw-ink); background: var(--iw-panel); border: 1px solid var(--iw-line-2); border-radius: 16px; box-shadow: 0 40px 90px -30px rgba(0,0,0,.85); }
+.iwsl-shell .iwsl-wz::backdrop{ background: rgba(4,7,11,.62); backdrop-filter: blur(2px); }
+.iwsl-shell .iwsl-wz__inner{ margin: 0; padding: 22px 24px 20px; }
+.iwsl-shell .iwsl-wz__head{ display: flex; align-items: center; gap: 12px; }
+.iwsl-shell .iwsl-wz__mark{ display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; color: var(--iw-signal-ink); background: linear-gradient(155deg, var(--iw-signal-2), var(--iw-signal)); flex: 0 0 auto; }
+.iwsl-shell .iwsl-wz__mark .dashicons{ font-size: 19px; width: 19px; height: 19px; }
+.iwsl-shell .iwsl-wz__title{ margin: 0; font-size: 17px; }
+.iwsl-shell .iwsl-wz__x{ margin-left: auto; padding: 2px 6px; background: none; border: 0; border-radius: 8px; color: var(--iw-faint); font-size: 24px; line-height: 1; cursor: pointer; }
+.iwsl-shell .iwsl-wz__x:hover{ color: var(--iw-ink); background: color-mix(in oklch, white 8%, transparent); }
+.iwsl-shell .iwsl-wz__progress{ margin: 6px 0 12px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--iw-faint); }
+.iwsl-shell .iwsl-wz__steps{ min-height: 150px; }
+.iwsl-shell .iwsl-wz__step{ display: none; }
+.iwsl-shell .iwsl-wz__step.is-active{ display: block; }
+@media (prefers-reduced-motion: no-preference){ .iwsl-shell .iwsl-wz__step.is-active{ animation: iwsl-rise .28s var(--iw-ease) both; } }
+.iwsl-shell .iwsl-wz__step h3{ margin: 0 0 8px; font-size: 15px; text-transform: none; letter-spacing: 0; }
+.iwsl-shell .iwsl-wz__step h3::before{ display: none; }
+.iwsl-shell .iwsl-wz__step p{ margin: 0 0 10px; }
+.iwsl-shell .iwsl-wz__fields{ display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.iwsl-shell .iwsl-wz__field{ display: flex; flex-direction: column; gap: 5px; }
+.iwsl-shell .iwsl-wz__field > span{ font-size: 12.5px; color: var(--iw-muted); }
+.iwsl-shell .iwsl-wz__field input, .iwsl-shell .iwsl-wz__field select, .iwsl-shell .iwsl-wz__field textarea{ width: 100%; box-sizing: border-box; }
+.iwsl-shell .iwsl-wz__check{ display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; font-size: 13px; }
+.iwsl-shell .iwsl-wz__check .description{ color: var(--iw-muted); }
+.iwsl-shell .iwsl-wz__note{ margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; background: color-mix(in oklch, var(--iw-signal) 8%, transparent); border: 1px solid color-mix(in oklch, var(--iw-signal) 26%, var(--iw-line)); }
+.iwsl-shell .iwsl-wz__go{ margin-top: 14px; }
+.iwsl-shell .iwsl-wz__nav{ display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--iw-line); }
+CSS;
+		echo "\n</style>\n";
+
+		echo "<script>\n";
+		echo <<<'JS'
+(function(){
+	function wire(dlg){
+		var steps = Array.prototype.slice.call(dlg.querySelectorAll('.iwsl-wz__step'));
+		if (!steps.length) { return; }
+		var nextBtn = dlg.querySelector('[data-wz-next]');
+		var backBtn = dlg.querySelector('[data-wz-back]');
+		var prog = dlg.querySelector('.iwsl-wz__progress');
+		var tpl = prog ? (prog.getAttribute('data-wz-tpl') || 'Step {n} of {t}') : '';
+		var cur = 0;
+		function render(){
+			steps.forEach(function(s, i){ s.classList.toggle('is-active', i === cur); });
+			if (backBtn) { backBtn.style.visibility = cur === 0 ? 'hidden' : 'visible'; }
+			if (nextBtn) { nextBtn.hidden = (cur === steps.length - 1); }
+			if (prog) { prog.textContent = tpl.replace('{n}', String(cur + 1)).replace('{t}', String(steps.length)); }
+			if (cur !== 0) {
+				var f = steps[cur].querySelector('input, select, textarea, button');
+				if (f) { try { f.focus(); } catch (e) {} }
+			}
+		}
+		function go(i){ cur = Math.max(0, Math.min(steps.length - 1, i)); render(); }
+		function close(){ try { dlg.close(); } catch (e) { dlg.removeAttribute('open'); } }
+		dlg.__wzOpen = function(){
+			cur = 0;
+			if (typeof dlg.showModal === 'function') { try { dlg.showModal(); } catch (e) { dlg.setAttribute('open', ''); } }
+			else { dlg.setAttribute('open', ''); }
+			render();
+		};
+		dlg.addEventListener('click', function(e){
+			if (e.target.closest('[data-wz-next]')) { go(cur + 1); }
+			else if (e.target.closest('[data-wz-back]')) { go(cur - 1); }
+			else if (e.target.closest('[data-wz-close]')) { close(); }
+			else if (e.target === dlg) { close(); }
+		});
+		render();
+	}
+	var dialogs = {};
+	Array.prototype.slice.call(document.querySelectorAll('[data-wz-dialog]')).forEach(function(dlg){
+		dialogs[dlg.getAttribute('data-wz-dialog')] = dlg;
+		wire(dlg);
+	});
+	Array.prototype.slice.call(document.querySelectorAll('[data-wz-open]')).forEach(function(b){
+		b.addEventListener('click', function(e){
+			e.preventDefault();
+			var dlg = dialogs[b.getAttribute('data-wz-open')];
+			if (dlg && typeof dlg.__wzOpen === 'function') { dlg.__wzOpen(); }
+		});
+	});
+})();
+JS;
+		echo "\n</script>\n";
+	}
+
 	private function render_config_section(): void {
 		$editor  = $this->config_editor();
 		$current = $editor->current();
@@ -3793,7 +6070,13 @@ JS;
 		$php_file_bare = ( 'htaccess' === $php_mech ) ? '.htaccess' : '.user.ini';
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'Configuration', 'infraweaver-connector' ) . '</h2>';
+		echo '<h3>' . esc_html__( 'Configuration', 'infraweaver-connector' )
+			. ' <span class="iwsl-adv-badge" style="display:inline-block;margin-left:8px;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;vertical-align:middle;color:var(--iw-ink);border:1px solid color-mix(in oklch, var(--iw-warn) 55%, transparent);background:color-mix(in oklch, var(--iw-warn) 22%, transparent);">'
+			. esc_html__( 'Advanced', 'infraweaver-connector' ) . '</span></h3>';
+		echo '<p class="iwsl-adv-warn" style="display:flex;gap:7px;align-items:center;margin:6px 0 10px;font-size:13px;font-weight:600;color:var(--iw-ink);">'
+			. '<span class="dashicons dashicons-warning" aria-hidden="true" style="color:var(--iw-warn);font-size:17px;width:17px;height:17px;flex:0 0 auto;"></span>'
+			. esc_html__( 'Advanced — changing these can take your site offline. Only edit if you know what you\'re doing.', 'infraweaver-connector' )
+			. '</p>';
 		echo '<p>' . esc_html(
 			sprintf(
 				/* translators: %s: the per-directory PHP-limits file for the running server, e.g. ".htaccess (Apache mod_php)". */
@@ -4038,12 +6321,12 @@ JS;
 
 		echo '<div class="iwsl-toast__block">';
 		echo '<p class="iwsl-toast__sub" style="margin-top:0;"><strong>' . esc_html__( 'PHP limits — configured vs. effective', 'infraweaver-connector' ) . '</strong></p>';
-		echo '<table class="widefat striped"><thead><tr>'
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped"><thead><tr>'
 			. '<th>' . esc_html__( 'Setting', 'infraweaver-connector' ) . '</th>'
 			. '<th>' . esc_html__( 'Configured', 'infraweaver-connector' ) . '</th>'
 			. '<th>' . esc_html__( 'Effective now', 'infraweaver-connector' ) . '</th>'
 			. '<th>' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th>'
-			. '</tr></thead><tbody>' . $rows . '</tbody></table>';
+			. '</tr></thead><tbody>' . $rows . '</tbody></table></div>';
 		echo '<p class="iwsl-toast__sub" style="margin-bottom:0;">' . $note . '</p>';
 		echo '</div>';
 	}
@@ -4062,7 +6345,7 @@ JS;
 		}
 		check_admin_referer( self::CONFIG_SAVE_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		$redirect = self::iwsl_plus_return_url( 'config' );
 
 		$input = array();
 		foreach ( IWSL_Config_Editor::allowlist() as $key => $spec ) {
