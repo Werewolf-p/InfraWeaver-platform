@@ -67,6 +67,14 @@ final class IWSL_Media_Protection {
 	/** Per-user PRG result transient prefix (append the user id). */
 	const RESULT_PREFIX = 'iwsl_mediaprotect_result_';
 
+	/** admin-post action + nonce for the bulk "Protect all images" button. */
+	const MARK_ALL_ACTION = 'iwsl_media_protection_mark_all';
+	const MARK_ALL_NONCE  = 'iwsl_media_protection_mark_all';
+	/** Per-user PRG result transient prefix for the bulk mark/unmark action. */
+	const BULK_RESULT_PREFIX = 'iwsl_mediaprotect_bulk_';
+	/** Upper bound on images touched by one bulk mark/unmark run. */
+	const BULK_MARK_MAX = 5000;
+
 	/** 1×1 transparent GIF — what a naive "Save image as…" on the overlay gets. */
 	const BLANK_GIF = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
@@ -645,6 +653,59 @@ final class IWSL_Media_Protection {
 	}
 
 	/**
+	 * Bulk-mark (or clear the mark on) EVERY image attachment at once — the
+	 * "Protect all images" button. Mark them all, then untick the few you want to
+	 * allow. Bounded by BULK_MARK_MAX per run (re-run to continue a huge library);
+	 * idempotent — re-marking an already-marked image is a no-op. Gate-checked as
+	 * statement 1. Returns a summary; a refusal outside WordPress or when locked.
+	 *
+	 * @param bool $protect true = mark all protected, false = clear all marks.
+	 * @return array{ ok:bool, mode?:string, changed?:int, capped?:bool, reason?:string }
+	 */
+	public function bulk_mark_all( bool $protect, int $limit = self::BULK_MARK_MAX ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'reason' => 'entitlement-locked', 'changed' => 0 );
+		}
+		if ( ! function_exists( 'get_posts' ) || ! function_exists( 'update_post_meta' ) ) {
+			return array( 'ok' => false, 'reason' => 'no-wp', 'changed' => 0 );
+		}
+		$limit = max( 1, min( self::BULK_MARK_MAX, $limit ) );
+		$ids   = get_posts(
+			array(
+				'post_type'        => 'attachment',
+				'post_status'      => 'inherit',
+				'post_mime_type'   => 'image',
+				'fields'           => 'ids',
+				'posts_per_page'   => $limit + 1, // +1 so we can detect an over-cap library.
+				'orderby'          => 'ID',
+				'order'            => 'ASC',
+				'suppress_filters' => true,
+			)
+		);
+		$ids    = is_array( $ids ) ? array_map( 'intval', $ids ) : array();
+		$capped = count( $ids ) > $limit;
+		if ( $capped ) {
+			$ids = array_slice( $ids, 0, $limit );
+		}
+		$changed = 0;
+		foreach ( $ids as $id ) {
+			if ( $protect ) {
+				update_post_meta( $id, self::META_KEY, '1' );
+			} elseif ( function_exists( 'delete_post_meta' ) ) {
+				delete_post_meta( $id, self::META_KEY );
+			}
+			++$changed;
+		}
+		return array(
+			'ok'      => true,
+			'mode'    => $protect ? 'protect' : 'unprotect',
+			'changed' => $changed,
+			'capped'  => $capped,
+		);
+	}
+
+	/**
 	 * Render the admin section: a locked notice listing the gate reasons when the
 	 * feature is locked, otherwise the global toggle, how to mark an image, the
 	 * current protected count, and the honest "deterrent, not DRM" note.
@@ -679,6 +740,33 @@ final class IWSL_Media_Protection {
 				. esc_html( sprintf( __( 'Images currently marked protected: %d.', 'infraweaver-connector' ), $count ) )
 				. '</p>';
 		}
+
+		// Bulk "Protect all images" result line (PRG).
+		if ( function_exists( 'get_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			$bulk = get_transient( self::BULK_RESULT_PREFIX . get_current_user_id() );
+			if ( is_array( $bulk ) && ! empty( $bulk['ok'] ) ) {
+				delete_transient( self::BULK_RESULT_PREFIX . get_current_user_id() );
+				$n   = (int) ( $bulk['changed'] ?? 0 );
+				$msg = ( 'unprotect' === ( $bulk['mode'] ?? '' ) )
+					? sprintf( _n( 'Cleared protection on %d image.', 'Cleared protection on %d images.', $n, 'infraweaver-connector' ), $n )
+					: sprintf( _n( 'Marked %d image as protected.', 'Marked %d images as protected.', $n, 'infraweaver-connector' ), $n );
+				if ( ! empty( $bulk['capped'] ) ) {
+					$msg .= ' ' . sprintf( __( '(Stopped at %d this run — click again to continue.)', 'infraweaver-connector' ), (int) self::BULK_MARK_MAX );
+				}
+				echo '<div class="notice notice-success inline" style="margin-top:12px;padding:12px;max-width:640px;"><p>' . esc_html( $msg ) . '</p></div>';
+			}
+		}
+
+		// One-click bulk mark: protect every image, then untick the exceptions.
+		echo '<form method="post" action="' . esc_url( $action ) . '" style="margin-top:12px;max-width:640px;">';
+		if ( function_exists( 'wp_nonce_field' ) ) {
+			wp_nonce_field( self::MARK_ALL_NONCE );
+		}
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::MARK_ALL_ACTION ) . '">';
+		echo '<button type="submit" name="mode" value="protect" class="button button-secondary">' . esc_html__( 'Protect all images', 'infraweaver-connector' ) . '</button> ';
+		echo '<button type="submit" name="mode" value="unprotect" class="button">' . esc_html__( 'Unprotect all images', 'infraweaver-connector' ) . '</button>';
+		echo '<p class="description">' . esc_html__( 'Marks (or clears) every image at once. After protecting all, untick the ones you want to allow in Media → Library. Tip: turn OFF “Protect every image on the site” above so your per-image choices take effect.', 'infraweaver-connector' ) . '</p>';
+		echo '</form>';
 
 		echo '<div class="notice notice-info inline" style="margin-top:12px;padding:12px;max-width:640px;"><p>'
 			. esc_html__( 'Honest note: this is a deterrent, not DRM. It stops the casual right-click / long-press “Save image as…”, but the image still loads in the visitor’s browser, so a determined visitor can screenshot the page or fetch the file directly. Do not rely on it for images that must stay secret.', 'infraweaver-connector' )

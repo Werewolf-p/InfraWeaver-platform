@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.11.9
+ * Version: 0.11.10
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.11.9' );
+define( 'IWSL_CONNECTOR_VERSION', '0.11.10' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -242,6 +242,19 @@ if ( $iwsl_switches->is_on( IWSL_Media_Protection::FEATURE ) ) {
 		$result = $iwsl_media_protection->update_settings( $_POST );
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( IWSL_Media_Protection::RESULT_PREFIX . get_current_user_id(), $result, 60 );
+		}
+		wp_safe_redirect( $iwsl_plus_redirect( 'media-protect' ) );
+		exit;
+	} );
+	add_action( 'admin_post_' . IWSL_Media_Protection::MARK_ALL_ACTION, static function () use ( $iwsl_media_protection, $iwsl_plus_redirect ): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
+		}
+		check_admin_referer( IWSL_Media_Protection::MARK_ALL_NONCE );
+		$protect = ! ( isset( $_POST['mode'] ) && 'unprotect' === $_POST['mode'] );
+		$result  = $iwsl_media_protection->bulk_mark_all( $protect );
+		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
+			set_transient( IWSL_Media_Protection::BULK_RESULT_PREFIX . get_current_user_id(), $result, 60 );
 		}
 		wp_safe_redirect( $iwsl_plus_redirect( 'media-protect' ) );
 		exit;
