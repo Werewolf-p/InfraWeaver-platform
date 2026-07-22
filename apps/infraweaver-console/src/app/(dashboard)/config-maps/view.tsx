@@ -107,8 +107,8 @@ export function ConfigMapsView() {
         <PageScaffold icon={FileText} title="Config Maps" description="Cluster-wide ConfigMap editor for platform operators.">
           <EmptyState
             icon={ShieldAlert}
-            title="Cluster admin permission required"
-            description="This editor requires cluster:admin because the current RBAC model does not define infra:write."
+            title="You need edit access for this"
+            description="Editing cluster ConfigMaps is restricted to platform admins. Ask an admin to grant you access if you need to make changes here."
           />
         </PageScaffold>
       </SingleClusterGuard>

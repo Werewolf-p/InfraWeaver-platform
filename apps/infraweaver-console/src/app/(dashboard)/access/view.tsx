@@ -196,7 +196,9 @@ function PimTab({ canManage }: { canManage: boolean }) {
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
           <Zap className="h-4 w-4 text-amber-500" /> Roles You Can Activate
         </h3>
-        {eligible.length === 0 ? (
+        {eligibilityQuery.isLoading ? (
+          <p className="rounded-xl border border-dashed border-gray-200 dark:border-white/10 p-4 text-sm text-gray-400">Loading…</p>
+        ) : eligible.length === 0 ? (
           <p className="rounded-xl border border-dashed border-gray-200 dark:border-white/10 p-4 text-sm text-gray-500">
             You are not currently eligible for any privileged roles.
             {canManage ? " Grant eligibility in the Eligibility section below." : ""}
@@ -399,7 +401,9 @@ function GroupsTab({ canManage }: { canManage: boolean }) {
         </button>
       )}
       {creating && <GroupEditor onClose={() => setCreating(false)} onSaved={() => { setCreating(false); refresh(); }} />}
-      {groups.length === 0 ? (
+      {groupsQuery.isLoading ? (
+        <p className="text-sm text-gray-400">Loading…</p>
+      ) : groups.length === 0 ? (
         <p className="text-sm text-gray-500">No custom groups yet.</p>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
@@ -537,7 +541,9 @@ function AssignmentsTab({ canManage }: { canManage: boolean }) {
   return (
     <div className="space-y-4">
       {canManage && <AssignmentEditor groups={groupsQuery.data?.groups ?? []} onSaved={refresh} />}
-      {assignments.length === 0 ? (
+      {query.isLoading ? (
+        <p className="text-sm text-gray-400">Loading…</p>
+      ) : assignments.length === 0 ? (
         <p className="text-sm text-gray-500">No resource assignments yet.</p>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-white/10">
