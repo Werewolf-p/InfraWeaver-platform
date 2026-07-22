@@ -778,10 +778,6 @@ export function UsersView() {
         <div className="absolute inset-0 page-gradient-users pointer-events-none" />
         <div className="relative flex items-center justify-between p-5">
           <div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              <Users className="w-5 h-5 text-purple-400" />
-              User Management
-            </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
               {users.length} user{users.length !== 1 ? "s" : ""} · RBAC-managed platform access
             </p>

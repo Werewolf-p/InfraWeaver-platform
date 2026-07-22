@@ -1,7 +1,7 @@
 "use client";
 import { motion } from "framer-motion";
 import { useMemo, useState } from "react";
-import { CheckCircle2, GitBranch, Layers, Minus, Plus, PencilLine } from "lucide-react";
+import { CheckCircle2, Layers, Minus, Plus, PencilLine } from "lucide-react";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { DataError } from "@/components/ui/data-error";
 import { PageHeader } from "@/components/ui/page-header";
@@ -252,14 +252,7 @@ export default function DeploymentComparePage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Layers} title="Deployment Compare" />
-      <div>
-        <h2 className="flex items-center gap-2 text-xl font-bold text-gray-900 dark:text-white">
-          <GitBranch className="h-5 w-5 text-slate-500 dark:text-slate-400" />
-          Deployment Comparison
-        </h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Compare two deployments field-by-field and highlight what changed</p>
-      </div>
+      <PageHeader icon={Layers} title="Deployment Compare" description="Compare two deployments field-by-field and highlight what changed" />
 
       <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4 backdrop-blur-sm">
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">

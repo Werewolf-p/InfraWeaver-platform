@@ -85,14 +85,7 @@ export default function GitopsDiffPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={GitBranch} title="GitOps Diff" />
-      <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><GitBranch className="w-5 h-5 text-slate-500 dark:text-slate-400" />GitOps Diff Viewer</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Live vs desired state per ArgoCD application
-          {outOfSyncCount > 0 ? <span className="ml-1 text-amber-600 dark:text-amber-400">· {outOfSyncCount} out of sync</span> : null}
-        </p>
-      </div>
+      <PageHeader icon={GitBranch} title="GitOps Diff" description={`Live vs desired state per ArgoCD application${outOfSyncCount > 0 ? ` · ${outOfSyncCount} out of sync` : ""}`} />
 
       <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4">
         <label htmlFor="gitops-app-picker" className="text-xs text-slate-500 dark:text-slate-400 mb-2 block">Select Application <span className="text-slate-400 dark:text-slate-500">(drifted apps listed first)</span></label>

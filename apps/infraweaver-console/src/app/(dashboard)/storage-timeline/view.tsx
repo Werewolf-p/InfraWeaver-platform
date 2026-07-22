@@ -60,11 +60,7 @@ export function StorageTimelineView() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={HardDrive} title="Storage Timeline" />
-      <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><HardDrive className="w-5 h-5 text-slate-500 dark:text-slate-400" />Storage Timeline</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Longhorn volume usage overview — most-full volumes first</p>
-      </div>
+      <PageHeader icon={HardDrive} title="Storage Timeline" description="Longhorn volume usage overview — most-full volumes first" />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { label: "Total Capacity", value: `${totalGi.toFixed(1)} GiB`, color: "text-gray-900 dark:text-white" },

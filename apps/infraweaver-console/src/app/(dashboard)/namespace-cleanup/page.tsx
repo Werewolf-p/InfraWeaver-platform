@@ -102,17 +102,17 @@ export default function NamespaceCleanupPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Trash2} title="Namespace Cleanup" />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Namespace Cleanup</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Identify namespaces with failed/stale pods</p>
-        </div>
-        <button onClick={handlePreview} disabled={loading || !canManageNamespaces} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-sm text-red-500 dark:text-red-300 hover:bg-red-500/30 transition-colors disabled:opacity-50">
-          <Trash2 className="w-4 h-4" />
-          {loading ? "Loading..." : "Preview Cleanup"}
-        </button>
-      </div>
+      <PageHeader
+        icon={Trash2}
+        title="Namespace Cleanup"
+        description="Identify namespaces with failed/stale pods"
+        actions={
+          <button onClick={handlePreview} disabled={loading || !canManageNamespaces} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-sm text-red-500 dark:text-red-300 hover:bg-red-500/30 transition-colors disabled:opacity-50">
+            <Trash2 className="w-4 h-4" />
+            {loading ? "Loading..." : "Preview Cleanup"}
+          </button>
+        }
+      />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <DashboardStatCard label="Namespaces" value={stats.length} description="Namespaces with pods" />

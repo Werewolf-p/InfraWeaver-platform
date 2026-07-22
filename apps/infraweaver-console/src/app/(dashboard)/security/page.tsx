@@ -388,10 +388,6 @@ export default function SecurityPage() {
         <div className="absolute inset-0 page-gradient-security pointer-events-none" />
         <div className="relative flex items-start justify-between p-5 gap-4 flex-wrap">
           <div>
-            <h2 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent flex items-center gap-2">
-              <Shield className="w-5 h-5 text-red-400" />
-              Security Audit
-            </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Admin-only security scan of cluster resources</p>
           </div>
           <button

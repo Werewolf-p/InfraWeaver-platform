@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ShieldCheck, Lock, ShieldX, AlertTriangle, Clock, CheckCircle2 } from "lucide-react";
+import { Lock, ShieldX, AlertTriangle, Clock, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { AsyncBoundary, FilterSelect, SearchInput } from "@/components/ui";
@@ -109,11 +109,7 @@ export function SecretExpiryView() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Lock} title="Secret Expiry" />
-      <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-slate-500 dark:text-slate-400" />Secret Expiry Tracker</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">TLS certificate and secret expiration monitoring — live countdowns, grouped by urgency</p>
-      </div>
+      <PageHeader icon={Lock} title="Secret Expiry" description="TLS certificate and secret expiration monitoring — live countdowns, grouped by urgency" />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[
           { label: "Total TLS Secrets", value: allSecrets.length, color: "text-gray-900 dark:text-white" },

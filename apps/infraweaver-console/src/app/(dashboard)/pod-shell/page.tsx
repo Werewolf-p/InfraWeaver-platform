@@ -86,11 +86,7 @@ export default function PodShellPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Terminal} title="Pod Shell" />
-      <div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><Terminal className="w-5 h-5 text-slate-500 dark:text-slate-400" />Pod Shell Access</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Execute safe read-only commands in pods</p>
-      </div>
+      <PageHeader icon={Terminal} title="Pod Shell" description="Run a preset, read-only diagnostic command inside a pod." />
       <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
