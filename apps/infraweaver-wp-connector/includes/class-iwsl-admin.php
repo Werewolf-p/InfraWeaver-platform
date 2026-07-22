@@ -2877,19 +2877,19 @@ JS;
 		$heartbeat_detail = self::heartbeat_detail( $gate );
 		$rows             = array(
 			array(
-				'label'  => 'Linked',
+				'label'  => 'Connected',
 				'ok'     => ! empty( $gate['linked'] ),
-				'detail' => 'Enrollment state: ' . (string) $gate['state'],
+				'detail' => 'Connection status: ' . (string) $gate['state'],
 			),
 			array(
-				'label'  => 'Heartbeat fresh',
+				'label'  => 'Connection active',
 				'ok'     => ! empty( $gate['heartbeat_fresh'] ),
 				'detail' => $heartbeat_detail,
 			),
 			array(
-				'label'  => 'Plus granted',
+				'label'  => 'Plan active',
 				'ok'     => ! empty( $gate['plus'] ),
-				'detail' => ! empty( $gate['plus'] ) ? 'Entitlement present' : 'Not granted from the console',
+				'detail' => ! empty( $gate['plus'] ) ? 'Included in your plan' : 'Not included in your plan yet',
 			),
 		);
 
@@ -2906,22 +2906,31 @@ JS;
 
 	private static function heartbeat_detail( array $gate ): string {
 		if ( null === $gate['last_verified_at'] ) {
-			return 'No verified signed contact yet';
+			return 'No connection confirmed yet';
 		}
 		$age_ms    = (int) $gate['heartbeat_age_ms'];
 		$age_min   = (int) floor( $age_ms / 60000 );
 		$limit_min = (int) floor( (int) $gate['heartbeat_threshold_ms'] / 60000 );
-		return sprintf( 'Last verified contact %d min ago (fresh window: %d min)', max( 0, $age_min ), $limit_min );
+		return sprintf( 'Last connected %d min ago (stays active for %d min)', max( 0, $age_min ), $limit_min );
 	}
 
-	/** Human, one-line-per-reason explanation of the Plus lock. */
-	private static function render_locked_notice( array $gate ): void {
+	/**
+	 * Human, one-line-per-reason explanation of why a Plus feature is locked.
+	 * @param array  $gate             Entitlement gate with a `reasons` array.
+	 * @param string $feature_label    Feature name for the heading (blank = generic).
+	 * @param string $requires_plus_msg Feature-specific "needs a plan" line (blank = generic).
+	 */
+	private static function render_locked_notice( array $gate, string $feature_label = '', string $requires_plus_msg = '' ): void {
+		$requires = '' !== $requires_plus_msg
+			? $requires_plus_msg
+			: 'This is a Plus feature. Turn it on for this site from your InfraWeaver dashboard.';
 		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Plus entitlement is not granted. Grant it from the console (per-site toggle).',
+			'not-linked'      => 'This site isn&#8217;t connected to your InfraWeaver account yet &mdash; connect it from your dashboard to turn this on.',
+			'heartbeat-stale' => 'Your InfraWeaver connection needs to refresh &mdash; we haven&#8217;t heard from your account recently. It usually reconnects on its own; if it doesn&#8217;t, reconnect from your dashboard.',
+			'requires-plus'   => $requires,
 		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Plus feature locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
+		$heading = '' !== $feature_label ? esc_html( $feature_label ) . ' is locked.' : 'This feature is locked.';
+		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>&#128274; ' . $heading . '</strong></p><ul style="list-style:disc;margin-left:20px;">';
 		foreach ( (array) $gate['reasons'] as $reason ) {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
 			echo '<li>' . esc_html( $text ) . '</li>';
@@ -2951,7 +2960,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_optimization_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'Image Optimization', 'Image Optimization is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.' );
 			return;
 		}
 
@@ -2960,23 +2969,6 @@ JS;
 		$this->render_last_run_summary();
 
 		echo '<p class="description" style="margin-top:8px;">' . esc_html__( 'Originals are never modified; derivatives are written alongside them.', 'infraweaver-connector' ) . '</p>';
-	}
-
-	/** Reason lines for a locked image-optimization gate (no form). */
-	private static function render_optimization_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the image-optimization-specific message.
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Image Optimization entitlement is not granted — assign the Pro tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Image Optimization is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
-		}
-		echo '</ul></div>';
 	}
 
 	/** Engine capability table — one row per registered converter. */
@@ -3455,7 +3447,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_email_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'Email Delivery', 'Email Delivery is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.' );
 			return;
 		}
 
@@ -3558,23 +3550,6 @@ JS;
 				),
 			)
 		);
-	}
-
-	/** Reason lines for a locked email-delivery gate (no form). */
-	private static function render_email_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the email-delivery-specific message (Pro tier).
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Email Delivery entitlement is not granted — assign the Pro tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Email Delivery is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
-		}
-		echo '</ul></div>';
 	}
 
 	/** Render (then clear) the current user's PRG result transient. */
@@ -3952,7 +3927,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_redirects_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'Redirect Manager', 'The Redirect Manager is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.' );
 			return;
 		}
 
@@ -4016,23 +3991,6 @@ JS;
 		$this->redirects()->set_auto_redirect( $enabled ); // LAYER 3 inside.
 		wp_safe_redirect( $redirect );
 		exit;
-	}
-
-	/** Reason lines for a locked redirect-manager gate (no forms). */
-	private static function render_redirects_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the redirect-manager-specific message (Pro tier).
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Redirect Manager entitlement is not granted — assign the Pro tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Redirect Manager is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
-		}
-		echo '</ul></div>';
 	}
 
 	/** Render (then clear) the current user's PRG result transient. */
@@ -4291,7 +4249,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_white_label_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'White-Label', 'White-Label is part of the Ultimate plan. Turn on Ultimate for this site from your InfraWeaver dashboard.' );
 			return;
 		}
 
@@ -4363,23 +4321,6 @@ JS;
 				),
 			)
 		);
-	}
-
-	/** Reason lines for a locked white-label gate (no form). */
-	private static function render_white_label_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the white-label-specific message (Ultimate tier).
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The White-Label entitlement is not granted — assign the Ultimate tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 White-Label is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
-		}
-		echo '</ul></div>';
 	}
 
 	/** Render (then clear) the current user's PRG result transient. */
@@ -4540,7 +4481,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_db_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'Database Cleanup &amp; Optimization', 'Database Cleanup &amp; Optimization is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.' );
 			return;
 		}
 
@@ -4549,23 +4490,6 @@ JS;
 		$this->render_db_forms();
 
 		echo '<p class="description" style="margin-top:8px;">' . esc_html( sprintf( 'Each cleaner removes at most %d rows per run; run again to continue on large sites. Nothing is ever dropped, truncated, or altered.', IWSL_DB_Optimizer::MAX_ROWS ) ) . '</p>';
-	}
-
-	/** Reason lines for a locked db-optimization gate (no forms). */
-	private static function render_db_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the db-optimization-specific message (Pro tier).
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Database Optimization entitlement is not granted — assign the Pro tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Database Cleanup & Optimization is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
-		}
-		echo '</ul></div>';
 	}
 
 	/** Live, read-only per-cleaner preview counts (a dry run issued on render). */
@@ -4737,29 +4661,12 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_page_cache_locked_notice( $gate );
+			self::render_locked_notice( $gate, 'Page Cache', 'Page Cache is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.' );
 			return;
 		}
 
 		$this->render_page_cache_result_notice();
 		$this->render_page_cache_status_and_controls();
-	}
-
-	/** Reason lines for a locked page-cache gate (no controls). */
-	private static function render_page_cache_locked_notice( array $gate ): void {
-		// NOTE: `requires-plus` is a HISTORICAL reason token that fires for ANY
-		// flag; here it maps to the page-cache-specific message (Pro tier).
-		$messages = array(
-			'not-linked'      => 'This site is not linked to the InfraWeaver console. Enroll the connector first.',
-			'heartbeat-stale' => 'The signed heartbeat is stale — the console has not verified a signed command recently.',
-			'requires-plus'   => 'The Page Cache entitlement is not granted — assign the Pro tier from the console.',
-		);
-		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>🔒 Page Cache is locked.</strong></p><ul style="list-style:disc;margin-left:20px;">';
-		foreach ( (array) $gate['reasons'] as $reason ) {
-			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
-			echo '<li>' . esc_html( $text ) . '</li>';
-		}
-		echo '</ul></div>';
 	}
 
 	/** Render (then clear) the current user's PRG result transient. */
