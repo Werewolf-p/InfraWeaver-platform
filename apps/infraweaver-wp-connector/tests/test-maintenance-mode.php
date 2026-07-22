@@ -212,4 +212,69 @@ iwsl_assert_same( false, $clean['retry_after'], 'sanitize: empty retry_after cas
 $long = str_repeat( 'x', IWSL_Maintenance_Mode::MAX_HEADLINE_LEN + 50 );
 iwsl_assert_same( IWSL_Maintenance_Mode::MAX_HEADLINE_LEN, strlen( $mm->sanitize_settings( array( 'headline' => $long ) )['headline'] ), 'sanitize: headline hard-truncated to the cap' );
 
+// ── 13. purge(): teardown removes the settings option key (idempotent, ungated) ─
+
+$store13 = new IWSL_Memory_Store();
+$ent13   = iwsl_mm_unlocked_entitlements( $store13, $MM_NOW );
+$mm13    = new IWSL_Maintenance_Mode( $ent13, $store13, iwsl_mm_clock( $MM_NOW ) );
+$mm13->save_settings( array( 'enabled' => true, 'headline' => 'Down for maintenance' ) );
+iwsl_assert_same( true, $mm13->is_enabled(), 'purge: enabled before teardown' );
+$p13 = $mm13->purge();
+iwsl_assert_same( true, $p13['ok'], 'purge: ok=true' );
+iwsl_assert_same( array( IWSL_Maintenance_Mode::SETTINGS_KEY ), $p13['options_removed'], 'purge: reports the removed settings option key' );
+iwsl_assert_same( null, $store13->get( IWSL_Maintenance_Mode::SETTINGS_KEY ), 'purge: settings option removed from the store' );
+iwsl_assert_same( false, $mm13->is_enabled(), 'purge: is_enabled() reads back false (defaults) after teardown' );
+
+// idempotent + cheap on an already-clean store.
+$p13b = $mm13->purge();
+iwsl_assert_same( true, $p13b['ok'], 'purge: idempotent — second call on a clean store still ok' );
+
+// purge is NOT gated by the entitlement — teardown works on a revoked/locked site.
+$store13l = new IWSL_Memory_Store();
+$store13l->set( IWSL_Maintenance_Mode::SETTINGS_KEY, array( 'enabled' => true, 'saved_at' => 123 ) );
+$store13l->set( 'state', 'active' );
+$store13l->set( 'last_verified_at', $MM_NOW - 60000 );
+$store13l->set( 'entitlements', array( 'plus' => true ) ); // maintenance_mode ABSENT
+$ent13l = new IWSL_Entitlements( $store13l, iwsl_mm_clock( $MM_NOW ) );
+$mm13l  = new IWSL_Maintenance_Mode( $ent13l, $store13l, iwsl_mm_clock( $MM_NOW ) );
+$p13l   = $mm13l->purge();
+iwsl_assert_same( true, $p13l['ok'], 'purge: works even when the entitlement is locked/revoked' );
+iwsl_assert_same( null, $store13l->get( IWSL_Maintenance_Mode::SETTINGS_KEY ), 'purge (locked): settings removed despite the lock' );
+
+// ── 14. Content-cache invalidation: save_settings() flushes any page cache whose
+//         markup depended on the old settings (2026-07-22 teardown wave) ───────
+
+// IWSL_Teardown is a peer engine (owned separately); not present in this harness,
+// so a fixture double records calls the same way the real class would be invoked
+// via the class_exists-guarded call inside save_settings().
+if ( ! class_exists( 'IWSL_Teardown' ) ) {
+	final class IWSL_Teardown {
+		/** @var int */
+		public static $flush_calls = 0;
+		public static function flush_page_cache(): void {
+			self::$flush_calls++;
+		}
+	}
+}
+
+$store14 = new IWSL_Memory_Store();
+$ent14   = iwsl_mm_unlocked_entitlements( $store14, $MM_NOW );
+$mm14    = new IWSL_Maintenance_Mode( $ent14, $store14, iwsl_mm_clock( $MM_NOW ) );
+
+$before14 = IWSL_Teardown::$flush_calls;
+$save14   = $mm14->save_settings( array( 'enabled' => true ) );
+iwsl_assert_same( true, $save14['ok'], 'cache-flush: save_settings succeeded' );
+iwsl_assert_same( $before14 + 1, IWSL_Teardown::$flush_calls, 'cache-flush: a successful save_settings() flushes the page cache' );
+
+$store14l = new IWSL_Memory_Store();
+$store14l->set( 'state', 'active' );
+$store14l->set( 'last_verified_at', $MM_NOW - 60000 );
+$store14l->set( 'entitlements', array( 'plus' => true ) ); // maintenance_mode ABSENT
+$ent14l    = new IWSL_Entitlements( $store14l, iwsl_mm_clock( $MM_NOW ) );
+$mm14l     = new IWSL_Maintenance_Mode( $ent14l, $store14l, iwsl_mm_clock( $MM_NOW ) );
+$before14l = IWSL_Teardown::$flush_calls;
+$locked14  = $mm14l->save_settings( array( 'enabled' => true ) );
+iwsl_assert_same( false, $locked14['ok'], 'cache-flush: locked save refused' );
+iwsl_assert_same( $before14l, IWSL_Teardown::$flush_calls, 'cache-flush: a locked/refused save does not flush' );
+
 // no globals installed by this suite — nothing to unset.

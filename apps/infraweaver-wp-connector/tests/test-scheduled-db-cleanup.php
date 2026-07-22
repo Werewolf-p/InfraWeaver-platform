@@ -257,6 +257,50 @@ iwsl_assert_same( false, $sdc10->sanitize_settings( array() )['enabled'], 'sanit
 iwsl_assert_same( IWSL_Scheduled_DB_Cleanup::SCHEDULE_WEEKLY, $sdc10->recurrence_for( 'weekly' ), 'recurrence_for: weekly → custom slug' );
 iwsl_assert_same( 'daily', $sdc10->recurrence_for( 'anything' ), 'recurrence_for: anything else → daily' );
 
+// ── 11. purge(): teardown deletes BOTH option keys AND clears the cron event ──
+
+// (a) A configured + scheduled site: purge() removes settings, last-run, and the event.
+iwsl_sdc_reset_cron();
+$store = new IWSL_Memory_Store();
+$ent11 = iwsl_sdc_unlocked_entitlements( $SDC_NOW );
+$sdc11 = new IWSL_Scheduled_DB_Cleanup( $ent11, $store, new IWSL_DB_Optimizer( $ent11, new IWSL_SDC_Fake_WPDB(), iwsl_sdc_clock( $SDC_NOW ) ), iwsl_sdc_clock( $SDC_NOW ) );
+$sdc11->save_settings( array( 'enabled' => true, 'frequency' => 'daily' ) ); // writes settings + schedules the event
+$sdc11->run_now();                                                            // writes a last-run record
+iwsl_assert( is_array( $store->get( IWSL_Scheduled_DB_Cleanup::SETTINGS_KEY ) ), 'purge setup: settings present' );
+iwsl_assert( is_array( $store->get( IWSL_Scheduled_DB_Cleanup::LAST_RUN_KEY ) ), 'purge setup: last-run present' );
+iwsl_assert( false !== $GLOBALS['iwsl_sdc_next'], 'purge setup: an event is scheduled' );
+
+$GLOBALS['iwsl_sdc_cleared'] = 0;
+$p11 = $sdc11->purge();
+iwsl_assert_same( true, $p11['ok'], 'purge: ok=true' );
+iwsl_assert_same( true, $p11['settings_deleted'], 'purge: settings_deleted true (a map existed)' );
+iwsl_assert_same( true, $p11['last_run_deleted'], 'purge: last_run_deleted true (a record existed)' );
+iwsl_assert_same( true, $p11['cron_cleared'], 'purge: cron_cleared true (a scheduled event existed)' );
+iwsl_assert( $GLOBALS['iwsl_sdc_cleared'] >= 1, 'purge: wp_clear_scheduled_hook called for the cron hook' );
+iwsl_assert_same( null, $store->get( IWSL_Scheduled_DB_Cleanup::SETTINGS_KEY ), 'purge: settings option key deleted' );
+iwsl_assert_same( null, $store->get( IWSL_Scheduled_DB_Cleanup::LAST_RUN_KEY ), 'purge: last-run option key deleted' );
+iwsl_assert_same( null, $sdc11->last_run(), 'purge: a fresh last_run() read is null after purge' );
+iwsl_assert_same( false, $sdc11->settings()['enabled'], 'purge: settings() falls back to defaults (disabled) after purge' );
+
+// (b) idempotent + cheap-when-clean: a second purge finds nothing and does not touch WP-Cron.
+$GLOBALS['iwsl_sdc_cleared'] = 0;
+$p11b = $sdc11->purge();
+iwsl_assert_same( true, $p11b['ok'], 'purge: second call still ok (idempotent)' );
+iwsl_assert_same( false, $p11b['settings_deleted'], 'purge: second call reports no settings to delete' );
+iwsl_assert_same( false, $p11b['last_run_deleted'], 'purge: second call reports no last-run to delete' );
+iwsl_assert_same( false, $p11b['cron_cleared'], 'purge: second call clears no cron (cheap-when-clean)' );
+iwsl_assert_same( 0, $GLOBALS['iwsl_sdc_cleared'], 'purge: no wp_clear_scheduled_hook call when already clean' );
+
+// (c) a fresh, never-configured engine: purge() is a clean no-op.
+iwsl_sdc_reset_cron();
+$storeF = new IWSL_Memory_Store();
+$entF   = iwsl_sdc_unlocked_entitlements( $SDC_NOW );
+$sdcF   = new IWSL_Scheduled_DB_Cleanup( $entF, $storeF, new IWSL_DB_Optimizer( $entF, new IWSL_SDC_Fake_WPDB(), iwsl_sdc_clock( $SDC_NOW ) ), iwsl_sdc_clock( $SDC_NOW ) );
+$pF     = $sdcF->purge();
+iwsl_assert_same( false, $pF['settings_deleted'], 'purge (never configured): no settings existed' );
+iwsl_assert_same( false, $pF['last_run_deleted'], 'purge (never configured): no last-run existed' );
+iwsl_assert_same( false, $pF['cron_cleared'], 'purge (never configured): nothing scheduled to clear' );
+
 // ── clean up the recording globals so no suite that follows inherits them ─────
 
 unset( $GLOBALS['iwsl_sdc_scheduled'], $GLOBALS['iwsl_sdc_cleared'], $GLOBALS['iwsl_sdc_next'], $GLOBALS['iwsl_sdc_sched_name'] );

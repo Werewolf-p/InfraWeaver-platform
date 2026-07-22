@@ -424,5 +424,78 @@ iwsl_assert( false !== strpos( $cc_bar_out, 'reopen"){show();}' ), 'reopen: open
 iwsl_assert( false !== strpos( $cc_bar_out, 'close-modal"){' ), 'runtime: close-modal handler wired' );
 iwsl_assert( false !== strpos( $cc_bar_out, 'dismiss"){hide();' ), 'runtime: dismiss handler returns to the floating handle' );
 
+// ── 13. purge(): teardown removes settings + log + salt (idempotent, ungated) ─
+
+$store13 = new IWSL_Memory_Store();
+$ent13   = iwsl_cc_unlocked_entitlements( $store13, $CC_NOW );
+$cc13    = iwsl_cc_engine( $store13, $ent13, $CC_NOW );
+$cc13->save_settings( array( 'enabled' => '1' ) );
+$cc13->record_consent( array( 'necessary' ), 'DE', 'accept_all', '203.0.113.9' );
+iwsl_assert_same( true, $cc13->is_configured(), 'purge: settings configured before teardown' );
+$p13 = $cc13->purge();
+iwsl_assert_same( true, $p13['ok'], 'purge: ok=true' );
+iwsl_assert_same(
+	array( IWSL_Cookie_Consent::SETTINGS_KEY, IWSL_Cookie_Consent::LOG_KEY, IWSL_Cookie_Consent::SALT_KEY ),
+	$p13['options_removed'],
+	'purge: reports the three removed option keys'
+);
+iwsl_assert_same( null, $store13->get( IWSL_Cookie_Consent::SETTINGS_KEY ), 'purge: settings option removed' );
+iwsl_assert_same( null, $store13->get( IWSL_Cookie_Consent::LOG_KEY ), 'purge: consent log option removed' );
+iwsl_assert_same( null, $store13->get( IWSL_Cookie_Consent::SALT_KEY ), 'purge: salt option removed' );
+iwsl_assert_same( array(), $cc13->log_entries(), 'purge: log_entries() reads back empty after teardown' );
+iwsl_assert_same( false, $cc13->is_configured(), 'purge: is_configured() false after teardown (saved_at reset)' );
+
+// idempotent + cheap when already clean.
+$p13b = $cc13->purge();
+iwsl_assert_same( true, $p13b['ok'], 'purge: idempotent — second call on an already-clean store still ok' );
+
+// purge is NOT gated by the entitlement — teardown works on a revoked/locked site.
+$store13l = new IWSL_Memory_Store();
+$store13l->set( IWSL_Cookie_Consent::SETTINGS_KEY, array( 'enabled' => true, 'saved_at' => 123 ) );
+$ent13l = iwsl_cc_entitlements( $store13l, $CC_NOW, 'active', array( 'plus' => true ) ); // cookie_consent ABSENT
+$cc13l  = iwsl_cc_engine( $store13l, $ent13l, $CC_NOW );
+$p13l   = $cc13l->purge();
+iwsl_assert_same( true, $p13l['ok'], 'purge: works even when the entitlement is locked/revoked' );
+iwsl_assert_same( null, $store13l->get( IWSL_Cookie_Consent::SETTINGS_KEY ), 'purge (locked): settings removed despite the lock' );
+
+// ── 14. Content-cache invalidation: save_settings()/apply_recommended_defaults()
+//        flush any page cache holding the old banner (2026-07-22 teardown wave) ──
+
+// IWSL_Teardown is a peer engine (owned separately) that centralizes page-cache
+// flush after any front-end-HTML-affecting settings change. It is not present in
+// this harness, so a fixture double records calls the same way the real class
+// would be invoked via the class_exists-guarded call inside save_settings().
+if ( ! class_exists( 'IWSL_Teardown' ) ) {
+	final class IWSL_Teardown {
+		/** @var int */
+		public static $flush_calls = 0;
+		public static function flush_page_cache(): void {
+			self::$flush_calls++;
+		}
+	}
+}
+
+$store14 = new IWSL_Memory_Store();
+$ent14   = iwsl_cc_unlocked_entitlements( $store14, $CC_NOW );
+$cc14    = iwsl_cc_engine( $store14, $ent14, $CC_NOW );
+
+$before14 = IWSL_Teardown::$flush_calls;
+$save14   = $cc14->save_settings( array( 'enabled' => '1' ) );
+iwsl_assert_same( true, $save14['ok'], 'cache-flush: save_settings succeeded' );
+iwsl_assert_same( $before14 + 1, IWSL_Teardown::$flush_calls, 'cache-flush: a successful save_settings() flushes the page cache' );
+
+$before14b = IWSL_Teardown::$flush_calls;
+$applied14 = $cc14->apply_recommended_defaults();
+iwsl_assert_same( true, $applied14['ok'], 'cache-flush: apply_recommended_defaults succeeded' );
+iwsl_assert_same( $before14b + 1, IWSL_Teardown::$flush_calls, 'cache-flush: apply_recommended_defaults() also flushes (it delegates to save_settings)' );
+
+$store14l = new IWSL_Memory_Store();
+$ent14l   = iwsl_cc_entitlements( $store14l, $CC_NOW, 'active', array( 'plus' => true ) ); // cookie_consent ABSENT
+$cc14l    = iwsl_cc_engine( $store14l, $ent14l, $CC_NOW );
+$before14l = IWSL_Teardown::$flush_calls;
+$locked14  = $cc14l->save_settings( array( 'enabled' => '1' ) );
+iwsl_assert_same( false, $locked14['ok'], 'cache-flush: locked save refused' );
+iwsl_assert_same( $before14l, IWSL_Teardown::$flush_calls, 'cache-flush: a locked/refused save does not flush' );
+
 // cleanup: this suite installs no $GLOBALS — script-local temporaries only.
 unset( $store, $ent, $cc, $CC_NOW );

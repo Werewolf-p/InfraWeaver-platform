@@ -234,4 +234,66 @@ iwsl_assert( in_array( 'duplicate-title', $issues11, true ), 'run_audit corpus: 
 iwsl_assert( ! in_array( 'orphan-page', $issues10, true ), 'run_audit corpus: page 10 is linked from 11 → not orphan' );
 iwsl_assert( in_array( 'orphan-page', $issues11, true ), 'run_audit corpus: page 11 has no inbound links → orphan' );
 
-// This suite installs no globals — nothing to unset.
+// ── 9. purge(): scrubs the plugin last-audit transients; never a non-plugin option ─
+// The audit is read-only (no durable option, no post meta, no cron). Its only
+// persisted footprint is the per-user last-summary transient, so purge issues one
+// bounded, prepared DELETE matched on the plugin transient prefix. A recording fake
+// $wpdb captures the query. esc_like() is a no-op here so the prefix stays legible
+// (real WordPress escapes the LIKE metacharacters; the code calls it either way).
+
+final class IWSL_SEO_Audit_Fake_WPDB {
+	public $options = 'wp_options';
+	/** @var string[] recorded prepared queries. */
+	public $queries = array();
+	/** @var int */
+	private $rows;
+	public function __construct( int $rows = 0 ) {
+		$this->rows = $rows;
+	}
+	public function esc_like( string $s ): string {
+		return $s; // no-op: keeps the asserted prefix readable in the fake.
+	}
+	public function prepare( string $query, ...$args ): string {
+		$out = $query;
+		foreach ( $args as $a ) {
+			$pos = strpos( $out, '%s' );
+			if ( false !== $pos ) {
+				$out = substr( $out, 0, $pos ) . "'" . str_replace( "'", "''", (string) $a ) . "'" . substr( $out, $pos + 2 );
+			}
+		}
+		return $out;
+	}
+	public function query( string $query ) {
+		$this->queries[] = $query;
+		return $this->rows;
+	}
+}
+
+$audit_pg = new IWSL_SEO_Audit( iwsl_seo_unlocked_entitlements( $SEO_NOW ) );
+
+$GLOBALS['wpdb'] = new IWSL_SEO_Audit_Fake_WPDB( 3 ); // 3 transient rows removed
+$apg = $audit_pg->purge();
+iwsl_assert_same( true, $apg['ok'], 'audit purge: ok=true' );
+iwsl_assert_same( array(), $apg['options'], 'audit purge: no durable option key (read-only engine)' );
+iwsl_assert_same( array(), $apg['cron'], 'audit purge: no cron scheduled by this engine' );
+iwsl_assert_same( 3, $apg['transients'], 'audit purge: reports the transient rows removed' );
+iwsl_assert_same( 1, count( $GLOBALS['wpdb']->queries ), 'audit purge: a single bounded DELETE' );
+$q = $GLOBALS['wpdb']->queries[0];
+iwsl_assert( false !== strpos( $q, 'DELETE FROM wp_options' ), 'audit purge: DELETE targets the options table' );
+iwsl_assert( false !== strpos( $q, '_transient_iwsl_seo_result_' ), 'audit purge: scrubs the plugin transient prefix' );
+iwsl_assert( false !== strpos( $q, '_transient_timeout_iwsl_seo_result_' ), 'audit purge: scrubs the transient timeout rows too' );
+iwsl_assert( false === strpos( $q, "'%'" ), 'audit purge: never an unbounded wildcard (no non-plugin options at risk)' );
+
+// Idempotent + cheap-when-clean: a clean site reports zero rows.
+$GLOBALS['wpdb'] = new IWSL_SEO_Audit_Fake_WPDB( 0 );
+$apg2 = $audit_pg->purge();
+iwsl_assert_same( 0, $apg2['transients'], 'audit purge cheap-when-clean: zero rows when nothing stored' );
+
+// Guard: no $wpdb → harmless no-op, still ok.
+unset( $GLOBALS['wpdb'] );
+$apg3 = $audit_pg->purge();
+iwsl_assert_same( true, $apg3['ok'], 'audit purge (no $wpdb): harmless no-op ok=true' );
+iwsl_assert_same( 0, $apg3['transients'], 'audit purge (no $wpdb): nothing removed without a DB handle' );
+
+// This suite installs only $GLOBALS['wpdb'] (above); ensure it never leaks.
+unset( $GLOBALS['wpdb'] );

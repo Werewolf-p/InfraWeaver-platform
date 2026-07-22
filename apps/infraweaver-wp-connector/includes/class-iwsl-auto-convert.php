@@ -465,6 +465,34 @@ final class IWSL_Auto_Convert {
 		}
 	}
 
+	/**
+	 * Teardown: remove this feature's ENTIRE persistent footprint — its
+	 * settings + last-run store keys and the scheduled backlog-sweep cron
+	 * event. Idempotent (check-before-delete) and cheap when already clean: a
+	 * second call finds nothing left and reports zeros/false. Scoped strictly
+	 * to THIS trigger layer — never touches the wrapped IWSL_Media_Optimizer's
+	 * own footprint (its purge() is independent, since image_optimization can
+	 * stay enabled after auto_convert is disabled).
+	 *
+	 * @return array{ options:int, meta:int, cron:bool }
+	 */
+	public function purge(): array {
+		$options = 0;
+		foreach ( array( self::SETTINGS_KEY, self::LAST_RUN_KEY ) as $key ) {
+			if ( null !== $this->store->get( $key, null ) ) {
+				$this->store->delete( $key );
+				++$options;
+			}
+		}
+
+		$had_cron = null !== $this->next_run();
+		if ( $had_cron ) {
+			$this->unschedule_cron();
+		}
+
+		return array( 'options' => $options, 'meta' => 0, 'cron' => $had_cron );
+	}
+
 	// ── input / settings normalization ─────────────────────────────────────────
 
 	/**

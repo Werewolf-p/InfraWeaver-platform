@@ -200,6 +200,30 @@ final class IWSL_DB_Optimizer {
 	}
 
 	/**
+	 * Teardown for an uninstall/unlink sweep. This engine keeps NO settings or log
+	 * option of its own (it has no IWSL_Store — it counts/cleans the live site DB and
+	 * persists nothing), so the ONLY plugin state it can leave behind is its
+	 * single-flight run-lock transient. purge() removes that if it is held and NEVER
+	 * runs any of the destructive cleaners — teardown removes THIS feature's own
+	 * footprint, it does not clean the site database. Idempotent + cheap-when-clean: a
+	 * held lock is one guarded delete, an absent one a no-op. Every WordPress call is
+	 * function_exists-guarded so it is harmless under the zero-dependency harness.
+	 *
+	 * @return array{ ok:bool, options:int, locks:int }
+	 */
+	public function purge(): array {
+		$locks = 0;
+		if ( function_exists( 'get_transient' ) && function_exists( 'delete_transient' )
+			&& false !== get_transient( self::LOCK_TRANSIENT ) ) {
+			delete_transient( self::LOCK_TRANSIENT );
+			$locks = 1;
+		}
+		// No settings/log option key exists for this engine — 'options' is always 0,
+		// kept in the shape for uniformity with the other system engines.
+		return array( 'ok' => true, 'options' => 0, 'locks' => $locks );
+	}
+
+	/**
 	 * Resolve the cleaners to run. An empty request selects the full registry; a
 	 * non-empty one is intersected with the registry (unknown/invalid ids dropped)
 	 * and capped. NO id ever becomes a table name — ids only ever key the registry.

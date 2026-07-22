@@ -151,4 +151,37 @@ $engine->reset_samples();
 iwsl_assert_same( 0, count( IWSL_Perf_Audit::normalize_state( $store->get( 'perf_audit' ) )['samples'] ), 'engine: reset clears samples' );
 iwsl_assert_same( false, $engine->is_enabled(), 'engine: reset preserves the enabled flag (still off)' );
 
+// ── 9. purge(): full teardown — deletes the option key entirely ──────────────
+
+// (a) populated + explicitly disabled: purge() removes the key, not just the samples.
+$store_p  = new IWSL_Memory_Store();
+$engine_p = new IWSL_Perf_Audit(
+	$store_p,
+	static function (): int {
+		return 9000;
+	}
+);
+$engine_p->set_enabled( false );
+$store_p->set( 'perf_audit', IWSL_Perf_Audit::fold_sample( $store_p->get( 'perf_audit', array() ), '/seed', 100.0, 1, 1, 9000, 100 ) );
+iwsl_assert_same( 1, count( IWSL_Perf_Audit::normalize_state( $store_p->get( 'perf_audit' ) )['samples'] ), 'purge setup: a sample exists before purge' );
+
+$pp = $engine_p->purge();
+iwsl_assert_same( true, $pp['ok'], 'purge: ok' );
+iwsl_assert_same( true, $pp['deleted'], 'purge: deleted true (state existed)' );
+iwsl_assert_same( null, $store_p->get( 'perf_audit', null ), 'purge: option key truly absent (unlike reset_samples, which preserves it)' );
+// Unlike reset_samples(), purge() does NOT preserve the enabled flag — it is gone
+// entirely, so a fresh read falls back to normalize_state()'s default (ON).
+iwsl_assert_same( true, $engine_p->is_enabled(), 'purge: fresh is_enabled() read falls back to the default (true), not the disabled flag' );
+
+// (b) idempotent + cheap no-op when already clean.
+$pp2 = $engine_p->purge();
+iwsl_assert_same( true, $pp2['ok'], 'purge: second call still ok (idempotent)' );
+iwsl_assert_same( false, $pp2['deleted'], 'purge: second call reports nothing deleted (cheap no-op)' );
+
+// (c) a fresh, never-touched engine: purge() is a clean no-op.
+$engine_fresh = new IWSL_Perf_Audit( new IWSL_Memory_Store() );
+$pf           = $engine_fresh->purge();
+iwsl_assert_same( true, $pf['ok'], 'purge (never touched): ok' );
+iwsl_assert_same( false, $pf['deleted'], 'purge (never touched): nothing deleted' );
+
 // This suite installs no globals — nothing to unset.

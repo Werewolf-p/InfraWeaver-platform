@@ -440,6 +440,44 @@ final class IWSL_Statistics {
 		return array( 'ok' => true, 'cleared' => true );
 	}
 
+	/**
+	 * Teardown: permanently remove this feature's on-disk footprint. Goes further
+	 * than reset() (which only empties the rows for an unlocked site): this DROPS
+	 * the custom hits table itself (not just its rows) and deletes every option key
+	 * this engine owns (schema version, salt, last-prune stamp, exclude-logged-in
+	 * toggle) so a later re-enable starts from a genuinely clean slate — the table
+	 * is lazily recreated by maybe_install() on the next recorded hit.
+	 *
+	 * NOT gated by the entitlement: a full teardown must succeed even after the
+	 * `statistics` flag has already been revoked (that is precisely when a teardown
+	 * is invoked). Idempotent + cheap when already clean: DROP TABLE IF EXISTS is a
+	 * no-op against an absent table, and each store-key delete is a no-op once the
+	 * key is already gone.
+	 *
+	 * @return array{ ok:bool, table_dropped:bool, options_removed:string[] }
+	 */
+	public function purge(): array {
+		$table_dropped = false;
+		if ( is_object( $this->db ) ) {
+			$table = $this->table( $this->db );
+			if ( null !== $table ) {
+				$this->db->query( "DROP TABLE IF EXISTS `{$table}`" );
+				$table_dropped = true;
+			}
+		}
+
+		$options = array( self::SCHEMA_KEY, self::SALT_KEY, self::LAST_PRUNE_KEY, self::EXCLUDE_LOGGED_KEY );
+		foreach ( $options as $key ) {
+			$this->store->delete( $key );
+		}
+
+		return array(
+			'ok'              => true,
+			'table_dropped'   => $table_dropped,
+			'options_removed' => $options,
+		);
+	}
+
 	// ── admin-post handler (cap + nonce + gate, PRG) ───────────────────────────
 
 	/**

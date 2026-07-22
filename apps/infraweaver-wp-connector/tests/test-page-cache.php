@@ -295,3 +295,49 @@ iwsl_assert_same( false, iwsl_pc_response_storable( 200, array( 'Content-Type: t
 iwsl_assert_same( false, iwsl_pc_response_storable( 200, array( 'Content-Type: text/html', 'Cache-Control: private' ), 100, false ), 'storable: Cache-Control private → no' );
 iwsl_assert_same( false, iwsl_pc_response_storable( 200, array( 'Content-Type: text/html', 'Cache-Control: no-store' ), 100, false ), 'storable: Cache-Control no-store → no' );
 iwsl_assert_same( false, iwsl_pc_response_storable( 200, array( 'Content-Type: text/html', 'Location: /elsewhere' ), 100, false ), 'storable: Location header → no' );
+
+// ── 8. purge(): full teardown — drop-in + wp-config marker + cache dir ────────
+
+// (a) fully enabled site: purge() removes everything and reports counts.
+$content = iwsl_pc_tempdir();
+$config  = iwsl_pc_write_config( $content );
+$store   = iwsl_pc_unlocked_store( $PC_NOW );
+$pc      = new IWSL_Page_Cache( iwsl_pc_ent( $store, $PC_NOW ), $content, $config, iwsl_pc_clock( $PC_NOW ) );
+$pc->enable(); // creates the contained cache/iwsl dir.
+file_put_contents( $content . '/cache/iwsl/' . str_repeat( 'd', 40 ) . '.html', 'cached' );
+iwsl_assert( is_file( $content . '/advanced-cache.php' ), 'purge setup: drop-in present before purge' );
+
+$p = $pc->purge();
+iwsl_assert_same( true, $p['ok'], 'purge: ok' );
+iwsl_assert_same( true, $p['removed'], 'purge: drop-in removed flag true' );
+iwsl_assert( $p['purged'] >= 1, 'purge: at least one cached file reported purged' );
+iwsl_assert( ! is_file( $content . '/advanced-cache.php' ), 'purge: drop-in file gone' );
+iwsl_assert( false === strpos( (string) file_get_contents( $config ), '// iwsl-page-cache' ), 'purge: wp-config marker line gone' );
+$left = glob( $content . '/cache/iwsl/*.html' );
+iwsl_assert_same( 0, is_array( $left ) ? count( $left ) : 0, 'purge: cache dir emptied' );
+
+// (b) idempotent + cheap no-op when already clean: a second call changes nothing and errors nothing.
+$p2 = $pc->purge();
+iwsl_assert_same( true, $p2['ok'], 'purge: second call still ok (idempotent)' );
+iwsl_assert_same( false, $p2['removed'], 'purge: second call reports nothing removed' );
+iwsl_assert_same( 0, $p2['purged'], 'purge: second call purges nothing (cheap no-op)' );
+
+// (c) a fresh, never-enabled site: purge() is a clean no-op.
+$content3 = iwsl_pc_tempdir();
+$config3  = iwsl_pc_write_config( $content3 );
+$pc3      = new IWSL_Page_Cache( iwsl_pc_ent( iwsl_pc_unlocked_store( $PC_NOW ), $PC_NOW ), $content3, $config3, iwsl_pc_clock( $PC_NOW ) );
+$p3       = $pc3->purge();
+iwsl_assert_same( true, $p3['ok'], 'purge (never enabled): ok' );
+iwsl_assert_same( false, $p3['removed'], 'purge (never enabled): nothing removed' );
+iwsl_assert_same( 0, $p3['purged'], 'purge (never enabled): nothing purged' );
+
+// (d) a foreign drop-in is NEVER touched by purge().
+$content4 = iwsl_pc_tempdir();
+$config4  = iwsl_pc_write_config( $content4 );
+$foreign4 = "<?php\n/* a competing cache plugin */\nreturn;\n";
+file_put_contents( $content4 . '/advanced-cache.php', $foreign4 );
+$pc4 = new IWSL_Page_Cache( iwsl_pc_ent( iwsl_pc_unlocked_store( $PC_NOW ), $PC_NOW ), $content4, $config4, iwsl_pc_clock( $PC_NOW ) );
+$p4  = $pc4->purge();
+iwsl_assert_same( false, $p4['ok'], 'purge (foreign drop-in): refused' );
+iwsl_assert_same( 'foreign-dropin', $p4['reason'], 'purge (foreign drop-in): reason foreign-dropin' );
+iwsl_assert_same( $foreign4, (string) file_get_contents( $content4 . '/advanced-cache.php' ), 'purge (foreign drop-in): bytes untouched' );

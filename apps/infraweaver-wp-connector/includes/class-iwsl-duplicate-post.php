@@ -86,6 +86,19 @@ final class IWSL_Duplicate_Post {
 		}
 	}
 
+	/**
+	 * Delete-time teardown scrub. This engine is effectively STATELESS: it clones a
+	 * post into an ordinary WordPress draft (real content the operator owns — never
+	 * removed on disable) and persists no plugin option, no plugin post meta, and no
+	 * cron. purge() is therefore a near-no-op that exists for uniformity across the
+	 * SEO/content engines, always reporting an empty footprint. Idempotent by nature.
+	 *
+	 * @return array{ ok:bool, options:string[], postmeta:array<string,int>, cron:string[] }
+	 */
+	public function purge(): array {
+		return array( 'ok' => true, 'options' => array(), 'postmeta' => array(), 'cron' => array() );
+	}
+
 	// ── list-table row action (STATEMENT 1 is the gate) ────────────────────────
 
 	/**

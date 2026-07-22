@@ -369,3 +369,35 @@ $r9   = $opt9->run( 'run' );
 iwsl_assert_same( false, $r9['ok'], 'no-database: ok=false' );
 iwsl_assert_same( 'no-database', $r9['reason'], 'no-database: refused with reason no-database' );
 iwsl_assert_same( 0, $r9['total'], 'no-database: nothing done' );
+
+// ── 10. purge(): teardown removes ONLY this engine's own plugin state ──────────
+
+// (a) This engine keeps no settings/log option, so 'options' is always 0.
+$opt10 = new IWSL_DB_Optimizer( iwsl_db_unlocked_entitlements( $DB_NOW ), new IWSL_DB_Fake_WPDB( 5, 4 ), iwsl_db_clock( $DB_NOW ) );
+$p10   = $opt10->purge();
+iwsl_assert_same( true, $p10['ok'], 'purge: ok=true' );
+iwsl_assert_same( 0, $p10['options'], 'purge: no settings/log option to delete (engine keeps none)' );
+
+// purge() NEVER runs a cleaner — teardown removes footprint, it does not clean the DB.
+$fake10 = new IWSL_DB_Fake_WPDB( 5, 4 );
+$opt10b = new IWSL_DB_Optimizer( iwsl_db_unlocked_entitlements( $DB_NOW ), $fake10, iwsl_db_clock( $DB_NOW ) );
+$opt10b->purge();
+iwsl_assert_same( 0, count( $fake10->writes ), 'purge: issues ZERO destructive queries (no DROP/DELETE/OPTIMIZE)' );
+iwsl_assert_same( 0, $fake10->prepare_calls, 'purge: never touches the database' );
+
+// (b) idempotent + cheap-when-clean: a second purge is identical.
+$p10c = $opt10->purge();
+iwsl_assert_same( $p10, $p10c, 'purge: idempotent (second call identical, cheap no-op)' );
+
+// (c) When a transient API IS present, purge() removes a held run-lock and reports it.
+if ( function_exists( 'set_transient' ) && function_exists( 'get_transient' ) && function_exists( 'delete_transient' ) ) {
+	set_transient( IWSL_DB_Optimizer::LOCK_TRANSIENT, 999, 60 );
+	$opt10d = new IWSL_DB_Optimizer( iwsl_db_unlocked_entitlements( $DB_NOW ), new IWSL_DB_Fake_WPDB(), iwsl_db_clock( $DB_NOW ) );
+	$p10d   = $opt10d->purge();
+	iwsl_assert_same( 1, $p10d['locks'], 'purge: a held run-lock transient is removed (locks=1)' );
+	iwsl_assert_same( false, get_transient( IWSL_DB_Optimizer::LOCK_TRANSIENT ), 'purge: the lock transient is gone afterward' );
+	iwsl_assert_same( 0, $opt10d->purge()['locks'], 'purge: idempotent — second call finds no lock' );
+} else {
+	echo "  [skip] purge run-lock removal — no transient stub in this run\n";
+	iwsl_assert_same( 0, $p10['locks'], 'purge: no transient API → locks=0 (cheap no-op)' );
+}

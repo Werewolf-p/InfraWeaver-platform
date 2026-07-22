@@ -82,6 +82,41 @@ final class IWSL_SEO_Audit {
 		}
 	}
 
+	// ── teardown (idempotent, cheap-when-clean, returns what was removed) ─────────
+
+	/**
+	 * Delete-time teardown scrub for the SEO Meta Audit. This engine is READ-ONLY: it
+	 * writes no post meta, keeps no durable option, and schedules no cron. Its only
+	 * persisted footprint is the per-user last-audit summary held in a self-expiring
+	 * transient (`iwsl_seo_result_<user-id>`), so purge drops those plugin-owned
+	 * transient rows from the options table with a single bounded, prepared DELETE
+	 * matched on the plugin transient prefix — never any core or non-plugin option.
+	 * Every $wpdb call is guarded so this is a harmless no-op under the zero-WP
+	 * harness (and cheap when there is nothing to remove).
+	 *
+	 * @return array{ ok:bool, options:string[], transients:int, cron:string[] }
+	 */
+	public function purge(): array {
+		$removed = array( 'ok' => true, 'options' => array(), 'transients' => 0, 'cron' => array() );
+
+		$wpdb = isset( $GLOBALS['wpdb'] ) && is_object( $GLOBALS['wpdb'] ) ? $GLOBALS['wpdb'] : null;
+		if ( null !== $wpdb && isset( $wpdb->options )
+			&& method_exists( $wpdb, 'query' ) && method_exists( $wpdb, 'prepare' ) ) {
+			$prefix = method_exists( $wpdb, 'esc_like' )
+				? $wpdb->esc_like( self::RESULT_TRANSIENT_PREFIX )
+				: self::RESULT_TRANSIENT_PREFIX;
+			$sql = $wpdb->prepare(
+				"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+				'_transient_' . $prefix . '%',
+				'_transient_timeout_' . $prefix . '%'
+			);
+			$rows                  = $wpdb->query( $sql );
+			$removed['transients'] = is_int( $rows ) ? $rows : 0;
+		}
+
+		return $removed;
+	}
+
 	// ── the core (STATEMENT 1 is the authoritative gate) ───────────────────────
 
 	/**

@@ -807,8 +807,102 @@ iwsl_assert_same( '%%term_title%%', $clean_ss['title_templates']['archive'], 'sa
 iwsl_assert_same( 'Browse %%term_title%%', $clean_ss['meta_templates']['archive'], 'sanitize_settings: archive meta bucket kept' );
 iwsl_assert( isset( $clean_ss['title_templates']['post'] ), 'sanitize_settings: original post bucket still present (additive)' );
 
+// ── 33. purge(): removes settings option + every _iwseo_* meta, never core meta ─
+// A recording fake $wpdb captures every delete(table, where); a fake IWSL_Teardown
+// proves the settings-save cache flush. Both are isolated to this subprocess.
+
+if ( ! class_exists( 'IWSL_Teardown' ) ) {
+	class IWSL_Teardown {
+		public static $flushes = 0;
+		public static function flush_page_cache(): void {
+			self::$flushes++;
+		}
+	}
+}
+
+/** Recording fake $wpdb: records delete(table, where) and returns a canned row count. */
+final class IWSL_SEO_Fake_WPDB {
+	public $postmeta = 'wp_postmeta';
+	public $options  = 'wp_options';
+	/** @var array<int, array{table:string, where:array}> */
+	public $deletes = array();
+	/** @var int */
+	private $rows;
+	public function __construct( int $rows = 0 ) {
+		$this->rows = $rows;
+	}
+	public function delete( $table, $where ) {
+		$this->deletes[] = array( 'table' => (string) $table, 'where' => $where );
+		return $this->rows;
+	}
+}
+
+$store_pg = new IWSL_Memory_Store();
+$eng_pg   = iwsl_seo_engine( $store_pg, $SEO_NOW );
+
+// Settings save persists the option AND flushes the page cache (front-end SEO head
+// output changed). When the harness supplies a counting fake IWSL_Teardown (peer's
+// real class absent) we assert the flush count; when the real class is preloaded we
+// assert the wiring target + a clean save (the real flush is a harness no-op).
+$iwsl_seo_can_count = property_exists( 'IWSL_Teardown', 'flushes' );
+if ( $iwsl_seo_can_count ) {
+	IWSL_Teardown::$flushes = 0;
+}
+$sv_flush = $eng_pg->save_settings( array( 'separator' => '|', 'sitemap_enabled' => true ) );
+iwsl_assert_same( true, $sv_flush['ok'], 'purge/cache: save_settings succeeds with the cache-flush call in its success path' );
+if ( $iwsl_seo_can_count ) {
+	iwsl_assert_same( 1, IWSL_Teardown::$flushes, 'purge/cache: save_settings flushes the page cache once' );
+} else {
+	iwsl_assert( method_exists( 'IWSL_Teardown', 'flush_page_cache' ), 'purge/cache: flush wired to IWSL_Teardown::flush_page_cache()' );
+}
+iwsl_assert( null !== $store_pg->get( 'seo_settings', null ), 'purge: settings option present before purge' );
+
+$GLOBALS['wpdb'] = new IWSL_SEO_Fake_WPDB( 2 ); // 2 rows removed per meta key
+$pg = $eng_pg->purge();
+iwsl_assert_same( true, $pg['ok'], 'purge: ok=true' );
+iwsl_assert_same( array( 'seo_settings' ), $pg['options'], 'purge: settings option reported removed' );
+iwsl_assert_same( null, $store_pg->get( 'seo_settings', null ), 'purge: settings option actually deleted from the store' );
+iwsl_assert_same( 21, count( $GLOBALS['wpdb']->deletes ), 'purge: one DELETE per plugin meta key (21)' );
+iwsl_assert_same( 21, count( $pg['postmeta'] ), 'purge: 21 meta keys reported removed' );
+iwsl_assert_same( 42, $pg['meta_rows'], 'purge: total meta rows = 21 keys × 2 rows' );
+iwsl_assert( isset( $pg['postmeta']['_iwseo_title'] ), 'purge: _iwseo_title among removed meta keys' );
+iwsl_assert_same( false, isset( $pg['postmeta']['_iwseo_prominent_words'] ), 'purge: no phantom meta keys invented' );
+
+// Every DELETE targets wp_postmeta by an _iwseo_* meta_key — NEVER a core/non-plugin key.
+$all_iwseo    = true;
+$touched_core = false;
+foreach ( $GLOBALS['wpdb']->deletes as $d ) {
+	$mk = isset( $d['where']['meta_key'] ) ? (string) $d['where']['meta_key'] : '';
+	if ( 'wp_postmeta' !== $d['table'] || 0 !== strpos( $mk, '_iwseo_' ) ) {
+		$all_iwseo = false;
+	}
+	if ( in_array( $mk, array( '_wp_attachment_image_alt', '_thumbnail_id', '_wp_page_template', 'my_custom_field' ), true ) ) {
+		$touched_core = true;
+	}
+}
+iwsl_assert( $all_iwseo, 'purge: every DELETE is wp_postmeta keyed by an _iwseo_* meta_key' );
+iwsl_assert_same( false, $touched_core, 'purge: never deletes a non-plugin/core meta key (incl. the alt-text key)' );
+
+// Idempotent + cheap-when-clean: a second purge finds no option, and a clean store
+// reports zero removed meta rows.
+$GLOBALS['wpdb'] = new IWSL_SEO_Fake_WPDB( 0 );
+$pg2 = $eng_pg->purge();
+iwsl_assert_same( array(), $pg2['options'], 'purge idempotent: no settings option the second time' );
+iwsl_assert_same( array(), $pg2['postmeta'], 'purge cheap-when-clean: zero meta rows reported when clean' );
+iwsl_assert_same( 0, $pg2['meta_rows'], 'purge cheap-when-clean: meta_rows 0 when clean' );
+
+// Guard: purge with no $wpdb still removes options and never fatals.
+unset( $GLOBALS['wpdb'] );
+$store_nowpdb = new IWSL_Memory_Store();
+$eng_nowpdb   = iwsl_seo_engine( $store_nowpdb, $SEO_NOW );
+$eng_nowpdb->save_settings( array( 'separator' => '-' ) );
+$pg3 = $eng_nowpdb->purge();
+iwsl_assert_same( array( 'seo_settings' ), $pg3['options'], 'purge (no $wpdb): still drops the settings option' );
+iwsl_assert_same( array(), $pg3['postmeta'], 'purge (no $wpdb): no meta removed without a DB handle' );
+
 // ── cleanup: unset every global this suite installed ──────────────────────────
 
+unset( $GLOBALS['wpdb'] );
 unset( $GLOBALS['iwseo_content_map'], $GLOBALS['iwseo_thumb_map'] );
 unset( $GLOBALS['iwseo_meta_boxes'] );
 unset( $GLOBALS['iwseo_removed'] );

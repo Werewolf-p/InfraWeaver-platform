@@ -188,6 +188,22 @@ final class IWSL_White_Label {
 		return array( 'ok' => true, 'settings' => $clean );
 	}
 
+	/**
+	 * Teardown for an uninstall/unlink sweep: delete this feature's settings option
+	 * key (SETTINGS_KEY) entirely, so a fresh read falls back to sanitize_settings()'
+	 * defaults (default WordPress login + admin chrome) rather than a stale persisted
+	 * map. No page-cache flush is needed — white-label only affects the login/admin
+	 * chrome, never cached front-end pages. Idempotent + cheap-when-clean: deleting an
+	 * absent key is a single no-op store call.
+	 *
+	 * @return array{ ok:bool, deleted:bool }
+	 */
+	public function purge(): array {
+		$had = null !== $this->store->get( self::SETTINGS_KEY, null );
+		$this->store->delete( self::SETTINGS_KEY );
+		return array( 'ok' => true, 'deleted' => $had );
+	}
+
 	// ── the engine (pure decision) ─────────────────────────────────────────────
 
 	/**

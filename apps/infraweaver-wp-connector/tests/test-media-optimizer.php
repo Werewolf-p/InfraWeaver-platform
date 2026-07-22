@@ -613,6 +613,7 @@ if ( ! function_exists( 'clean_post_cache' ) ) {
 if ( ! class_exists( 'IWSL_Fake_WPDB' ) ) {
 	final class IWSL_Fake_WPDB {
 		public $posts = 'wp_posts';
+		public $postmeta = 'wp_postmeta';
 		public function esc_like( $s ) {
 			return addcslashes( (string) $s, '_%\\' );
 		}
@@ -633,6 +634,21 @@ if ( ! class_exists( 'IWSL_Fake_WPDB' ) ) {
 		public function update( $table, $data, $where ) {
 			$GLOBALS['iwsl_mo_posts'][ (int) $where['ID'] ] = (string) $data['post_content'];
 			return 1;
+		}
+		/** Models a bulk `DELETE ... WHERE meta_key = X` against the postmeta fixture. */
+		public function delete( $table, $where ) {
+			if ( $this->postmeta !== $table || ! isset( $where['meta_key'] ) ) {
+				return 0;
+			}
+			$key     = (string) $where['meta_key'];
+			$removed = 0;
+			foreach ( $GLOBALS['iwsl_mo_meta'] as $id => $row ) {
+				if ( is_array( $row ) && array_key_exists( $key, $row ) ) {
+					unset( $GLOBALS['iwsl_mo_meta'][ $id ][ $key ] );
+					++$removed;
+				}
+			}
+			return $removed;
 		}
 	}
 }
@@ -795,6 +811,47 @@ $r13b = $opt13->run( 'webp_lossless', 200, 'copy' );
 iwsl_assert_same( 'already-current', $r13b['items'][0]['reason'], 'stem-collision: re-run of the same source is already-current (idempotent)' );
 iwsl_assert_same( $copy13, (int) ( $r13b['items'][0]['copy_id'] ?? 0 ), 'stem-collision: re-run reuses the same copy id' );
 iwsl_assert_same( $attach_before, count( $GLOBALS['iwsl_mo_attachments'] ), 'stem-collision: re-run creates NO duplicate copy attachment' );
+
+// ── 12. purge(): teardown removes derivative-tracking meta + run lock ────────
+
+iwsl_mo_reset();
+$base14 = iwsl_mo_tempdir();
+$opt14  = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base14,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) )
+);
+
+// (a) cheap no-op when nothing exists: fresh engine, no meta, no lock.
+$p14_clean = $opt14->purge();
+iwsl_assert_same( 0, $p14_clean['options'], 'purge(clean): options=0 (this engine owns no store)' );
+iwsl_assert_same( 0, $p14_clean['meta'], 'purge(clean): meta=0 (nothing written yet)' );
+iwsl_assert_same( false, $p14_clean['cron'], 'purge(clean): cron=false (this engine schedules none)' );
+iwsl_assert_same( 0, $p14_clean['locks'], 'purge(clean): locks=0 (no run lock held)' );
+
+// (b) seed a real footprint: two attachments' completed-conversion meta + a held run lock.
+$GLOBALS['iwsl_mo_meta'][901][ IWSL_Media_Optimizer::META_KEY ] = array(
+	'converter' => 'webp_lossless', 'source_size' => 100, 'source_mtime' => 1, 'copy_id' => 0,
+);
+$GLOBALS['iwsl_mo_meta'][902][ IWSL_Media_Optimizer::META_KEY ] = array(
+	'converter' => 'webp_lossless', 'source_size' => 200, 'source_mtime' => 2, 'copy_id' => 0,
+);
+set_transient( IWSL_Media_Optimizer::LOCK_TRANSIENT, $NOW, 60 );
+
+$p14 = $opt14->purge();
+iwsl_assert_same( 2, $p14['meta'], "purge: both attachments' derivative meta removed" );
+iwsl_assert_same( 1, $p14['locks'], 'purge: held run lock cleared' );
+iwsl_assert_same( false, $p14['cron'], 'purge: cron=false (this engine schedules none)' );
+iwsl_assert( ! isset( $GLOBALS['iwsl_mo_meta'][901][ IWSL_Media_Optimizer::META_KEY ] ), 'purge: attachment 901 meta gone' );
+iwsl_assert( ! isset( $GLOBALS['iwsl_mo_meta'][902][ IWSL_Media_Optimizer::META_KEY ] ), 'purge: attachment 902 meta gone' );
+iwsl_assert_same( false, get_transient( IWSL_Media_Optimizer::LOCK_TRANSIENT ), 'purge: run lock transient gone' );
+
+// (c) idempotent: a second call finds nothing left, reports zeros, no error.
+$p14b = $opt14->purge();
+iwsl_assert_same( 0, $p14b['meta'], 'purge(idempotent): second call removes nothing (meta=0)' );
+iwsl_assert_same( 0, $p14b['locks'], 'purge(idempotent): second call clears nothing (locks=0)' );
 
 // This suite is the only one that installs a global $wpdb; other suites bring
 // their own recording fake. Remove it so it never leaks across the shared runner.

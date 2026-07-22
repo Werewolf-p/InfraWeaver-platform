@@ -252,3 +252,28 @@ $fake8b = new IWSL_WL_Recording_Surface();
 $wl8b   = new IWSL_White_Label( iwsl_wl_entitlements( $NOW, 'active', 60000, array() ), new IWSL_Memory_Store(), $clock, array( 'brandfake' => $fake8b ) );
 $wl8b->apply();
 iwsl_assert_same( 0, $fake8b->resolve_calls, 'pluggable: locked gate resolves NO surface (zero side effects)' );
+
+// ── 9. purge(): teardown deletes the settings option key ──────────────────────
+
+// (a) A configured site: purge() removes the settings map.
+$store9 = new IWSL_Memory_Store();
+$wl9    = new IWSL_White_Label( iwsl_wl_unlocked( $NOW ), $store9, $clock );
+$wl9->save_settings( array( 'login_header_text' => 'Acme', 'hide_wp_logo' => true ) );
+iwsl_assert( is_array( $store9->get( IWSL_White_Label::SETTINGS_KEY ) ), 'purge setup: settings present' );
+$p9 = $wl9->purge();
+iwsl_assert_same( true, $p9['ok'], 'purge: ok=true' );
+iwsl_assert_same( true, $p9['deleted'], 'purge: deleted true (a settings map existed)' );
+iwsl_assert_same( null, $store9->get( IWSL_White_Label::SETTINGS_KEY ), 'purge: settings option key truly gone' );
+iwsl_assert_same( '', $wl9->settings()['login_header_text'], 'purge: settings() falls back to defaults after purge' );
+iwsl_assert_same( false, $wl9->settings()['hide_wp_logo'], 'purge: boolean falls back to default (false) after purge' );
+
+// (b) idempotent + cheap-when-clean: a second purge finds nothing to remove.
+$p9b = $wl9->purge();
+iwsl_assert_same( true, $p9b['ok'], 'purge: second call still ok (idempotent)' );
+iwsl_assert_same( false, $p9b['deleted'], 'purge: second call reports nothing to delete' );
+
+// (c) a fresh, never-configured engine: purge() is a clean no-op.
+$wl9f = new IWSL_White_Label( iwsl_wl_unlocked( $NOW ), new IWSL_Memory_Store(), $clock );
+$p9f  = $wl9f->purge();
+iwsl_assert_same( true, $p9f['ok'], 'purge (never configured): ok' );
+iwsl_assert_same( false, $p9f['deleted'], 'purge (never configured): nothing to delete' );

@@ -220,6 +220,24 @@ final class IWSL_Broken_Link_Scan {
 		return is_array( $value ) ? $value : null;
 	}
 
+	/**
+	 * Delete-time teardown scrub for the Broken Link Scanner. Removes ONLY the
+	 * plugin-owned durable last-scan-results option; there is nothing else to clear
+	 * (the per-user PRG transient self-expires, and this engine schedules no cron).
+	 * Idempotent and cheap when clean — the key is dropped only when present. This
+	 * scanner is read-only and never wrote post meta, so no meta is touched.
+	 *
+	 * @return array{ ok:bool, options:string[], cron:string[] }
+	 */
+	public function purge(): array {
+		$removed = array( 'ok' => true, 'options' => array(), 'cron' => array() );
+		if ( null !== $this->store->get( self::LAST_SCAN_KEY, null ) ) {
+			$this->store->delete( self::LAST_SCAN_KEY );
+			$removed['options'][] = self::LAST_SCAN_KEY;
+		}
+		return $removed;
+	}
+
 	/** Normalized post list from the injected provider, capped at MAX_POSTS. @return array[] */
 	private function posts(): array {
 		$posts = ( $this->posts_provider )();

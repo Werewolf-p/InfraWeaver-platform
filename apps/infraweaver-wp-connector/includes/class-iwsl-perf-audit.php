@@ -431,6 +431,23 @@ final class IWSL_Perf_Audit {
 		return $state;
 	}
 
+	/**
+	 * Teardown for an uninstall/unlink sweep: delete the whole audit state option
+	 * key — samples, since, overflow, AND the enabled flag — entirely. Unlike
+	 * reset_samples() (which preserves the enabled flag for an in-place clear),
+	 * purge() removes the option so nothing of this FREE feature's footprint
+	 * survives; a fresh read afterwards falls back to normalize_state()'s defaults
+	 * (enabled ON). Idempotent + cheap: deleting an absent key is a single no-op
+	 * store call.
+	 *
+	 * @return array{ ok:bool, deleted:bool }
+	 */
+	public function purge(): array {
+		$had = null !== $this->store->get( self::OPTION, null );
+		$this->store->delete( self::OPTION );
+		return array( 'ok' => true, 'deleted' => $had );
+	}
+
 	// ── admin-post handlers (capability + nonce) ───────────────────────────────
 
 	/** Toggle collection. cap + nonce, then PRG back to the Plus page. */

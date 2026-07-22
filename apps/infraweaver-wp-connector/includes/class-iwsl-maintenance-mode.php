@@ -161,8 +161,33 @@ final class IWSL_Maintenance_Mode {
 		$clean             = $this->sanitize_settings( $input );
 		$clean['saved_at'] = $this->now_seconds();
 		$this->store->set( self::SETTINGS_KEY, $clean );
+		// The holding page's own copy (headline/message) — and, more importantly,
+		// its ON/OFF state — is front-end HTML that a page cache may have baked in
+		// from before this save. Flush it so the change is visible immediately.
+		// IWSL_Teardown is a peer engine; guarded so this class has no hard
+		// dependency on it and stays harmless if it is not yet loaded.
+		if ( class_exists( 'IWSL_Teardown' ) ) {
+			IWSL_Teardown::flush_page_cache();
+		}
 
 		return array( 'ok' => true, 'settings' => $clean );
+	}
+
+	/**
+	 * Teardown: permanently remove this feature's footprint — delete the stored
+	 * settings option key. NOT gated by the entitlement: a full teardown must
+	 * succeed even after `maintenance_mode` has already been revoked (that is
+	 * precisely when a teardown is invoked). Idempotent + cheap: deleting an
+	 * already-absent option key is a no-op.
+	 *
+	 * @return array{ ok:bool, options_removed:string[] }
+	 */
+	public function purge(): array {
+		$this->store->delete( self::SETTINGS_KEY );
+		return array(
+			'ok'              => true,
+			'options_removed' => array( self::SETTINGS_KEY ),
+		);
 	}
 
 	// ── the engine (pure decision) + the effect ────────────────────────────────

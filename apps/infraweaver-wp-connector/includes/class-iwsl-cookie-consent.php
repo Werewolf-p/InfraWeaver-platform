@@ -387,6 +387,14 @@ final class IWSL_Cookie_Consent {
 		$clean             = $this->sanitize_settings( $input );
 		$clean['saved_at'] = $this->now_seconds();
 		$this->store->set( self::SETTINGS_KEY, $clean );
+		// The banner (or its absence) is baked into the front-end HTML a page cache
+		// may be serving. Flush it so enabling/disabling/reconfiguring the banner
+		// (including the one-click apply_recommended_defaults() path, which calls
+		// this method directly) never leaves a stale banner behind. IWSL_Teardown
+		// is a peer engine; guarded so this class has no hard dependency on it.
+		if ( class_exists( 'IWSL_Teardown' ) ) {
+			IWSL_Teardown::flush_page_cache();
+		}
 		return array( 'ok' => true, 'settings' => $clean );
 	}
 
@@ -435,6 +443,27 @@ final class IWSL_Cookie_Consent {
 		}
 		$this->store->set( self::LOG_KEY, array() );
 		return array( 'ok' => true, 'cleared' => true );
+	}
+
+	/**
+	 * Teardown: permanently remove this feature's footprint — delete the sanitized
+	 * settings, the consent-record log and the anonymization salt (the three
+	 * option keys this engine owns). NOT gated by the entitlement: a full teardown
+	 * must succeed even after `cookie_consent` has already been revoked (that is
+	 * precisely when a teardown is invoked). Idempotent + cheap: deleting an
+	 * already-absent option key is a no-op.
+	 *
+	 * @return array{ ok:bool, options_removed:string[] }
+	 */
+	public function purge(): array {
+		$options = array( self::SETTINGS_KEY, self::LOG_KEY, self::SALT_KEY );
+		foreach ( $options as $key ) {
+			$this->store->delete( $key );
+		}
+		return array(
+			'ok'              => true,
+			'options_removed' => $options,
+		);
 	}
 
 	/**

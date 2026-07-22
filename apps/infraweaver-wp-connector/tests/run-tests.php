@@ -163,7 +163,7 @@ $suites = array( 'jcs', 'slhdsa', 'verifier', 'enrollment', 'rotation', 'plugin'
 	// Wave 2 feature suites. broken-link-scan runs after media-optimizer (whose
 	// global stubs it is designed around); speed-pack MUST be last (it defines
 	// remove_action/remove_filter recorder stubs).
-	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'seo-alt-text', 'perf-audit', 'media-protection', 'response-scan', 'speed-pack' );
+	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'seo-alt-text', 'perf-audit', 'media-protection', 'response-scan', 'teardown', 'speed-pack' );
 // CHILD MODE: `php run-tests.php <suite>` runs exactly ONE suite in this process.
 // Each suite is self-contained (it defines its own guarded WP-function stubs), so
 // running it in isolation is authoritative and free of cross-suite global leakage.

@@ -254,3 +254,30 @@ iwsl_assert_same( false, $svg8->is_enabled(), 'toggle store: starts disabled' );
 $store8->set( IWSL_SVG_Upload::ENABLED_KEY, true );
 iwsl_assert_same( true, $svg8->is_enabled(), 'toggle store: reads enabled once persisted' );
 iwsl_assert_same( true, $svg8->is_active(), 'toggle store: active once unlocked + enabled' );
+
+// ── 9. purge(): teardown clears the opt-in toggle (this engine's only state) ──
+
+// (a) cheap no-op when nothing exists: a never-configured store.
+$store9_clean = new IWSL_Memory_Store();
+$svg9_clean   = new IWSL_SVG_Upload( iwsl_svg_unlocked_entitlements( $SVG_NOW ), $store9_clean );
+$pg9_clean    = $svg9_clean->purge();
+iwsl_assert_same( 0, $pg9_clean['options'], 'purge(clean): options=0 (toggle never set)' );
+iwsl_assert_same( 0, $pg9_clean['meta'], 'purge(clean): meta=0 (this engine writes no postmeta)' );
+iwsl_assert_same( false, $pg9_clean['cron'], 'purge(clean): cron=false (this engine schedules none)' );
+
+// (b) seed a real footprint: the toggle enabled.
+$store9 = new IWSL_Memory_Store();
+$store9->set( IWSL_SVG_Upload::ENABLED_KEY, true );
+$svg9 = new IWSL_SVG_Upload( iwsl_svg_unlocked_entitlements( $SVG_NOW ), $store9 );
+iwsl_assert_same( true, $svg9->is_active(), 'purge: active before teardown' );
+
+$pg9 = $svg9->purge();
+iwsl_assert_same( 1, $pg9['options'], 'purge: the enabled toggle removed' );
+iwsl_assert_same( false, $pg9['cron'], 'purge: cron=false (this engine schedules none)' );
+iwsl_assert_same( null, $store9->get( IWSL_SVG_Upload::ENABLED_KEY ), 'purge: toggle key gone from the store' );
+iwsl_assert_same( false, $svg9->is_enabled(), 'purge: is_enabled() false again (defaults off)' );
+iwsl_assert_same( false, $svg9->is_active(), 'purge: is_active() false again even though the gate is still unlocked' );
+
+// (c) idempotent: a second call finds nothing left, reports zero.
+$pg9b = $svg9->purge();
+iwsl_assert_same( 0, $pg9b['options'], 'purge(idempotent): second call removes nothing' );

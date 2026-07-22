@@ -252,6 +252,14 @@ final class IWSL_Admin {
 		$on      = isset( $_POST['enable'] ) && '1' === (string) $_POST['enable'];
 		$result  = $this->switches()->set( $feature, $on );
 
+		// A deliberate disable purges the feature's footprint immediately (rather
+		// than waiting for the next admin init sweep). `$feature` is already the
+		// entitlement/FEATURE flag the switch keys on, so it maps straight to an
+		// engine. Only on a successful OFF flip; the purge is isolation-safe.
+		if ( ! $on && ! empty( $result['ok'] ) ) {
+			IWSL_Teardown::purge( $feature, $this->plugin->entitlements(), new IWSL_WP_Store() );
+		}
+
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( self::FEATURE_TOGGLE_RESULT . get_current_user_id(), $result, 60 );
 		}
@@ -525,11 +533,179 @@ final class IWSL_Admin {
 		$new = $this->new_engine_panels();
 		if ( isset( $new[ $id ] ) ) {
 			if ( ! empty( $unlocked[ $id ] ) ) {
+				// A guided-setup wizard sits ABOVE the engine's own form when the
+				// feature is unconfigured; the engine's full form always renders below.
+				$this->maybe_render_engine_wizard( $id );
 				( $new[ $id ][1] )();
 			} else {
 				self::render_locked_panel( (string) $new[ $id ][0] );
 			}
 		}
+	}
+
+	/**
+	 * Render a guided-setup wizard for an engine-owned panel (CDN, Response Time
+	 * Scanner, SEO Suite) when that feature is unconfigured. Each wizard submits to
+	 * the ENGINE'S EXISTING admin-post save action + nonce, reusing its exact field
+	 * names — no new save endpoint is introduced. The engine's own render_section()
+	 * still draws the full form beneath, so the page works with JavaScript disabled.
+	 */
+	private function maybe_render_engine_wizard( string $id ): void {
+		$ent = $this->plugin->entitlements();
+		switch ( $id ) {
+			case 'cdn':
+				$this->maybe_render_cdn_wizard( new IWSL_CDN_Rewrite( $ent, new IWSL_WP_Store() ) );
+				return;
+			case 'response-scan':
+				$this->maybe_render_response_scan_wizard( new IWSL_Response_Scan( $ent, new IWSL_WP_Store() ) );
+				return;
+			case 'seo':
+				$this->maybe_render_seo_wizard( new IWSL_SEO_Suite( $ent, new IWSL_WP_Store() ) );
+				return;
+		}
+	}
+
+	/**
+	 * CDN URL Rewrite wizard — shown only when no CDN host is configured. Submits to
+	 * IWSL_CDN_Rewrite::SETTINGS_ACTION with the engine's own `host` + `enabled`
+	 * fields; the engine's full form still renders below.
+	 */
+	private function maybe_render_cdn_wizard( IWSL_CDN_Rewrite $cdn ): void {
+		$settings = $cdn->settings();
+		if ( '' !== (string) ( $settings['host'] ?? '' ) ) {
+			return; // a host is set — already configured.
+		}
+		$this->wizard_open(
+			'cdn',
+			__( 'Point your CDN at this site — guided setup', 'infraweaver-connector' ),
+			array(
+				'action' => IWSL_CDN_Rewrite::SETTINGS_ACTION,
+				'nonce'  => IWSL_CDN_Rewrite::SETTINGS_NONCE,
+				'icon'   => 'cloud',
+				'submit' => __( 'Save changes', 'infraweaver-connector' ),
+				'launch' => array(
+					'heading' => __( 'Serve images & files from your CDN', 'infraweaver-connector' ),
+					'body'    => __( 'A CDN serves your static files from servers closer to each visitor, so pages load quicker. A short walk-through connects yours.', 'infraweaver-connector' ),
+					'button'  => __( 'Connect a CDN in 2 steps', 'infraweaver-connector' ),
+				),
+				'steps'  => array(
+					array(
+						'title' => __( 'Before you start', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'This rewrites the address of your images, CSS, JavaScript and fonts to your CDN host. Your pages, admin and login always stay on this site.', 'infraweaver-connector' ) . '</p>';
+							echo '<p class="iwsl-wz__note">' . esc_html__( 'Your CDN must be set up as a “pull zone” whose origin is this site. If it can’t reach this site, assets will 404 — so create the pull zone first.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+					array(
+						'title' => __( 'Your CDN host', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'Enter the hostname your CDN gave you — just the host, no https:// and no trailing path.', 'infraweaver-connector' ) . '</p>';
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_field( 'text', 'host', __( 'CDN host', 'infraweaver-connector' ), '', 'cdn.example.com' );
+							echo '</div>';
+							self::wizard_checkbox( 'enabled', __( 'Start serving static assets from the CDN now', 'infraweaver-connector' ), true );
+						},
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * Response Time Scanner wizard — shown only when no URLs are configured and no
+	 * scan has ever run. Submits to IWSL_Response_Scan::SCAN_ACTION with the
+	 * engine's own `iwsl_rs_*` fields, which both saves the URL list and runs the
+	 * first scan; the engine's full form still renders below.
+	 */
+	private function maybe_render_response_scan_wizard( IWSL_Response_Scan $scan ): void {
+		$settings = $scan->settings();
+		$has_urls = '' !== trim( (string) ( $settings['urls'] ?? '' ) );
+		if ( $has_urls || array() !== $scan->snapshots() ) {
+			return; // URLs chosen, or at least one scan already taken.
+		}
+		$runs = isset( $settings['runs'] ) ? (int) $settings['runs'] : IWSL_Response_Scan::RUNS_DEFAULT;
+		$this->wizard_open(
+			'response-scan',
+			__( 'Choose which pages to time — guided setup', 'infraweaver-connector' ),
+			array(
+				'action' => IWSL_Response_Scan::SCAN_ACTION,
+				'nonce'  => IWSL_Response_Scan::SCAN_NONCE,
+				'icon'   => 'chart-line',
+				'submit' => __( 'Run my first scan', 'infraweaver-connector' ),
+				'launch' => array(
+					'heading' => __( 'Measure how fast your pages load', 'infraweaver-connector' ),
+					'body'    => __( 'Times the full round-trip to load your pages so you can compare before and after a change. Pick which pages to time and run the first scan.', 'infraweaver-connector' ),
+					'button'  => __( 'Set up in 2 steps', 'infraweaver-connector' ),
+				),
+				'steps'  => array(
+					array(
+						'title' => __( 'What this does', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'It loads each page a few times and keeps the middle (median) time — connection, server and download — so one slow blip doesn’t skew the result.', 'infraweaver-connector' ) . '</p>';
+							echo '<p>' . esc_html__( 'Your home page is always included. Add any other important pages below.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+					array(
+						'title' => __( 'Which pages to time', 'infraweaver-connector' ),
+						'body'  => static function () use ( $runs ): void {
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_textarea( 'iwsl_rs_urls', __( 'Extra URLs (one per line)', 'infraweaver-connector' ), '', rtrim( (string) home_url(), '/' ) . "/shop/\n" . rtrim( (string) home_url(), '/' ) . '/about/', 4 );
+							self::wizard_field( 'number', 'iwsl_rs_runs', __( 'Loads per page (median kept)', 'infraweaver-connector' ), (string) $runs, '', array( 'min' => (string) IWSL_Response_Scan::RUNS_MIN, 'max' => (string) IWSL_Response_Scan::RUNS_MAX ) );
+							self::wizard_field( 'text', 'iwsl_rs_label', __( 'Label for this baseline (optional)', 'infraweaver-connector' ), '', __( 'e.g. before lossless images', 'infraweaver-connector' ) );
+							echo '</div>';
+							self::wizard_checkbox( 'iwsl_rs_include_sitemap', __( 'Also time a few top pages from my sitemap', 'infraweaver-connector' ), false );
+						},
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * SEO Suite quick-setup wizard — shown only when the SEO settings have never
+	 * been saved (settings()['saved_at'] === 0). Submits to
+	 * IWSL_SEO_Suite::SAVE_ACTION with the engine's own `iwseo_*` fields; the
+	 * engine's full Search Appearance form still renders below.
+	 */
+	private function maybe_render_seo_wizard( IWSL_SEO_Suite $seo ): void {
+		$settings = $seo->settings();
+		if ( ! empty( $settings['saved_at'] ) ) {
+			return; // already configured.
+		}
+		$this->wizard_open(
+			'seo',
+			__( 'SEO basics — guided setup', 'infraweaver-connector' ),
+			array(
+				'action' => IWSL_SEO_Suite::SAVE_ACTION,
+				'nonce'  => IWSL_SEO_Suite::SAVE_NONCE,
+				'icon'   => 'search',
+				'submit' => __( 'Save SEO settings', 'infraweaver-connector' ),
+				'launch' => array(
+					'heading' => __( 'Help Google understand your site', 'infraweaver-connector' ),
+					'body'    => __( 'Set your brand name, a default share image and turn on an XML sitemap so search engines can find every page. Fine-tune everything afterwards.', 'infraweaver-connector' ),
+					'button'  => __( 'Set up SEO basics', 'infraweaver-connector' ),
+				),
+				'steps'  => array(
+					array(
+						'title' => __( 'What this does', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'These three basics cover most of what search engines and social networks look for. You can tune titles, templates, schema and more on the full form afterwards.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+					array(
+						'title' => __( 'Your brand & sitemap', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_field( 'text', 'iwseo_org_name', __( 'Site / brand name', 'infraweaver-connector' ), (string) get_bloginfo( 'name' ), get_bloginfo( 'name' ) );
+							self::wizard_field( 'text', 'iwseo_default_social_image', __( 'Default share image URL', 'infraweaver-connector' ), '', '/wp-content/uploads/brand/social.png' );
+							echo '</div>';
+							echo '<p class="description">' . esc_html__( 'The share image is used when a page is posted to social media and has no image of its own.', 'infraweaver-connector' ) . '</p>';
+							self::wizard_checkbox( 'iwseo_sitemap_enabled', __( 'Turn on the XML sitemap (recommended)', 'infraweaver-connector' ), true, __( 'Publishes /sitemap_index.xml and adds it to robots.txt so search engines can crawl every page.', 'infraweaver-connector' ) );
+						},
+					),
+				),
+			)
+		);
 	}
 
 	/**
@@ -2792,9 +2968,104 @@ JS;
 		}
 
 		$this->render_email_result_notice();
+		$this->maybe_render_email_wizard();
 		$this->render_email_settings_form();
 		$this->render_email_test_form();
 		$this->render_email_log_table();
+	}
+
+	/**
+	 * The SMTP "Set up email in 3 steps" wizard — shown only when SMTP is not yet
+	 * configured (no host, or a host with no usable password). Submits to the
+	 * EXISTING EMAIL_SETTINGS_ACTION handler with the EXISTING field names; the
+	 * password-storage opt-in (allow_option_password) is surfaced in the final
+	 * step, never bypassed. The full settings form still renders below (no-JS safe).
+	 */
+	private function maybe_render_email_wizard(): void {
+		$s        = $this->email_delivery()->settings_for_render();
+		$host     = isset( $s['host'] ) ? (string) $s['host'] : '';
+		$port     = isset( $s['port'] ) ? (int) $s['port'] : 0;
+		$username = isset( $s['username'] ) ? (string) $s['username'] : '';
+		$from     = isset( $s['from_email'] ) ? (string) $s['from_email'] : '';
+		$fname    = isset( $s['from_name'] ) ? (string) $s['from_name'] : '';
+		$secure   = isset( $s['secure'] ) ? (string) $s['secure'] : '';
+		$auth     = ! empty( $s['auth'] );
+		$has_pw   = ! empty( $s['has_password'] );
+		$pw_src   = isset( $s['password_source'] ) ? (string) $s['password_source'] : 'none';
+		$constant = ( 'constant' === $pw_src );
+
+		// Configured = a host is set AND a password is available (stored or constant).
+		$configured = ( '' !== $host ) && ( $has_pw || $constant );
+		if ( $configured ) {
+			return;
+		}
+
+		$mode_labels = array( '' => __( 'None', 'infraweaver-connector' ), 'ssl' => 'SSL', 'tls' => 'TLS' );
+
+		$this->wizard_open(
+			'smtp',
+			__( 'Set up email in 3 steps', 'infraweaver-connector' ),
+			array(
+				'action' => self::EMAIL_SETTINGS_ACTION,
+				'nonce'  => self::EMAIL_SETTINGS_NONCE,
+				'icon'   => 'email',
+				'submit' => __( 'Save SMTP settings', 'infraweaver-connector' ),
+				'launch' => array(
+					'heading' => __( 'Set up email in 3 steps', 'infraweaver-connector' ),
+					'body'    => __( 'Make sure this site’s emails — password resets, order receipts, contact forms — actually reach inboxes. A short guided walk-through connects your email provider.', 'infraweaver-connector' ),
+					'button'  => __( 'Set up email in 3 steps', 'infraweaver-connector' ),
+				),
+				'steps'  => array(
+					array(
+						'title' => __( 'What this does', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'Right now WordPress hands mail straight to your server, where it often lands in spam or vanishes. Routing it through a real email provider (SMTP) fixes that.', 'infraweaver-connector' ) . '</p>';
+							echo '<p>' . esc_html__( 'You’ll need a few details from your email provider — usually shown on a page called “SMTP”, “Sending” or “Mail settings”. Have them open in another tab, then continue.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+					array(
+						'title' => __( 'Your email server', 'infraweaver-connector' ),
+						'body'  => static function () use ( $host, $port, $secure, $auth, $username, $mode_labels ): void {
+							echo '<p>' . esc_html__( 'Copy these from your provider exactly as shown.', 'infraweaver-connector' ) . '</p>';
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_field( 'text', 'host', __( 'SMTP host', 'infraweaver-connector' ), $host, 'smtp.example.com' );
+							self::wizard_field( 'number', 'port', __( 'Port', 'infraweaver-connector' ), $port > 0 ? (string) $port : '', '587', array( 'min' => '1', 'max' => '65535' ) );
+							echo '<label class="iwsl-wz__field"><span>' . esc_html__( 'Encryption', 'infraweaver-connector' ) . '</span><select name="secure">';
+							foreach ( IWSL_Email_Delivery::SECURE_MODES as $mode ) {
+								$label = isset( $mode_labels[ $mode ] ) ? $mode_labels[ $mode ] : $mode;
+								echo '<option value="' . esc_attr( $mode ) . '"' . selected( $secure, $mode, false ) . '>' . esc_html( $label ) . '</option>';
+							}
+							echo '</select></label>';
+							self::wizard_field( 'text', 'username', __( 'Username', 'infraweaver-connector' ), $username, 'you@example.com' );
+							echo '</div>';
+							self::wizard_checkbox( 'auth', __( 'My email service needs a login (usual)', 'infraweaver-connector' ), $auth );
+						},
+					),
+					array(
+						'title' => __( 'Sender & password', 'infraweaver-connector' ),
+						'body'  => static function () use ( $from, $fname, $has_pw, $constant ): void {
+							echo '<p>' . esc_html__( 'Who your mail appears to come from, and the account password.', 'infraweaver-connector' ) . '</p>';
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_field( 'text', 'from_email', __( 'From email', 'infraweaver-connector' ), $from, 'noreply@yourdomain.com' );
+							self::wizard_field( 'text', 'from_name', __( 'From name', 'infraweaver-connector' ), $fname, get_bloginfo( 'name' ) );
+							echo '<label class="iwsl-wz__field"><span>' . esc_html__( 'Password', 'infraweaver-connector' ) . '</span><input type="password" name="password" value="" autocomplete="new-password"' . ( $has_pw ? ' placeholder="****"' : '' ) . '></label>';
+							echo '</div>';
+							if ( $constant ) {
+								echo '<p class="iwsl-wz__note">' . esc_html__( 'IWSL_SMTP_PASS is already defined in wp-config.php — that value is used and no database password is stored. You can leave the password blank.', 'infraweaver-connector' ) . '</p>';
+							} else {
+								self::wizard_checkbox(
+									'allow_option_password',
+									__( 'Store this password in the database (I understand the risk)', 'infraweaver-connector' ),
+									false,
+									__( 'Required to save a password here. For better security, set IWSL_SMTP_PASS in wp-config.php instead and leave this off.', 'infraweaver-connector' )
+								);
+							}
+							echo '<p class="iwsl-wz__note">' . esc_html__( 'After saving, use “Send a test email” below to confirm delivery end-to-end.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+				),
+			)
+		);
 	}
 
 	/** Reason lines for a locked email-delivery gate (no form). */
@@ -3533,8 +3804,73 @@ JS;
 		}
 
 		$this->render_white_label_result_notice();
+		$this->maybe_render_white_label_wizard();
 		$this->render_white_label_capability_table();
 		$this->render_white_label_form();
+	}
+
+	/**
+	 * The White-Label "brand your login & admin" wizard — shown only when the
+	 * feature has never been saved (settings_for_render()['saved_at'] === 0).
+	 * Submits to the EXISTING WHITE_LABEL_ACTION handler with the EXISTING field
+	 * names. The full settings form still renders below (no-JS safe).
+	 */
+	private function maybe_render_white_label_wizard(): void {
+		$s = $this->white_label()->settings_for_render();
+		if ( ! empty( $s['saved_at'] ) ) {
+			return; // already configured — the wizard would be noise.
+		}
+		$logo    = isset( $s['login_logo_url'] ) ? (string) $s['login_logo_url'] : '';
+		$link    = isset( $s['login_header_url'] ) ? (string) $s['login_header_url'] : '';
+		$message = isset( $s['login_message'] ) ? (string) $s['login_message'] : '';
+		$footer  = isset( $s['admin_footer_text'] ) ? (string) $s['admin_footer_text'] : '';
+		$hide    = ! empty( $s['hide_wp_logo'] );
+
+		$this->wizard_open(
+			'whitelabel',
+			__( 'Brand your login & admin — guided setup', 'infraweaver-connector' ),
+			array(
+				'action' => self::WHITE_LABEL_ACTION,
+				'nonce'  => self::WHITE_LABEL_NONCE,
+				'icon'   => 'admin-appearance',
+				'submit' => __( 'Save white-label settings', 'infraweaver-connector' ),
+				'launch' => array(
+					'heading' => __( 'Put your own brand on the login & admin', 'infraweaver-connector' ),
+					'body'    => __( 'Replace the WordPress logo and footer credit with your own on the login screen and dashboard. A short guided walk-through gets the essentials set.', 'infraweaver-connector' ),
+					'button'  => __( 'Brand it in 3 steps', 'infraweaver-connector' ),
+				),
+				'steps'  => array(
+					array(
+						'title' => __( 'What this does', 'infraweaver-connector' ),
+						'body'  => static function (): void {
+							echo '<p>' . esc_html__( 'Your login page and dashboard footer show WordPress branding by default. This swaps in your own logo, link and credit — applied entirely on this server.', 'infraweaver-connector' ) . '</p>';
+							echo '<p>' . esc_html__( 'Nothing here is permanent: clearing a field, or losing the entitlement, restores the default WordPress chrome instantly.', 'infraweaver-connector' ) . '</p>';
+						},
+					),
+					array(
+						'title' => __( 'Your login logo', 'infraweaver-connector' ),
+						'body'  => static function () use ( $logo, $link ): void {
+							echo '<p>' . esc_html__( 'Point to your logo image and where clicking it should go. Leave blank to keep the WordPress defaults.', 'infraweaver-connector' ) . '</p>';
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_field( 'text', 'login_logo_url', __( 'Login logo URL', 'infraweaver-connector' ), $logo, '/wp-content/uploads/brand/logo.png' );
+							self::wizard_field( 'text', 'login_header_url', __( 'Logo link URL', 'infraweaver-connector' ), $link, 'https://example.com' );
+							echo '</div>';
+						},
+					),
+					array(
+						'title' => __( 'Message & footer', 'infraweaver-connector' ),
+						'body'  => static function () use ( $message, $footer, $hide ): void {
+							echo '<p>' . esc_html__( 'Optional finishing touches. All of these can be changed later on this page.', 'infraweaver-connector' ) . '</p>';
+							echo '<div class="iwsl-wz__fields">';
+							self::wizard_textarea( 'login_message', __( 'Login message', 'infraweaver-connector' ), $message, __( 'Welcome back — please sign in.', 'infraweaver-connector' ), 2 );
+							self::wizard_field( 'text', 'admin_footer_text', __( 'Admin footer credit', 'infraweaver-connector' ), $footer, get_bloginfo( 'name' ) );
+							echo '</div>';
+							self::wizard_checkbox( 'hide_wp_logo', __( 'Remove the WordPress logo from the admin bar', 'infraweaver-connector' ), $hide );
+						},
+					),
+				),
+			)
+		);
 	}
 
 	/** Reason lines for a locked white-label gate (no form). */
@@ -4409,6 +4745,226 @@ CSS;
 		else if (e.target === dlg) { close(); }
 	});
 	render();
+})();
+JS;
+		echo "\n</script>\n";
+	}
+
+	// ── Reusable guided-setup wizard (launcher CTA + native <dialog> stepper) ───
+	//
+	// One helper drives every feature setup wizard: a prominent launcher card plus
+	// a self-contained <dialog> whose FINAL step submits a normal POST to that
+	// feature's EXISTING admin-post save handler (reusing its action + nonce +
+	// field names — no new save endpoints). Mirrors the proven Cookie-Consent
+	// wizard: labelled dialog, Esc/backdrop close, Back/Next paging, focusable,
+	// scoped inline CSS/JS under .iwsl-shell, no external assets. Degrades without
+	// JS: the feature's full existing form is always rendered below the launcher.
+
+	/**
+	 * Render a guided-setup wizard: a launcher CTA + a stepped modal form.
+	 *
+	 * @param string $id    Unique slug (e.g. 'smtp'); scopes the dialog id + launcher.
+	 * @param string $title Dialog title (plain text).
+	 * @param array  $spec  {
+	 *     action: string  EXISTING admin-post action the final step submits to.
+	 *     nonce:  string  EXISTING nonce action for wp_nonce_field().
+	 *     submit: string  Final-step submit-button label.
+	 *     icon:   string  dashicon slug (sans the `dashicons-` prefix).
+	 *     launch: array{ heading:string, body:string, button:string }  Launcher copy.
+	 *     steps:  array<int, array{ title:string, body:callable():void }>  Ordered steps;
+	 *             each body() echoes the step's plain-English copy + any form fields.
+	 * }
+	 */
+	private function wizard_open( string $id, string $title, array $spec ): void {
+		self::render_wizard_assets();
+
+		$action = (string) ( $spec['action'] ?? '' );
+		$nonce  = (string) ( $spec['nonce'] ?? '' );
+		$submit = (string) ( $spec['submit'] ?? __( 'Finish setup', 'infraweaver-connector' ) );
+		$icon   = (string) ( $spec['icon'] ?? 'admin-generic' );
+		$launch = ( isset( $spec['launch'] ) && is_array( $spec['launch'] ) ) ? $spec['launch'] : array();
+		$steps  = ( isset( $spec['steps'] ) && is_array( $spec['steps'] ) ) ? array_values( $spec['steps'] ) : array();
+		if ( '' === $action || array() === $steps ) {
+			return; // nothing to submit to, or nothing to show — render nothing.
+		}
+		$dialog_id = 'iwsl-wz-' . $id;
+
+		// Launcher CTA — prominent; the caller only invokes this when unconfigured.
+		echo '<div class="iwsl-wz-cta">';
+		echo '<div class="iwsl-wz-cta__text">';
+		echo '<h3>' . esc_html( (string) ( $launch['heading'] ?? $title ) ) . '</h3>';
+		if ( ! empty( $launch['body'] ) ) {
+			echo '<p>' . esc_html( (string) $launch['body'] ) . '</p>';
+		}
+		echo '</div>';
+		echo '<button type="button" class="button button-primary" data-wz-open="' . esc_attr( $id ) . '"><span class="dashicons dashicons-' . esc_attr( $icon ) . '" aria-hidden="true"></span>' . esc_html( (string) ( $launch['button'] ?? __( 'Start guided setup', 'infraweaver-connector' ) ) ) . '</button>';
+		echo '</div>';
+
+		echo '<dialog class="iwsl-wz" id="' . esc_attr( $dialog_id ) . '" data-wz-dialog="' . esc_attr( $id ) . '" aria-labelledby="' . esc_attr( $dialog_id ) . '-title">';
+		echo '<form class="iwsl-wz__inner" method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( $nonce );
+		echo '<input type="hidden" name="action" value="' . esc_attr( $action ) . '">';
+
+		echo '<div class="iwsl-wz__head">';
+		echo '<span class="iwsl-wz__mark" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span></span>';
+		echo '<h2 class="iwsl-wz__title" id="' . esc_attr( $dialog_id ) . '-title">' . esc_html( $title ) . '</h2>';
+		echo '<button type="button" class="iwsl-wz__x" data-wz-close="1" aria-label="' . esc_attr__( 'Close', 'infraweaver-connector' ) . '">&times;</button>';
+		echo '</div>';
+		echo '<p class="iwsl-wz__progress" data-wz-tpl="' . esc_attr__( 'Step {n} of {t}', 'infraweaver-connector' ) . '" aria-hidden="true"></p>';
+
+		echo '<div class="iwsl-wz__steps">';
+		$last = count( $steps ) - 1;
+		foreach ( $steps as $i => $step ) {
+			$stitle = (string) ( $step['title'] ?? '' );
+			echo '<section class="iwsl-wz__step" aria-label="' . esc_attr( '' !== $stitle ? $stitle : $title ) . '">';
+			if ( '' !== $stitle ) {
+				echo '<h3>' . esc_html( $stitle ) . '</h3>';
+			}
+			$body = $step['body'] ?? null;
+			if ( is_callable( $body ) ) {
+				$body();
+			}
+			if ( $i === $last ) {
+				echo '<button type="submit" class="button button-primary iwsl-wz__go"><span class="dashicons dashicons-yes" aria-hidden="true"></span>' . esc_html( $submit ) . '</button>';
+			}
+			echo '</section>';
+		}
+		echo '</div>'; // .iwsl-wz__steps
+
+		echo '<div class="iwsl-wz__nav">';
+		echo '<button type="button" class="button button-secondary" data-wz-back="1">' . esc_html__( 'Back', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="button" class="button button-primary" data-wz-next="1">' . esc_html__( 'Next', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+
+		echo '</form>';
+		echo '</dialog>';
+	}
+
+	/** A labelled text/url/email/number field inside a wizard step. */
+	private static function wizard_field( string $type, string $name, string $label, string $value = '', string $placeholder = '', array $attrs = array() ): void {
+		echo '<label class="iwsl-wz__field"><span>' . esc_html( $label ) . '</span>';
+		echo '<input type="' . esc_attr( $type ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"';
+		if ( '' !== $placeholder ) {
+			echo ' placeholder="' . esc_attr( $placeholder ) . '"';
+		}
+		foreach ( $attrs as $k => $v ) {
+			echo ' ' . esc_attr( (string) $k ) . '="' . esc_attr( (string) $v ) . '"';
+		}
+		echo '></label>';
+	}
+
+	/** A labelled textarea field inside a wizard step. */
+	private static function wizard_textarea( string $name, string $label, string $value = '', string $placeholder = '', int $rows = 3 ): void {
+		echo '<label class="iwsl-wz__field"><span>' . esc_html( $label ) . '</span>';
+		echo '<textarea name="' . esc_attr( $name ) . '" rows="' . esc_attr( (string) $rows ) . '" class="large-text code"';
+		if ( '' !== $placeholder ) {
+			echo ' placeholder="' . esc_attr( $placeholder ) . '"';
+		}
+		echo '>' . esc_textarea( $value ) . '</textarea></label>';
+	}
+
+	/** A labelled checkbox inside a wizard step, with optional helper text. */
+	private static function wizard_checkbox( string $name, string $label, bool $checked = false, string $help = '' ): void {
+		echo '<label class="iwsl-wz__check"><input type="checkbox" name="' . esc_attr( $name ) . '" value="1"' . ( $checked ? ' checked' : '' ) . '> <span>' . esc_html( $label );
+		if ( '' !== $help ) {
+			echo '<br><span class="description">' . esc_html( $help ) . '</span>';
+		}
+		echo '</span></label>';
+	}
+
+	/** Emit the shared wizard CSS + JS exactly once per request (many wizards, one asset). */
+	private static function render_wizard_assets(): void {
+		static $done = false;
+		if ( $done ) {
+			return;
+		}
+		$done = true;
+
+		echo "<style>\n";
+		echo <<<'CSS'
+.iwsl-shell .iwsl-wz-cta{ display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 18px 20px; margin: 0 0 16px; border: 1px solid color-mix(in oklch, var(--iw-signal) 34%, var(--iw-line-2)); border-radius: 14px; background: color-mix(in oklch, var(--iw-signal) 8%, var(--iw-panel)); }
+.iwsl-shell .iwsl-wz-cta__text{ flex: 1 1 300px; }
+.iwsl-shell .iwsl-wz-cta__text h3{ margin: 0 0 4px; text-transform: none; letter-spacing: 0; }
+.iwsl-shell .iwsl-wz-cta__text h3::before{ display: none; }
+.iwsl-shell .iwsl-wz-cta__text p{ margin: 0; }
+.iwsl-shell .iwsl-wz{ width: min(580px, calc(100vw - 32px)); max-width: 580px; max-height: calc(100vh - 48px); overflow: auto; padding: 0; color: var(--iw-ink); background: var(--iw-panel); border: 1px solid var(--iw-line-2); border-radius: 16px; box-shadow: 0 40px 90px -30px rgba(0,0,0,.85); }
+.iwsl-shell .iwsl-wz::backdrop{ background: rgba(4,7,11,.62); backdrop-filter: blur(2px); }
+.iwsl-shell .iwsl-wz__inner{ margin: 0; padding: 22px 24px 20px; }
+.iwsl-shell .iwsl-wz__head{ display: flex; align-items: center; gap: 12px; }
+.iwsl-shell .iwsl-wz__mark{ display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; color: var(--iw-signal-ink); background: linear-gradient(155deg, var(--iw-signal-2), var(--iw-signal)); flex: 0 0 auto; }
+.iwsl-shell .iwsl-wz__mark .dashicons{ font-size: 19px; width: 19px; height: 19px; }
+.iwsl-shell .iwsl-wz__title{ margin: 0; font-size: 17px; }
+.iwsl-shell .iwsl-wz__x{ margin-left: auto; padding: 2px 6px; background: none; border: 0; border-radius: 8px; color: var(--iw-faint); font-size: 24px; line-height: 1; cursor: pointer; }
+.iwsl-shell .iwsl-wz__x:hover{ color: var(--iw-ink); background: color-mix(in oklch, white 8%, transparent); }
+.iwsl-shell .iwsl-wz__progress{ margin: 6px 0 12px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--iw-faint); }
+.iwsl-shell .iwsl-wz__steps{ min-height: 150px; }
+.iwsl-shell .iwsl-wz__step{ display: none; }
+.iwsl-shell .iwsl-wz__step.is-active{ display: block; }
+@media (prefers-reduced-motion: no-preference){ .iwsl-shell .iwsl-wz__step.is-active{ animation: iwsl-rise .28s var(--iw-ease) both; } }
+.iwsl-shell .iwsl-wz__step h3{ margin: 0 0 8px; font-size: 15px; text-transform: none; letter-spacing: 0; }
+.iwsl-shell .iwsl-wz__step h3::before{ display: none; }
+.iwsl-shell .iwsl-wz__step p{ margin: 0 0 10px; }
+.iwsl-shell .iwsl-wz__fields{ display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.iwsl-shell .iwsl-wz__field{ display: flex; flex-direction: column; gap: 5px; }
+.iwsl-shell .iwsl-wz__field > span{ font-size: 12.5px; color: var(--iw-muted); }
+.iwsl-shell .iwsl-wz__field input, .iwsl-shell .iwsl-wz__field select, .iwsl-shell .iwsl-wz__field textarea{ width: 100%; box-sizing: border-box; }
+.iwsl-shell .iwsl-wz__check{ display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; font-size: 13px; }
+.iwsl-shell .iwsl-wz__check .description{ color: var(--iw-muted); }
+.iwsl-shell .iwsl-wz__note{ margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; background: color-mix(in oklch, var(--iw-signal) 8%, transparent); border: 1px solid color-mix(in oklch, var(--iw-signal) 26%, var(--iw-line)); }
+.iwsl-shell .iwsl-wz__go{ margin-top: 14px; }
+.iwsl-shell .iwsl-wz__nav{ display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--iw-line); }
+CSS;
+		echo "\n</style>\n";
+
+		echo "<script>\n";
+		echo <<<'JS'
+(function(){
+	function wire(dlg){
+		var steps = Array.prototype.slice.call(dlg.querySelectorAll('.iwsl-wz__step'));
+		if (!steps.length) { return; }
+		var nextBtn = dlg.querySelector('[data-wz-next]');
+		var backBtn = dlg.querySelector('[data-wz-back]');
+		var prog = dlg.querySelector('.iwsl-wz__progress');
+		var tpl = prog ? (prog.getAttribute('data-wz-tpl') || 'Step {n} of {t}') : '';
+		var cur = 0;
+		function render(){
+			steps.forEach(function(s, i){ s.classList.toggle('is-active', i === cur); });
+			if (backBtn) { backBtn.style.visibility = cur === 0 ? 'hidden' : 'visible'; }
+			if (nextBtn) { nextBtn.hidden = (cur === steps.length - 1); }
+			if (prog) { prog.textContent = tpl.replace('{n}', String(cur + 1)).replace('{t}', String(steps.length)); }
+			if (cur !== 0) {
+				var f = steps[cur].querySelector('input, select, textarea, button');
+				if (f) { try { f.focus(); } catch (e) {} }
+			}
+		}
+		function go(i){ cur = Math.max(0, Math.min(steps.length - 1, i)); render(); }
+		function close(){ try { dlg.close(); } catch (e) { dlg.removeAttribute('open'); } }
+		dlg.__wzOpen = function(){
+			cur = 0;
+			if (typeof dlg.showModal === 'function') { try { dlg.showModal(); } catch (e) { dlg.setAttribute('open', ''); } }
+			else { dlg.setAttribute('open', ''); }
+			render();
+		};
+		dlg.addEventListener('click', function(e){
+			if (e.target.closest('[data-wz-next]')) { go(cur + 1); }
+			else if (e.target.closest('[data-wz-back]')) { go(cur - 1); }
+			else if (e.target.closest('[data-wz-close]')) { close(); }
+			else if (e.target === dlg) { close(); }
+		});
+		render();
+	}
+	var dialogs = {};
+	Array.prototype.slice.call(document.querySelectorAll('[data-wz-dialog]')).forEach(function(dlg){
+		dialogs[dlg.getAttribute('data-wz-dialog')] = dlg;
+		wire(dlg);
+	});
+	Array.prototype.slice.call(document.querySelectorAll('[data-wz-open]')).forEach(function(b){
+		b.addEventListener('click', function(e){
+			e.preventDefault();
+			var dlg = dialogs[b.getAttribute('data-wz-open')];
+			if (dlg && typeof dlg.__wzOpen === 'function') { dlg.__wzOpen(); }
+		});
+	});
 })();
 JS;
 		echo "\n</script>\n";

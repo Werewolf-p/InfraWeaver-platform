@@ -154,3 +154,52 @@ $rl2     = $ll_l->update_settings( array( 'enabled' => '1', 'skip_images' => '3'
 iwsl_assert_same( false, $rl2['ok'], 'update_settings (locked): refused' );
 iwsl_assert_same( 'entitlement-locked', $rl2['reason'], 'update_settings (locked): reason entitlement-locked' );
 iwsl_assert_same( array(), $store_l->get( 'lazy_load', array() ), 'update_settings (locked): nothing persisted' );
+
+// ── 5. purge(): teardown deletes the settings option key ──────────────────────
+
+$store_p = new IWSL_Memory_Store();
+$ll_p    = new IWSL_Lazy_Load( iwsl_ll_unlocked_entitlements( $LL_NOW ), $store_p );
+$ll_p->update_settings( array( 'enabled' => '1', 'skip_images' => '5' ) );
+iwsl_assert_same( 5, $ll_p->settings()['skip_images'], 'purge setup: setting persisted before purge' );
+
+$pp = $ll_p->purge();
+iwsl_assert_same( true, $pp['ok'], 'purge: ok' );
+iwsl_assert_same( true, $pp['deleted'], 'purge: deleted true (a setting existed)' );
+iwsl_assert_same( null, $store_p->get( 'lazy_load', null ), 'purge: option key truly absent' );
+iwsl_assert_same( 1, $ll_p->settings()['skip_images'], 'purge: fresh settings() read falls back to defaults' );
+
+// idempotent + cheap no-op when already clean.
+$pp2 = $ll_p->purge();
+iwsl_assert_same( true, $pp2['ok'], 'purge: second call still ok (idempotent)' );
+iwsl_assert_same( false, $pp2['deleted'], 'purge: second call reports nothing deleted (cheap no-op)' );
+
+// a fresh, never-configured engine: purge() is a clean no-op.
+$ll_fresh = new IWSL_Lazy_Load( iwsl_ll_unlocked_entitlements( $LL_NOW ), new IWSL_Memory_Store() );
+$pf       = $ll_fresh->purge();
+iwsl_assert_same( true, $pf['ok'], 'purge (never configured): ok' );
+iwsl_assert_same( false, $pf['deleted'], 'purge (never configured): nothing deleted' );
+
+// ── 6. content-cache flush: a settings change invalidates the page cache ──────
+
+if ( ! class_exists( 'IWSL_Teardown' ) ) {
+	class IWSL_Teardown {
+		/** @var int */
+		public static $flush_calls = 0;
+		public static function flush_page_cache(): void {
+			self::$flush_calls++;
+		}
+	}
+}
+
+IWSL_Teardown::$flush_calls = 0;
+$store_flush = new IWSL_Memory_Store();
+$ll_flush    = new IWSL_Lazy_Load( iwsl_ll_unlocked_entitlements( $LL_NOW ), $store_flush );
+$ll_flush->update_settings( array( 'enabled' => '1' ) );
+iwsl_assert_same( 1, IWSL_Teardown::$flush_calls, 'update_settings: flush_page_cache() called once when IWSL_Teardown exists' );
+
+// a locked update never reaches the flush.
+IWSL_Teardown::$flush_calls = 0;
+$store_locked_flush = new IWSL_Memory_Store();
+$ll_locked_flush     = new IWSL_Lazy_Load( iwsl_ll_entitlements( $LL_NOW, 'active', array( 'plus' => true ) ), $store_locked_flush );
+$ll_locked_flush->update_settings( array( 'enabled' => '1' ) );
+iwsl_assert_same( 0, IWSL_Teardown::$flush_calls, 'update_settings (locked): flush_page_cache() NOT called' );

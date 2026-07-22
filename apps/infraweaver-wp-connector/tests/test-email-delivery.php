@@ -500,3 +500,39 @@ iwsl_assert_same( 'sent', $log16d[0]['type'], 'ordering: the earlier success sur
 iwsl_assert_same( 'Success', $log16d[0]['subject'], 'ordering: earlier success is the right row' );
 iwsl_assert_same( 'failed', $log16d[1]['type'], 'ordering: the later send is the failure' );
 iwsl_assert_same( 'Fails', $log16d[1]['subject'], 'ordering: failure is the right row' );
+
+// ── 17. purge(): teardown deletes the settings (encrypted password) AND the log ─
+
+// (a) A configured site with an opted-in DB secret and a populated log.
+$store17  = new IWSL_Memory_Store();
+$engine17 = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store17, $ed_clock, $ed_const_none );
+$engine17->save_settings( iwsl_ed_valid_settings( true, '' ) + array( 'password' => 'purge-me-secret' ) );
+$engine17->capture_mail( array( 'to' => 'a@x.test', 'subject' => 'Logged' ) );
+iwsl_assert( is_array( $store17->get( 'email_smtp_settings' ) ), 'purge setup: settings present' );
+iwsl_assert( is_array( $store17->get( 'email_log' ) ) && array() !== $store17->get( 'email_log' ), 'purge setup: log present' );
+
+$p17 = $engine17->purge();
+iwsl_assert_same( true, $p17['ok'], 'purge: ok=true' );
+iwsl_assert_same( true, $p17['settings_deleted'], 'purge: settings_deleted true (encrypted password removed)' );
+iwsl_assert_same( true, $p17['log_deleted'], 'purge: log_deleted true' );
+iwsl_assert_same( null, $store17->get( 'email_smtp_settings' ), 'purge: SETTINGS_KEY (with the encrypted secret) truly gone' );
+iwsl_assert_same( null, $store17->get( 'email_log' ), 'purge: LOG_KEY truly gone' );
+iwsl_assert_same( array(), $engine17->log(), 'purge: a fresh log() read is empty after purge' );
+iwsl_assert_same( false, $engine17->is_configured(), 'purge: settings fall back to unconfigured defaults after purge' );
+iwsl_assert( false === strpos( (string) json_encode( array( $store17->get( 'email_smtp_settings', array() ), $store17->get( 'email_log', array() ) ) ), 'purge-me-secret' ), 'purge: no trace of the (encrypted) secret remains in the store' );
+
+// (b) idempotent + cheap-when-clean: a second purge finds nothing to remove.
+$p17b = $engine17->purge();
+iwsl_assert_same( true, $p17b['ok'], 'purge: second call still ok (idempotent)' );
+iwsl_assert_same( false, $p17b['settings_deleted'], 'purge: second call reports no settings to delete' );
+iwsl_assert_same( false, $p17b['log_deleted'], 'purge: second call reports no log to delete' );
+
+// (c) purge() is UNGATED — teardown must succeed even under a stale/revoked gate.
+$store17c = new IWSL_Memory_Store();
+$store17c->set( 'email_smtp_settings', iwsl_ed_valid_settings( true, 'x' ) );
+$store17c->set( 'email_log', array( array( 'at' => 1, 'type' => 'sent', 'to' => array( 'k@x.test' ), 'subject' => 'S' ) ) );
+$engine17c = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_stale, true, $ed_clock ), $store17c, $ed_clock, $ed_const_none );
+$p17c      = $engine17c->purge();
+iwsl_assert_same( true, $p17c['settings_deleted'], 'purge (locked/revoked): settings still removed on teardown' );
+iwsl_assert_same( true, $p17c['log_deleted'], 'purge (locked/revoked): log still removed on teardown' );
+iwsl_assert_same( null, $store17c->get( 'email_smtp_settings' ), 'purge (locked/revoked): secret-bearing settings gone' );

@@ -302,3 +302,87 @@ iwsl_assert_same( '', get_post_meta( 22, IWSL_Media_Protection::META_KEY, true )
 update_post_meta( 23, IWSL_Media_Protection::META_KEY, '1' );
 $mp_lk->filter_attachment_fields_to_save( array( 'ID' => 23 ), array() );
 iwsl_assert_same( '1', get_post_meta( 23, IWSL_Media_Protection::META_KEY, true ), 'fields_to_save (locked): never clears the owner\'s marks' );
+
+// ── 14. purge(): teardown removes settings option + _iwsl_protected meta ─────
+
+if ( ! class_exists( 'IWSL_MP_Fake_WPDB' ) ) {
+	final class IWSL_MP_Fake_WPDB {
+		public $postmeta = 'wp_postmeta';
+		/** Models a bulk `DELETE ... WHERE meta_key = X` against the postmeta fixture. */
+		public function delete( $table, $where ) {
+			if ( $this->postmeta !== $table || ! isset( $where['meta_key'] ) ) {
+				return 0;
+			}
+			$key     = (string) $where['meta_key'];
+			$removed = 0;
+			foreach ( $GLOBALS['iwsl_mp_meta'] as $id => $row ) {
+				if ( is_array( $row ) && array_key_exists( $key, $row ) ) {
+					unset( $GLOBALS['iwsl_mp_meta'][ $id ][ $key ] );
+					++$removed;
+				}
+			}
+			return $removed;
+		}
+	}
+}
+$GLOBALS['wpdb'] = new IWSL_MP_Fake_WPDB();
+
+// (a) cheap no-op when nothing exists: a fresh meta slate + a never-configured
+// store proves the clean-state behaviour, independent of earlier sections'
+// fixture attachments (11/21/22/23) which stay untouched by this reset.
+$GLOBALS['iwsl_mp_meta'] = array();
+$store_purge_clean = new IWSL_Memory_Store();
+$mp_purge_clean     = new IWSL_Media_Protection( iwsl_mp_unlocked_entitlements( $MP_NOW ), $store_purge_clean );
+$pg_clean = $mp_purge_clean->purge();
+iwsl_assert_same( 0, $pg_clean['options'], 'purge(clean): options=0 (nothing stored)' );
+iwsl_assert_same( 0, $pg_clean['meta'], 'purge(clean): meta=0 (nothing marked protected)' );
+iwsl_assert_same( false, $pg_clean['cron'], 'purge(clean): cron=false (this engine schedules none)' );
+
+// (b) seed a real footprint: a settings option + three protected marks.
+$store_purge = new IWSL_Memory_Store();
+$store_purge->set( IWSL_Media_Protection::OPTION_KEY, array( 'enabled' => true, 'global_deterrent' => true ) );
+update_post_meta( 31, IWSL_Media_Protection::META_KEY, '1' );
+update_post_meta( 32, IWSL_Media_Protection::META_KEY, '1' );
+update_post_meta( 33, IWSL_Media_Protection::META_KEY, '1' );
+$mp_purge = new IWSL_Media_Protection( iwsl_mp_unlocked_entitlements( $MP_NOW ), $store_purge );
+
+$pg = $mp_purge->purge();
+iwsl_assert_same( 1, $pg['options'], 'purge: settings option removed' );
+iwsl_assert_same( 3, $pg['meta'], 'purge: all three protected marks removed' );
+iwsl_assert_same( false, $pg['cron'], 'purge: cron=false (this engine schedules none)' );
+iwsl_assert_same( array(), $store_purge->get( IWSL_Media_Protection::OPTION_KEY, array() ), 'purge: settings option reads back empty' );
+iwsl_assert_same( '', get_post_meta( 31, IWSL_Media_Protection::META_KEY, true ), 'purge: attachment 31 unprotected' );
+iwsl_assert_same( '', get_post_meta( 32, IWSL_Media_Protection::META_KEY, true ), 'purge: attachment 32 unprotected' );
+iwsl_assert_same( '', get_post_meta( 33, IWSL_Media_Protection::META_KEY, true ), 'purge: attachment 33 unprotected' );
+
+// (c) idempotent: a second call finds nothing left, reports zeros, no error.
+$pg2 = $mp_purge->purge();
+iwsl_assert_same( 0, $pg2['options'], 'purge(idempotent): second call removes no option' );
+iwsl_assert_same( 0, $pg2['meta'], 'purge(idempotent): second call removes no meta' );
+
+unset( $GLOBALS['wpdb'] );
+
+// ── 15. content-cache flush: update_settings invalidates the page cache ──────
+
+if ( ! class_exists( 'IWSL_Teardown' ) ) {
+	class IWSL_Teardown {
+		/** @var int */
+		public static $flush_calls = 0;
+		public static function flush_page_cache(): void {
+			self::$flush_calls++;
+		}
+	}
+}
+
+IWSL_Teardown::$flush_calls = 0;
+$store_flush = new IWSL_Memory_Store();
+$mp_flush    = new IWSL_Media_Protection( iwsl_mp_unlocked_entitlements( $MP_NOW ), $store_flush );
+$mp_flush->update_settings( array( 'enabled' => '1' ) );
+iwsl_assert_same( 1, IWSL_Teardown::$flush_calls, 'update_settings: flush_page_cache() called once when IWSL_Teardown exists' );
+
+// a locked update never reaches the flush.
+IWSL_Teardown::$flush_calls = 0;
+$store_locked_flush = new IWSL_Memory_Store();
+$mp_locked_flush     = new IWSL_Media_Protection( iwsl_mp_entitlements( $MP_NOW, 'active', array( 'plus' => true ) ), $store_locked_flush );
+$mp_locked_flush->update_settings( array( 'enabled' => '1' ) );
+iwsl_assert_same( 0, IWSL_Teardown::$flush_calls, 'update_settings (locked): flush_page_cache() NOT called' );

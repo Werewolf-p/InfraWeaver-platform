@@ -760,6 +760,39 @@ final class IWSL_Media_Optimizer {
 	}
 
 	/**
+	 * Teardown: remove this engine's ENTIRE persistent bookkeeping footprint —
+	 * the per-attachment derivative-tracking meta (self::META_KEY, which also
+	 * carries the registered copy_id) and the single-flight run-lock transient.
+	 * Idempotent (check-before-delete) and cheap when already clean: a second
+	 * call finds nothing to remove and reports zeros. NEVER touches original
+	 * uploads, WebP derivative files already written to disk, the Media Library
+	 * copy attachments themselves, or any core WordPress postmeta — only the
+	 * bookkeeping this class itself created. Every WP/$wpdb call is guarded so
+	 * this runs cleanly under the zero-dependency test harness.
+	 *
+	 * @return array{ options:int, meta:int, cron:bool, locks:int }
+	 */
+	public function purge(): array {
+		$meta = 0;
+		global $wpdb;
+		if ( isset( $wpdb ) && is_object( $wpdb ) && method_exists( $wpdb, 'delete' ) ) {
+			$deleted = $wpdb->delete( $wpdb->postmeta, array( 'meta_key' => self::META_KEY ) );
+			$meta    = is_int( $deleted ) ? $deleted : 0;
+		}
+
+		$locks = 0;
+		if ( function_exists( 'get_transient' ) && function_exists( 'delete_transient' )
+			&& false !== get_transient( self::LOCK_TRANSIENT ) ) {
+			delete_transient( self::LOCK_TRANSIENT );
+			$locks = 1;
+		}
+
+		// This engine persists no settings of its own (no IWSL_Store instance) —
+		// 'options' is always 0, kept in the shape for uniformity across engines.
+		return array( 'options' => 0, 'meta' => $meta, 'cron' => false, 'locks' => $locks );
+	}
+
+	/**
 	 * Destructive REPLACE path (opt-in). Points the attachment at the WebP, fixes
 	 * its MIME, regenerates sub-sizes as WebP, then deletes the original PNG and
 	 * its stale sub-size files. Every step is guarded so a partial failure still

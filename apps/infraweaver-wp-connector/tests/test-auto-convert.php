@@ -279,6 +279,35 @@ $html9b = ob_get_clean();
 iwsl_assert( false !== strpos( $html9b, 'locked' ), 'render(locked): shows the locked notice' );
 iwsl_assert( false !== strpos( $html9b, 'requires-plus' ), 'render(locked): lists the gate reason' );
 
+// ── 10. purge(): teardown removes settings/last-run keys + the sweep cron ────
+
+$GLOBALS['iwsl_ac_cron'] = false;
+$store10 = new IWSL_Memory_Store();
+$ac10    = iwsl_ac_engine( $store10, $AC_NOW, iwsl_ac_unlocked( $AC_NOW ), new IWSL_AC_Recording_Runner() );
+
+// (a) cheap no-op when nothing exists: fresh store, no cron scheduled.
+$pg10_clean = $ac10->purge();
+iwsl_assert_same( 0, $pg10_clean['options'], 'purge(clean): options=0 (nothing stored)' );
+iwsl_assert_same( 0, $pg10_clean['meta'], 'purge(clean): meta=0 (this engine writes no postmeta of its own)' );
+iwsl_assert_same( false, $pg10_clean['cron'], 'purge(clean): cron=false (nothing was scheduled)' );
+
+// (b) seed a real footprint: settings + last-run + a scheduled sweep.
+$store10->set( IWSL_Auto_Convert::SETTINGS_KEY, iwsl_ac_settings( true, 'replace', true ) );
+$store10->set( IWSL_Auto_Convert::LAST_RUN_KEY, array( 'at' => 123, 'converted' => 4, 'source' => 'cron' ) );
+$GLOBALS['iwsl_ac_cron'] = 456;
+
+$pg10 = $ac10->purge();
+iwsl_assert_same( 2, $pg10['options'], 'purge: both settings + last-run keys removed' );
+iwsl_assert_same( true, $pg10['cron'], 'purge: reports the sweep WAS scheduled' );
+iwsl_assert_same( false, $GLOBALS['iwsl_ac_cron'], 'purge: sweep cron event cleared' );
+iwsl_assert_same( null, $store10->get( IWSL_Auto_Convert::SETTINGS_KEY ), 'purge: settings key gone' );
+iwsl_assert_same( null, $store10->get( IWSL_Auto_Convert::LAST_RUN_KEY ), 'purge: last-run key gone' );
+
+// (c) idempotent: a second call finds nothing left, reports zeros/false.
+$pg10b = $ac10->purge();
+iwsl_assert_same( 0, $pg10b['options'], 'purge(idempotent): second call removes no keys' );
+iwsl_assert_same( false, $pg10b['cron'], 'purge(idempotent): second call — nothing scheduled to clear' );
+
 // This suite installs a stubbed cron surface backed by $GLOBALS['iwsl_ac_cron'];
 // remove the global so it never leaks into a later suite.
 unset( $GLOBALS['iwsl_ac_cron'] );

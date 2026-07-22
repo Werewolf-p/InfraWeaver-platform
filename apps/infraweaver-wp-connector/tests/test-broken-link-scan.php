@@ -281,6 +281,28 @@ iwsl_assert( is_array( $last ), 'persist: handle_scan stored a durable summary' 
 iwsl_assert_same( 1, $last['broken_count'], 'persist: durable summary carries the broken count' );
 iwsl_assert_same( 404, iwsl_bls_find( $last, 'http://external.test/missing' )['status'], 'persist: durable summary carries the broken link' );
 
+// ── 8. purge(): drops the durable last-scan option; idempotent + cheap-when-clean ─
+
+iwsl_bls_reset();
+$store_pg = new IWSL_Memory_Store();
+$posts_pg = array( array( 'id' => 81, 'title' => 'P', 'content' => '<a href="http://external.test/x">x</a>' ) );
+$eng_pg   = iwsl_bls_engine( $BLS_NOW, $posts_pg, array( 'http://external.test/x' => array( 'code' => 404, 'error' => '' ) ), null, $store_pg );
+$store_pg->set( 'broken_link_scan_last', $eng_pg->scan() ); // persist a real summary durably
+iwsl_assert( is_array( $eng_pg->last_scan() ), 'purge: a durable last-scan exists before purge' );
+
+$pg = $eng_pg->purge();
+iwsl_assert_same( true, $pg['ok'], 'purge: ok=true' );
+iwsl_assert_same( array( 'broken_link_scan_last' ), $pg['options'], 'purge: the durable last-scan option key removed' );
+iwsl_assert_same( array(), $pg['cron'], 'purge: no cron scheduled by this engine' );
+iwsl_assert_same( null, $eng_pg->last_scan(), 'purge: last-scan actually gone from the store' );
+
+// Idempotent + cheap-when-clean.
+$pg2 = $eng_pg->purge();
+iwsl_assert_same( array(), $pg2['options'], 'purge idempotent: second purge removes nothing' );
+$store_clean = new IWSL_Memory_Store();
+$eng_clean   = iwsl_bls_engine( $BLS_NOW, array(), array(), null, $store_clean );
+iwsl_assert_same( array(), $eng_clean->purge()['options'], 'purge cheap-when-clean: a never-scanned engine removes nothing' );
+
 // Clean up the stubs' global state so nothing leaks into a later suite.
 unset(
 	$GLOBALS['iwsl_bls_fetches'],

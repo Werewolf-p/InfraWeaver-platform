@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.10.1
+ * Version: 0.11.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.10.1' );
+define( 'IWSL_CONNECTOR_VERSION', '0.11.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -87,6 +87,7 @@ require_once __DIR__ . '/includes/class-iwsl-seo-alt-text.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-suite.php';
 require_once __DIR__ . '/includes/class-iwsl-perf-audit.php';
 require_once __DIR__ . '/includes/class-iwsl-response-scan.php';
+require_once __DIR__ . '/includes/class-iwsl-teardown.php';
 require_once __DIR__ . '/includes/class-iwsl-admin.php';
 
 function iwsl_plugin(): IWSL_Plugin {
@@ -111,6 +112,12 @@ $iwsl_switches = new IWSL_Feature_Switches( iwsl_plugin()->entitlements(), new I
 
 if ( is_admin() ) {
 	( new IWSL_Admin( iwsl_plugin(), switches: $iwsl_switches ) )->register();
+	// Self-heal at init (admin-only): purge the footprint of any tier-gated
+	// feature that is switched OFF or no longer entitled, so a disabled feature
+	// leaves nothing behind and the plugin is clean at init. Each engine purge is
+	// cheap when there's nothing to remove, so the all-active case is near-free;
+	// the front-end hot path never runs this.
+	IWSL_Teardown::clean_at_init( $iwsl_switches, iwsl_plugin()->entitlements(), new IWSL_WP_Store() );
 }
 
 // Load-Time Audit (FREE — no entitlement gate, no feature switch). The passive

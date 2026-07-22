@@ -406,6 +406,38 @@ iwsl_assert_same(
 	'admin guard: front-end still strips ?ver= when is_admin false'
 );
 
+// ── 14. purge(): full teardown — .htaccess block + BOTH option keys ───────────
+
+// (a) fully configured: purge() strips the block and deletes both keys.
+$store_p = iwsl_sp_unlocked_store( $SP_NOW );
+$ht_p    = iwsl_sp_tempfile();
+$eng_p   = iwsl_sp_engine( $store_p, $SP_NOW, 'example.com', $ht_p );
+$eng_p->save_settings( array( 'minify_html' => true, 'server_headers' => true ) );
+iwsl_assert( false !== strpos( (string) file_get_contents( $ht_p ), '# BEGIN InfraWeaver Speed Pack' ), 'purge setup: block present before purge' );
+
+$pp = $eng_p->purge();
+iwsl_assert_same( true, $pp['ok'], 'purge: ok' );
+iwsl_assert_same( true, $pp['removed'], 'purge: htaccess block removed flag true' );
+iwsl_assert_same( true, $pp['settings_deleted'], 'purge: settings_deleted true (a map existed)' );
+iwsl_assert( false === strpos( (string) file_get_contents( $ht_p ), '# BEGIN InfraWeaver Speed Pack' ), 'purge: .htaccess block stripped' );
+iwsl_assert_same( null, $store_p->get( 'speed_pack', null ), 'purge: settings option key truly absent' );
+iwsl_assert_same( null, $store_p->get( 'speed_pack_htaccess_written', null ), 'purge: htaccess-written flag key deleted' );
+iwsl_assert_same( array(), $eng_p->settings()['prefetch_hosts'], 'purge: a fresh settings() read falls back to defaults' );
+
+// (b) idempotent + cheap no-op when already clean.
+$pp2 = $eng_p->purge();
+iwsl_assert_same( true, $pp2['ok'], 'purge: second call still ok (idempotent)' );
+iwsl_assert_same( false, $pp2['removed'], 'purge: second call reports nothing removed' );
+iwsl_assert_same( false, $pp2['settings_deleted'], 'purge: second call reports no settings to delete' );
+
+// (c) a fresh, never-configured engine: purge() is a clean no-op.
+$store_f = iwsl_sp_unlocked_store( $SP_NOW );
+$eng_f   = iwsl_sp_engine( $store_f, $SP_NOW );
+$pf      = $eng_f->purge();
+iwsl_assert_same( true, $pf['ok'], 'purge (never configured): ok' );
+iwsl_assert_same( false, $pf['removed'], 'purge (never configured): nothing removed' );
+iwsl_assert_same( false, $pf['settings_deleted'], 'purge (never configured): no settings existed' );
+
 // ── cleanup: unset the recorder global we installed ────────────────────────────
 
 unset( $GLOBALS['iwsl_sp_removed'] );

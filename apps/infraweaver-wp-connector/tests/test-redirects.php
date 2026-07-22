@@ -490,3 +490,59 @@ iwsl_assert_same( 0, count( $rd2->rules() ), 'auto-redirect glue: unchanged perm
 
 unset( $GLOBALS['iwsl_rd_actions'], $GLOBALS['iwsl_rd_perma'], $GLOBALS['iwsl_rd_status'] );
 unset( $_SERVER['REQUEST_URI'] );
+
+// ── 30. purge(): removes all four option keys; idempotent + cheap-when-clean ───
+// A fake IWSL_Teardown (isolated to this subprocess) proves each rule mutation
+// flushes the page cache; purge() then scrubs every plugin-owned option key.
+
+if ( ! class_exists( 'IWSL_Teardown' ) ) {
+	class IWSL_Teardown {
+		public static $flushes = 0;
+		public static function flush_page_cache(): void {
+			self::$flushes++;
+		}
+	}
+}
+
+$store = new IWSL_Memory_Store();
+$rec   = new IWSL_Recording_Redirector();
+$rd    = iwsl_rd_engine( $store, $RD_NOW, $rec );
+
+// When the harness supplies a counting fake IWSL_Teardown (peer's real class absent)
+// assert each mutation flushed; when the real class is preloaded assert the wiring
+// target + that the mutators succeed with the flush call in their success paths.
+$iwsl_rd_can_count = property_exists( 'IWSL_Teardown', 'flushes' );
+if ( $iwsl_rd_can_count ) {
+	IWSL_Teardown::$flushes = 0;
+}
+iwsl_assert_same( true, $rd->add_rule( '/old', '/new', 301 )['ok'], 'purge/cache: add_rule succeeds (flush in success path)' );          // sets redirect_rules
+iwsl_assert_same( true, $rd->set_404_logging( true )['ok'], 'purge/cache: set_404_logging succeeds (flush in success path)' );          // sets redirect_404_log_enabled
+iwsl_assert_same( true, $rd->set_auto_redirect( false )['ok'], 'purge/cache: set_auto_redirect succeeds (flush in success path)' );     // sets redirect_auto_slug
+if ( $iwsl_rd_can_count ) {
+	iwsl_assert_same( 3, IWSL_Teardown::$flushes, 'purge/cache: add_rule + set_404_logging + set_auto_redirect each flush the page cache' );
+} else {
+	iwsl_assert( method_exists( 'IWSL_Teardown', 'flush_page_cache' ), 'purge/cache: flush wired to IWSL_Teardown::flush_page_cache()' );
+}
+$store->set( 'redirect_404_log', array( array( 'path' => '/x', 'count' => 1, 'last_seen' => 0 ) ) ); // seed the 404 log
+
+iwsl_assert( null !== $store->get( 'redirect_rules', null ), 'purge: rules option present before purge' );
+$pg = $rd->purge();
+iwsl_assert_same( true, $pg['ok'], 'purge: ok=true' );
+iwsl_assert_same( array(), $pg['cron'], 'purge: no cron scheduled by this engine' );
+iwsl_assert_same(
+	array( 'redirect_rules', 'redirect_404_log', 'redirect_404_log_enabled', 'redirect_auto_slug' ),
+	$pg['options'],
+	'purge: all four plugin option keys removed (in order)'
+);
+iwsl_assert_same( null, $store->get( 'redirect_rules', null ), 'purge: rules actually deleted' );
+iwsl_assert_same( null, $store->get( 'redirect_404_log', null ), 'purge: 404 log actually deleted' );
+iwsl_assert_same( null, $store->get( 'redirect_404_log_enabled', null ), 'purge: 404-log toggle actually deleted' );
+iwsl_assert_same( null, $store->get( 'redirect_auto_slug', null ), 'purge: auto-redirect toggle actually deleted' );
+
+// Idempotent + cheap-when-clean.
+$pg2 = $rd->purge();
+iwsl_assert_same( array(), $pg2['options'], 'purge idempotent: second purge removes nothing' );
+iwsl_assert_same( true, $pg2['ok'], 'purge idempotent: still ok' );
+$store_clean = new IWSL_Memory_Store();
+$rd_clean    = iwsl_rd_engine( $store_clean, $RD_NOW, new IWSL_Recording_Redirector() );
+iwsl_assert_same( array(), $rd_clean->purge()['options'], 'purge cheap-when-clean: a fresh engine removes nothing' );

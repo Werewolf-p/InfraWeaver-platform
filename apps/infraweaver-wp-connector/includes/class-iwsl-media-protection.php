@@ -166,7 +166,41 @@ final class IWSL_Media_Protection {
 		$settings = self::sanitize_settings( $input );
 		$this->store->set( self::OPTION_KEY, $settings );
 
+		// Protection changes rendered front-end HTML (overlay markup on protected
+		// images), so a page cache must be invalidated whenever the toggle changes.
+		// Guarded: IWSL_Teardown is a peer class this engine does not own.
+		if ( class_exists( 'IWSL_Teardown' ) ) {
+			IWSL_Teardown::flush_page_cache();
+		}
+
 		return array( 'ok' => true, 'settings' => $settings );
+	}
+
+	/**
+	 * Teardown: remove this feature's ENTIRE persistent footprint — its own
+	 * settings option and the `_iwsl_protected` mark on every attachment.
+	 * Idempotent (check-before-delete) and cheap when already clean: a second
+	 * call finds nothing left and reports zeros. NEVER touches any other
+	 * WordPress core postmeta or any file. Every $wpdb call is guarded so this
+	 * runs cleanly under the zero-dependency test harness.
+	 *
+	 * @return array{ options:int, meta:int, cron:bool }
+	 */
+	public function purge(): array {
+		$options = 0;
+		if ( null !== $this->store->get( self::OPTION_KEY, null ) ) {
+			$this->store->delete( self::OPTION_KEY );
+			$options = 1;
+		}
+
+		$meta = 0;
+		global $wpdb;
+		if ( isset( $wpdb ) && is_object( $wpdb ) && method_exists( $wpdb, 'delete' ) ) {
+			$deleted = $wpdb->delete( $wpdb->postmeta, array( 'meta_key' => self::META_KEY ) );
+			$meta    = is_int( $deleted ) ? $deleted : 0;
+		}
+
+		return array( 'options' => $options, 'meta' => $meta, 'cron' => false );
 	}
 
 	// ── the protected-check (meta is the single source of truth) ───────────────

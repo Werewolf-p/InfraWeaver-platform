@@ -256,6 +256,16 @@ $store->set( 'entitlements', array( 'duplicate_post' => false ) ); // console re
 $r = $dp->duplicate( iwsl_dp_post( 5 ) );
 iwsl_assert_same( 'entitlement-locked', $r['reason'], 'revocation: identical call after revoke is entitlement-locked' );
 
+// ── purge(): the stateless engine reports an empty footprint (uniform no-op) ───
+
+$dp_pg = new IWSL_Duplicate_Post( iwsl_dp_unlocked_entitlements( $DP_NOW ) );
+$pg    = $dp_pg->purge();
+iwsl_assert_same( true, $pg['ok'], 'purge: ok=true' );
+iwsl_assert_same( array(), $pg['options'], 'purge: no plugin option to remove (stateless)' );
+iwsl_assert_same( array(), $pg['postmeta'], 'purge: no plugin post meta to remove (stateless)' );
+iwsl_assert_same( array(), $pg['cron'], 'purge: no cron scheduled by this engine' );
+iwsl_assert_same( $pg, $dp_pg->purge(), 'purge: idempotent (repeat call identical, no side effects)' );
+
 // This suite installs $GLOBALS['iwsl_dp_*']; remove them so they never leak into
 // another suite in the shared runner.
 unset(

@@ -429,5 +429,31 @@ $engine6 = iwsl_rs_engine( $store6, $now, iwsl_rs_clock( array( 0, 0 ) ) );
 $engine6->register(); // must not fatal though add_action is undefined here
 iwsl_assert( true, 'register: no-op without add_action (does not fatal)' );
 
+// ── 22. purge(): teardown deletes the ONE combined settings+snapshots key ─────
+
+$store_p  = iwsl_rs_unlocked_store( $now );
+$engine_p = iwsl_rs_engine( $store_p, $now, iwsl_rs_clock( array( 0, 100 ) ) );
+$engine_p->run( array( 'label' => 'seed', 'urls' => '', 'runs' => 1 ) );
+iwsl_assert_same( 1, count( $engine_p->snapshots() ), 'purge setup: a snapshot exists before purge' );
+
+$pp = $engine_p->purge();
+iwsl_assert_same( true, $pp['ok'], 'purge: ok' );
+iwsl_assert_same( true, $pp['deleted'], 'purge: deleted true (state existed)' );
+iwsl_assert_same( null, $store_p->get( 'response_scan', null ), 'purge: option key truly absent' );
+iwsl_assert_same( array(), $engine_p->snapshots(), 'purge: fresh snapshots() read falls back to empty' );
+iwsl_assert_same( IWSL_Response_Scan::RUNS_DEFAULT, $engine_p->settings()['runs'], 'purge: fresh settings() read falls back to defaults' );
+
+// idempotent + cheap no-op when already clean.
+$pp2 = $engine_p->purge();
+iwsl_assert_same( true, $pp2['ok'], 'purge: second call still ok (idempotent)' );
+iwsl_assert_same( false, $pp2['deleted'], 'purge: second call reports nothing deleted (cheap no-op)' );
+
+// a fresh, never-scanned engine: purge() is a clean no-op.
+$store_fresh  = iwsl_rs_unlocked_store( $now );
+$engine_fresh = iwsl_rs_engine( $store_fresh, $now, iwsl_rs_clock( array( 0 ) ) );
+$pf           = $engine_fresh->purge();
+iwsl_assert_same( true, $pf['ok'], 'purge (never scanned): ok' );
+iwsl_assert_same( false, $pf['deleted'], 'purge (never scanned): nothing deleted' );
+
 // clean up the suite globals.
 unset( $GLOBALS['iwsl_rs_http'], $GLOBALS['iwsl_rs_http_default'] );

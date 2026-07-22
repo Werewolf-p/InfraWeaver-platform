@@ -345,6 +345,31 @@ final class IWSL_Email_Delivery {
 		return array( 'ok' => true, 'reason' => '', 'cleared' => true );
 	}
 
+	/**
+	 * Teardown for an uninstall/unlink sweep: delete BOTH option keys this feature
+	 * owns — the SMTP settings map (SETTINGS_KEY, which holds the AES-256-GCM encrypted
+	 * SMTP password) and the email-activity log (LOG_KEY). Removing the stored
+	 * (encrypted) credential on disable is the correct, safe default: teardown leaves
+	 * no secret at rest. Deliberately UNGATED — teardown must succeed even AFTER the
+	 * entitlement is revoked and the gate has re-locked. NEVER touches the wp-config
+	 * IWSL_SMTP_PASS constant (not ours to remove) or any core WordPress option.
+	 * Idempotent + cheap-when-clean: deleting an absent key is a single no-op store
+	 * call.
+	 *
+	 * @return array{ ok:bool, settings_deleted:bool, log_deleted:bool }
+	 */
+	public function purge(): array {
+		$had_settings = null !== $this->store->get( self::SETTINGS_KEY, null );
+		$had_log      = null !== $this->store->get( self::LOG_KEY, null );
+		$this->store->delete( self::SETTINGS_KEY );
+		$this->store->delete( self::LOG_KEY );
+		return array(
+			'ok'               => true,
+			'settings_deleted' => $had_settings,
+			'log_deleted'      => $had_log,
+		);
+	}
+
 	// ── passive mail-hook capture (gate is statement 1; locked = zero writes) ─────
 
 	/**

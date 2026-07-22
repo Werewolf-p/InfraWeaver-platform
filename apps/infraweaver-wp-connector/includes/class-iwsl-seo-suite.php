@@ -254,7 +254,71 @@ final class IWSL_SEO_Suite {
 		$clean = $this->sanitize_settings( $input );
 		$clean['saved_at'] = $this->now_seconds();
 		$this->store->set( self::SETTINGS_KEY, $clean );
+
+		// SEO head output (title/meta/canonical/OG/JSON-LD) is front-end-visible, so a
+		// settings change must invalidate any full-page cache. The teardown helper is
+		// built by a peer; class_exists-guarded so this is a harmless no-op without it.
+		if ( class_exists( 'IWSL_Teardown' ) && method_exists( 'IWSL_Teardown', 'flush_page_cache' ) ) {
+			IWSL_Teardown::flush_page_cache();
+		}
+
 		return array( 'ok' => true, 'settings' => $clean );
+	}
+
+	// ── teardown (idempotent, cheap-when-clean, returns what was removed) ─────────
+
+	/**
+	 * The plugin-created per-post meta keys this engine owns. All `_iwseo_*`, all
+	 * written only by save_post_meta(). NOTE: the image alt-text key
+	 * (IWSL_SEO_Alt_Text::ALT_META_KEY, i.e. WordPress core's own
+	 * `_wp_attachment_image_alt`) is deliberately EXCLUDED — it is not ours to remove.
+	 *
+	 * @return string[]
+	 */
+	private static function purge_meta_keys(): array {
+		return array(
+			self::META_TITLE, self::META_DESC, self::META_FOCUSKW, self::META_SYNONYMS, self::META_RELATED,
+			self::META_CANONICAL, self::META_NOINDEX, self::META_NOFOLLOW, self::META_ROBOTS_ADV,
+			self::META_OG_TITLE, self::META_OG_DESC, self::META_OG_IMAGE, self::META_TW_TITLE, self::META_TW_DESC,
+			self::META_TW_IMAGE, self::META_CORNERSTONE, self::META_PAGE_TYPE, self::META_ARTICLE_TYPE,
+			self::META_BCTITLE, self::META_SCORE, self::META_READ_SCORE,
+		);
+	}
+
+	/**
+	 * Delete-time teardown scrub for the SEO Suite. Removes ONLY plugin-created
+	 * state: the site-wide settings option AND every per-post `_iwseo_*` override
+	 * meta row this engine writes. Never touches core post content, core meta, or any
+	 * non-plugin meta key. Idempotent and cheap when there is nothing to remove; the
+	 * option is dropped only when present, and each meta key is removed with a single
+	 * `$wpdb->delete()` keyed by the exact plugin meta_key. Every WP/$wpdb call is
+	 * guarded so the engine purges harmlessly under the zero-WP harness. No cron is
+	 * scheduled by this engine, so none is cleared.
+	 *
+	 * @return array{ ok:bool, options:string[], postmeta:array<string,int>, meta_rows:int, cron:string[] }
+	 */
+	public function purge(): array {
+		$removed = array( 'ok' => true, 'options' => array(), 'postmeta' => array(), 'meta_rows' => 0, 'cron' => array() );
+
+		// 1) Site-wide settings option (only when present — cheap-when-clean).
+		if ( null !== $this->store->get( self::SETTINGS_KEY, null ) ) {
+			$this->store->delete( self::SETTINGS_KEY );
+			$removed['options'][] = self::SETTINGS_KEY;
+		}
+
+		// 2) Per-post `_iwseo_*` override meta — one bounded DELETE per plugin key.
+		$wpdb = isset( $GLOBALS['wpdb'] ) && is_object( $GLOBALS['wpdb'] ) ? $GLOBALS['wpdb'] : null;
+		if ( null !== $wpdb && isset( $wpdb->postmeta ) && method_exists( $wpdb, 'delete' ) ) {
+			foreach ( self::purge_meta_keys() as $key ) {
+				$rows = $wpdb->delete( $wpdb->postmeta, array( 'meta_key' => $key ) );
+				if ( is_int( $rows ) && $rows > 0 ) {
+					$removed['postmeta'][ $key ] = $rows;
+					$removed['meta_rows']        += $rows;
+				}
+			}
+		}
+
+		return $removed;
 	}
 
 	// ── per-post save (STATEMENT 1 is the gate) ─────────────────────────────────

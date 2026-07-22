@@ -739,6 +739,21 @@ final class IWSL_Response_Scan {
 		return $this->state()['snapshots'];
 	}
 
+	/**
+	 * Teardown for an uninstall/unlink sweep: delete the ONE option key that holds
+	 * BOTH the persisted settings (URL list, runs, sitemap flag) and every stored
+	 * snapshot, entirely — so a fresh read falls back to normalize_state()'s
+	 * defaults rather than stale data. Idempotent + cheap: deleting an absent key
+	 * is a single no-op store call.
+	 *
+	 * @return array{ ok:bool, deleted:bool }
+	 */
+	public function purge(): array {
+		$had = null !== $this->store->get( self::OPTION_KEY, null );
+		$this->store->delete( self::OPTION_KEY );
+		return array( 'ok' => true, 'deleted' => $had );
+	}
+
 	// ── admin-post handlers (capability + nonce + gate) ─────────────────────────
 
 	/**

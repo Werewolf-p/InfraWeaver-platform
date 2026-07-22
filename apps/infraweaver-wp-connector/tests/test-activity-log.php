@@ -188,3 +188,29 @@ iwsl_assert_same( 1, count( $al9->entries() ), 'revocation: unlocked login logge
 $al9_revoked = new IWSL_Activity_Log( iwsl_al_entitlements( $AL_NOW, 'active', 60000, array() ), $store9, $al_clock );
 $al9_revoked->on_wp_login( 'after' );
 iwsl_assert_same( 1, count( $al9->entries() ), 'revocation: a login after revoke adds NOTHING' );
+
+// ── 10. purge(): teardown removes the log option key (idempotent, ungated) ───
+
+$store10 = new IWSL_Memory_Store();
+$al10    = new IWSL_Activity_Log( iwsl_al_unlocked( $AL_NOW ), $store10, $al_clock );
+$al10->on_wp_login( 'admin' );
+iwsl_assert_same( 1, count( $al10->entries() ), 'purge: one entry seeded before teardown' );
+$p10 = $al10->purge();
+iwsl_assert_same( true, $p10['ok'], 'purge: ok=true' );
+iwsl_assert_same( array( IWSL_Activity_Log::LOG_KEY ), $p10['options_removed'], 'purge: reports the removed log option key' );
+iwsl_assert_same( null, $store10->get( IWSL_Activity_Log::LOG_KEY ), 'purge: log option removed from the store' );
+iwsl_assert_same( 0, count( $al10->entries() ), 'purge: entries() reads back empty after teardown' );
+
+// idempotent + cheap on an already-clean store.
+$p10b = $al10->purge();
+iwsl_assert_same( true, $p10b['ok'], 'purge: idempotent — second call on a clean store still ok' );
+iwsl_assert_same( array( IWSL_Activity_Log::LOG_KEY ), $p10b['options_removed'], 'purge: idempotent call reports the same key' );
+
+// purge is NOT gated by the entitlement — teardown works on a revoked/locked site.
+$store10l      = new IWSL_Memory_Store();
+$al10_unlocked = new IWSL_Activity_Log( iwsl_al_unlocked( $AL_NOW ), $store10l, $al_clock );
+$al10_unlocked->on_wp_login( 'keep' );
+$al10_locked = new IWSL_Activity_Log( iwsl_al_entitlements( $AL_NOW, 'active', 60000, array() ), $store10l, $al_clock );
+$p10l        = $al10_locked->purge();
+iwsl_assert_same( true, $p10l['ok'], 'purge: works even when the entitlement is locked/revoked' );
+iwsl_assert_same( null, $store10l->get( IWSL_Activity_Log::LOG_KEY ), 'purge (locked): log option removed despite the lock' );

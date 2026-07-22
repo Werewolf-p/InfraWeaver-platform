@@ -275,6 +275,7 @@ final class IWSL_Redirects {
 
 		$next = array_merge( $rules, array( $new_rule ) );
 		$this->store->set( self::RULES_KEY, $next );
+		$this->flush_page_cache();
 
 		return array(
 			'ok'          => true,
@@ -320,6 +321,7 @@ final class IWSL_Redirects {
 			)
 		);
 		$this->store->set( self::RULES_KEY, $next );
+		$this->flush_page_cache();
 
 		return array(
 			'ok'          => true,
@@ -339,6 +341,7 @@ final class IWSL_Redirects {
 			return array( 'ok' => false, 'reason' => 'entitlement-locked', 'gate' => $gate );
 		}
 		$this->store->set( self::LOG_ENABLED_KEY, $enabled );
+		$this->flush_page_cache();
 		return array( 'ok' => true, 'enabled' => $enabled );
 	}
 
@@ -354,7 +357,42 @@ final class IWSL_Redirects {
 			return array( 'ok' => false, 'reason' => 'entitlement-locked', 'gate' => $gate );
 		}
 		$this->store->set( self::AUTO_REDIRECT_KEY, $enabled );
+		$this->flush_page_cache();
 		return array( 'ok' => true, 'enabled' => $enabled );
+	}
+
+	// ── teardown + cache invalidation ──────────────────────────────────────────
+
+	/**
+	 * Invalidate any full-page cache after a rule is added / deleted / toggled — a
+	 * managed redirect changes what the front end serves for a URL. The teardown
+	 * helper is built by a peer; class_exists-guarded so this is a harmless no-op
+	 * without it, and never called on the passive hit-counter path.
+	 */
+	private function flush_page_cache(): void {
+		if ( class_exists( 'IWSL_Teardown' ) && method_exists( 'IWSL_Teardown', 'flush_page_cache' ) ) {
+			IWSL_Teardown::flush_page_cache();
+		}
+	}
+
+	/**
+	 * Delete-time teardown scrub for the Redirect Manager. Removes ONLY plugin-owned
+	 * option state: the rules list, the 404-log ring buffer, the 404-logging toggle,
+	 * and the auto-redirect-on-slug-change toggle. Idempotent and cheap when clean —
+	 * each key is dropped only when present. This engine schedules no cron, so none is
+	 * cleared. Guarded end to end so it runs harmlessly under the zero-WP harness.
+	 *
+	 * @return array{ ok:bool, options:string[], cron:string[] }
+	 */
+	public function purge(): array {
+		$removed = array( 'ok' => true, 'options' => array(), 'cron' => array() );
+		foreach ( array( self::RULES_KEY, self::LOG_KEY, self::LOG_ENABLED_KEY, self::AUTO_REDIRECT_KEY ) as $key ) {
+			if ( null !== $this->store->get( $key, null ) ) {
+				$this->store->delete( $key );
+				$removed['options'][] = $key;
+			}
+		}
+		return $removed;
 	}
 
 	// ── the engine (pure decision) + the effect ────────────────────────────────

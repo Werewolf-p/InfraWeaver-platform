@@ -204,3 +204,57 @@ $rl      = $cdn_l->update_settings( array( 'host' => 'cdn.example.com', 'enabled
 iwsl_assert_same( false, $rl['ok'], 'update (locked): refused' );
 iwsl_assert_same( 'entitlement-locked', $rl['reason'], 'update (locked): reason entitlement-locked' );
 iwsl_assert_same( array(), $store_l->get( 'cdn_rewrite', array() ), 'update (locked): nothing persisted' );
+
+// ── 5. purge(): teardown deletes the settings option key ──────────────────────
+
+$store_p = new IWSL_Memory_Store();
+$cdn_p   = new IWSL_CDN_Rewrite( iwsl_cdn_unlocked_entitlements( $CDN_NOW ), $store_p, 'example.com' );
+$cdn_p->update_settings( array( 'host' => 'cdn.example.com', 'enabled' => '1' ) );
+iwsl_assert_same( 'cdn.example.com', $cdn_p->settings()['host'], 'purge setup: host persisted before purge' );
+
+$pp = $cdn_p->purge();
+iwsl_assert_same( true, $pp['ok'], 'purge: ok' );
+iwsl_assert_same( true, $pp['deleted'], 'purge: deleted true (a setting existed)' );
+iwsl_assert_same( null, $store_p->get( 'cdn_rewrite', null ), 'purge: option key truly absent' );
+iwsl_assert_same( '', $cdn_p->settings()['host'], 'purge: fresh settings() read falls back to defaults (empty host)' );
+
+// idempotent + cheap no-op when already clean.
+$pp2 = $cdn_p->purge();
+iwsl_assert_same( true, $pp2['ok'], 'purge: second call still ok (idempotent)' );
+iwsl_assert_same( false, $pp2['deleted'], 'purge: second call reports nothing deleted (cheap no-op)' );
+
+// a fresh, never-configured engine: purge() is a clean no-op.
+$cdn_fresh = new IWSL_CDN_Rewrite( iwsl_cdn_unlocked_entitlements( $CDN_NOW ), new IWSL_Memory_Store(), 'example.com' );
+$pf        = $cdn_fresh->purge();
+iwsl_assert_same( true, $pf['ok'], 'purge (never configured): ok' );
+iwsl_assert_same( false, $pf['deleted'], 'purge (never configured): nothing deleted' );
+
+// ── 6. content-cache flush: a settings change invalidates the page cache ──────
+
+if ( ! class_exists( 'IWSL_Teardown' ) ) {
+	class IWSL_Teardown {
+		/** @var int */
+		public static $flush_calls = 0;
+		public static function flush_page_cache(): void {
+			self::$flush_calls++;
+		}
+	}
+}
+
+IWSL_Teardown::$flush_calls = 0;
+$store_flush = new IWSL_Memory_Store();
+$cdn_flush   = new IWSL_CDN_Rewrite( iwsl_cdn_unlocked_entitlements( $CDN_NOW ), $store_flush, 'example.com' );
+$cdn_flush->update_settings( array( 'host' => 'cdn.example.com', 'enabled' => '1' ) );
+iwsl_assert_same( 1, IWSL_Teardown::$flush_calls, 'update_settings: flush_page_cache() called once when IWSL_Teardown exists' );
+
+// an invalid-host update never reaches the flush.
+IWSL_Teardown::$flush_calls = 0;
+$cdn_flush->update_settings( array( 'host' => 'not a host', 'enabled' => '1' ) );
+iwsl_assert_same( 0, IWSL_Teardown::$flush_calls, 'update_settings (invalid host): flush_page_cache() NOT called' );
+
+// a locked update never reaches the flush.
+IWSL_Teardown::$flush_calls = 0;
+$store_locked_flush = new IWSL_Memory_Store();
+$cdn_locked_flush    = new IWSL_CDN_Rewrite( iwsl_cdn_entitlements( $CDN_NOW, 'active', array( 'plus' => true ) ), $store_locked_flush, 'example.com' );
+$cdn_locked_flush->update_settings( array( 'host' => 'cdn.example.com', 'enabled' => '1' ) );
+iwsl_assert_same( 0, IWSL_Teardown::$flush_calls, 'update_settings (locked): flush_page_cache() NOT called' );

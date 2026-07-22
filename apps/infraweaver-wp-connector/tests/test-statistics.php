@@ -736,6 +736,58 @@ $htmlVE = ob_get_clean();
 iwsl_assert( false !== strpos( $htmlVE, 'iwsl-stats__kpis' ), 'view: zero-data still renders KPI strip' );
 iwsl_assert( false !== strpos( $htmlVE, 'iwsl-stats' ), 'view: zero-data still renders the dashboard shell' );
 
+// ── 11. purge(): teardown DROPS the table + removes option keys (idempotent) ──
+
+$fake11  = new IWSL_Stats_Fake_WPDB();
+$store11 = iwsl_st_store( 'active', $ST_NOW - 60, true, $ST_NOW );
+$eng11   = iwsl_st_engine( $store11, $fake11, $ST_NOW );
+$p11     = $eng11->purge();
+iwsl_assert_same( true, $p11['ok'], 'purge: ok=true' );
+iwsl_assert_same( true, $p11['table_dropped'], 'purge: table_dropped reported true (DROP issued)' );
+iwsl_assert_same( 1, iwsl_st_count_containing( $fake11->writes, 'DROP TABLE IF EXISTS' ), 'purge: exactly one DROP TABLE IF EXISTS issued' );
+iwsl_assert_same( 1, iwsl_st_count_containing( $fake11->writes, 'wp_iwsl_stats_hits' ), 'purge: DROP targets the hardcoded prefixed table' );
+iwsl_assert_same(
+	array( IWSL_Statistics::SCHEMA_KEY, IWSL_Statistics::SALT_KEY, IWSL_Statistics::LAST_PRUNE_KEY, IWSL_Statistics::EXCLUDE_LOGGED_KEY ),
+	$p11['options_removed'],
+	'purge: reports the four removed option keys'
+);
+iwsl_assert_same( null, $store11->get( IWSL_Statistics::SCHEMA_KEY ), 'purge: schema-version option removed' );
+iwsl_assert_same( null, $store11->get( IWSL_Statistics::SALT_KEY ), 'purge: salt option removed' );
+iwsl_assert_same( 0, $store11->get( IWSL_Statistics::LAST_PRUNE_KEY, 0 ), 'purge: last-prune stamp removed (reads back default 0)' );
+iwsl_assert_same( null, $store11->get( IWSL_Statistics::EXCLUDE_LOGGED_KEY ), 'purge: exclude-logged-in option removed' );
+
+// idempotent: purge again on an already-clean store/table is still cheap + safe.
+$p11b = $eng11->purge();
+iwsl_assert_same( true, $p11b['ok'], 'purge: idempotent — second call still ok' );
+iwsl_assert_same( 2, iwsl_st_count_containing( $fake11->writes, 'DROP TABLE IF EXISTS' ), 'purge: second call re-issues its own guarded IF EXISTS drop (safe no-op on an absent table)' );
+iwsl_assert_same( 0, iwsl_st_count_containing( $fake11->writes, 'TRUNCATE' ), 'purge: never TRUNCATE' );
+iwsl_assert_same( 0, iwsl_st_count_containing( $fake11->writes, 'ALTER' ), 'purge: never ALTER' );
+
+// no $wpdb: purge still clears the options; table_dropped reports false.
+$store11n = iwsl_st_store( 'active', $ST_NOW - 60, true, $ST_NOW );
+$eng11n   = iwsl_st_engine( $store11n, null, $ST_NOW );
+$p11n     = $eng11n->purge();
+iwsl_assert_same( true, $p11n['ok'], 'purge (no db): ok=true, options still removed' );
+iwsl_assert_same( false, $p11n['table_dropped'], 'purge (no db): table_dropped=false (nothing to drop without a handle)' );
+iwsl_assert_same( null, $store11n->get( IWSL_Statistics::SCHEMA_KEY ), 'purge (no db): schema option still removed' );
+
+// hostile prefix collapses to no-database — purge does not smuggle anything.
+$fake11h         = new IWSL_Stats_Fake_WPDB();
+$fake11h->prefix = 'wp_; DROP TABLE x;--';
+$eng11h          = iwsl_st_engine( iwsl_st_store( 'active', $ST_NOW - 60, true, $ST_NOW ), $fake11h, $ST_NOW );
+$p11h            = $eng11h->purge();
+iwsl_assert_same( false, $p11h['table_dropped'], 'purge: hostile prefix → table_dropped=false, no query issued' );
+iwsl_assert_same( 0, count( $fake11h->writes ), 'purge: hostile prefix issues zero queries' );
+
+// purge is NOT gated by the entitlement — a revoked/locked site can still be torn down.
+$fake11l  = new IWSL_Stats_Fake_WPDB();
+$store11l = iwsl_st_store( 'active', $ST_NOW - 60, false, $ST_NOW ); // statistics flag FALSE (locked)
+$eng11l   = iwsl_st_engine( $store11l, $fake11l, $ST_NOW );
+$p11l     = $eng11l->purge();
+iwsl_assert_same( true, $p11l['ok'], 'purge: works even when the entitlement is locked/revoked' );
+iwsl_assert_same( 1, iwsl_st_count_containing( $fake11l->writes, 'DROP TABLE IF EXISTS' ), 'purge (locked): table still dropped' );
+iwsl_assert_same( null, $store11l->get( IWSL_Statistics::SALT_KEY ), 'purge (locked): options still removed despite the lock' );
+
 // No global $wpdb was ever installed by this suite; keep the harness clean for later
 // suites regardless.
 unset( $GLOBALS['wpdb'] );

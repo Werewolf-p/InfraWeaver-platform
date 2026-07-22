@@ -318,6 +318,23 @@ final class IWSL_Activity_Log {
 		return array( 'ok' => true, 'cleared' => true );
 	}
 
+	/**
+	 * Teardown: permanently remove this feature's footprint — delete the stored
+	 * log ring-buffer option. NOT gated by the entitlement: a full teardown must
+	 * succeed even after the `activity_log` flag has already been revoked (that is
+	 * precisely when a teardown is invoked). Idempotent + cheap: deleting an
+	 * already-absent option key is a no-op.
+	 *
+	 * @return array{ ok:bool, options_removed:string[] }
+	 */
+	public function purge(): array {
+		$this->store->delete( self::LOG_KEY );
+		return array(
+			'ok'              => true,
+			'options_removed' => array( self::LOG_KEY ),
+		);
+	}
+
 	// ── admin-post handler (cap + nonce + gate, PRG) ───────────────────────────
 
 	/**
