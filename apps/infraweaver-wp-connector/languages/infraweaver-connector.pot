@@ -1,0 +1,311 @@
+# InfraWeaver Connector — translation template.
+# Copyright (C) InfraWeaver.
+# This file is distributed under the same license as the plugin.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: InfraWeaver Connector 0.11.8\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-22 18:52+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Domain: infraweaver-connector\n"
+"Language: \n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+msgid "Dashboard"
+msgstr ""
+
+msgid "Performance"
+msgstr ""
+
+msgid "Media"
+msgstr ""
+
+msgid "SEO & Content"
+msgstr ""
+
+msgid "Analytics"
+msgstr ""
+
+msgid "Privacy & Site"
+msgstr ""
+
+msgid "System"
+msgstr ""
+
+msgid "Speed, caching, and delivery — make every page load fast."
+msgstr ""
+
+msgid "Compress, convert, and safely serve images and SVG."
+msgstr ""
+
+msgid "Metadata, audits, duplicates, links, and redirects."
+msgstr ""
+
+msgid "Private, first-party traffic and activity insight."
+msgstr ""
+
+msgid "Consent, maintenance, and white-label presentation."
+msgstr ""
+
+msgid "Database hygiene, email delivery, and configuration."
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "Speed"
+msgstr ""
+
+msgid "Cache"
+msgstr ""
+
+msgid "CDN"
+msgstr ""
+
+msgid "Lazy Load"
+msgstr ""
+
+msgid "Load Time"
+msgstr ""
+
+msgid "Response Time"
+msgstr ""
+
+msgid "Images"
+msgstr ""
+
+msgid "Auto-Convert"
+msgstr ""
+
+msgid "SVG"
+msgstr ""
+
+msgid "Media Protection"
+msgstr ""
+
+msgid "Elementor Blocks"
+msgstr ""
+
+msgid "SEO"
+msgstr ""
+
+msgid "SEO Audit"
+msgstr ""
+
+msgid "Duplicate"
+msgstr ""
+
+msgid "Links"
+msgstr ""
+
+msgid "Redirects"
+msgstr ""
+
+msgid "Statistics"
+msgstr ""
+
+msgid "Activity Log"
+msgstr ""
+
+msgid "Cookie Consent"
+msgstr ""
+
+msgid "Maintenance"
+msgstr ""
+
+msgid "White-Label"
+msgstr ""
+
+msgid "Database"
+msgstr ""
+
+msgid "Scheduled Cleanup"
+msgstr ""
+
+msgid "Email"
+msgstr ""
+
+msgid "Config"
+msgstr ""
+
+msgid "Roadmap"
+msgstr ""
+
+msgid "Linked"
+msgstr ""
+
+msgid "Heartbeat"
+msgstr ""
+
+msgid "Plus"
+msgstr ""
+
+msgid "Connected"
+msgstr ""
+
+msgid "Not connected"
+msgstr ""
+
+msgid "Connection status: %s"
+msgstr ""
+
+msgid "Connection active"
+msgstr ""
+
+msgid "Plan active"
+msgstr ""
+
+msgid "Included in your plan"
+msgstr ""
+
+msgid "Not included in your plan yet"
+msgstr ""
+
+msgid "Gate"
+msgstr ""
+
+msgid "State"
+msgstr ""
+
+msgid "Detail"
+msgstr ""
+
+msgid "pass"
+msgstr ""
+
+msgid "blocked"
+msgstr ""
+
+msgid "ready"
+msgstr ""
+
+msgid "No connection confirmed yet"
+msgstr ""
+
+msgid "Last connected %1$d min ago (stays active for %2$d min)"
+msgstr ""
+
+msgid "This feature is locked."
+msgstr ""
+
+msgid "%s is locked."
+msgstr ""
+
+msgid "This is a Plus feature. Turn it on for this site from your InfraWeaver dashboard."
+msgstr ""
+
+msgid "This site isn&#8217;t connected to your InfraWeaver account yet &mdash; connect it from your dashboard to turn this on."
+msgstr ""
+
+msgid "Your InfraWeaver connection needs to refresh &mdash; we haven&#8217;t heard from your account recently. It usually reconnects on its own; if it doesn&#8217;t, reconnect from your dashboard."
+msgstr ""
+
+msgid "is included in a higher plan."
+msgstr ""
+
+msgid "Upgrade this site from the InfraWeaver console to unlock it."
+msgstr ""
+
+msgid "Image Optimization"
+msgstr ""
+
+msgid "Re-encode this site&#8217;s images to WebP — lossless for PNG, GIF, BMP and TIFF; near-lossless for JPEG. Smaller files, identical-looking pixels, run entirely on this server — no external service is called."
+msgstr ""
+
+msgid "Image Optimization is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard."
+msgstr ""
+
+msgid "The Image Optimization entitlement is not granted."
+msgstr ""
+
+msgid "Originals are never modified; derivatives are written alongside them."
+msgstr ""
+
+msgid "Converter"
+msgstr ""
+
+msgid "Accepts"
+msgstr ""
+
+msgid "Engine"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Save changes"
+msgstr ""
+
+msgid "Enable"
+msgstr ""
+
+msgid "On"
+msgstr ""
+
+msgid "Off"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Locked"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Back"
+msgstr ""
+
+msgid "Next"
+msgstr ""
+
+msgid "Show guide"
+msgstr ""
+
+msgid "Signed, console-granted power features for this site."
+msgstr ""
+
+msgid "Feature categories"
+msgstr ""
+
+msgid "Jump to a feature"
+msgstr ""
+
+msgid "Link posture"
+msgstr ""
+
+msgid "%1$d of %2$d active"
+msgstr ""
+
+msgid "You do not have permission to view this page."
+msgstr ""
+
+msgid "You do not have permission to run this action."
+msgstr ""
+
+msgid "Welcome"
+msgstr ""
+
+msgid "Next steps"
+msgstr ""
+
+msgid "That’s the tour"
+msgstr ""
+
+msgid "Step {n} of {t}"
+msgstr ""
+
+msgid "InfraWeaver Plus is a suite of console-granted power features for this site — speed, media, SEO, analytics, privacy and system tools, all managed from one place."
+msgstr ""
+
+msgid "This quick tour explains what each group of features does. It only pops up once — reopen it any time with “Show guide”."
+msgstr ""
+
+msgid "Every feature has its own page. Open a category, then flip a feature on with its switch — anything your plan includes turns on right away."
+msgstr ""
+

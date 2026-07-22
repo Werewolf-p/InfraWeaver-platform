@@ -164,7 +164,7 @@ final class IWSL_Media_Optimizer {
 	 *                    to the auto-selected batch (unchanged prior behaviour).
 	 * @return array Immutable run summary.
 	 */
-	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false, string $types = 'auto', array $ids = array(), bool $rewrite = false ): array {
+	public function run( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $mode = self::MODE_COPY, bool $dry = false, string $types = 'auto', array $ids = array(), bool $rewrite = false, bool $skip_optimized = true ): array {
 		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
 		$mode  = self::MODE_REPLACE === $mode ? self::MODE_REPLACE : self::MODE_COPY;
 		$gate  = $this->entitlements->evaluate( self::FEATURE );
@@ -228,7 +228,7 @@ final class IWSL_Media_Optimizer {
 
 		$batch = array() !== $ids
 			? $this->select_batch_from_ids( $ids, $mimes, $limit )
-			: $this->select_batch( $converter, $limit, $mimes );
+			: $this->select_batch( $converter, $limit, $mimes, $skip_optimized );
 
 		try {
 			foreach ( $batch as $attachment_id ) {
@@ -258,8 +258,8 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @param int[] $ids Optional operator-picked attachment ids; see run().
 	 */
-	public function preview( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $types = 'auto', array $ids = array() ): array {
-		return $this->run( $converter_id, $limit, self::MODE_COPY, true, $types, $ids );
+	public function preview( string $converter_id = 'webp_lossless', int $limit = self::MAX_BATCH, string $types = 'auto', array $ids = array(), bool $skip_optimized = true ): array {
+		return $this->run( $converter_id, $limit, self::MODE_COPY, true, $types, $ids, false, $skip_optimized );
 	}
 
 	/**
@@ -269,7 +269,7 @@ final class IWSL_Media_Optimizer {
 	 *
 	 * @return int[]
 	 */
-	private function select_batch( IWSL_Media_Converter $converter, int $limit = self::MAX_BATCH, array $mimes = array() ): array {
+	private function select_batch( IWSL_Media_Converter $converter, int $limit = self::MAX_BATCH, array $mimes = array(), bool $skip_optimized = true ): array {
 		if ( ! function_exists( 'get_posts' ) ) {
 			return array();
 		}
@@ -280,18 +280,30 @@ final class IWSL_Media_Optimizer {
 			return array(); // A type filter that matched nothing selects nothing.
 		}
 		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
-		$ids   = get_posts(
-			array(
-				'post_type'        => 'attachment',
-				'post_status'      => 'inherit',
-				'post_mime_type'   => $mimes,
-				'fields'           => 'ids',
-				'posts_per_page'   => $limit,
-				'orderby'          => 'ID',
-				'order'            => 'ASC',
-				'suppress_filters' => true,
-			)
+		$args  = array(
+			'post_type'        => 'attachment',
+			'post_status'      => 'inherit',
+			'post_mime_type'   => $mimes,
+			'fields'           => 'ids',
+			'posts_per_page'   => $limit,
+			'orderby'          => 'ID',
+			'order'            => 'ASC',
+			'suppress_filters' => true,
 		);
+		// "Only optimize images not already optimized": exclude any attachment that
+		// already carries this optimizer's derivative-tracking meta, so a repeat run
+		// advances to genuinely NEW images and can never re-process (or duplicate) a
+		// source it has already converted. Off = re-scan everything (convert_one is
+		// still idempotent, so it only re-encodes a source whose bytes/mtime changed).
+		if ( $skip_optimized ) {
+			$args['meta_query'] = array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+				array(
+					'key'     => self::META_KEY,
+					'compare' => 'NOT EXISTS',
+				),
+			);
+		}
+		$ids = get_posts( $args );
 		return is_array( $ids ) ? array_map( 'intval', $ids ) : array();
 	}
 

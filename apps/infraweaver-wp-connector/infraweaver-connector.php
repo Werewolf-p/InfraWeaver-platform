@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.11.8
+ * Version: 0.11.9
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.11.8' );
+define( 'IWSL_CONNECTOR_VERSION', '0.11.9' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -26,6 +26,27 @@ define( 'IWSL_MAX_BODY_BYTES', 65536 );
 /** True when the request body is within IWSL_MAX_BODY_BYTES. */
 function iwsl_body_within_limit( WP_REST_Request $request ): bool {
 	return strlen( (string) $request->get_body() ) <= IWSL_MAX_BODY_BYTES;
+}
+
+/**
+ * Load the connector's translations so the wp-admin UI auto-adapts to the site
+ * language (e.g. a Dutch nl_NL install shows Dutch out of the box). The compiled
+ * catalogs live in languages/ as infraweaver-connector-{locale}.mo. Every admin
+ * string is wrapped with the 'infraweaver-connector' text domain; without this
+ * call none of those translations would ever load. Hooked on `init` so the
+ * current locale (which WordPress resolves before `init`) is already known.
+ * Guarded for the zero-dependency test harness, which loads classes directly
+ * without a WordPress runtime and never fires `init`.
+ */
+function iwsl_load_textdomain(): void {
+	load_plugin_textdomain(
+		'infraweaver-connector',
+		false,
+		dirname( plugin_basename( __FILE__ ) ) . '/languages'
+	);
+}
+if ( function_exists( 'add_action' ) ) {
+	add_action( 'init', 'iwsl_load_textdomain' );
 }
 
 require_once __DIR__ . '/includes/class-iwsl-jcs.php';

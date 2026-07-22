@@ -812,18 +812,22 @@ final class IWSL_Admin {
 		}
 		$this->page_hooks[] = (string) add_submenu_page(
 			'infraweaver-plus',
-			'InfraWeaver Plus — Dashboard',
-			'Dashboard',
+			'InfraWeaver Plus — ' . __( 'Dashboard', 'infraweaver-connector' ),
+			__( 'Dashboard', 'infraweaver-connector' ),
 			'manage_options',
 			'infraweaver-plus',
 			array( $this, 'render_landing' )
 		);
 		foreach ( self::group_meta() as $label => $meta ) {
+			// $group stays the canonical English key (it drives render_group_page()
+			// lookups and the tab 'group' matching); $group_label is the translated
+			// display form for the sidebar + browser-tab title only.
 			$group             = (string) $label;
+			$group_label       = __( $group, 'infraweaver-connector' );
 			$this->page_hooks[] = (string) add_submenu_page(
 				'infraweaver-plus',
-				'InfraWeaver Plus — ' . $group,
-				$group,
+				'InfraWeaver Plus — ' . $group_label,
+				$group_label,
 				'manage_options',
 				'infraweaver-plus-' . $meta['slug'],
 				function () use ( $group ) {
@@ -913,13 +917,16 @@ final class IWSL_Admin {
 	 * here is the order the groups appear everywhere.
 	 */
 	private static function group_meta(): array {
+		// The array KEY is the canonical group identifier (matched against each tab's
+		// 'group' and passed to render_group_page()), so it stays English. Only the
+		// display-only 'blurb' is wrapped for translation; 'slug'/'icon' are identifiers.
 		return array(
-			'Performance'    => array( 'slug' => 'performance', 'icon' => 'superhero', 'blurb' => 'Speed, caching, and delivery — make every page load fast.' ),
-			'Media'          => array( 'slug' => 'media', 'icon' => 'format-image', 'blurb' => 'Compress, convert, and safely serve images and SVG.' ),
-			'SEO & Content'  => array( 'slug' => 'seo', 'icon' => 'chart-area', 'blurb' => 'Metadata, audits, duplicates, links, and redirects.' ),
-			'Analytics'      => array( 'slug' => 'analytics', 'icon' => 'chart-bar', 'blurb' => 'Private, first-party traffic and activity insight.' ),
-			'Privacy & Site' => array( 'slug' => 'privacy', 'icon' => 'privacy', 'blurb' => 'Consent, maintenance, and white-label presentation.' ),
-			'System'         => array( 'slug' => 'system', 'icon' => 'admin-generic', 'blurb' => 'Database hygiene, email delivery, and configuration.' ),
+			'Performance'    => array( 'slug' => 'performance', 'icon' => 'superhero', 'blurb' => __( 'Speed, caching, and delivery — make every page load fast.', 'infraweaver-connector' ) ),
+			'Media'          => array( 'slug' => 'media', 'icon' => 'format-image', 'blurb' => __( 'Compress, convert, and safely serve images and SVG.', 'infraweaver-connector' ) ),
+			'SEO & Content'  => array( 'slug' => 'seo', 'icon' => 'chart-area', 'blurb' => __( 'Metadata, audits, duplicates, links, and redirects.', 'infraweaver-connector' ) ),
+			'Analytics'      => array( 'slug' => 'analytics', 'icon' => 'chart-bar', 'blurb' => __( 'Private, first-party traffic and activity insight.', 'infraweaver-connector' ) ),
+			'Privacy & Site' => array( 'slug' => 'privacy', 'icon' => 'privacy', 'blurb' => __( 'Consent, maintenance, and white-label presentation.', 'infraweaver-connector' ) ),
+			'System'         => array( 'slug' => 'system', 'icon' => 'admin-generic', 'blurb' => __( 'Database hygiene, email delivery, and configuration.', 'infraweaver-connector' ) ),
 		);
 	}
 
@@ -1389,7 +1396,7 @@ final class IWSL_Admin {
 			echo '<span class="iwsl-card__go" aria-hidden="true"><span class="dashicons dashicons-arrow-right-alt"></span></span>';
 			echo '<span class="iwsl-card__icon" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '"></span></span>';
 			echo '<span class="iwsl-card__head">';
-			echo '<span class="iwsl-card__title">' . esc_html( (string) $group ) . '</span>';
+			echo '<span class="iwsl-card__title">' . esc_html( __( (string) $group, 'infraweaver-connector' ) ) . '</span>';
 			echo '<span class="iwsl-card__count">' . esc_html( sprintf( /* translators: 1: active feature count, 2: total feature count. */ __( '%1$d of %2$d active', 'infraweaver-connector' ), $open, $total ) ) . '</span>';
 			echo '</span>';
 			echo '<span class="iwsl-card__blurb">' . esc_html( $meta['blurb'] ) . '</span>';
@@ -1448,11 +1455,12 @@ final class IWSL_Admin {
 		// Steps 2..7 — one per category: the group blurb + per-feature help lines.
 		foreach ( self::group_meta() as $label => $meta ) {
 			$group = (string) $label;
-			$tabs  = self::group_tabs( $group );
-			echo '<section class="iwsl-ww__step" aria-label="' . esc_attr( $group ) . '">';
+			$tabs        = self::group_tabs( $group );
+			$group_label = __( $group, 'infraweaver-connector' );
+			echo '<section class="iwsl-ww__step" aria-label="' . esc_attr( $group_label ) . '">';
 			echo '<div class="iwsl-ww__cat">';
 			echo '<span class="iwsl-ww__cat-icon" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '"></span></span>';
-			echo '<div><h3>' . esc_html( $group ) . '</h3><p>' . esc_html( $meta['blurb'] ) . '</p></div>';
+			echo '<div><h3>' . esc_html( $group_label ) . '</h3><p>' . esc_html( $meta['blurb'] ) . '</p></div>';
 			echo '</div>';
 			echo '<ul class="iwsl-ww__feats">';
 			foreach ( $tabs as $tab ) {
@@ -1474,7 +1482,7 @@ final class IWSL_Admin {
 		echo '<div class="iwsl-ww__links">';
 		foreach ( self::group_meta() as $label => $meta ) {
 			$href = admin_url( 'admin.php?page=infraweaver-plus-' . $meta['slug'] );
-			echo '<a class="button button-secondary" href="' . esc_url( $href ) . '"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '" aria-hidden="true"></span>' . esc_html( (string) $label ) . '</a>';
+			echo '<a class="button button-secondary" href="' . esc_url( $href ) . '"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '" aria-hidden="true"></span>' . esc_html( __( (string) $label, 'infraweaver-connector' ) ) . '</a>';
 		}
 		echo '</div>';
 		echo '</section>';
@@ -1923,7 +1931,7 @@ JS;
 		echo '<span class="iwsl-hero__mark" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $meta['icon'] ) . '"></span></span>';
 		echo '<div>';
 		echo '<a class="iwsl-hero__crumb" href="' . esc_url( $home ) . '"><span class="dashicons dashicons-arrow-left-alt2" aria-hidden="true"></span>' . esc_html__( 'InfraWeaver Plus', 'infraweaver-connector' ) . '</a>';
-		echo '<h1 class="iwsl-hero__title">' . esc_html( $group ) . '</h1>';
+		echo '<h1 class="iwsl-hero__title">' . esc_html( __( $group, 'infraweaver-connector' ) ) . '</h1>';
 		echo '<p class="iwsl-hero__sub">' . esc_html( $meta['blurb'] ) . '</p>';
 		echo '</div>';
 		echo '</div>';
@@ -1960,56 +1968,60 @@ JS;
 	 * last). Shared by the nav and the per-tab status dots.
 	 */
 	private static function tab_defs(): array {
+		// The 'label' is display-only (the 'id' is the stable lookup key), so each
+		// is wrapped for translation here — the single source every nav / card /
+		// jump-rail render reads from. 'id', 'icon' and 'group' are identifiers and
+		// stay verbatim ('group' matches a group_meta() key).
 		return array(
-			array( 'id' => 'overview', 'label' => 'Overview', 'icon' => 'shield' ),
+			array( 'id' => 'overview', 'label' => __( 'Overview', 'infraweaver-connector' ), 'icon' => 'shield' ),
 
 			// Performance
-			array( 'id' => 'speed', 'label' => 'Speed', 'icon' => 'superhero', 'group' => 'Performance' ),
-			array( 'id' => 'cache', 'label' => 'Cache', 'icon' => 'performance', 'group' => 'Performance' ),
-			array( 'id' => 'cdn', 'label' => 'CDN', 'icon' => 'cloud', 'group' => 'Performance' ),
-			array( 'id' => 'lazy-load', 'label' => 'Lazy Load', 'icon' => 'images-alt2', 'group' => 'Performance' ),
-			array( 'id' => 'perf-audit', 'label' => 'Load Time', 'icon' => 'dashboard', 'group' => 'Performance' ),
-			array( 'id' => 'response-scan', 'label' => 'Response Time', 'icon' => 'chart-line', 'group' => 'Performance' ),
+			array( 'id' => 'speed', 'label' => __( 'Speed', 'infraweaver-connector' ), 'icon' => 'superhero', 'group' => 'Performance' ),
+			array( 'id' => 'cache', 'label' => __( 'Cache', 'infraweaver-connector' ), 'icon' => 'performance', 'group' => 'Performance' ),
+			array( 'id' => 'cdn', 'label' => __( 'CDN', 'infraweaver-connector' ), 'icon' => 'cloud', 'group' => 'Performance' ),
+			array( 'id' => 'lazy-load', 'label' => __( 'Lazy Load', 'infraweaver-connector' ), 'icon' => 'images-alt2', 'group' => 'Performance' ),
+			array( 'id' => 'perf-audit', 'label' => __( 'Load Time', 'infraweaver-connector' ), 'icon' => 'dashboard', 'group' => 'Performance' ),
+			array( 'id' => 'response-scan', 'label' => __( 'Response Time', 'infraweaver-connector' ), 'icon' => 'chart-line', 'group' => 'Performance' ),
 
 			// Media
-			array( 'id' => 'images', 'label' => 'Images', 'icon' => 'format-image', 'group' => 'Media' ),
-			array( 'id' => 'auto-convert', 'label' => 'Auto-Convert', 'icon' => 'update', 'group' => 'Media' ),
-			array( 'id' => 'svg', 'label' => 'SVG', 'icon' => 'media-code', 'group' => 'Media' ),
-			array( 'id' => 'media-protect', 'label' => 'Media Protection', 'icon' => 'lock', 'group' => 'Media' ),
-			array( 'id' => 'elementor', 'label' => 'Elementor Blocks', 'icon' => 'layout', 'group' => 'Media' ),
+			array( 'id' => 'images', 'label' => __( 'Images', 'infraweaver-connector' ), 'icon' => 'format-image', 'group' => 'Media' ),
+			array( 'id' => 'auto-convert', 'label' => __( 'Auto-Convert', 'infraweaver-connector' ), 'icon' => 'update', 'group' => 'Media' ),
+			array( 'id' => 'svg', 'label' => __( 'SVG', 'infraweaver-connector' ), 'icon' => 'media-code', 'group' => 'Media' ),
+			array( 'id' => 'media-protect', 'label' => __( 'Media Protection', 'infraweaver-connector' ), 'icon' => 'lock', 'group' => 'Media' ),
+			array( 'id' => 'elementor', 'label' => __( 'Elementor Blocks', 'infraweaver-connector' ), 'icon' => 'layout', 'group' => 'Media' ),
 
 			// SEO & Content
-			array( 'id' => 'seo', 'label' => 'SEO', 'icon' => 'chart-area', 'group' => 'SEO & Content' ),
-			array( 'id' => 'seo-audit', 'label' => 'SEO Audit', 'icon' => 'search', 'group' => 'SEO & Content' ),
-			array( 'id' => 'duplicate', 'label' => 'Duplicate', 'icon' => 'admin-page', 'group' => 'SEO & Content' ),
-			array( 'id' => 'links', 'label' => 'Links', 'icon' => 'admin-links', 'group' => 'SEO & Content' ),
-			array( 'id' => 'redirects', 'label' => 'Redirects', 'icon' => 'randomize', 'group' => 'SEO & Content' ),
+			array( 'id' => 'seo', 'label' => __( 'SEO', 'infraweaver-connector' ), 'icon' => 'chart-area', 'group' => 'SEO & Content' ),
+			array( 'id' => 'seo-audit', 'label' => __( 'SEO Audit', 'infraweaver-connector' ), 'icon' => 'search', 'group' => 'SEO & Content' ),
+			array( 'id' => 'duplicate', 'label' => __( 'Duplicate', 'infraweaver-connector' ), 'icon' => 'admin-page', 'group' => 'SEO & Content' ),
+			array( 'id' => 'links', 'label' => __( 'Links', 'infraweaver-connector' ), 'icon' => 'admin-links', 'group' => 'SEO & Content' ),
+			array( 'id' => 'redirects', 'label' => __( 'Redirects', 'infraweaver-connector' ), 'icon' => 'randomize', 'group' => 'SEO & Content' ),
 
 			// Analytics
-			array( 'id' => 'statistics', 'label' => 'Statistics', 'icon' => 'chart-bar', 'group' => 'Analytics' ),
-			array( 'id' => 'activity-log', 'label' => 'Activity Log', 'icon' => 'list-view', 'group' => 'Analytics' ),
+			array( 'id' => 'statistics', 'label' => __( 'Statistics', 'infraweaver-connector' ), 'icon' => 'chart-bar', 'group' => 'Analytics' ),
+			array( 'id' => 'activity-log', 'label' => __( 'Activity Log', 'infraweaver-connector' ), 'icon' => 'list-view', 'group' => 'Analytics' ),
 
 			// Privacy & Site
-			array( 'id' => 'consent', 'label' => 'Cookie Consent', 'icon' => 'privacy', 'group' => 'Privacy & Site' ),
-			array( 'id' => 'maintenance', 'label' => 'Maintenance', 'icon' => 'hammer', 'group' => 'Privacy & Site' ),
-			array( 'id' => 'whitelabel', 'label' => 'White-Label', 'icon' => 'art', 'group' => 'Privacy & Site' ),
+			array( 'id' => 'consent', 'label' => __( 'Cookie Consent', 'infraweaver-connector' ), 'icon' => 'privacy', 'group' => 'Privacy & Site' ),
+			array( 'id' => 'maintenance', 'label' => __( 'Maintenance', 'infraweaver-connector' ), 'icon' => 'hammer', 'group' => 'Privacy & Site' ),
+			array( 'id' => 'whitelabel', 'label' => __( 'White-Label', 'infraweaver-connector' ), 'icon' => 'art', 'group' => 'Privacy & Site' ),
 
 			// System
-			array( 'id' => 'database', 'label' => 'Database', 'icon' => 'database', 'group' => 'System' ),
-			array( 'id' => 'scheduled-cleanup', 'label' => 'Scheduled Cleanup', 'icon' => 'clock', 'group' => 'System' ),
-			array( 'id' => 'email', 'label' => 'Email', 'icon' => 'email-alt', 'group' => 'System' ),
-			array( 'id' => 'config', 'label' => 'Config', 'icon' => 'admin-generic', 'group' => 'System' ),
+			array( 'id' => 'database', 'label' => __( 'Database', 'infraweaver-connector' ), 'icon' => 'database', 'group' => 'System' ),
+			array( 'id' => 'scheduled-cleanup', 'label' => __( 'Scheduled Cleanup', 'infraweaver-connector' ), 'icon' => 'clock', 'group' => 'System' ),
+			array( 'id' => 'email', 'label' => __( 'Email', 'infraweaver-connector' ), 'icon' => 'email-alt', 'group' => 'System' ),
+			array( 'id' => 'config', 'label' => __( 'Config', 'infraweaver-connector' ), 'icon' => 'admin-generic', 'group' => 'System' ),
 
-			array( 'id' => 'roadmap', 'label' => 'Roadmap', 'icon' => 'flag' ),
+			array( 'id' => 'roadmap', 'label' => __( 'Roadmap', 'infraweaver-connector' ), 'icon' => 'flag' ),
 		);
 	}
 
 	/** The branded header: identity, connector version, and three live posture chips. */
 	private function render_hero( array $gate ): void {
 		$chips = array(
-			array( 'label' => 'Linked', 'ok' => ! empty( $gate['linked'] ) ),
-			array( 'label' => 'Heartbeat', 'ok' => ! empty( $gate['heartbeat_fresh'] ) ),
-			array( 'label' => 'Plus', 'ok' => ! empty( $gate['plus'] ) ),
+			array( 'label' => __( 'Linked', 'infraweaver-connector' ), 'ok' => ! empty( $gate['linked'] ) ),
+			array( 'label' => __( 'Heartbeat', 'infraweaver-connector' ), 'ok' => ! empty( $gate['heartbeat_fresh'] ) ),
+			array( 'label' => __( 'Plus', 'infraweaver-connector' ), 'ok' => ! empty( $gate['plus'] ) ),
 		);
 		$version = defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : '';
 
@@ -3050,28 +3062,29 @@ JS;
 		$heartbeat_detail = self::heartbeat_detail( $gate );
 		$rows             = array(
 			array(
-				'label'  => 'Connected',
+				'label'  => __( 'Connected', 'infraweaver-connector' ),
 				'ok'     => ! empty( $gate['linked'] ),
-				'detail' => 'Connection status: ' . (string) $gate['state'],
+				/* translators: %s: the raw link state (e.g. active, pending). */
+				'detail' => sprintf( __( 'Connection status: %s', 'infraweaver-connector' ), (string) $gate['state'] ),
 			),
 			array(
-				'label'  => 'Connection active',
+				'label'  => __( 'Connection active', 'infraweaver-connector' ),
 				'ok'     => ! empty( $gate['heartbeat_fresh'] ),
 				'detail' => $heartbeat_detail,
 			),
 			array(
-				'label'  => 'Plan active',
+				'label'  => __( 'Plan active', 'infraweaver-connector' ),
 				'ok'     => ! empty( $gate['plus'] ),
-				'detail' => ! empty( $gate['plus'] ) ? 'Included in your plan' : 'Not included in your plan yet',
+				'detail' => ! empty( $gate['plus'] ) ? __( 'Included in your plan', 'infraweaver-connector' ) : __( 'Not included in your plan yet', 'infraweaver-connector' ),
 			),
 		);
 
 		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
-		echo '<th>Gate</th><th>State</th><th>Detail</th></tr></thead><tbody>';
+		echo '<th>' . esc_html__( 'Gate', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'State', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Detail', 'infraweaver-connector' ) . '</th></tr></thead><tbody>';
 		foreach ( $rows as $row ) {
 			$marker = $row['ok']
-				? '<span style="color:#1a7f37;font-weight:600;">&#10004; pass</span>'
-				: '<span style="color:#b3261e;font-weight:600;">&#10008; blocked</span>';
+				? '<span style="color:#1a7f37;font-weight:600;">&#10004; ' . esc_html__( 'pass', 'infraweaver-connector' ) . '</span>'
+				: '<span style="color:#b3261e;font-weight:600;">&#10008; ' . esc_html__( 'blocked', 'infraweaver-connector' ) . '</span>';
 			echo '<tr><th scope="row">' . esc_html( $row['label'] ) . '</th><td>' . $marker . '</td><td>' . esc_html( $row['detail'] ) . '</td></tr>';
 		}
 		echo '</tbody></table></div>';
@@ -3079,12 +3092,13 @@ JS;
 
 	private static function heartbeat_detail( array $gate ): string {
 		if ( null === $gate['last_verified_at'] ) {
-			return 'No connection confirmed yet';
+			return __( 'No connection confirmed yet', 'infraweaver-connector' );
 		}
 		$age_ms    = (int) $gate['heartbeat_age_ms'];
 		$age_min   = (int) floor( $age_ms / 60000 );
 		$limit_min = (int) floor( (int) $gate['heartbeat_threshold_ms'] / 60000 );
-		return sprintf( 'Last connected %d min ago (stays active for %d min)', max( 0, $age_min ), $limit_min );
+		/* translators: 1: minutes since last heartbeat, 2: freshness window in minutes. */
+		return sprintf( __( 'Last connected %1$d min ago (stays active for %2$d min)', 'infraweaver-connector' ), max( 0, $age_min ), $limit_min );
 	}
 
 	/**
@@ -3096,13 +3110,14 @@ JS;
 	private static function render_locked_notice( array $gate, string $feature_label = '', string $requires_plus_msg = '' ): void {
 		$requires = '' !== $requires_plus_msg
 			? $requires_plus_msg
-			: 'This is a Plus feature. Turn it on for this site from your InfraWeaver dashboard.';
+			: __( 'This is a Plus feature. Turn it on for this site from your InfraWeaver dashboard.', 'infraweaver-connector' );
 		$messages = array(
-			'not-linked'      => 'This site isn&#8217;t connected to your InfraWeaver account yet &mdash; connect it from your dashboard to turn this on.',
-			'heartbeat-stale' => 'Your InfraWeaver connection needs to refresh &mdash; we haven&#8217;t heard from your account recently. It usually reconnects on its own; if it doesn&#8217;t, reconnect from your dashboard.',
+			'not-linked'      => __( 'This site isn&#8217;t connected to your InfraWeaver account yet &mdash; connect it from your dashboard to turn this on.', 'infraweaver-connector' ),
+			'heartbeat-stale' => __( 'Your InfraWeaver connection needs to refresh &mdash; we haven&#8217;t heard from your account recently. It usually reconnects on its own; if it doesn&#8217;t, reconnect from your dashboard.', 'infraweaver-connector' ),
 			'requires-plus'   => $requires,
 		);
-		$heading = '' !== $feature_label ? esc_html( $feature_label ) . ' is locked.' : 'This feature is locked.';
+		/* translators: %s: the feature name. */
+		$heading = '' !== $feature_label ? sprintf( __( '%s is locked.', 'infraweaver-connector' ), esc_html( $feature_label ) ) : __( 'This feature is locked.', 'infraweaver-connector' );
 		echo '<div class="notice notice-warning inline" style="margin-top:12px;padding:12px;"><p><strong>&#128274; ' . $heading . '</strong></p><ul style="list-style:disc;margin-left:20px;">';
 		foreach ( (array) $gate['reasons'] as $reason ) {
 			$text = isset( $messages[ $reason ] ) ? $messages[ $reason ] : (string) $reason;
@@ -3122,8 +3137,8 @@ JS;
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>Image Optimization</h2>';
-		echo '<p>Re-encode this site&#8217;s images to WebP — lossless for PNG, GIF, BMP and TIFF; near-lossless for JPEG. Smaller files, identical-looking pixels, run entirely on this server — no external service is called.</p>';
+		echo '<h2>' . esc_html__( 'Image Optimization', 'infraweaver-connector' ) . '</h2>';
+		echo '<p>' . esc_html__( 'Re-encode this site&#8217;s images to WebP — lossless for PNG, GIF, BMP and TIFF; near-lossless for JPEG. Smaller files, identical-looking pixels, run entirely on this server — no external service is called.', 'infraweaver-connector' ) . '</p>';
 
 		// A redirect from the handler after a locked POST (layer-2 defence tripped).
 		if ( isset( $_GET['iwsl_mo_locked'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -3133,7 +3148,7 @@ JS;
 		}
 
 		if ( empty( $gate['unlocked'] ) ) {
-			self::render_locked_notice( $gate, 'Image Optimization', 'Image Optimization is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.' );
+			self::render_locked_notice( $gate, __( 'Image Optimization', 'infraweaver-connector' ), __( 'Image Optimization is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard.', 'infraweaver-connector' ) );
 			return;
 		}
 
@@ -3148,14 +3163,14 @@ JS;
 	private function render_capability_table(): void {
 		$caps = $this->optimizer()->capabilities();
 		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
-		echo '<th>Converter</th><th>Accepts</th><th>Engine</th><th>Status</th></tr></thead><tbody>';
+		echo '<th>' . esc_html__( 'Converter', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Accepts', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Engine', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th></tr></thead><tbody>';
 		foreach ( $caps as $cap ) {
 			$avail  = is_array( $cap['availability'] ) ? $cap['availability'] : array();
 			$ok     = ! empty( $avail['ok'] );
 			$engine = isset( $avail['engine'] ) ? (string) $avail['engine'] : 'none';
 			$marker = $ok
-				? '<span style="color:#1a7f37;font-weight:600;">&#10004; ready</span>'
-				: '<span style="color:#b3261e;font-weight:600;">&#10008; blocked</span>';
+				? '<span style="color:#1a7f37;font-weight:600;">&#10004; ' . esc_html__( 'ready', 'infraweaver-connector' ) . '</span>'
+				: '<span style="color:#b3261e;font-weight:600;">&#10008; ' . esc_html__( 'blocked', 'infraweaver-connector' ) . '</span>';
 			$detail = $ok ? $engine : ( $engine . ' (' . (string) ( $avail['reason'] ?? 'unavailable' ) . ')' );
 			echo '<tr>';
 			echo '<th scope="row">' . esc_html( (string) $cap['label'] ) . '</th>';
@@ -3206,6 +3221,10 @@ JS;
 			__( 'Up to %d. Used only when no images are picked above. Bigger requests self-queue across batches (each run is time-bounded — just run again to continue).', 'infraweaver-connector' ),
 			IWSL_Media_Optimizer::MAX_REQUEST
 		) ) . '</span></td></tr>';
+
+		echo '<tr><th scope="row">' . esc_html__( 'Skip done', 'infraweaver-connector' ) . iwsl_field_help( 'Only work on images that have not been optimized yet, so re-running never duplicates.' ) . '</th><td>';
+		echo '<label style="display:block;"><input type="checkbox" name="iwsl_mo_skip_optimized" value="1" checked> <strong>' . esc_html__( 'Only optimize images not already optimized', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Recommended. Each run skips images already converted and moves on to new ones — so running it again never re-processes or duplicates anything. Uncheck to re-scan every image (already-optimized ones are still skipped unless the original file changed).', 'infraweaver-connector' ) . '</span></label>';
+		echo '</td></tr>';
 
 		echo '<tr><th scope="row">' . esc_html__( 'Output', 'infraweaver-connector' ) . iwsl_field_help( 'Keep the original image too, or overwrite it with the smaller one.' ) . '</th><td>';
 		echo '<label style="display:block;margin-bottom:8px;"><input type="radio" name="mode" value="copy" checked> <strong>' . esc_html__( 'Keep original + add WebP copy', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Safe. Nothing is deleted — the WebP sits beside the original.', 'infraweaver-connector' ) . '</span></label>';
@@ -3549,6 +3568,10 @@ JS;
 		$is_preview = 'preview' === $op;
 		// Opt-in: rewrite the image URLs on posts/pages to the WebP (copy mode too).
 		$rewrite = isset( $_POST['rewrite'] ) && '1' === (string) $_POST['rewrite'];
+		// "Only optimize images not already optimized" (default ON): the auto batch
+		// picks only sources without an existing optimized derivative, so running it
+		// again advances to NEW images and never re-touches (or duplicates) done ones.
+		$skip_optimized = isset( $_POST['iwsl_mo_skip_optimized'] ) && '1' === (string) $_POST['iwsl_mo_skip_optimized'];
 
 		// De-duplicate branch: delete originals that already have an optimized copy.
 		// `dedupe-preview` is a safe dry run; `dedupe` deletes (repointing pages first).
@@ -3587,8 +3610,8 @@ JS;
 
 		// LAYER 3 (authoritative gate) is inside run()/preview().
 		$summary = $is_preview
-			? $optimizer->preview( $converter, $count, $types, $ids )
-			: $optimizer->run( $converter, $count, $mode, false, $types, $ids, $rewrite );
+			? $optimizer->preview( $converter, $count, $types, $ids, $skip_optimized )
+			: $optimizer->run( $converter, $count, $mode, false, $types, $ids, $rewrite, $skip_optimized );
 
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( 'iwsl_mo_result_' . (int) get_current_user_id(), $summary, 60 );

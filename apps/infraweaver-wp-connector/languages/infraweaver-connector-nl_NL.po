@@ -1,0 +1,311 @@
+# Dutch (nl_NL) translation for the InfraWeaver Connector admin UI.
+# Copyright (C) InfraWeaver.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: InfraWeaver Connector 0.11.8\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-22 18:52+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Domain: infraweaver-connector\n"
+"PO-Revision-Date: 2026-07-22 18:52+0000\n"
+"Language: nl_NL\n"
+"Language-Team: Dutch\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Dashboard"
+msgstr "Dashboard"
+
+msgid "Performance"
+msgstr "Prestaties"
+
+msgid "Media"
+msgstr "Media"
+
+msgid "SEO & Content"
+msgstr "SEO & Inhoud"
+
+msgid "Analytics"
+msgstr "Analyse"
+
+msgid "Privacy & Site"
+msgstr "Privacy & Site"
+
+msgid "System"
+msgstr "Systeem"
+
+msgid "Speed, caching, and delivery — make every page load fast."
+msgstr "Snelheid, caching en levering — laat elke pagina snel laden."
+
+msgid "Compress, convert, and safely serve images and SVG."
+msgstr "Comprimeer, converteer en serveer afbeeldingen en SVG veilig."
+
+msgid "Metadata, audits, duplicates, links, and redirects."
+msgstr "Metadata, audits, duplicaten, links en omleidingen."
+
+msgid "Private, first-party traffic and activity insight."
+msgstr "Privé inzicht in eigen verkeer en activiteit."
+
+msgid "Consent, maintenance, and white-label presentation."
+msgstr "Toestemming, onderhoud en white-labelpresentatie."
+
+msgid "Database hygiene, email delivery, and configuration."
+msgstr "Databasehygiëne, e-maillevering en configuratie."
+
+msgid "Overview"
+msgstr "Overzicht"
+
+msgid "Speed"
+msgstr "Snelheid"
+
+msgid "Cache"
+msgstr "Cache"
+
+msgid "CDN"
+msgstr "CDN"
+
+msgid "Lazy Load"
+msgstr "Lazy load"
+
+msgid "Load Time"
+msgstr "Laadtijd"
+
+msgid "Response Time"
+msgstr "Reactietijd"
+
+msgid "Images"
+msgstr "Afbeeldingen"
+
+msgid "Auto-Convert"
+msgstr "Automatisch converteren"
+
+msgid "SVG"
+msgstr "SVG"
+
+msgid "Media Protection"
+msgstr "Mediabeveiliging"
+
+msgid "Elementor Blocks"
+msgstr "Elementor-blokken"
+
+msgid "SEO"
+msgstr "SEO"
+
+msgid "SEO Audit"
+msgstr "SEO-audit"
+
+msgid "Duplicate"
+msgstr "Dupliceren"
+
+msgid "Links"
+msgstr "Links"
+
+msgid "Redirects"
+msgstr "Omleidingen"
+
+msgid "Statistics"
+msgstr "Statistieken"
+
+msgid "Activity Log"
+msgstr "Activiteitenlogboek"
+
+msgid "Cookie Consent"
+msgstr "Cookietoestemming"
+
+msgid "Maintenance"
+msgstr "Onderhoud"
+
+msgid "White-Label"
+msgstr "White-label"
+
+msgid "Database"
+msgstr "Database"
+
+msgid "Scheduled Cleanup"
+msgstr "Geplande opschoning"
+
+msgid "Email"
+msgstr "E-mail"
+
+msgid "Config"
+msgstr "Configuratie"
+
+msgid "Roadmap"
+msgstr "Roadmap"
+
+msgid "Linked"
+msgstr "Gekoppeld"
+
+msgid "Heartbeat"
+msgstr "Hartslag"
+
+msgid "Plus"
+msgstr "Plus"
+
+msgid "Connected"
+msgstr "Verbonden"
+
+msgid "Not connected"
+msgstr "Niet verbonden"
+
+msgid "Connection status: %s"
+msgstr "Verbindingsstatus: %s"
+
+msgid "Connection active"
+msgstr "Verbinding actief"
+
+msgid "Plan active"
+msgstr "Abonnement actief"
+
+msgid "Included in your plan"
+msgstr "Inbegrepen in je abonnement"
+
+msgid "Not included in your plan yet"
+msgstr "Nog niet inbegrepen in je abonnement"
+
+msgid "Gate"
+msgstr "Poort"
+
+msgid "State"
+msgstr "Status"
+
+msgid "Detail"
+msgstr "Detail"
+
+msgid "pass"
+msgstr "geslaagd"
+
+msgid "blocked"
+msgstr "geblokkeerd"
+
+msgid "ready"
+msgstr "gereed"
+
+msgid "No connection confirmed yet"
+msgstr "Nog geen verbinding bevestigd"
+
+msgid "Last connected %1$d min ago (stays active for %2$d min)"
+msgstr "Laatst verbonden %1$d min geleden (blijft %2$d min actief)"
+
+msgid "This feature is locked."
+msgstr "Deze functie is vergrendeld."
+
+msgid "%s is locked."
+msgstr "%s is vergrendeld."
+
+msgid "This is a Plus feature. Turn it on for this site from your InfraWeaver dashboard."
+msgstr "Dit is een Plus-functie. Schakel deze voor deze site in via je InfraWeaver-dashboard."
+
+msgid "This site isn&#8217;t connected to your InfraWeaver account yet &mdash; connect it from your dashboard to turn this on."
+msgstr "Deze site is nog niet gekoppeld aan je InfraWeaver-account &mdash; koppel deze via je dashboard om dit in te schakelen."
+
+msgid "Your InfraWeaver connection needs to refresh &mdash; we haven&#8217;t heard from your account recently. It usually reconnects on its own; if it doesn&#8217;t, reconnect from your dashboard."
+msgstr "Je InfraWeaver-verbinding moet worden vernieuwd &mdash; we hebben recentelijk niets van je account gehoord. Meestal maakt hij zelf opnieuw verbinding; zo niet, maak dan opnieuw verbinding via je dashboard."
+
+msgid "is included in a higher plan."
+msgstr "is inbegrepen in een hoger abonnement."
+
+msgid "Upgrade this site from the InfraWeaver console to unlock it."
+msgstr "Upgrade deze site via de InfraWeaver-console om deze te ontgrendelen."
+
+msgid "Image Optimization"
+msgstr "Afbeeldingsoptimalisatie"
+
+msgid "Re-encode this site&#8217;s images to WebP — lossless for PNG, GIF, BMP and TIFF; near-lossless for JPEG. Smaller files, identical-looking pixels, run entirely on this server — no external service is called."
+msgstr "Hercodeer de afbeeldingen van deze site naar WebP — lossless voor PNG, GIF, BMP en TIFF; bijna lossless voor JPEG. Kleinere bestanden, identiek ogende pixels, volledig op deze server uitgevoerd — er wordt geen externe dienst aangeroepen."
+
+msgid "Image Optimization is part of the Pro plan. Turn on Pro for this site from your InfraWeaver dashboard."
+msgstr "Afbeeldingsoptimalisatie maakt deel uit van het Pro-abonnement. Schakel Pro voor deze site in via je InfraWeaver-dashboard."
+
+msgid "The Image Optimization entitlement is not granted."
+msgstr "De rechten voor Afbeeldingsoptimalisatie zijn niet verleend."
+
+msgid "Originals are never modified; derivatives are written alongside them."
+msgstr "Originelen worden nooit gewijzigd; afgeleiden worden ernaast weggeschreven."
+
+msgid "Converter"
+msgstr "Converter"
+
+msgid "Accepts"
+msgstr "Accepteert"
+
+msgid "Engine"
+msgstr "Engine"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Save changes"
+msgstr "Wijzigingen opslaan"
+
+msgid "Enable"
+msgstr "Inschakelen"
+
+msgid "On"
+msgstr "Aan"
+
+msgid "Off"
+msgstr "Uit"
+
+msgid "Disabled"
+msgstr "Uitgeschakeld"
+
+msgid "Locked"
+msgstr "Vergrendeld"
+
+msgid "Close"
+msgstr "Sluiten"
+
+msgid "Back"
+msgstr "Terug"
+
+msgid "Next"
+msgstr "Volgende"
+
+msgid "Show guide"
+msgstr "Gids tonen"
+
+msgid "Signed, console-granted power features for this site."
+msgstr "Ondertekende, via de console verleende krachtige functies voor deze site."
+
+msgid "Feature categories"
+msgstr "Functiecategorieën"
+
+msgid "Jump to a feature"
+msgstr "Naar een functie springen"
+
+msgid "Link posture"
+msgstr "Koppelingsstatus"
+
+msgid "%1$d of %2$d active"
+msgstr "%1$d van %2$d actief"
+
+msgid "You do not have permission to view this page."
+msgstr "Je hebt geen toestemming om deze pagina te bekijken."
+
+msgid "You do not have permission to run this action."
+msgstr "Je hebt geen toestemming om deze actie uit te voeren."
+
+msgid "Welcome"
+msgstr "Welkom"
+
+msgid "Next steps"
+msgstr "Volgende stappen"
+
+msgid "That’s the tour"
+msgstr "Dat was de rondleiding"
+
+msgid "Step {n} of {t}"
+msgstr "Stap {n} van {t}"
+
+msgid "InfraWeaver Plus is a suite of console-granted power features for this site — speed, media, SEO, analytics, privacy and system tools, all managed from one place."
+msgstr "InfraWeaver Plus is een suite van via de console verleende krachtige functies voor deze site — snelheid, media, SEO, analyse, privacy en systeemtools, allemaal vanaf één plek beheerd."
+
+msgid "This quick tour explains what each group of features does. It only pops up once — reopen it any time with “Show guide”."
+msgstr "Deze korte rondleiding legt uit wat elke groep functies doet. Hij verschijnt maar één keer — open hem altijd opnieuw met “Gids tonen”."
+
+msgid "Every feature has its own page. Open a category, then flip a feature on with its switch — anything your plan includes turns on right away."
+msgstr "Elke functie heeft zijn eigen pagina. Open een categorie en zet een functie aan met de schakelaar — alles wat in je abonnement zit, wordt meteen ingeschakeld."
+
