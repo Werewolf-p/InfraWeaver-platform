@@ -99,6 +99,7 @@ export const TIERS: Readonly<Record<TierId, TierDefinition>> = {
       "speed_pack",
       "media_protection",
       "response_scan",
+      "elementor_blocks",
     ],
   },
   care_ultimate: {
@@ -132,6 +133,7 @@ export const TIERS: Readonly<Record<TierId, TierDefinition>> = {
       "seo_suite",
       "media_protection",
       "response_scan",
+      "elementor_blocks",
     ],
   },
 };

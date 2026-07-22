@@ -45,6 +45,7 @@ export const ENTITLEMENT_FLAGS = [
   "seo_suite",
   "media_protection",
   "response_scan",
+  "elementor_blocks",
 ] as const;
 export type EntitlementFlag = (typeof ENTITLEMENT_FLAGS)[number];
 
@@ -205,6 +206,12 @@ export const ENTITLEMENT_FLAG_META: Readonly<Record<EntitlementFlag, Entitlement
     label: "Response time scanner",
     description:
       "Times the full round-trip to load the site's own public pages (connection + server + download) via a loopback probe, and snapshots the results so speed can be compared before and after a settings change.",
+  },
+  elementor_blocks: {
+    flag: "elementor_blocks",
+    label: "Elementor blocks",
+    description:
+      "Adds a set of InfraWeaver widgets to the Elementor page builder — a call-to-action banner, a feature grid, a pricing table, and a notice/badge — grouped under their own \"InfraWeaver\" category. Registers nothing when Elementor is not installed.",
   },
 };
 
