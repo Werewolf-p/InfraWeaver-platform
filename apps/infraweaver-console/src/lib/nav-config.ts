@@ -4,8 +4,8 @@ import {
   Package, FileText, ShieldCheck, Server,
   Sparkles, Home, Trash2, GitBranch, ArrowUpCircle,
   Globe, BellOff, Shield, HeartPulse,
-  Calendar, Search, LayoutGrid, TestTube2, Puzzle, MemoryStick,
-  KeyRound, Lock, Boxes, MessageSquarePlus, ShieldAlert,
+  Search, LayoutGrid, TestTube2, Puzzle, MemoryStick,
+  KeyRound, Lock, Boxes, MessageSquarePlus,
   HandHelping, Inbox,
 } from "lucide-react";
 import { mergeRegisteredPages, navItemFromPage } from "@/lib/page-registry";
@@ -84,9 +84,6 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     items: [
       { href: "/workloads", icon: Server, label: "Workloads", shortcut: "G A", description: "Apps, dependency graph, game servers, WordPress, and routing in one tabbed hub — drill into each app's pods, storage, and firewall", pinnable: true, keywords: ["apps", "pods", "workloads", "applications", "argocd", "stop", "scale", "graph", "dependency", "game", "gameservers", "wordpress", "routing", "dns"] },
       { href: "/all-services", icon: Search, label: "All Services", description: "Searchable index of every console page and service", secondary: true },
-      { href: "/cronjobs", icon: Calendar, label: "CronJobs", description: "Scheduled Kubernetes cronjobs", secondary: true },
-      { href: "/scheduled-tasks", icon: Calendar, label: "Scheduled Tasks", description: "View and manage scheduled operations", secondary: true },
-      { href: "/deployment-compare", icon: GitBranch, label: "Deploy Compare", description: "Diff current vs previous deployment", secondary: true },
       { href: "/resource-optimizer", icon: Activity, label: "Optimizer", description: "Right-size CPU and memory requests", secondary: true },
       { href: "/node-top", icon: Activity, label: "Node Metrics", description: "Live node CPU and memory usage", secondary: true },
       { href: "/memory", icon: MemoryStick, label: "Memory Heatmap", description: "Namespace memory reservations and top consumers", secondary: true },
@@ -121,7 +118,6 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
       { href: "/registry", icon: Package, label: "Registry", shortcut: "G R", description: "Container image registry browser", keywords: ["images", "containers", "harbor"], secondary: true },
       { href: "/config", icon: Cog, label: "Config", shortcut: "G C", description: "Config editor, ConfigMaps, and drift vs Git", pinnable: true, keywords: ["configmap", "config maps", "drift", "git", "secrets editor"] },
       { href: "/secrets", icon: KeyRound, label: "Secrets & Certs", description: "Secret browser, expiry tracking, and TLS certificates", keywords: ["externalsecret", "credentials", "vault", "expiry", "rotation", "tls", "ssl", "cert-manager", "certificates"] },
-      { href: "/secret-health", icon: ShieldAlert, label: "Secret Health", description: "OpenBao token TTL countdown, ExternalSecret sync + Retain traps, catalog key coverage, and public-mirror status", keywords: ["secret health", "openbao", "vault", "token", "ttl", "expiry", "externalsecret", "eso", "retain", "deletionpolicy", "seed", "catalog", "coverage", "mirror", "sync-to-public", "gitops", "lifecycle", "remediation"], secondary: true },
     ],
   },
   {
@@ -168,7 +164,7 @@ export const NAV_GROUPS: NavGroup[] = mergeRegisteredPages([
     icon: Cog,
     defaultOpen: false,
     items: [
-      { href: "/gitops-diff", icon: GitBranch, label: "GitOps Diff", description: "ArgoCD app manifest diffs", secondary: true },
+      { href: "/gitops-diff", icon: GitBranch, label: "Compare", description: "Compare live-vs-git and deployment A-vs-B", secondary: true },
       { href: "/automations", icon: Sparkles, label: "Automation Hub", description: "Track self-healing jobs and workflow automations" },
       { href: "/pipelines", icon: GitBranch, label: "Pipelines", description: "CI/CD pipeline overview", secondary: true },
       { href: "/maintenance", icon: Settings, label: "Maintenance", description: "Drain, cordon, and node maintenance", secondary: true },
