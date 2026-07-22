@@ -4293,7 +4293,7 @@ JS;
 		echo '<label class="iwsl-cw__field"><span>' . esc_html__( 'Accent color', 'infraweaver-connector' ) . '</span>';
 		echo '<input type="text" name="accent" value="" placeholder="#2a6df0" pattern="#?[0-9A-Fa-f]{6}" autocomplete="off"></label>';
 		echo '<label class="iwsl-cw__field"><span>' . esc_html__( 'Banner shape', 'infraweaver-connector' ) . '</span>';
-		echo '<select name="banner_layout"><option value="bar">' . esc_html__( 'Bar across the bottom', 'infraweaver-connector' ) . '</option><option value="box">' . esc_html__( 'Floating box in a corner', 'infraweaver-connector' ) . '</option></select></label>';
+		echo '<select name="banner_layout"><option value="bar">' . esc_html__( 'Bar across the bottom', 'infraweaver-connector' ) . '</option><option value="box">' . esc_html__( 'Floating box in a corner', 'infraweaver-connector' ) . '</option><option value="center">' . esc_html__( 'Center popup (blurs the page)', 'infraweaver-connector' ) . '</option></select></label>';
 		echo '<label class="iwsl-cw__field"><span>' . esc_html__( 'Privacy-policy link', 'infraweaver-connector' ) . '</span>';
 		echo '<input type="url" name="policy_url" value="" placeholder="https://example.com/privacy" autocomplete="off"></label>';
 		echo '<label class="iwsl-cw__field"><span>' . esc_html__( 'Banner title', 'infraweaver-connector' ) . '</span>';

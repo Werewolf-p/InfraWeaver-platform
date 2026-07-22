@@ -483,7 +483,7 @@ final class IWSL_Cookie_Consent {
 	 * @return array<string,mixed>
 	 */
 	public function sanitize_settings( array $input ): array {
-		$layout = isset( $input['banner_layout'] ) && 'box' === $input['banner_layout'] ? 'box' : 'bar';
+		$layout = isset( $input['banner_layout'] ) && in_array( $input['banner_layout'], array( 'box', 'center' ), true ) ? (string) $input['banner_layout'] : 'bar';
 		$model  = isset( $input['default_model'] ) && IWSL_Consent_Classifier::valid_model( (string) $input['default_model'] )
 			? (string) $input['default_model'] : IWSL_Consent_Classifier::MODEL_OPT_IN;
 
@@ -657,7 +657,7 @@ final class IWSL_Cookie_Consent {
 	 */
 	private function banner_html( array $settings, string $model ): string {
 		$accent  = self::clean_color( (string) $settings['accent'] );
-		$layout  = 'box' === $settings['banner_layout'] ? 'box' : 'bar';
+		$layout  = in_array( $settings['banner_layout'], array( 'box', 'center' ), true ) ? (string) $settings['banner_layout'] : 'bar';
 		$title   = '' !== (string) $settings['title'] ? (string) $settings['title'] : 'We value your privacy';
 		$message = '' !== (string) $settings['message'] ? (string) $settings['message']
 			: 'We use cookies to enhance your experience, analyze traffic and for marketing. Choose which categories to allow. Necessary cookies are always on.';
@@ -673,8 +673,13 @@ final class IWSL_Cookie_Consent {
 		$h  = '<div id="iwsl-cc" class="iwsl-cc iwsl-cc-' . self::esc_attr_safe( $layout ) . '" data-model="' . self::esc_attr_safe( $model ) . '" hidden>';
 		$h .= '<style>' . $this->banner_css( $accent ) . '</style>';
 
+		// Full-viewport blurred scrim — only visible in the centered-popup layout while
+		// the banner is open (toggled by the runtime's iwsl-cc-open class on the root).
+		$h .= '<div class="iwsl-cc-scrim" aria-hidden="true"></div>';
+
 		// Banner.
 		$h .= '<div class="iwsl-cc-banner" role="dialog" aria-modal="false" aria-labelledby="iwsl-cc-title" aria-describedby="iwsl-cc-desc">';
+		$h .= '<button type="button" class="iwsl-cc-x iwsl-cc-banner-x" data-iwsl-action="dismiss" aria-label="Close">&times;</button>';
 		$h .= '<div class="iwsl-cc-copy">';
 		$h .= '<h2 id="iwsl-cc-title">' . self::esc_html_safe( $title ) . '</h2>';
 		$h .= '<p id="iwsl-cc-desc">' . nl2br( self::esc_html_safe( $message ) );
@@ -691,6 +696,7 @@ final class IWSL_Cookie_Consent {
 		// Preferences modal.
 		$h .= '<div class="iwsl-cc-modal" role="dialog" aria-modal="true" aria-labelledby="iwsl-cc-modal-title" hidden>';
 		$h .= '<div class="iwsl-cc-modal-card">';
+		$h .= '<button type="button" class="iwsl-cc-x iwsl-cc-modal-close" data-iwsl-action="close-modal" aria-label="Close preferences">&times;</button>';
 		$h .= '<h2 id="iwsl-cc-modal-title">Manage cookie preferences</h2>';
 		$h .= '<div class="iwsl-cc-cats">';
 		foreach ( $cat_labels as $key => $meta ) {
@@ -754,7 +760,25 @@ final class IWSL_Cookie_Consent {
 			. '.iwsl-cc-handle{position:fixed;z-index:2147483000;left:18px;bottom:18px;width:46px;height:46px;border-radius:50%;'
 			. 'border:1px solid rgba(255,255,255,.14);background:#0b0f14;color:#fff;font-size:20px;cursor:pointer;'
 			. 'box-shadow:0 10px 30px -10px rgba(0,0,0,.6)}'
+			// Close/dismiss "×" on the banner and the preferences modal.
+			. '.iwsl-cc-modal-card{position:relative}'
+			. '.iwsl-cc-x{position:absolute;top:12px;right:12px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;'
+			. 'background:transparent;border:0;border-radius:8px;font-size:22px;line-height:1;cursor:pointer;color:#a9b6c4}'
+			. '.iwsl-cc-x:hover{background:rgba(255,255,255,.10);color:#fff}'
+			. '.iwsl-cc-x:focus-visible{outline:2px solid var(--iwsl-cc-accent);outline-offset:2px}'
+			. '.iwsl-cc-banner{padding-right:46px}'
+			// Centered popup layout: a full-viewport blurred scrim behind a centered card.
+			. '.iwsl-cc-scrim{display:none}'
+			. '.iwsl-cc-center .iwsl-cc-scrim{position:fixed;inset:0;z-index:2147482999;background:rgba(4,7,11,.55);'
+			. 'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}'
+			. '.iwsl-cc-center.iwsl-cc-open .iwsl-cc-scrim{display:block}'
+			. '.iwsl-cc-center .iwsl-cc-banner{left:50%;right:auto;top:50%;bottom:auto;transform:translate(-50%,-50%);'
+			. 'width:calc(100% - 40px);max-width:480px;flex-direction:column;align-items:flex-start;'
+			. 'border:1px solid rgba(255,255,255,.12);border-radius:18px;box-shadow:0 30px 80px -20px rgba(0,0,0,.75)}'
+			. '@media (prefers-reduced-motion:reduce){.iwsl-cc-center .iwsl-cc-scrim{backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}}'
 			. '@media (prefers-color-scheme:light){.iwsl-cc-banner{background:#fff;color:#1b2431;border-top-color:rgba(0,0,0,.08)}'
+			. '.iwsl-cc-x{color:#516072}.iwsl-cc-x:hover{background:rgba(0,0,0,.06);color:#0b0f14}'
+			. '.iwsl-cc-center .iwsl-cc-scrim{background:rgba(0,0,0,.32)}.iwsl-cc-center .iwsl-cc-banner{border-color:rgba(0,0,0,.10)}'
 			. '.iwsl-cc-box .iwsl-cc-banner{border-color:rgba(0,0,0,.10)}.iwsl-cc h2{color:#0b0f14}.iwsl-cc p{color:#516072}'
 			. '.iwsl-cc-btn{background:rgba(0,0,0,.06);color:#1b2431}.iwsl-cc-btn:hover{background:rgba(0,0,0,.10)}'
 			. '.iwsl-cc-modal-card{background:#fff;color:#1b2431}.iwsl-cc-cat{border-color:rgba(0,0,0,.08)}'
@@ -794,8 +818,8 @@ final class IWSL_Cookie_Consent {
 			. 'functionality_storage:"granted",personalization_storage:g.preferences?"granted":"denied",security_storage:"granted"});}'
 			. 'function apply(cats){var g=granted(cats);ALL.forEach(function(c){if(g[c])unblock(c);});consentMode(g);}'
 			. 'function save(cats,method){apply(cats);write(cats,method);hide();if(handle)handle.hidden=false;}'
-			. 'function show(){root.hidden=false;if(banner)banner.style.display="";if(handle)handle.hidden=true;}'
-			. 'function hide(){if(modal)modal.hidden=true;if(banner)banner.style.display="none";}'
+			. 'function show(){root.hidden=false;root.classList.add("iwsl-cc-open");if(banner)banner.style.display="";if(handle)handle.hidden=true;}'
+			. 'function hide(){root.classList.remove("iwsl-cc-open");if(modal)modal.hidden=true;if(banner)banner.style.display="none";}'
 			. 'function openModal(){if(!modal)return;var st=read();var have=st&&st.c?st.c:defaults();'
 			. 'modal.querySelectorAll(".iwsl-cc-toggle").forEach(function(t){var c=t.getAttribute("data-cat");if(c!=="necessary")t.checked=have.indexOf(c)>-1;});'
 			. 'modal.hidden=false;root.hidden=false;var f=modal.querySelector(".iwsl-cc-toggle:not([disabled]),.iwsl-cc-btn");if(f)f.focus();}'
@@ -809,8 +833,10 @@ final class IWSL_Cookie_Consent {
 			. 'else if(a==="reject")save(["necessary"],"reject_all");'
 			. 'else if(a==="save")save(chosen(),"custom");'
 			. 'else if(a==="manage")openModal();'
-			. 'else if(a==="reopen"){show();openModal();}});'
-			. 'root.addEventListener("keydown",function(e){if(e.key==="Escape"&&modal&&!modal.hidden){modal.hidden=true;}'
+			. 'else if(a==="close-modal"){if(modal)modal.hidden=true;var mb=banner&&banner.querySelector(".iwsl-cc-manage");if(mb)mb.focus();}'
+			. 'else if(a==="dismiss"){hide();if(handle)handle.hidden=false;}'
+			. 'else if(a==="reopen"){show();}});'
+			. 'root.addEventListener("keydown",function(e){if(e.key==="Escape"){if(modal&&!modal.hidden){modal.hidden=true;var mb=banner&&banner.querySelector(".iwsl-cc-manage");if(mb)mb.focus();}else if(banner&&banner.style.display!=="none"){hide();if(handle)handle.hidden=false;}}'
 			. 'if(e.key==="Tab"&&modal&&!modal.hidden){var f=modal.querySelectorAll("button,input:not([disabled]),a[href]");if(!f.length)return;'
 			. 'var first=f[0],last=f[f.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}'
 			. 'else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}}});'
@@ -1055,7 +1081,7 @@ final class IWSL_Cookie_Consent {
 
 		return array(
 			'enabled'          => isset( $_POST['iwsl_cc_enabled'] ), // phpcs:ignore WordPress.Security.NonceVerification.Missing
-			'banner_layout'    => 'box' === $text( 'iwsl_cc_layout' ) ? 'box' : 'bar',
+			'banner_layout'    => in_array( $text( 'iwsl_cc_layout' ), array( 'box', 'center' ), true ) ? $text( 'iwsl_cc_layout' ) : 'bar',
 			'default_model'    => $text( 'iwsl_cc_model' ),
 			'consent_mode'     => isset( $_POST['iwsl_cc_consent_mode'] ), // phpcs:ignore WordPress.Security.NonceVerification.Missing
 			'respect_gpc'      => isset( $_POST['iwsl_cc_gpc'] ), // phpcs:ignore WordPress.Security.NonceVerification.Missing
@@ -1177,9 +1203,17 @@ final class IWSL_Cookie_Consent {
 		$this->row_checkbox( 'iwsl_cc_gpc', 'Global Privacy Control', 'Honor the Sec-GPC "do not sell/share" browser signal', ! empty( $s['respect_gpc'] ), 'Respects a browser’s built-in “do not sell my data” setting.' );
 		$this->row_checkbox( 'iwsl_cc_dnt', 'Do Not Track', 'Honor the legacy DNT browser signal', ! empty( $s['respect_dnt'] ), 'Respects a browser’s older “do not track me” request.' );
 
-		echo '<tr><th scope="row">' . self::esc_html_safe( 'Banner layout' ) . ' ' . iwsl_field_help( 'Show the notice as a full-width bar or a small corner box.' ) . '</th><td>';
-		echo '<select name="iwsl_cc_layout"><option value="bar"' . ( 'box' !== $s['banner_layout'] ? ' selected' : '' ) . '>Bar (full width)</option>'
-			. '<option value="box"' . ( 'box' === $s['banner_layout'] ? ' selected' : '' ) . '>Box (corner card)</option></select></td></tr>';
+		echo '<tr><th scope="row">' . self::esc_html_safe( 'Banner layout' ) . ' ' . iwsl_field_help( 'Full-width bar, a small corner box, or a centered popup that blurs the page.' ) . '</th><td>';
+		$layouts = array(
+			'bar'    => 'Bar (full width)',
+			'box'    => 'Box (corner card)',
+			'center' => 'Center popup (blur the page)',
+		);
+		echo '<select name="iwsl_cc_layout">';
+		foreach ( $layouts as $val => $label ) {
+			echo '<option value="' . self::esc_attr_safe( $val ) . '"' . ( (string) $s['banner_layout'] === $val ? ' selected' : '' ) . '>' . self::esc_html_safe( $label ) . '</option>';
+		}
+		echo '</select></td></tr>';
 
 		$this->row_text( 'iwsl_cc_title', 'Banner title', (string) $s['title'], 'We value your privacy', 'The heading shown at the top of the cookie notice.' );
 		echo '<tr><th scope="row"><label for="iwsl_cc_message">' . self::esc_html_safe( 'Banner message' ) . '</label> ' . iwsl_field_help( 'The message shown to visitors in the cookie notice.' ) . '</th><td>'

@@ -406,5 +406,23 @@ iwsl_assert_same( $xml_payload, $cc_p->filter_output( $xml_payload ), 'guard: XM
 $fragment = '<body><p>partial theme output</p></body>';
 iwsl_assert( false !== strpos( $cc_p->filter_output( $fragment ), 'iwsl-cc-banner' ), 'guard: a </body>-bearing page still gets the banner (fallback append)' );
 
+// ── 12. Centered-popup layout + a closable preferences modal (2026-07-22) ─────
+$cc_center = $cc->sanitize_settings( array( 'enabled' => '1', 'banner_layout' => 'center', 'categories' => array( 'statistics' => '1' ) ) );
+iwsl_assert_same( 'center', $cc_center['banner_layout'], 'layout: "center" accepted by sanitize' );
+iwsl_assert_same( 'bar', $cc->sanitize_settings( array( 'banner_layout' => 'wobble' ) )['banner_layout'], 'layout: unknown value falls back to bar' );
+
+$cc_page       = '<html><head></head><body></body></html>';
+$cc_center_out = $cc->transform( $cc_page, $cc_center );
+iwsl_assert( false !== strpos( $cc_center_out, 'iwsl-cc-center' ), 'center: root carries the iwsl-cc-center class' );
+iwsl_assert( false !== strpos( $cc_center_out, 'iwsl-cc-scrim' ), 'center: blurred full-viewport scrim rendered' );
+iwsl_assert( false !== strpos( $cc_center_out, 'backdrop-filter:blur' ), 'center: scrim uses backdrop blur' );
+
+$cc_bar_out = $cc->transform( $cc_page, $cc->sanitize_settings( array( 'enabled' => '1', 'banner_layout' => 'bar', 'categories' => array( 'statistics' => '1' ) ) ) );
+iwsl_assert( false !== strpos( $cc_bar_out, 'data-iwsl-action="close-modal"' ), 'modal: has a close (×) control' );
+iwsl_assert( false !== strpos( $cc_bar_out, 'data-iwsl-action="dismiss"' ), 'banner: has a dismiss (×) control' );
+iwsl_assert( false !== strpos( $cc_bar_out, 'reopen"){show();}' ), 'reopen: opens the simple banner, not the prefs modal' );
+iwsl_assert( false !== strpos( $cc_bar_out, 'close-modal"){' ), 'runtime: close-modal handler wired' );
+iwsl_assert( false !== strpos( $cc_bar_out, 'dismiss"){hide();' ), 'runtime: dismiss handler returns to the floating handle' );
+
 // cleanup: this suite installs no $GLOBALS — script-local temporaries only.
 unset( $store, $ent, $cc, $CC_NOW );
