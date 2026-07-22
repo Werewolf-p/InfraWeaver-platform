@@ -2618,6 +2618,89 @@ body:not(.admin-bar) .iwsl-tabnav{ top: 0; }
 @media screen and (max-width: 600px){
 	.iwsl-tabnav{ top: 0; }
 }
+
+/* ══ Phone-friendly layer — additive, mobile-only ═════════════════════════
+   Every rule below is scoped to .iwsl-shell AND to a max-width media query (or
+   to a wrapper class emitted only on this page), so the desktop layout above is
+   left untouched. Goal: fit a 360–390px viewport with NO horizontal page
+   scroll, comfortable spacing, and finger-friendly tap targets. */
+
+/* Reusable horizontal-scroll shell for wide data tables: a too-wide table
+   scrolls sideways WITHIN this box instead of pushing the whole page sideways.
+   No-op on desktop (the table already fits, so nothing scrolls). */
+.iwsl-shell .iwsl-tablewrap{
+	max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+	overscroll-behavior-x: contain;
+	scrollbar-width: thin; scrollbar-color: var(--iw-line-2) transparent;
+}
+.iwsl-shell .iwsl-tablewrap::-webkit-scrollbar{ height: 8px; }
+.iwsl-shell .iwsl-tablewrap::-webkit-scrollbar-thumb{ background: var(--iw-line-2); border-radius: 999px; }
+.iwsl-shell .iwsl-tablewrap::-webkit-scrollbar-track{ background: transparent; }
+/* Defensive: no table may exceed its column, and long cell tokens wrap rather
+   than stretching a row off-screen. */
+.iwsl-shell table{ max-width: 100%; }
+.iwsl-shell th, .iwsl-shell td{ word-break: break-word; }
+
+@media (max-width: 782px){
+	/* Neutralise fixed inline width caps (max-width:520/600/640/720/900px …) so
+	   tables, forms and result cards use the full narrow column and never force a
+	   box wider than the viewport. */
+	.iwsl-shell [style*="max-width"]{ max-width: 100% !important; }
+	/* Any multi-column grid collapses to one readable column. */
+	.iwsl-shell .iwsl-status,
+	.iwsl-shell .iwsl-cards,
+	.iwsl-shell .iwsl-grid,
+	.iwsl-shell [style*="grid-template-columns"]{ grid-template-columns: 1fr !important; }
+	/* Component + inline flex rows wrap instead of overflowing. */
+	.iwsl-shell .iwsl-primary,
+	.iwsl-shell .iwsl-row,
+	.iwsl-shell .iwsl-actions,
+	.iwsl-shell form p{ flex-wrap: wrap; }
+	/* Media & preformatted blocks stay inside the column. */
+	.iwsl-shell img,
+	.iwsl-shell svg,
+	.iwsl-shell canvas,
+	.iwsl-shell pre{ max-width: 100%; height: auto; }
+	.iwsl-shell pre{ overflow-x: auto; }
+	/* WP form-table: label stacks above field, no left indent. */
+	.iwsl-shell .form-table th,
+	.iwsl-shell .form-table td{ display: block; width: auto; padding-left: 0; }
+	/* Roomier tap targets. */
+	.iwsl-shell .button,
+	.iwsl-shell .button-primary,
+	.iwsl-shell .button-secondary,
+	.iwsl-shell .iwsl-switch,
+	.iwsl-shell .iwsl-jump__item{ min-height: 40px; }
+}
+
+@media (max-width: 600px){
+	/* Sticky jump rail scrolls sideways as one strip rather than wrapping into a
+	   tall multi-row block that eats the screen; items keep their size. */
+	.iwsl-shell .iwsl-jump{ flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+	.iwsl-shell .iwsl-jump::-webkit-scrollbar{ display: none; }
+	.iwsl-shell .iwsl-jump__item{ flex: 0 0 auto; }
+}
+
+@media (max-width: 480px){
+	/* Tighter shell padding so content isn't crammed against the edges. */
+	.iwsl-shell .iwsl-hero{ padding: 18px 14px; }
+	.iwsl-shell .iwsl-panels{ padding: 16px 12px 24px; }
+	/* Full-width form fields + buttons — the standard phone pattern. Excludes the
+	   inline toggle switch, jump pills and the tiny text-style delete link so they
+	   keep their natural inline size. */
+	.iwsl-shell input[type="text"],
+	.iwsl-shell input[type="email"],
+	.iwsl-shell input[type="url"],
+	.iwsl-shell input[type="number"],
+	.iwsl-shell input[type="password"],
+	.iwsl-shell select,
+	.iwsl-shell textarea{ width: 100%; box-sizing: border-box; }
+	.iwsl-shell .button:not(.button-link-delete),
+	.iwsl-shell .button-primary,
+	.iwsl-shell .button-secondary{ width: 100%; justify-content: center; }
+	/* Ad-hoc inline flex rows wrap so nothing overflows. */
+	.iwsl-shell [style*="display:flex"]{ flex-wrap: wrap !important; }
+}
 CSS;
 		echo "\n</style>\n";
 	}
@@ -2890,7 +2973,7 @@ JS;
 			),
 		);
 
-		echo '<table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
 		echo '<th>Gate</th><th>State</th><th>Detail</th></tr></thead><tbody>';
 		foreach ( $rows as $row ) {
 			$marker = $row['ok']
@@ -2898,7 +2981,7 @@ JS;
 				: '<span style="color:#b3261e;font-weight:600;">&#10008; blocked</span>';
 			echo '<tr><th scope="row">' . esc_html( $row['label'] ) . '</th><td>' . $marker . '</td><td>' . esc_html( $row['detail'] ) . '</td></tr>';
 		}
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 	}
 
 	private static function heartbeat_detail( array $gate ): string {
@@ -2971,7 +3054,7 @@ JS;
 	/** Engine capability table — one row per registered converter. */
 	private function render_capability_table(): void {
 		$caps = $this->optimizer()->capabilities();
-		echo '<table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
 		echo '<th>Converter</th><th>Accepts</th><th>Engine</th><th>Status</th></tr></thead><tbody>';
 		foreach ( $caps as $cap ) {
 			$avail  = is_array( $cap['availability'] ) ? $cap['availability'] : array();
@@ -2988,7 +3071,7 @@ JS;
 			echo '<td>' . $marker . '</td>';
 			echo '</tr>';
 		}
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 	}
 
 	/** The nonce-protected run form (POST → admin-post.php). */
@@ -3212,7 +3295,7 @@ JS;
 		}
 
 		if ( array() !== $items ) {
-			echo '<table class="widefat striped" style="max-width:640px;"><thead><tr><th>File</th><th>Result</th></tr></thead><tbody>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;"><thead><tr><th>File</th><th>Result</th></tr></thead><tbody>';
 			foreach ( array_slice( $items, 0, 60 ) as $item ) {
 				$basename = isset( $item['basename'] ) ? (string) $item['basename'] : '';
 				$outcome  = isset( $item['outcome'] ) ? (string) $item['outcome'] : '';
@@ -3230,7 +3313,7 @@ JS;
 				}
 				echo '<tr><td>' . esc_html( $basename ) . '</td><td>' . esc_html( $detail ) . '</td></tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 		self::toast_close();
 	}
@@ -3284,7 +3367,7 @@ JS;
 
 		$items = isset( $summary['items'] ) && is_array( $summary['items'] ) ? $summary['items'] : array();
 		if ( array() !== $items ) {
-			echo '<table class="widefat striped" style="max-width:640px;"><thead><tr><th>File</th><th>Result</th></tr></thead><tbody>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;"><thead><tr><th>File</th><th>Result</th></tr></thead><tbody>';
 			foreach ( array_slice( $items, 0, 60 ) as $item ) {
 				$basename = isset( $item['basename'] ) ? (string) $item['basename'] : '';
 				$outcome  = isset( $item['outcome'] ) ? (string) $item['outcome'] : '';
@@ -3293,7 +3376,7 @@ JS;
 					: $outcome;
 				echo '<tr><td>' . esc_html( $basename ) . '</td><td>' . esc_html( $detail ) . '</td></tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 		self::toast_close();
 	}
@@ -3782,7 +3865,7 @@ JS;
 		if ( array() === $log ) {
 			echo '<p>' . esc_html__( 'No email activity recorded yet.', 'infraweaver-connector' ) . '</p>';
 		} else {
-			echo '<table class="widefat striped" style="max-width:900px;"><thead><tr>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:900px;"><thead><tr>';
 			echo '<th>' . esc_html__( 'Time', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'To', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'Subject', 'infraweaver-connector' ) . '</th>';
@@ -3807,7 +3890,7 @@ JS;
 				echo '<td>' . esc_html( $detail ) . '</td>';
 				echo '</tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:12px;">';
@@ -4031,7 +4114,7 @@ JS;
 		if ( array() === $rules ) {
 			echo '<p>' . esc_html__( 'No redirects defined yet.', 'infraweaver-connector' ) . '</p>';
 		} else {
-			echo '<table class="widefat striped" style="max-width:900px;"><thead><tr>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:900px;"><thead><tr>';
 			echo '<th>' . esc_html__( 'Source', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'Target', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'Type', 'infraweaver-connector' ) . '</th>';
@@ -4061,7 +4144,7 @@ JS;
 				echo '</td>';
 				echo '</tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 
 		echo '<p class="description">' . esc_html( sprintf( '%d of %d rules used.', $count, IWSL_Redirects::MAX_RULES ) ) . '</p>';
@@ -4109,7 +4192,7 @@ JS;
 		if ( array() === $log ) {
 			echo '<p>' . esc_html__( 'No not-found paths recorded yet.', 'infraweaver-connector' ) . '</p>';
 		} else {
-			echo '<table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
 			echo '<th>' . esc_html__( 'Path', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'Count', 'infraweaver-connector' ) . '</th>';
 			echo '<th>' . esc_html__( 'Last seen', 'infraweaver-connector' ) . '</th>';
@@ -4125,7 +4208,7 @@ JS;
 				echo '<td>' . esc_html( $time ) . '</td>';
 				echo '</tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 
 		echo '<p class="description">' . esc_html( sprintf( 'Logs at most %d recent not-found paths.', IWSL_Redirects::MAX_404_LOG ) ) . '</p>';
@@ -4347,14 +4430,14 @@ JS;
 	/** Surface → WordPress-hooks capability table (one row per registered surface). */
 	private function render_white_label_capability_table(): void {
 		$caps = $this->white_label()->capabilities();
-		echo '<table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:720px;margin-top:12px;"><thead><tr>';
 		echo '<th>' . esc_html__( 'Surface', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'WordPress hooks', 'infraweaver-connector' ) . '</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $caps as $cap ) {
 			$hooks = implode( ', ', array_map( 'strval', (array) $cap['hooks'] ) );
 			echo '<tr><th scope="row">' . esc_html( (string) $cap['label'] ) . '</th><td><code>' . esc_html( $hooks ) . '</code></td></tr>';
 		}
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 	}
 
 	/** The nonce-protected white-label settings form (POST → admin-post.php). */
@@ -4501,7 +4584,7 @@ JS;
 		}
 
 		$cleaners = ( isset( $summary['cleaners'] ) && is_array( $summary['cleaners'] ) ) ? $summary['cleaners'] : array();
-		echo '<table class="widefat striped" style="max-width:640px;margin-top:8px;"><thead><tr>';
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;margin-top:8px;"><thead><tr>';
 		echo '<th>' . esc_html__( 'Cleaner', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Rows to clean', 'infraweaver-connector' ) . '</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $cleaners as $row ) {
@@ -4510,7 +4593,7 @@ JS;
 			echo '<tr><th scope="row">' . esc_html( $label ) . '</th><td>' . esc_html( (string) $count ) . '</td></tr>';
 		}
 		echo '<tr><th scope="row"><strong>' . esc_html__( 'Total', 'infraweaver-connector' ) . '</strong></th><td><strong>' . esc_html( (string) (int) ( $summary['total'] ?? 0 ) ) . '</strong></td></tr>';
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 	}
 
 	/** The Preview (re-scan) form + the confirmed Clean-now form (both nonce-protected). */
@@ -4581,13 +4664,13 @@ JS;
 
 		$cleaners = ( isset( $summary['cleaners'] ) && is_array( $summary['cleaners'] ) ) ? $summary['cleaners'] : array();
 		if ( array() !== $cleaners ) {
-			echo '<table class="widefat striped" style="max-width:600px;"><thead><tr><th>' . esc_html__( 'Cleaner', 'infraweaver-connector' ) . '</th><th>' . $col . '</th></tr></thead><tbody>';
+			echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:600px;"><thead><tr><th>' . esc_html__( 'Cleaner', 'infraweaver-connector' ) . '</th><th>' . $col . '</th></tr></thead><tbody>';
 			foreach ( $cleaners as $row ) {
 				$label = isset( $row['label'] ) ? (string) $row['label'] : '';
 				$value = ( 'run' === $mode ) ? (int) ( $row['deleted'] ?? 0 ) : (int) ( $row['count'] ?? 0 );
 				echo '<tr><td>' . esc_html( $label ) . '</td><td>' . esc_html( (string) $value ) . '</td></tr>';
 			}
-			echo '</tbody></table>';
+			echo '</tbody></table></div>';
 		}
 		self::toast_close();
 	}
@@ -4748,7 +4831,7 @@ JS;
 
 		// Diagnostic status + freshness (TTL) — secondary detail.
 		echo '<details class="iwsl-adv"><summary>' . esc_html__( 'Advanced settings', 'infraweaver-connector' ) . '</summary><div class="iwsl-adv__body">';
-		echo '<table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped" style="max-width:640px;margin-top:12px;"><thead><tr>';
 		echo '<th>' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th><th>' . esc_html__( 'Value', 'infraweaver-connector' ) . '</th></tr></thead><tbody>';
 		self::render_page_cache_status_row( esc_html__( 'Cache active', 'infraweaver-connector' ), $enabled );
 		self::render_page_cache_status_row( esc_html__( 'Drop-in installed', 'infraweaver-connector' ), ! empty( $status['dropin_present'] ) && ! empty( $status['dropin_is_ours'] ) );
@@ -4757,7 +4840,7 @@ JS;
 		echo '<tr><th scope="row">' . esc_html__( 'Cached pages', 'infraweaver-connector' ) . '</th><td>' . esc_html( (string) (int) $status['entries'] ) . '</td></tr>';
 		echo '<tr><th scope="row">' . esc_html__( 'Cache size', 'infraweaver-connector' ) . '</th><td>' . esc_html( self::format_bytes( (int) $status['total_bytes'] ) ) . '</td></tr>';
 		echo '<tr><th scope="row">' . esc_html__( 'Freshness (TTL)', 'infraweaver-connector' ) . '</th><td>' . esc_html( sprintf( '%d seconds', (int) $status['ttl'] ) ) . '</td></tr>';
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 		echo '<p class="description" style="margin-top:8px;">' . esc_html__( 'Only anonymous visitors are served cached pages; logged-in users and carts always bypass. Content changes purge the cache automatically.', 'infraweaver-connector' ) . '</p>';
 		echo '</div></details>';
 	}
@@ -5631,12 +5714,12 @@ JS;
 
 		echo '<div class="iwsl-toast__block">';
 		echo '<p class="iwsl-toast__sub" style="margin-top:0;"><strong>' . esc_html__( 'PHP limits — configured vs. effective', 'infraweaver-connector' ) . '</strong></p>';
-		echo '<table class="widefat striped"><thead><tr>'
+		echo '<div class="iwsl-tablewrap"><table class="widefat striped"><thead><tr>'
 			. '<th>' . esc_html__( 'Setting', 'infraweaver-connector' ) . '</th>'
 			. '<th>' . esc_html__( 'Configured', 'infraweaver-connector' ) . '</th>'
 			. '<th>' . esc_html__( 'Effective now', 'infraweaver-connector' ) . '</th>'
 			. '<th>' . esc_html__( 'Status', 'infraweaver-connector' ) . '</th>'
-			. '</tr></thead><tbody>' . $rows . '</tbody></table>';
+			. '</tr></thead><tbody>' . $rows . '</tbody></table></div>';
 		echo '<p class="iwsl-toast__sub" style="margin-bottom:0;">' . $note . '</p>';
 		echo '</div>';
 	}
