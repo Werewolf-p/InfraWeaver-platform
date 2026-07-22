@@ -175,6 +175,87 @@ final class IWSL_Admin {
 		return $map[ $id ] ?? null;
 	}
 
+	/** The tab/card id a FEATURE flag belongs to, or '' when the flag is unmapped. */
+	private static function tab_id_for_flag( string $flag ): string {
+		foreach ( self::feature_flag_map() as $id => $mapped ) {
+			if ( $mapped === $flag ) {
+				return (string) $id;
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * The category sub-page slug a feature/tab id lives on — e.g. 'cache'
+	 * (Performance) → 'infraweaver-plus-performance'. '' when the id is unknown or
+	 * its group carries no slug. Derived from the SAME tab/group maps that build the
+	 * sidebar sub-pages, so it can never drift from where the card actually renders.
+	 */
+	private static function feature_page_slug( string $feature_id ): string {
+		if ( '' === $feature_id ) {
+			return '';
+		}
+		$group = '';
+		foreach ( self::tab_defs() as $tab ) {
+			if ( isset( $tab['id'] ) && (string) $tab['id'] === $feature_id ) {
+				$group = isset( $tab['group'] ) ? (string) $tab['group'] : '';
+				break;
+			}
+		}
+		if ( '' === $group ) {
+			return '';
+		}
+		$meta = self::group_meta();
+		return isset( $meta[ $group ]['slug'] ) ? 'infraweaver-plus-' . (string) $meta[ $group ]['slug'] : '';
+	}
+
+	/** Build an absolute admin URL for one of this plugin's page slugs (test-harness-safe). */
+	private static function iwsl_plus_admin_url( string $page_slug ): string {
+		return function_exists( 'admin_url' )
+			? admin_url( 'admin.php?page=' . $page_slug )
+			: 'admin.php?page=' . $page_slug;
+	}
+
+	/**
+	 * The URL a save / run / toggle handler should send the operator BACK to after a
+	 * POST: the SAME InfraWeaver Plus sub-page the action came from — anchored to the
+	 * acting feature's card so the browser returns to the exact card — instead of
+	 * bouncing to the Overview dashboard.
+	 *
+	 * Resolved most-trusted first:
+	 *   1. The request referer, when it is one of THIS plugin's own admin pages
+	 *      (page= begins `infraweaver-plus`), via the shared {@see iwsl_plus_redirect_base()}.
+	 *   2. If that resolved to only the bare landing (referer missing/foreign) but we
+	 *      know which feature acted, the feature's own category sub-page.
+	 *   3. The bare landing, only when neither of the above resolves.
+	 * When a feature id is known, `#iwsl-card-<id>` is appended LAST; WordPress
+	 * add_query_arg() keeps a fragment at the tail, so a caller's result/locked query
+	 * flags still land ahead of it, and wp_safe_redirect() is fragment-safe.
+	 * Capability + nonce gating is untouched — this only computes a redirect target.
+	 *
+	 * @param string $feature_id Tab/card id the handler acted on ('' when unknown).
+	 */
+	public static function iwsl_plus_return_url( string $feature_id = '' ): string {
+		$base = function_exists( 'iwsl_plus_redirect_base' )
+			? iwsl_plus_redirect_base()
+			: self::iwsl_plus_admin_url( 'infraweaver-plus' );
+
+		$anchor = preg_replace( '/[^a-z0-9\-]/', '', $feature_id );
+		if ( ! is_string( $anchor ) || '' === $anchor ) {
+			return $base;
+		}
+
+		// Referer gave only the bare landing → upgrade to the feature's own page.
+		if ( $base === self::iwsl_plus_admin_url( 'infraweaver-plus' ) ) {
+			$slug = self::feature_page_slug( $anchor );
+			if ( '' !== $slug ) {
+				$base = self::iwsl_plus_admin_url( $slug );
+			}
+		}
+
+		return $base . '#iwsl-card-' . $anchor;
+	}
+
 	/**
 	 * Plain-English, one-line "what does this do" help per feature — no jargon,
 	 * for the "?" bubble on each card. Kept deliberately short and concrete.
@@ -668,11 +749,10 @@ final class IWSL_Admin {
 			set_transient( self::FEATURE_TOGGLE_RESULT . get_current_user_id(), $result, 60 );
 		}
 
-		$back = wp_get_referer();
-		if ( ! is_string( $back ) || '' === $back ) {
-			$back = admin_url( 'admin.php?page=infraweaver-plus' );
-		}
-		wp_safe_redirect( $back );
+		// Stay on the originating category sub-page and return to THIS feature's
+		// card ($feature is the FEATURE flag → map back to its tab/card id), instead
+		// of bouncing to the Overview dashboard.
+		wp_safe_redirect( self::iwsl_plus_return_url( self::tab_id_for_flag( $feature ) ) );
 		exit;
 	}
 
@@ -705,7 +785,7 @@ final class IWSL_Admin {
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( self::CONSENT_WIZARD_RESULT . get_current_user_id(), $result, 60 );
 		}
-		wp_safe_redirect( iwsl_plus_redirect_base() );
+		wp_safe_redirect( self::iwsl_plus_return_url( 'consent' ) );
 		exit;
 	}
 
@@ -1018,9 +1098,6 @@ final class IWSL_Admin {
 		switch ( $id ) {
 			case 'cdn':
 				$this->maybe_render_cdn_wizard( new IWSL_CDN_Rewrite( $ent, new IWSL_WP_Store() ) );
-				return;
-			case 'response-scan':
-				$this->maybe_render_response_scan_wizard( new IWSL_Response_Scan( $ent, new IWSL_WP_Store() ) );
 				return;
 			case 'seo':
 				$this->maybe_render_seo_wizard( new IWSL_SEO_Suite( $ent, new IWSL_WP_Store() ) );
@@ -1613,7 +1690,6 @@ JS;
 	private function render_feature_card( array $tab, array $unlocked ): void {
 		$id    = (string) $tab['id'];
 		$label = (string) $tab['label'];
-		$icon  = (string) $tab['icon'];
 		$flag  = self::feature_flag_for( $id );
 
 		$granted   = null === $flag ? true : ! empty( $unlocked[ $id ] );
@@ -1629,8 +1705,6 @@ JS;
 		echo '<section class="iwsl-card iwsl-card--' . esc_attr( $state ) . '" id="iwsl-card-' . esc_attr( $id ) . '" tabindex="-1">';
 
 		echo '<header class="iwsl-card__head">';
-		echo '<span class="iwsl-card__mark" aria-hidden="true"><span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span></span>';
-		echo '<div class="iwsl-card__id">';
 		echo '<div class="iwsl-card__titlerow">';
 		echo '<h2 class="iwsl-card__title">' . esc_html( $label ) . '</h2>';
 		$help = self::feature_help( $id );
@@ -1643,9 +1717,10 @@ JS;
 			echo '</span>';
 		}
 		echo '</div>';
-		echo '<span class="iwsl-card__state iwsl-card__state--' . esc_attr( $state ) . '">' . esc_html( $state_label[ $state ] ) . '</span>';
-		echo '</div>';
 
+		// The on/off control (the switch) sits DIRECTLY beside the feature name,
+		// grouped left — never pushed to the far right — so it reads as part of the
+		// feature. The state label follows it, keeping the head as one tidy group.
 		if ( null !== $flag ) {
 			echo '<div class="iwsl-card__control">';
 			if ( $granted ) {
@@ -1655,6 +1730,8 @@ JS;
 			}
 			echo '</div>';
 		}
+
+		echo '<span class="iwsl-card__state iwsl-card__state--' . esc_attr( $state ) . '">' . esc_html( $state_label[ $state ] ) . '</span>';
 		echo '</header>';
 
 		if ( 'on' === $state ) {
@@ -1739,7 +1816,7 @@ JS;
 
 .iwsl-shell .iwsl-cards{ display: flex; flex-direction: column; gap: 16px; }
 .iwsl-shell .iwsl-card{ border: 1px solid var(--iw-line); border-radius: var(--iw-r-sm, 12px); background: var(--iw-panel); overflow: visible; scroll-margin-top: 96px; }
-.iwsl-shell .iwsl-card__titlerow{ display: flex; align-items: center; gap: 7px; }
+.iwsl-shell .iwsl-card__titlerow{ display: flex; align-items: center; gap: 7px; min-width: 0; }
 .iwsl-shell .iwsl-help{ position: relative; display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--iw-line-2); background: var(--iw-panel-2); color: var(--iw-ink-2); cursor: help; flex: 0 0 auto; }
 .iwsl-shell .iwsl-help__q{ font-size: 11px; font-weight: 700; line-height: 1; }
 .iwsl-shell .iwsl-help--field{ width: 15px; height: 15px; margin-left: 5px; vertical-align: middle; }
@@ -1750,11 +1827,8 @@ JS;
 .iwsl-shell .iwsl-help:hover .iwsl-help__tip, .iwsl-shell .iwsl-help:focus-visible .iwsl-help__tip{ opacity: 1; visibility: visible; }
 .iwsl-shell .iwsl-card--off{ opacity: .92; }
 .iwsl-shell .iwsl-card--locked{ opacity: .7; }
-.iwsl-shell .iwsl-card__head{ display: flex; align-items: center; gap: 13px; padding: 15px 18px; border-bottom: 1px solid transparent; }
+.iwsl-shell .iwsl-card__head{ display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid transparent; }
 .iwsl-shell .iwsl-card--on .iwsl-card__head{ border-bottom-color: var(--iw-line); }
-.iwsl-shell .iwsl-card__mark{ display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: var(--iw-panel-2); border: 1px solid var(--iw-line-2); flex: 0 0 auto; }
-.iwsl-shell .iwsl-card__mark .dashicons{ font-size: 20px; width: 20px; height: 20px; color: var(--iw-ink); }
-.iwsl-shell .iwsl-card__id{ display: flex; flex-direction: column; gap: 3px; margin-right: auto; }
 .iwsl-shell .iwsl-card__title{ margin: 0; font-size: 16px; line-height: 1.1; color: var(--iw-ink); }
 .iwsl-shell .iwsl-card__state{ font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 .iwsl-shell .iwsl-card__state--on{ color: var(--iw-good); }
@@ -1795,10 +1869,10 @@ JS;
 .iwsl-shell details.iwsl-adv > .iwsl-adv__body{ padding: 6px 2px 4px; }
 @media (max-width: 782px){
 	.iwsl-shell .iwsl-jump{ top: 0; }
-	/* Keep the feature title and its on/off toggle on ONE tidy row instead of
-	   wrapping the toggle far below the name; the title shrinks/wraps in place. */
+	/* Keep the feature title, its on/off toggle and the state label on ONE tidy row
+	   instead of wrapping the toggle far below the name; the title group shrinks
+	   (titlerow min-width:0) and the title text wraps in place. */
 	.iwsl-shell .iwsl-card__head{ flex-wrap: nowrap; gap: 10px; padding: 13px 14px; }
-	.iwsl-shell .iwsl-card__id{ min-width: 0; }
 	.iwsl-shell .iwsl-card__title{ overflow-wrap: anywhere; }
 	.iwsl-shell .iwsl-card__body{ padding: 14px 14px 16px; }
 }
@@ -3449,7 +3523,7 @@ JS;
 		}
 		check_admin_referer( self::OPTIMIZE_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'images' );
 
 		// LAYER 2: re-check the gate before touching any file.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
@@ -3840,7 +3914,7 @@ JS;
 			wp_die( esc_html__( 'You do not have permission to run this action.', 'infraweaver-connector' ) );
 		}
 		check_admin_referer( self::EMAIL_TEST_NONCE );
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'email' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -3944,7 +4018,7 @@ JS;
 		}
 		check_admin_referer( self::EMAIL_SETTINGS_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'email' );
 
 		// LAYER 2: re-check the gate before touching any stored setting.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
@@ -3986,7 +4060,7 @@ JS;
 		}
 		check_admin_referer( self::EMAIL_LOG_CLEAR_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'email' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -4079,7 +4153,7 @@ JS;
 		}
 		check_admin_referer( self::REDIRECT_AUTO_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'redirects' );
 		$gate     = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
 			wp_safe_redirect( add_query_arg( 'iwsl_rd_locked', '1', $redirect ) );
@@ -4245,7 +4319,7 @@ JS;
 		}
 		check_admin_referer( self::REDIRECT_ADD_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'redirects' );
 
 		// LAYER 2: re-check the gate before touching any stored rule.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
@@ -4278,7 +4352,7 @@ JS;
 		}
 		check_admin_referer( self::REDIRECT_DELETE_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'redirects' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -4306,7 +4380,7 @@ JS;
 		}
 		check_admin_referer( self::REDIRECT_LOG_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'redirects' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -4521,7 +4595,7 @@ JS;
 		}
 		check_admin_referer( self::WHITE_LABEL_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'whitelabel' );
 
 		// LAYER 2: re-check the gate before touching any stored setting.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_White_Label::FEATURE );
@@ -4708,7 +4782,7 @@ JS;
 		}
 		check_admin_referer( self::DB_OPTIMIZE_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'database' );
 
 		// LAYER 2: re-check the gate before touching the database.
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_DB_Optimizer::FEATURE );
@@ -4884,7 +4958,7 @@ JS;
 		}
 		check_admin_referer( self::PAGE_CACHE_TOGGLE_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'cache' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -4929,7 +5003,7 @@ JS;
 		}
 		check_admin_referer( self::PAGE_CACHE_PURGE_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'cache' );
 
 		$gate = $this->plugin->entitlements()->evaluate( IWSL_Page_Cache::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
@@ -5757,7 +5831,7 @@ JS;
 		}
 		check_admin_referer( self::CONFIG_SAVE_NONCE );
 
-		$redirect = iwsl_plus_redirect_base();
+		$redirect = self::iwsl_plus_return_url( 'config' );
 
 		$input = array();
 		foreach ( IWSL_Config_Editor::allowlist() as $key => $spec ) {

@@ -206,6 +206,13 @@ iwsl_assert_same( 3, IWSL_Response_Scan::sanitize_runs( 3 ), 'sanitize_runs: in-
 iwsl_assert_same( 'before lossless', IWSL_Response_Scan::sanitize_label( "  before\tlossless\n " ), 'sanitize_label: control chars → space, trimmed' );
 iwsl_assert_same( IWSL_Response_Scan::LABEL_MAX_LEN, strlen( IWSL_Response_Scan::sanitize_label( str_repeat( 'a', 400 ) ) ), 'sanitize_label: capped at LABEL_MAX_LEN' );
 
+// ── 6b. sanitize_target(): all-pages marker vs a bounded candidate URL ─────────
+
+iwsl_assert_same( IWSL_Response_Scan::TARGET_ALL, IWSL_Response_Scan::sanitize_target( '*' ), 'sanitize_target: the all-pages marker is kept verbatim' );
+iwsl_assert_same( 'https://example.test/x', IWSL_Response_Scan::sanitize_target( "  https://example.test/x  " ), 'sanitize_target: surrounding whitespace trimmed' );
+iwsl_assert_same( 'https://example.test/y', IWSL_Response_Scan::sanitize_target( "https://example.test/\x00y" ), 'sanitize_target: control chars stripped from a candidate URL' );
+iwsl_assert_same( '', IWSL_Response_Scan::sanitize_target( '' ), 'sanitize_target: empty stays empty' );
+
 // ── 7. aggregate_runs(): median timing + status + verdict ──────────────────────
 
 $agg = IWSL_Response_Scan::aggregate_runs( 'https://example.test/', '/', 3, array( 100.0, 300.0, 200.0 ), array( 10, 12, 11 ), array( 200, 200, 200 ), 12345, 3, '' );
@@ -315,6 +322,10 @@ $settings = IWSL_Response_Scan::sanitize_settings( array( 'urls' => "a\nb", 'run
 iwsl_assert_same( IWSL_Response_Scan::RUNS_MAX, $settings['runs'], 'sanitize_settings: runs clamped' );
 iwsl_assert_same( true, $settings['include_sitemap'], 'sanitize_settings: sitemap flag coerced to bool' );
 iwsl_assert_same( "a\nb", $settings['urls'], 'sanitize_settings: URL textarea preserved' );
+iwsl_assert_same( '', $settings['target'], 'sanitize_settings: target defaults to empty when absent' );
+
+$settings_all = IWSL_Response_Scan::sanitize_settings( array( 'target' => IWSL_Response_Scan::TARGET_ALL ) );
+iwsl_assert_same( IWSL_Response_Scan::TARGET_ALL, $settings_all['target'], 'sanitize_settings: All-pages target preserved' );
 
 $state = IWSL_Response_Scan::normalize_state( 'garbage' );
 iwsl_assert_same( array(), $state['snapshots'], 'normalize_state: junk → empty snapshots' );
@@ -421,6 +432,44 @@ $GLOBALS['iwsl_rs_http']['https://example.test/wp-sitemap.xml'] = array(
 $result5 = $engine5->run( array( 'label' => 'sm', 'urls' => '', 'runs' => 1, 'include_sitemap' => true ) );
 iwsl_assert_same( true, $result5['ok'], 'run: sitemap scan succeeds' );
 iwsl_assert_same( array( 'https://example.test/', 'https://example.test/blog', 'https://example.test/news' ), $result5['targets'], 'run: same-host sitemap locs seeded, foreign dropped' );
+
+// ── 20b. run(): picker target selection (specific page / all pages) ────────────
+
+$sitemap8 = '<urlset>'
+	. '<url><loc>https://example.test/p0</loc></url><url><loc>https://example.test/p1</loc></url>'
+	. '<url><loc>https://example.test/p2</loc></url><url><loc>https://example.test/p3</loc></url>'
+	. '<url><loc>https://example.test/p4</loc></url><url><loc>https://example.test/p5</loc></url>'
+	. '<url><loc>https://example.test/p6</loc></url><url><loc>https://example.test/p7</loc></url>'
+	. '<url><loc>https://evil.com/leak</loc></url></urlset>';
+
+// A picked SPECIFIC page is scanned alongside the always-included home.
+$store_pick  = iwsl_rs_unlocked_store( $now );
+$engine_pick = iwsl_rs_engine( $store_pick, $now, iwsl_rs_clock( array( 0, 100, 1000, 1100 ) ) );
+$res_pick    = $engine_pick->run( array( 'label' => 'p', 'target' => 'https://example.test/about', 'runs' => 1 ) );
+iwsl_assert_same( array( 'https://example.test/', 'https://example.test/about' ), $res_pick['targets'], 'run: picked page is scanned alongside the always-included home' );
+iwsl_assert_same( 'https://example.test/about', $engine_pick->settings()['target'], 'run: picked target persisted for pre-selection' );
+
+// A FOREIGN picked target is dropped by the host guard — only home is scanned (no SSRF bypass).
+$store_evil  = iwsl_rs_unlocked_store( $now );
+$engine_evil = iwsl_rs_engine( $store_evil, $now, iwsl_rs_clock( array( 0, 60 ) ) );
+$res_evil    = $engine_evil->run( array( 'label' => 'e', 'target' => 'https://evil.com/x', 'runs' => 1 ) );
+iwsl_assert_same( array( 'https://example.test/' ), $res_evil['targets'], 'run: a foreign picked target is dropped — only home scanned' );
+
+// "All pages" forces the sitemap and fans out up to the full MAX_URLS cap (home + 8 same-host locs).
+$store_all  = iwsl_rs_unlocked_store( $now );
+$engine_all = iwsl_rs_engine( $store_all, $now, iwsl_rs_clock( array( 0, 50 ) ) );
+$GLOBALS['iwsl_rs_http']['https://example.test/wp-sitemap.xml'] = array( 'code' => 200, 'body' => $sitemap8, 'clh' => 0 );
+$res_all = $engine_all->run( array( 'label' => 'all', 'target' => IWSL_Response_Scan::TARGET_ALL, 'runs' => 1 ) );
+iwsl_assert_same( true, $res_all['ok'], 'run: All-pages scan succeeds' );
+iwsl_assert_same( 9, count( $res_all['targets'] ), 'run: All pages fans out over the sitemap up to MAX_URLS (home + 8 same-host locs)' );
+iwsl_assert_same( IWSL_Response_Scan::TARGET_ALL, $engine_all->settings()['target'], 'run: All-pages target persisted' );
+
+// The plain advanced sitemap opt-in (no "All pages") stays capped at the smaller SITEMAP_MAX seed count.
+$store_seed  = iwsl_rs_unlocked_store( $now );
+$engine_seed = iwsl_rs_engine( $store_seed, $now, iwsl_rs_clock( array( 0, 50 ) ) );
+$GLOBALS['iwsl_rs_http']['https://example.test/wp-sitemap.xml'] = array( 'code' => 200, 'body' => $sitemap8, 'clh' => 0 );
+$res_seed = $engine_seed->run( array( 'label' => 'seed', 'runs' => 1, 'include_sitemap' => true ) );
+iwsl_assert_same( 1 + IWSL_Response_Scan::SITEMAP_MAX, count( $res_seed['targets'] ), 'run: advanced sitemap opt-in stays capped at SITEMAP_MAX seeds (home + 5)' );
 
 // ── 21. register(): safe outside WordPress (no add_action) ─────────────────────
 

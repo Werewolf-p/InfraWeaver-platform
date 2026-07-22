@@ -91,6 +91,17 @@ final class IWSL_Response_Scan {
 	/** How many <loc> entries to lift from the sitemap when that option is on. */
 	const SITEMAP_MAX = 5;
 
+	/** Picker sentinel: scan the WHOLE site (fans out over the sitemap up to MAX_URLS). */
+	const TARGET_ALL = '*';
+
+	/** This engine's card anchor on the Plus admin page — where its handlers redirect back to. */
+	const CARD_ANCHOR = '#iwsl-card-response-scan';
+
+	/** Bounds for the page-picker dropdown only; the SCAN itself is always capped at MAX_URLS. */
+	const PICKER_MAX_PAGES = 50;
+	const PICKER_MAX_POSTS = 30;
+	const PICKER_MAX       = 80;
+
 	/** Colour thresholds for a single URL's median full response (milliseconds). */
 	const FAST_MS = 500;   // at/under → "fast"
 	const SLOW_MS = 1500;  // over → "slow"
@@ -172,7 +183,7 @@ final class IWSL_Response_Scan {
 	 * build_targets, capped at MAX_URLS. Each target is probed `runs` times and the
 	 * median kept. The last-used settings are persisted so the form remembers them.
 	 *
-	 * @param array<string,mixed> $input { label?:string, urls?:string, runs?:int, include_sitemap?:bool }
+	 * @param array<string,mixed> $input { label?:string, urls?:string, runs?:int, include_sitemap?:bool, target?:string }
 	 * @return array{ ok:bool, reason?:string, gate?:array, snapshot?:array, targets?:string[] }
 	 */
 	public function run( array $input ): array {
@@ -184,23 +195,37 @@ final class IWSL_Response_Scan {
 			return array( 'ok' => false, 'reason' => 'no-home-url' );
 		}
 
-		$label           = self::sanitize_label( isset( $input['label'] ) ? (string) $input['label'] : '' );
-		$runs            = self::sanitize_runs( isset( $input['runs'] ) ? (int) $input['runs'] : self::RUNS_DEFAULT );
-		$extra           = isset( $input['urls'] ) ? $input['urls'] : '';
-		$include_sitemap = ! empty( $input['include_sitemap'] );
+		$label    = self::sanitize_label( isset( $input['label'] ) ? (string) $input['label'] : '' );
+		$runs     = self::sanitize_runs( isset( $input['runs'] ) ? (int) $input['runs'] : self::RUNS_DEFAULT );
+		$extra    = isset( $input['urls'] ) && is_string( $input['urls'] ) ? $input['urls'] : '';
+		$target   = self::sanitize_target( isset( $input['target'] ) && is_string( $input['target'] ) ? $input['target'] : '' );
+		$scan_all = ( self::TARGET_ALL === $target );
+		// The sitemap seeds the targets when the operator ticks the advanced box OR
+		// chooses "All pages" from the picker.
+		$include_sitemap = ! empty( $input['include_sitemap'] ) || $scan_all;
 
-		// Persist the settings so the next form render pre-fills what was used.
+		// Persist the settings so the next form render pre-fills what was used. The
+		// advanced sitemap checkbox is stored as it was ticked (NOT the value forced
+		// by "All pages"), so the picker and that checkbox stay independent controls.
 		$state             = $this->state();
 		$state['settings'] = self::sanitize_settings(
 			array(
-				'urls'            => is_string( $extra ) ? $extra : '',
+				'urls'            => $extra,
 				'runs'            => $runs,
-				'include_sitemap' => $include_sitemap,
+				'include_sitemap' => ! empty( $input['include_sitemap'] ),
+				'target'          => $target,
 			)
 		);
 
-		$sitemap_locs = $include_sitemap ? $this->fetch_sitemap_locs() : array();
-		$targets      = self::build_targets( $this->home_url, $extra, $sitemap_locs, $this->home_host, self::MAX_URLS );
+		// "All pages" fans out over the sitemap up to the full MAX_URLS cap; the plain
+		// advanced opt-in stays at the smaller SITEMAP_MAX seed count. A picked specific
+		// URL is prepended to the operator list so build_targets HOST-VERIFIES it exactly
+		// like any other candidate — a foreign or credentialled URL is dropped there, so
+		// the picker can never widen the strict loopback boundary.
+		$sitemap_cap  = $scan_all ? self::MAX_URLS : self::SITEMAP_MAX;
+		$sitemap_locs = $include_sitemap ? $this->fetch_sitemap_locs( $sitemap_cap ) : array();
+		$extra_urls   = ( ! $scan_all && '' !== $target ) ? $target . "\n" . $extra : $extra;
+		$targets      = self::build_targets( $this->home_url, $extra_urls, $sitemap_locs, $this->home_host, self::MAX_URLS );
 		if ( array() === $targets ) {
 			return array( 'ok' => false, 'reason' => 'no-targets' );
 		}
@@ -283,12 +308,13 @@ final class IWSL_Response_Scan {
 	}
 
 	/**
-	 * Fetch the site's own sitemap (loopback, host-verified) and lift the first few
+	 * Fetch the site's own sitemap (loopback, host-verified) and lift up to $max
 	 * <loc> entries. Non-fatal: anything but a 2xx/3xx XML body yields no seeds.
 	 *
+	 * @param int $max How many <loc> entries to lift (defaults to SITEMAP_MAX).
 	 * @return string[]
 	 */
-	private function fetch_sitemap_locs(): array {
+	private function fetch_sitemap_locs( int $max = self::SITEMAP_MAX ): array {
 		$url = self::join_url( $this->home_url, self::SITEMAP_PATH );
 		if ( ! self::same_host( $url, $this->home_host ) ) {
 			return array();
@@ -300,7 +326,7 @@ final class IWSL_Response_Scan {
 		if ( $code < 200 || $code >= 400 || '' === $body ) {
 			return array();
 		}
-		return self::parse_sitemap_locs( $body, self::SITEMAP_MAX );
+		return self::parse_sitemap_locs( $body, max( 1, $max ) );
 	}
 
 	// ── pure logic core (no WordPress, no I/O — unit-tested) ────────────────────
@@ -454,6 +480,26 @@ final class IWSL_Response_Scan {
 			$label = substr( $label, 0, self::LABEL_MAX_LEN );
 		}
 		return $label;
+	}
+
+	/**
+	 * Sanitize the picker's chosen target. The TARGET_ALL sentinel ("scan the whole
+	 * site") is kept verbatim; anything else is treated as a candidate URL — merely
+	 * control-stripped and length-bounded HERE, then HOST-VERIFIED downstream by
+	 * build_targets()/same_host(). This never widens the loopback boundary: a foreign,
+	 * non-http(s) or credentialled URL is dropped when the targets are built.
+	 */
+	public static function sanitize_target( string $raw ): string {
+		$raw = trim( $raw );
+		if ( self::TARGET_ALL === $raw ) {
+			return self::TARGET_ALL;
+		}
+		$raw = preg_replace( '/[\x00-\x1F\x7F]+/', '', $raw );
+		$raw = null === $raw ? '' : $raw;
+		if ( strlen( $raw ) > self::MAX_URLS_TEXT_LEN ) {
+			$raw = substr( $raw, 0, self::MAX_URLS_TEXT_LEN );
+		}
+		return $raw;
 	}
 
 	/**
@@ -687,10 +733,10 @@ final class IWSL_Response_Scan {
 	/**
 	 * Normalize a raw settings map into the canonical shape. Immutable. The URL list
 	 * is kept as a control-stripped, length-bounded textarea string; runs clamped;
-	 * the sitemap flag coerced.
+	 * the sitemap flag coerced; the picked target sanitized (pre-selection hint only).
 	 *
 	 * @param array<string,mixed> $input
-	 * @return array{ urls:string, runs:int, include_sitemap:bool }
+	 * @return array{ urls:string, runs:int, include_sitemap:bool, target:string }
 	 */
 	public static function sanitize_settings( array $input ): array {
 		$urls = $input['urls'] ?? '';
@@ -707,6 +753,7 @@ final class IWSL_Response_Scan {
 			'urls'            => self::clip_textarea( is_string( $urls ) ? $urls : '' ),
 			'runs'            => self::sanitize_runs( isset( $input['runs'] ) ? (int) $input['runs'] : self::RUNS_DEFAULT ),
 			'include_sitemap' => ! empty( $input['include_sitemap'] ),
+			'target'          => self::sanitize_target( isset( $input['target'] ) && is_string( $input['target'] ) ? $input['target'] : '' ),
 		);
 	}
 
@@ -768,11 +815,12 @@ final class IWSL_Response_Scan {
 		}
 		check_admin_referer( self::SCAN_NONCE );
 
-		$redirect = admin_url( 'admin.php?page=infraweaver-plus' );
+		// Stay on the Response Time Scanner card, NEVER the bare dashboard.
+		$redirect = self::plus_redirect();
 
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
-			wp_safe_redirect( add_query_arg( 'iwsl_response_scan_locked', '1', $redirect ) );
+			wp_safe_redirect( add_query_arg( 'iwsl_response_scan_locked', '1', $redirect ) . self::CARD_ANCHOR );
 			exit;
 		}
 
@@ -781,6 +829,7 @@ final class IWSL_Response_Scan {
 			'urls'            => isset( $_POST['iwsl_rs_urls'] ) ? sanitize_textarea_field( wp_unslash( $_POST['iwsl_rs_urls'] ) ) : '',
 			'runs'            => isset( $_POST['iwsl_rs_runs'] ) ? (int) $_POST['iwsl_rs_runs'] : self::RUNS_DEFAULT,
 			'include_sitemap' => isset( $_POST['iwsl_rs_include_sitemap'] ),
+			'target'          => isset( $_POST['iwsl_rs_target'] ) ? sanitize_text_field( wp_unslash( $_POST['iwsl_rs_target'] ) ) : '',
 		);
 
 		$result = $this->run( $input );
@@ -788,8 +837,24 @@ final class IWSL_Response_Scan {
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( self::RESULT_PREFIX . (int) get_current_user_id(), $result, 60 );
 		}
-		wp_safe_redirect( $redirect );
+		wp_safe_redirect( $redirect . self::CARD_ANCHOR );
 		exit;
+	}
+
+	/**
+	 * The redirect target for this engine's handlers: the operator's Plus admin
+	 * SUB-PAGE via the shared referer-validated base (iwsl_plus_redirect_base) —
+	 * never the bare dashboard. Callers append CARD_ANCHOR to land on this feature's
+	 * own card. Guarded so it degrades sanely if the helper/admin_url is unavailable.
+	 */
+	private static function plus_redirect(): string {
+		if ( function_exists( 'iwsl_plus_redirect_base' ) ) {
+			return iwsl_plus_redirect_base();
+		}
+		if ( function_exists( 'admin_url' ) ) {
+			return admin_url( 'admin.php?page=infraweaver-plus' );
+		}
+		return 'admin.php?page=infraweaver-plus';
 	}
 
 	/** Clear all stored snapshots (keeps settings). cap + nonce, then PRG. */
@@ -801,7 +866,7 @@ final class IWSL_Response_Scan {
 		$state              = $this->state();
 		$state['snapshots'] = array();
 		$this->store->set( self::OPTION_KEY, $state );
-		wp_safe_redirect( add_query_arg( 'iwsl_response_scan_cleared', '1', admin_url( 'admin.php?page=infraweaver-plus' ) ) );
+		wp_safe_redirect( add_query_arg( 'iwsl_response_scan_cleared', '1', self::plus_redirect() ) . self::CARD_ANCHOR );
 		exit;
 	}
 
@@ -852,10 +917,17 @@ final class IWSL_Response_Scan {
 		$this->render_history_controls( $count );
 	}
 
-	/** The scan form: label, URL list, runs, sitemap seed, and the Run button. */
+	/** The scan form: the page picker (one page, or all pages), snapshot label, runs, sitemap seed, and the Run button. */
 	private function render_run_form(): void {
 		$settings = $this->settings();
 		$action   = function_exists( 'admin_url' ) ? admin_url( 'admin-post.php' ) : '';
+		$options  = $this->collect_target_options();
+
+		// Pre-select the last-used target; default to the home page.
+		$selected = (string) ( $settings['target'] ?? '' );
+		if ( '' === $selected ) {
+			$selected = self::normalize_url( (string) $this->home_url );
+		}
 
 		echo '<form method="post" action="' . esc_url( $action ) . '" style="margin-top:12px;max-width:760px;">';
 		if ( function_exists( 'wp_nonce_field' ) ) {
@@ -864,11 +936,28 @@ final class IWSL_Response_Scan {
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::SCAN_ACTION ) . '">';
 
 		echo '<div class="iwsl-primary">';
+
+		echo '<span class="iwsl-primary__meta">';
+		echo '<label for="iwsl-rs-target" style="font-weight:600;">' . esc_html__( 'Which page to time', 'infraweaver-connector' ) . '</label> ';
+		echo '<select id="iwsl-rs-target" name="iwsl_rs_target" class="regular-text">';
+		echo '<option value="' . esc_attr( self::TARGET_ALL ) . '"' . ( self::TARGET_ALL === $selected ? ' selected' : '' ) . '>'
+			. esc_html__( 'All pages — scan the whole site', 'infraweaver-connector' ) . '</option>';
+		foreach ( $options as $opt ) {
+			$url   = (string) $opt['url'];
+			$title = (string) $opt['title'];
+			echo '<option value="' . esc_url( $url ) . '"' . ( $url === $selected ? ' selected' : '' ) . '>'
+				. esc_html( $title . ' — ' . $url ) . '</option>';
+		}
+		echo '</select>';
+		echo iwsl_field_help( 'Pick one page to time, or “All pages” to scan your whole site. Your home page is always included.' );
+		echo '</span>';
+
 		echo '<span class="iwsl-primary__meta">';
 		echo '<label for="iwsl-rs-label" style="font-weight:600;">' . esc_html__( 'Snapshot label', 'infraweaver-connector' ) . '</label> ';
 		echo '<input type="text" id="iwsl-rs-label" name="iwsl_rs_label" class="regular-text" maxlength="' . esc_attr( (string) self::LABEL_MAX_LEN ) . '" placeholder="' . esc_attr__( 'e.g. before lossless images', 'infraweaver-connector' ) . '">';
 		echo iwsl_field_help( 'A short name for this run so you can tell it apart from the next one when comparing.' );
 		echo '</span>';
+
 		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Run scan', 'infraweaver-connector' ) . '</button>';
 		echo '</div>';
 
@@ -876,7 +965,7 @@ final class IWSL_Response_Scan {
 
 		echo '<table class="form-table widefat" role="presentation"><tbody>';
 
-		echo '<tr><th scope="row"><label for="iwsl-rs-urls">' . esc_html__( 'Extra URLs', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Extra pages on THIS site to time, one full web address per line. Your home page is always included.' ) . '</th><td>';
+		echo '<tr><th scope="row"><label for="iwsl-rs-urls">' . esc_html__( 'Extra URLs', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'Extra pages on THIS site to time in addition to the one picked above, one full web address per line. Your home page is always included.' ) . '</th><td>';
 		echo '<textarea id="iwsl-rs-urls" name="iwsl_rs_urls" class="large-text code" rows="4" placeholder="' . esc_attr( rtrim( (string) $this->home_url, '/' ) . '/shop/&#10;' . rtrim( (string) $this->home_url, '/' ) . '/about/' ) . '">' . esc_textarea( (string) $settings['urls'] ) . '</textarea>';
 		echo '<p class="description">' . esc_html(
 			sprintf(
@@ -900,6 +989,85 @@ final class IWSL_Response_Scan {
 		echo '</div></details>';
 
 		echo '</form>';
+	}
+
+	/**
+	 * Build the page-picker option list: the home page first, then published pages,
+	 * then recent published posts (title + URL). Every candidate is HOST-FILTERED to
+	 * this site, deduped and bounded (PICKER_MAX). Guarded so it degrades to just the
+	 * home page when the WP query functions are unavailable. Presentation only — the
+	 * scan itself re-verifies every target in build_targets().
+	 *
+	 * @return array<int,array{url:string,title:string}>
+	 */
+	private function collect_target_options(): array {
+		$candidates = array();
+		if ( '' !== (string) $this->home_url ) {
+			$candidates[] = array( 'url' => (string) $this->home_url, 'title' => __( 'Home page', 'infraweaver-connector' ) );
+		}
+
+		if ( function_exists( 'get_pages' ) && function_exists( 'get_permalink' ) ) {
+			$pages = get_pages(
+				array(
+					'post_status' => 'publish',
+					'number'      => self::PICKER_MAX_PAGES,
+					'sort_column' => 'post_title',
+					'sort_order'  => 'ASC',
+				)
+			);
+			if ( is_array( $pages ) ) {
+				foreach ( $pages as $page ) {
+					$candidates[] = self::option_from_post( $page );
+				}
+			}
+		}
+
+		if ( class_exists( 'WP_Query' ) && function_exists( 'get_permalink' ) ) {
+			$query = new WP_Query(
+				array(
+					'post_type'           => 'post',
+					'post_status'         => 'publish',
+					'posts_per_page'      => self::PICKER_MAX_POSTS,
+					'orderby'             => 'date',
+					'order'               => 'DESC',
+					'no_found_rows'       => true,
+					'ignore_sticky_posts' => true,
+				)
+			);
+			if ( isset( $query->posts ) && is_array( $query->posts ) ) {
+				foreach ( $query->posts as $post ) {
+					$candidates[] = self::option_from_post( $post );
+				}
+			}
+		}
+
+		$seen = array();
+		$out  = array();
+		foreach ( $candidates as $opt ) {
+			$url = self::normalize_url( (string) ( $opt['url'] ?? '' ) );
+			if ( '' === $url || ! self::same_host( $url, $this->home_host ) || isset( $seen[ $url ] ) ) {
+				continue;
+			}
+			$seen[ $url ] = true;
+			$title        = trim( (string) ( $opt['title'] ?? '' ) );
+			$out[]        = array( 'url' => $url, 'title' => '' !== $title ? $title : $url );
+			if ( count( $out ) >= self::PICKER_MAX ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/** One picker option from a WP_Post-ish value: its permalink + title, defensively. */
+	private static function option_from_post( $post ): array {
+		$url   = get_permalink( $post );
+		$title = function_exists( 'get_the_title' )
+			? get_the_title( $post )
+			: ( is_object( $post ) && isset( $post->post_title ) ? (string) $post->post_title : '' );
+		return array(
+			'url'   => is_string( $url ) ? $url : '',
+			'title' => (string) $title,
+		);
 	}
 
 	/** The latest snapshot's per-URL table. Read-only; escapes everything. */

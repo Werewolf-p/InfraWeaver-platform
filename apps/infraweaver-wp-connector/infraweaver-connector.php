@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.11.7
+ * Version: 0.11.8
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.11.7' );
+define( 'IWSL_CONNECTOR_VERSION', '0.11.8' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -177,10 +177,15 @@ $iwsl_ent = iwsl_plugin()->entitlements();
 // Small helper: the PRG admin-post handler shared shape for settings-style saves
 // that expose an update_settings()/handler method. cap + nonce + gate, then run,
 // stash a per-user result transient, and redirect back to the Plus page.
-$iwsl_plus_redirect = static function (): string {
-	// Return to the SAME category sub-page the settings form was submitted from
-	// (via the request referer), so a save keeps the operator on their section
-	// instead of bouncing to the Overview dashboard. Falls back to the main page.
+$iwsl_plus_redirect = static function ( string $feature_id = '' ): string {
+	// Return to the SAME category sub-page the settings form was submitted from,
+	// anchored to the acting feature's card (see IWSL_Admin::iwsl_plus_return_url),
+	// so a save keeps the operator exactly where they were instead of bouncing to
+	// the Overview dashboard. Falls back to the shared referer-based base if the
+	// admin class is somehow unavailable on this request.
+	if ( class_exists( 'IWSL_Admin' ) && method_exists( 'IWSL_Admin', 'iwsl_plus_return_url' ) ) {
+		return IWSL_Admin::iwsl_plus_return_url( $feature_id );
+	}
 	return iwsl_plus_redirect_base();
 };
 
@@ -197,7 +202,7 @@ if ( $iwsl_switches->is_on( IWSL_Lazy_Load::FEATURE ) ) {
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( IWSL_Lazy_Load::RESULT_PREFIX . get_current_user_id(), $result, 60 );
 		}
-		wp_safe_redirect( $iwsl_plus_redirect() );
+		wp_safe_redirect( $iwsl_plus_redirect( 'lazy-load' ) );
 		exit;
 	} );
 }
@@ -217,7 +222,7 @@ if ( $iwsl_switches->is_on( IWSL_Media_Protection::FEATURE ) ) {
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( IWSL_Media_Protection::RESULT_PREFIX . get_current_user_id(), $result, 60 );
 		}
-		wp_safe_redirect( $iwsl_plus_redirect() );
+		wp_safe_redirect( $iwsl_plus_redirect( 'media-protect' ) );
 		exit;
 	} );
 }
@@ -245,7 +250,7 @@ if ( $iwsl_switches->is_on( IWSL_CDN_Rewrite::FEATURE ) ) {
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( IWSL_CDN_Rewrite::RESULT_PREFIX . get_current_user_id(), $result, 60 );
 		}
-		wp_safe_redirect( $iwsl_plus_redirect() );
+		wp_safe_redirect( $iwsl_plus_redirect( 'cdn' ) );
 		exit;
 	} );
 }
