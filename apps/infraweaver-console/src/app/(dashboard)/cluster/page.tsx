@@ -10,7 +10,7 @@ import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { CopyButton } from "@/components/ui/copy-button";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { DashboardPanel } from "@/components/ui/dashboard-panel";
 import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
@@ -814,8 +814,7 @@ export default function ClusterPage() {
   };
 
   return (
-    <div>
-      <PageHeader icon={Server} title="Cluster Nodes" subtitle="Node management and cluster overview" />
+    <PageScaffold icon={Server} title="Cluster Nodes" subtitle="Node management and cluster overview">
 
       {/* ── Agent status (connected + pending approval) ───────────────────── */}
       {agentData && (agentData.agents.length > 0 || agentData.pending.length > 0) && (
@@ -1402,6 +1401,6 @@ export default function ClusterPage() {
         confirmText={drainingNode ? "Draining..." : "Drain node"}
         danger
       />
-    </div>
+    </PageScaffold>
   );
 }

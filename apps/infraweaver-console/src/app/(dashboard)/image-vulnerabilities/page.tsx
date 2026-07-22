@@ -1,10 +1,8 @@
 "use client";
-import { motion } from "framer-motion";
 import { useMemo, useState } from "react";
 import { Package, ShieldAlert, ShieldCheck, Boxes } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PageHeader } from "@/components/ui/page-header";
-import { AsyncBoundary, FilterSelect, HelpTooltip, SearchInput, SortableHeader } from "@/components/ui";
+import { AsyncBoundary, FilterSelect, HelpTooltip, PageScaffold, SearchInput, SortableHeader } from "@/components/ui";
 import { useApiQuery } from "@/hooks/use-api-query";
 import type { PinStatus, SupplyChainFinding, SupplyChainSummary } from "@/lib/images/supply-chain";
 import type { ImageMatrixRow, ScanCoverage, VulnRollup } from "@/lib/images/vuln-rollup";
@@ -121,9 +119,7 @@ export default function ImageVulnerabilitiesPage() {
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={ShieldCheck} title="Image Supply Chain" description="Pin-status integrity and CVE exposure for every running image" />
-
+    <PageScaffold icon={ShieldCheck} title="Image Supply Chain" description="Pin-status integrity and CVE exposure for every running image">
       <AsyncBoundary
         isLoading={isLoading}
         isError={isError}
@@ -234,6 +230,6 @@ export default function ImageVulnerabilitiesPage() {
         )}
       </div>
       </AsyncBoundary>
-    </motion.div>
+    </PageScaffold>
   );
 }

@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Puzzle, Gamepad2, Network, ExternalLink } from "lucide-react";
 import { useAddons } from "@/hooks/use-addons";
 import { cn } from "@/lib/utils";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SkeletonCard } from "@/components/ui/skeleton";
@@ -43,25 +43,19 @@ export default function AddonsPage() {
     }
   };
 
-  if (!mounted) {
-    return (
-      <div className="space-y-4">
-        <PageHeader title="Addons" subtitle="Enable and disable platform features" icon={Puzzle} breadcrumb={[{ label: "Home", href: "/" }, { label: "Settings", href: "/settings" }, { label: "Addons" }]} />
+  return (
+    <PageScaffold
+      title="Addons"
+      subtitle="Enable and disable platform features and integrations"
+      icon={Puzzle}
+      breadcrumb={[{ label: "Home", href: "/" }, { label: "Settings", href: "/settings" }, { label: "Addons" }]}
+      loading={!mounted}
+      loadingFallback={
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[...Array(3)].map((_, index) => <SkeletonCard key={index} />)}
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Addons"
-        subtitle="Enable and disable platform features and integrations"
-        icon={Puzzle}
-        breadcrumb={[{ label: "Home", href: "/" }, { label: "Settings", href: "/settings" }, { label: "Addons" }]}
-      />
+      }
+    >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {addons.map((addon, index) => {
           const Icon = ICON_MAP[addon.icon] ?? Puzzle;
@@ -133,6 +127,6 @@ export default function AddonsPage() {
           );
         })}
       </div>
-    </div>
+    </PageScaffold>
   );
 }

@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, XCircle, Loader2, Gamepad2, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { fetchJson } from "@/lib/fetch-json";
 import { toast } from "@/lib/notify";
 import Link from "next/link";
@@ -67,9 +67,7 @@ export default function GameHubSetupPage() {
   }
 
   return (
-    <div className="max-w-lg mx-auto space-y-6">
-      <PageHeader title="Game Hub Setup" subtitle="Initialize Game Hub on your cluster" icon={Gamepad2} />
-
+    <PageScaffold title="Game Hub Setup" subtitle="Initialize Game Hub on your cluster" icon={Gamepad2}>
       <div className="rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1a1a1a] p-6 space-y-4">
         <h2 className="text-sm font-medium text-gray-900 dark:text-[#f2f2f2]">Prerequisites</h2>
         {isLoading ? (
@@ -135,6 +133,6 @@ export default function GameHubSetupPage() {
           </button>
         )}
       </div>
-    </div>
+    </PageScaffold>
   );
 }

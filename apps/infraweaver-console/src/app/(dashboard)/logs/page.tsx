@@ -7,7 +7,7 @@ import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "reac
 import { LogStreamViewer } from "@/components/logs/log-stream-viewer";
 import { PodSelectorTree } from "@/components/logs/pod-selector-tree";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { SingleClusterGuard } from "@/components/ui/single-cluster-guard";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
@@ -171,21 +171,21 @@ export default function LogsPage() {
 
   return (
     <SingleClusterGuard>
-    <div className="space-y-6">
-      <PageHeader
-        icon={FileText}
-        title="Pod Logs"
-        subtitle="Split-view pod selector with remembered filters and smart defaults"
-        actions={
-          <button
-            onClick={() => (isMobile ? setSelectorOpen(true) : setLeftCollapsed((current) => !current))}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
-          >
-            {isMobile ? <Rows3 className="h-4 w-4" /> : leftCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            {isMobile ? "Select pod" : leftCollapsed ? "Show selector" : "Hide selector"}
-          </button>
-        }
-      />
+    <PageScaffold
+      icon={FileText}
+      title="Pod Logs"
+      subtitle="Split-view pod selector with remembered filters and smart defaults"
+      actions={
+        <button
+          onClick={() => (isMobile ? setSelectorOpen(true) : setLeftCollapsed((current) => !current))}
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 transition hover:text-gray-900 dark:hover:text-white"
+        >
+          {isMobile ? <Rows3 className="h-4 w-4" /> : leftCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          {isMobile ? "Select pod" : leftCollapsed ? "Show selector" : "Hide selector"}
+        </button>
+      }
+      bodyClassName="space-y-6"
+    >
 
       <div className="flex items-center justify-between rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 px-4 py-3">
         <div>
@@ -266,7 +266,7 @@ export default function LogsPage() {
       </BottomSheet>
 
       {isLoading ? <div className="text-sm text-slate-500">Loading pods…</div> : null}
-    </div>
+    </PageScaffold>
     </SingleClusterGuard>
   );
 }

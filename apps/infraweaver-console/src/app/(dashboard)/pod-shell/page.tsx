@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "@/lib/notify";
 import { Loader2, Terminal } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { CopyButton } from "@/components/ui/copy-button";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -85,8 +85,8 @@ export default function PodShellPage() {
   const copyAllText = output.map((entry) => `$ ${entry.command}\n${entry.body}`).join("\n\n");
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={Terminal} title="Pod Shell" description="Run a preset, read-only diagnostic command inside a pod." />
+    <PageScaffold icon={Terminal} title="Pod Shell" description="Run a preset, read-only diagnostic command inside a pod.">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
@@ -150,6 +150,7 @@ export default function PodShellPage() {
           <div ref={scrollAnchorRef} />
         </div>
       </div>
-    </motion.div>
+      </motion.div>
+    </PageScaffold>
   );
 }

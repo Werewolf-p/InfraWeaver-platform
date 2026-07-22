@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, ArrowUpRight, BarChart2 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { FilterSelect } from "@/components/ui/filter-select";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { useApiQuery } from "@/hooks/use-api-query";
 
 interface Pod {
@@ -65,8 +65,8 @@ export default function LogAnalyticsPage() {
   const logsHref = `/logs?namespace=${encodeURIComponent(selectedNs)}&pod=${encodeURIComponent(selectedPod)}&container=${encodeURIComponent(selectedContainer)}`;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={BarChart2} title="Log Analytics" subtitle="Analyze log patterns and error distribution" />
+    <PageScaffold icon={BarChart2} title="Log Analytics" subtitle="Analyze log patterns and error distribution">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <div className="bg-slate-100 dark:bg-slate-900/60 border border-gray-200 dark:border-white/10 rounded-xl backdrop-blur-sm p-4 space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
@@ -178,6 +178,7 @@ export default function LogAnalyticsPage() {
           </div>
         </div>
       )}
-    </motion.div>
+      </motion.div>
+    </PageScaffold>
   );
 }

@@ -2,7 +2,7 @@
 import { motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { BellOff, BellRing, CalendarClock, History, Plus, Trash2 } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useConfirm } from "@/hooks/use-confirm";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -142,8 +142,8 @@ export default function AlertSilencePage() {
   if (isLoading) return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-16 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader icon={BellOff} title="Alert Silence" />
+    <PageScaffold icon={BellOff} title="Alert Silence">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2"><BellOff className="w-5 h-5 text-slate-500 dark:text-slate-400" />Alert Silencing</h2>
@@ -238,6 +238,7 @@ export default function AlertSilencePage() {
         })}
       </div>
       {confirmDialog}
-    </motion.div>
+      </motion.div>
+    </PageScaffold>
   );
 }

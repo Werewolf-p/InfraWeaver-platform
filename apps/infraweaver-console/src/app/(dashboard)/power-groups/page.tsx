@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Power, PowerOff, Trash2, Layers } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useRBAC } from "@/hooks/use-rbac";
 import { toast } from "@/lib/notify";
@@ -91,8 +91,7 @@ export default function PowerGroupsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <PageHeader icon={Layers} title="Power Groups" />
+    <PageScaffold icon={Layers} title="Power Groups" bodyClassName="space-y-6">
       <p className="text-sm text-muted-foreground">
         Group any apps — private or not — and stop or start them as one unit. Stop scales the
         group to zero and pauses ArgoCD sync so it stays off until you start it again. Data is kept.
@@ -166,6 +165,6 @@ export default function PowerGroupsPage() {
           );
         })}
       </section>
-    </div>
+    </PageScaffold>
   );
 }

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Activity, Cpu, MemoryStick, RefreshCw } from "lucide-react";
 import { DashboardPanel } from "@/components/ui/dashboard-panel";
 import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ToolbarSearchInput } from "@/components/ui/toolbar-search-input";
 import { useApiQuery } from "@/hooks/use-api-query";
@@ -131,8 +131,7 @@ export default function MemoryPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <PageHeader
+    <PageScaffold
         icon={MemoryStick}
         title="Memory Heatmap"
         description={`Namespace memory reservations and live top consumers${lastUpdatedAt ? ` · updated ${new Date(lastUpdatedAt).toLocaleTimeString()}` : ""}`}
@@ -146,7 +145,8 @@ export default function MemoryPage() {
             Refresh
           </button>
         )}
-      />
+        bodyClassName="space-y-6"
+      >
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <DashboardStatCard
@@ -319,6 +319,6 @@ export default function MemoryPage() {
           )}
         </DashboardPanel>
       </div>
-    </div>
+    </PageScaffold>
   );
 }

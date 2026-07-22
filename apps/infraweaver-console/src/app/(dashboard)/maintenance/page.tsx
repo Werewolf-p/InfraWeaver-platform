@@ -2,7 +2,7 @@
 import { motion } from "framer-motion";
 import { Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { useApiMutation, useApiQuery } from "@/hooks/use-api-query";
 import { useConfirm } from "@/hooks/use-confirm";
 import { useRBAC } from "@/hooks/use-rbac";
@@ -59,19 +59,19 @@ export default function MaintenancePage() {
   if (isLoading) return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader
-        icon={Wrench}
-        title="Maintenance"
-        subtitle="Toggle maintenance mode per application"
-        actions={
-          active > 0 ? (
-            <span className="px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-sm font-medium">
-              {active} app{active > 1 ? "s" : ""} in maintenance
-            </span>
-          ) : undefined
-        }
-      />
+    <PageScaffold
+      icon={Wrench}
+      title="Maintenance"
+      subtitle="Toggle maintenance mode per application"
+      actions={
+        active > 0 ? (
+          <span className="px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-sm font-medium">
+            {active} app{active > 1 ? "s" : ""} in maintenance
+          </span>
+        ) : undefined
+      }
+    >
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <div className="space-y-3">
         {entries.map(e => (
           <div key={e.id} className={cn("bg-slate-100 dark:bg-slate-900/60 border rounded-xl backdrop-blur-sm p-4 flex items-center justify-between", e.active ? "border-yellow-500/30" : "border-gray-200 dark:border-white/10")}>
@@ -96,6 +96,7 @@ export default function MaintenancePage() {
         {entries.length === 0 && <div className="py-12 text-center text-slate-500 text-sm">No apps configured</div>}
       </div>
       {confirmDialog}
-    </motion.div>
+      </motion.div>
+    </PageScaffold>
   );
 }

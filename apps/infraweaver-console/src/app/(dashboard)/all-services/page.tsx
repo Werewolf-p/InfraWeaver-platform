@@ -8,7 +8,7 @@ import { NAV_GROUPS, type NavItem } from "@/lib/nav-config";
 import { useAddons } from "@/hooks/use-addons";
 import { useFavorites } from "@/hooks/use-favorites";
 import { useRBAC } from "@/hooks/use-rbac";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { filterNavGroupsByAddons } from "@/lib/addons";
 import { filterNavGroupsByPermissions } from "@/lib/navigation-rbac";
 
@@ -44,8 +44,12 @@ export default function AllServicesPage() {
   const totalItems = visibleNavGroups.flatMap(g => g.items).length;
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-300 p-6 max-w-7xl mx-auto space-y-6">
-      <PageHeader icon={Grid3X3} title="All Services" />
+    <PageScaffold
+      icon={Grid3X3}
+      title="All Services"
+      className="animate-in fade-in-0 slide-in-from-bottom-4 duration-300 p-6 max-w-7xl mx-auto"
+      bodyClassName="space-y-6"
+    >
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 text-slate-500 text-xs mb-2">
@@ -101,7 +105,7 @@ export default function AllServicesPage() {
           <button onClick={() => setQuery("")} className="mt-2 text-xs text-indigo-400 hover:text-indigo-300">Clear search</button>
         </div>
       )}
-    </div>
+    </PageScaffold>
   );
 }
 

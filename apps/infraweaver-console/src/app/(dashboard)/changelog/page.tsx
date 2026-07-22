@@ -1,6 +1,6 @@
 "use client";
 import { Sparkles, FileText} from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 
 interface Release {
   version: string;
@@ -87,8 +87,7 @@ const typeLabel: Record<string, string> = {
 
 export default function ChangelogPage() {
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <PageHeader icon={FileText} title="Changelog" />
+    <PageScaffold icon={FileText} title="Changelog" className="max-w-3xl mx-auto px-4 py-8">
       <div className="flex items-center gap-3 mb-10">
         <Sparkles className="w-6 h-6 text-indigo-400" />
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">What&apos;s New</h1>
@@ -122,6 +121,6 @@ export default function ChangelogPage() {
           </div>
         ))}
       </div>
-    </div>
+    </PageScaffold>
   );
 }

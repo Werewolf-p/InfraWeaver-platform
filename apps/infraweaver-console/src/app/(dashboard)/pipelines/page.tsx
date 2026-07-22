@@ -8,7 +8,7 @@ import { useRBAC } from "@/hooks/use-rbac";
 import { cn, timeAgo } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import Link from "next/link";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 
 interface Workflow {
   id: number;
@@ -80,23 +80,22 @@ export default function PipelinesPage() {
   const runningCount = workflows.filter(w => w.lastRunStatus === "in_progress").length;
 
   return (
-    <div>
-      <PageHeader
-        icon={GitBranch}
-        title="Pipelines"
-        subtitle="GitHub Actions workflows for the InfraWeaver platform"
-        actions={
-          <>
-            <Link href="/cluster" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
-              ← Cluster
-            </Link>
-            <button onClick={() => { void refetch(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors active:scale-95">
-              <RefreshCw className="w-3.5 h-3.5" />
-              Refresh
-            </button>
-          </>
-        }
-      />
+    <PageScaffold
+      icon={GitBranch}
+      title="Pipelines"
+      subtitle="GitHub Actions workflows for the InfraWeaver platform"
+      actions={
+        <>
+          <Link href="/cluster" className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors">
+            ← Cluster
+          </Link>
+          <button onClick={() => { void refetch(); }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-sm text-slate-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors active:scale-95">
+            <RefreshCw className="w-3.5 h-3.5" />
+            Refresh
+          </button>
+        </>
+      }
+    >
 
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {[
@@ -174,6 +173,6 @@ export default function PipelinesPage() {
           confirmText="Trigger"
         />
       )}
-    </div>
+    </PageScaffold>
   );
 }

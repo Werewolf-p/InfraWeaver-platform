@@ -7,7 +7,7 @@ import Link from "next/link";
 import { ResponsiveContainer, Treemap, Tooltip as RechartsTooltip } from "recharts";
 import { LogStreamViewer } from "@/components/logs/log-stream-viewer";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { SectionTabs } from "@/components/ui/section-tabs";
 import { Skeleton, SkeletonCard, SkeletonTable } from "@/components/ui/skeleton";
@@ -206,13 +206,13 @@ export default function AppDetailPage() {
 
   return (
     <>
-      <div className="space-y-6">
-        <PageHeader
-          icon={Box}
-          title={name}
-          subtitle={`${app.spec?.destination?.namespace ?? "default"} · project ${app.spec?.project ?? "platform"}`}
-          breadcrumb={[{ label: "Apps", href: "/apps" }, { label: name }]}
-          actions={
+      <PageScaffold
+        icon={Box}
+        title={name}
+        subtitle={`${app.spec?.destination?.namespace ?? "default"} · project ${app.spec?.project ?? "platform"}`}
+        breadcrumb={[{ label: "Apps", href: "/apps" }, { label: name }]}
+        bodyClassName="space-y-6"
+        actions={
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={toStatusBadge(app.status?.health?.status)} />
               <StatusBadge status={toStatusBadge(app.status?.sync?.status)} />
@@ -244,8 +244,7 @@ export default function AppDetailPage() {
               </Link>
             </div>
           }
-        />
-
+      >
         {isProtectedApp ? (
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
             This application is protected infrastructure and cannot be removed from the console.
@@ -508,7 +507,7 @@ export default function AppDetailPage() {
             </div>
           </div>
         )}
-      </div>
+      </PageScaffold>
 
       <ConfirmDialog
         open={deleteConfirmOpen}

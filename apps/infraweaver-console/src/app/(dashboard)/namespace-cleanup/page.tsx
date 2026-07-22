@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { toast } from "@/lib/notify";
 import { Trash2 } from "lucide-react";
 import { DashboardStatCard } from "@/components/ui/dashboard-stat-card";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { SearchInput } from "@/components/ui/search-input";
 import { SortableHeader } from "@/components/ui/sortable-header";
 import { useApiQuery } from "@/hooks/use-api-query";
@@ -101,19 +101,18 @@ export default function NamespaceCleanupPage() {
   if (isLoading) return <div className="space-y-4">{[...Array(4)].map((_, i) => <div key={i} className="h-20 rounded-xl bg-gray-100 dark:bg-white/5 animate-pulse" />)}</div>;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <PageHeader
-        icon={Trash2}
-        title="Namespace Cleanup"
-        description="Identify namespaces with failed/stale pods"
-        actions={
-          <button onClick={handlePreview} disabled={loading || !canManageNamespaces} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-sm text-red-500 dark:text-red-300 hover:bg-red-500/30 transition-colors disabled:opacity-50">
-            <Trash2 className="w-4 h-4" />
-            {loading ? "Loading..." : "Preview Cleanup"}
-          </button>
-        }
-      />
-
+    <PageScaffold
+      icon={Trash2}
+      title="Namespace Cleanup"
+      description="Identify namespaces with failed/stale pods"
+      actions={
+        <button onClick={handlePreview} disabled={loading || !canManageNamespaces} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-sm text-red-500 dark:text-red-300 hover:bg-red-500/30 transition-colors disabled:opacity-50">
+          <Trash2 className="w-4 h-4" />
+          {loading ? "Loading..." : "Preview Cleanup"}
+        </button>
+      }
+    >
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-3">
         <DashboardStatCard label="Namespaces" value={stats.length} description="Namespaces with pods" />
         <DashboardStatCard label="Failed pods" value={totalFailed} tone={totalFailed > 0 ? "danger" : "success"} description="Across all namespaces" />
@@ -200,6 +199,7 @@ export default function NamespaceCleanupPage() {
           </table>
         </div>
       </div>
-    </motion.div>
+      </motion.div>
+    </PageScaffold>
   );
 }

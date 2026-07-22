@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { Search, X, Download, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Cpu} from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { useApiQuery } from "@/hooks/use-api-query";
 
 interface ContainerMetric {
@@ -134,8 +134,7 @@ export default function NodeTopPage() {
   const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : "—";
 
   return (
-    <div>
-      <PageHeader
+    <PageScaffold
         icon={Cpu}
         title="Node Metrics"
         subtitle={`Live pod CPU & memory from metrics-server · auto-refreshes every 10s · last: ${lastUpdated}`}
@@ -154,7 +153,7 @@ export default function NodeTopPage() {
             </button>
           </>
         }
-      />
+      >
 
       {!isLoading && rows.length > 0 && (
         <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -232,6 +231,6 @@ export default function NodeTopPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageScaffold>
   );
 }

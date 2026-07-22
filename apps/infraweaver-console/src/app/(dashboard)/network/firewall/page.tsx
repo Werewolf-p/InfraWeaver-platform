@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import { ShieldCheck, RefreshCw, ShieldOff, Lock } from "lucide-react";
-import { PageHeader } from "@/components/ui";
+import { PageScaffold } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { podKey } from "./types";
 import { useFirewall } from "./use-firewall";
@@ -21,13 +21,12 @@ export default function FirewallPage() {
   const showSealed = fw.dataplaneLive && fw.pods.length === 0 && !fw.loading;
 
   return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6">
-      <PageHeader
-        icon={ShieldCheck}
-        title="Pod security"
-        description="Every pod is sealed by default. Watch what the airgap blocks, open a path in one click, re-seal it whenever."
-        badge={`${fw.windowMinutes}m window`}
-        actions={
+    <PageScaffold
+      icon={ShieldCheck}
+      title="Pod security"
+      description="Every pod is sealed by default. Watch what the airgap blocks, open a path in one click, re-seal it whenever."
+      badge={`${fw.windowMinutes}m window`}
+      actions={
           <div className="flex items-center gap-3">
             <label
               className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 dark:text-[#aaa]"
@@ -62,9 +61,8 @@ export default function FirewallPage() {
               Refresh
             </button>
           </div>
-        }
-      />
-
+      }
+    >
       <div className="space-y-4">
         <PostureBanner dataplaneLive={fw.dataplaneLive} stats={fw.stats} dropHistory={fw.dropHistory} />
 
@@ -133,6 +131,6 @@ export default function FirewallPage() {
           </LayoutGroup>
         )}
       </div>
-    </div>
+    </PageScaffold>
   );
 }

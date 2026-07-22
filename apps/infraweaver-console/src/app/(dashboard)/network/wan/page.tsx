@@ -7,7 +7,7 @@ import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CopyButton } from "@/components/ui/copy-button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/ui/page-header";
+import { PageScaffold } from "@/components/ui/page-scaffold";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { cn, timeAgo } from "@/lib/utils";
@@ -133,16 +133,15 @@ export default function WanFirewallPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        icon={Shield}
-        title="WAN Firewall"
-        subtitle="Every UDM port-forward rule — WAN ports opened through the gateway to internal services."
-        actions={
-          <AutoRefreshControl interval={refreshInterval} onChange={setRefreshInterval} onRefreshNow={() => void refresh()} />
-        }
-      />
-
+    <PageScaffold
+      icon={Shield}
+      title="WAN Firewall"
+      subtitle="Every UDM port-forward rule — WAN ports opened through the gateway to internal services."
+      actions={
+        <AutoRefreshControl interval={refreshInterval} onChange={setRefreshInterval} onRefreshNow={() => void refresh()} />
+      }
+      bodyClassName="space-y-6"
+    >
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-slate-100 dark:bg-slate-900/60 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
@@ -305,6 +304,6 @@ export default function WanFirewallPage() {
         confirmText="Delete rule"
         danger
       />
-    </div>
+    </PageScaffold>
   );
 }
