@@ -1820,14 +1820,13 @@ JS;
 </style>';
 	}
 
-	/** The category sub-page header: back-crumb, group identity, live posture chips + tier badge. */
+	/** The category sub-page header: back-crumb, group identity, one compact connection pill + tier badge. */
 	private function render_group_hero( string $group, array $meta, string $tier, array $gate ): void {
-		$chips = array(
-			array( 'label' => 'Linked', 'ok' => ! empty( $gate['linked'] ) ),
-			array( 'label' => 'Heartbeat', 'ok' => ! empty( $gate['heartbeat_fresh'] ) ),
-			array( 'label' => 'Plus', 'ok' => ! empty( $gate['plus'] ) ),
-		);
-		$home = admin_url( 'admin.php?page=infraweaver-plus' );
+		// Category pages don't repeat the full Linked/Heartbeat/Plus gate table (that
+		// lives on the landing). Here the posture collapses to ONE compact pill —
+		// linked + fresh heartbeat = "Connected" — beside the plan tier badge.
+		$connected = ! empty( $gate['linked'] ) && ! empty( $gate['heartbeat_fresh'] );
+		$home      = admin_url( 'admin.php?page=infraweaver-plus' );
 
 		echo '<header class="iwsl-hero iwsl-hero--group">';
 		echo '<div class="iwsl-hero__glow" aria-hidden="true"></div>';
@@ -1842,14 +1841,12 @@ JS;
 
 		echo '<div class="iwsl-hero__posture" role="group" aria-label="' . esc_attr__( 'Link posture', 'infraweaver-connector' ) . '">';
 		self::render_tier_badge( $tier );
-		foreach ( $chips as $chip ) {
-			$cls = $chip['ok'] ? 'is-ok' : 'is-off';
-			echo '<span class="iwsl-chip ' . esc_attr( $cls ) . '">';
-			echo '<span class="iwsl-chip__dot" aria-hidden="true"></span>';
-			echo esc_html( $chip['label'] );
-			echo '<span class="screen-reader-text">: ' . ( $chip['ok'] ? esc_html__( 'active', 'infraweaver-connector' ) : esc_html__( 'inactive', 'infraweaver-connector' ) ) . '</span>';
-			echo '</span>';
-		}
+		$pill_cls = $connected ? 'is-ok' : 'is-off';
+		echo '<span class="iwsl-chip ' . esc_attr( $pill_cls ) . '">';
+		echo '<span class="iwsl-chip__dot" aria-hidden="true"></span>';
+		echo esc_html( $connected ? __( 'Connected', 'infraweaver-connector' ) : __( 'Not connected', 'infraweaver-connector' ) );
+		echo '<span class="screen-reader-text">: ' . ( $connected ? esc_html__( 'this site is linked with a fresh signed heartbeat', 'infraweaver-connector' ) : esc_html__( 'this site is not linked, or its heartbeat is stale — see the landing page for full detail', 'infraweaver-connector' ) ) . '</span>';
+		echo '</span>';
 		echo '</div>';
 		echo '</header>';
 	}
@@ -5383,7 +5380,13 @@ JS;
 		$php_file_bare = ( 'htaccess' === $php_mech ) ? '.htaccess' : '.user.ini';
 
 		echo '<hr style="margin:24px 0;">';
-		echo '<h2>' . esc_html__( 'Configuration', 'infraweaver-connector' ) . '</h2>';
+		echo '<h2>' . esc_html__( 'Configuration', 'infraweaver-connector' )
+			. ' <span class="iwsl-adv-badge" style="display:inline-block;margin-left:8px;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;vertical-align:middle;color:var(--iw-ink);border:1px solid color-mix(in oklch, var(--iw-warn) 55%, transparent);background:color-mix(in oklch, var(--iw-warn) 22%, transparent);">'
+			. esc_html__( 'Advanced', 'infraweaver-connector' ) . '</span></h2>';
+		echo '<p class="iwsl-adv-warn" style="display:flex;gap:7px;align-items:center;margin:6px 0 10px;font-size:13px;font-weight:600;color:var(--iw-ink);">'
+			. '<span class="dashicons dashicons-warning" aria-hidden="true" style="color:var(--iw-warn);font-size:17px;width:17px;height:17px;flex:0 0 auto;"></span>'
+			. esc_html__( 'Advanced — changing these can take your site offline. Only edit if you know what you\'re doing.', 'infraweaver-connector' )
+			. '</p>';
 		echo '<p>' . esc_html(
 			sprintf(
 				/* translators: %s: the per-directory PHP-limits file for the running server, e.g. ".htaccess (Apache mod_php)". */
