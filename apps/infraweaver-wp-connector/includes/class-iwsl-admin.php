@@ -2621,8 +2621,11 @@ body:not(.admin-bar) .iwsl-tabnav{ top: 0; }
 	.iwsl-cards{ grid-template-columns: 1fr; }
 	/* Compact category cards on phones: icon sits BESIDE the title (not above
 	   it, which left a big empty gap), and the blurb + feature chips flow full
-	   width beneath. Tighter padding, smaller icon — cleaner on a narrow screen. */
-	.iwsl-card{ display: grid; grid-template-columns: auto 1fr; column-gap: 13px; row-gap: 9px; align-items: center; padding: 16px 16px 15px; }
+	   width beneath. Tighter padding, smaller icon — cleaner on a narrow screen.
+	   Scoped to `a.iwsl-card` (the LANDING category nav-cards) so it never leaks
+	   onto feature `section.iwsl-card`s, which have their own head/body layout —
+	   the leak forced those into a 2-col grid that clipped the body off-screen. */
+	a.iwsl-card{ display: grid; grid-template-columns: auto 1fr; column-gap: 13px; row-gap: 9px; align-items: center; padding: 16px 16px 15px; }
 	.iwsl-card__icon{ width: 38px; height: 38px; }
 	.iwsl-card__icon .dashicons{ font-size: 21px; width: 21px; height: 21px; }
 	.iwsl-card__blurb, .iwsl-card__list{ grid-column: 1 / -1; }

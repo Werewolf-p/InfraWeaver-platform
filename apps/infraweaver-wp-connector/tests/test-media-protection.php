@@ -197,7 +197,13 @@ $store_on = new IWSL_Memory_Store();
 $mp_on    = new IWSL_Media_Protection( iwsl_mp_unlocked_entitlements( $MP_NOW ), $store_on );
 
 iwsl_assert_same( false, $mp_on->protected_seen(), 'unlocked: fresh request has seen no protected image' );
-iwsl_assert_same( '', $mp_on->footer_markup(), 'unlocked: zero-protected page emits NO footer assets' );
+// protect_all defaults ON → the footer now ships site-wide even before any
+// individually-marked image is rendered (the whole point of the new mode).
+$footer_all = $mp_on->footer_markup();
+iwsl_assert( false !== strpos( $footer_all, '<style' ), 'protect_all default: footer emitted with zero marked images' );
+iwsl_assert( false !== strpos( $footer_all, 'img{' ), 'protect_all default: global img rule present' );
+iwsl_assert( false !== strpos( $footer_all, '-webkit-touch-callout:none' ), 'protect_all default: iOS long-press deterrent present' );
+iwsl_assert( false !== strpos( $footer_all, 'MutationObserver' ), 'protect_all default: js observes late-added images' );
 
 $live = $mp_on->filter_the_content( $MP_CONTENT );
 iwsl_assert( false !== strpos( $live, 'iwsl-protected-wrap' ), 'unlocked + enabled: protected content image wrapped' );
@@ -222,6 +228,36 @@ iwsl_assert( false !== strpos( (string) $tagged['class'], 'iwsl-protected' ), 'a
 iwsl_assert_same( true, $mp_at->protected_seen(), 'attrs filter: page flagged for the footer' );
 iwsl_assert_same( array( 'src' => '/b.jpg' ), $mp_at->filter_attachment_image_attributes( array( 'src' => '/b.jpg' ), (object) array( 'ID' => 12 ) ), 'attrs filter: unprotected attachment untouched' );
 
+// ── 9b. protect_all OFF: the old scoped behaviour (footer only when marked) ────
+
+$store_pa_off = new IWSL_Memory_Store();
+$store_pa_off->set( IWSL_Media_Protection::OPTION_KEY, array( 'enabled' => true, 'protect_all' => false, 'global_deterrent' => false ) );
+$mp_pa_off = new IWSL_Media_Protection( iwsl_mp_unlocked_entitlements( $MP_NOW ), $store_pa_off );
+iwsl_assert_same( '', $mp_pa_off->footer_markup(), 'protect_all off: zero-protected page emits NO footer assets' );
+$mp_pa_off->filter_the_content( $MP_CONTENT );
+iwsl_assert( false !== strpos( $mp_pa_off->footer_markup(), '<style' ), 'protect_all off: footer emitted once a marked image renders' );
+iwsl_assert( false === strpos( $mp_pa_off->footer_markup(), 'img{' ), 'protect_all off: no site-wide img rule (markers only)' );
+
+// ── 9c. footer_css / footer_js: the protect_all global path (pure statics) ─────
+
+$css_scoped = IWSL_Media_Protection::footer_css();
+iwsl_assert( false !== strpos( $css_scoped, '.iwsl-protected{' ), 'footer_css(default): scoped marker rule present' );
+iwsl_assert( false === strpos( $css_scoped, 'img{' ), 'footer_css(default): no global img rule' );
+
+$css_all = IWSL_Media_Protection::footer_css( true );
+iwsl_assert( false !== strpos( $css_all, 'img{-webkit-user-drag:none' ), 'footer_css(protect_all): global img rule present' );
+iwsl_assert( false !== strpos( $css_all, '-webkit-touch-callout:none' ), 'footer_css(protect_all): iOS long-press "Save Image" menu suppressed' );
+
+$js_scoped = IWSL_Media_Protection::footer_js( false );
+iwsl_assert( false === strpos( $js_scoped, 'MutationObserver' ), 'footer_js(default): no global observer' );
+iwsl_assert( false === strpos( $js_scoped, 'img,' ), 'footer_js(default): selector stays scoped to markers' );
+
+$js_all = IWSL_Media_Protection::footer_js( false, true );
+iwsl_assert( false !== strpos( $js_all, 'img,' ), 'footer_js(protect_all): selector includes img' );
+iwsl_assert( false !== strpos( $js_all, 'draggable' ), 'footer_js(protect_all): sets draggable=false on images' );
+iwsl_assert( false !== strpos( $js_all, 'MutationObserver' ), 'footer_js(protect_all): observes late-added images' );
+iwsl_assert( false === strpos( $js_all, 'keydown' ), 'footer_js(protect_all, no global_deterrent): no keydown hook' );
+
 // ── 10. Unlocked but DISABLED: nothing happens anywhere ───────────────────────
 
 $store_off = new IWSL_Memory_Store();
@@ -233,19 +269,25 @@ iwsl_assert_same( '', $mp_off->footer_markup(), 'disabled: footer empty' );
 // ── 11. sanitize_settings + defaults ──────────────────────────────────────────
 
 iwsl_assert_same(
-	array( 'enabled' => true, 'global_deterrent' => false ),
+	array( 'enabled' => true, 'protect_all' => false, 'global_deterrent' => false ),
 	IWSL_Media_Protection::sanitize_settings( array( 'enabled' => '1', 'rogue' => 'x' ) ),
 	'sanitize: checkbox semantics + unknown keys dropped'
 );
 iwsl_assert_same(
-	array( 'enabled' => false, 'global_deterrent' => false ),
+	array( 'enabled' => false, 'protect_all' => false, 'global_deterrent' => false ),
 	IWSL_Media_Protection::sanitize_settings( array() ),
-	'sanitize: empty input → both off'
+	'sanitize: empty input → all off'
+);
+iwsl_assert_same(
+	array( 'enabled' => true, 'protect_all' => true, 'global_deterrent' => true ),
+	IWSL_Media_Protection::sanitize_settings( array( 'enabled' => '1', 'protect_all' => '1', 'global_deterrent' => '1' ) ),
+	'sanitize: protect_all round-trips true when posted'
 );
 
 $mp_def = new IWSL_Media_Protection( iwsl_mp_unlocked_entitlements( $MP_NOW ), new IWSL_Memory_Store() );
 $def    = $mp_def->settings();
 iwsl_assert_same( true, $def['enabled'], 'defaults: enabled true out of the box' );
+iwsl_assert_same( true, $def['protect_all'], 'defaults: protect_all true out of the box (enable = protect all)' );
 iwsl_assert_same( false, $def['global_deterrent'], 'defaults: global deterrent off out of the box' );
 
 // ── 12. update_settings: gate + persistence ───────────────────────────────────

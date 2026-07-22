@@ -2,10 +2,12 @@
 /**
  * Engine behind the gated "Media Protection" feature (flag `media_protection`,
  * Pro tier). Makes it HARDER to casually copy images the owner EXPLICITLY marks
- * as protected — and touches nothing else. Protection is strictly per-attachment
- * opt-in: a checkbox in the Media Library modal / attachment edit screen stores
- * `_iwsl_protected` postmeta, and only attachments carrying that meta are ever
- * decorated. There is no "protect everything" mode, by design.
+ * as protected — and touches nothing else beyond images. Two modes cooperate:
+ * a site-wide "protect every image" deterrent (ON BY DEFAULT when the feature is
+ * enabled) that covers EVERY front-end `<img>` (including images rendered outside
+ * `the_content`, e.g. block themes), plus a granular per-attachment opt-in — a
+ * checkbox in the Media Library modal / attachment edit screen stores
+ * `_iwsl_protected` postmeta — that additionally overlay-wraps those images.
  *
  * WHAT IT ACTUALLY DOES. Protected images are tagged with the `iwsl-protected`
  * class (via `wp_get_attachment_image_attributes` and a `the_content` pass that
@@ -16,8 +18,9 @@
  * and — for content images — a transparent 1×1 GIF overlay stretched over the
  * picture, so a naive "Save image as…" / long-press grabs a blank pixel. The
  * inline CSS/JS is tiny, self-contained (no external asset) and emitted in the
- * footer ONLY when at least one protected image was actually rendered on the
- * page; a page with zero protected images is byte-identical to stock WP.
+ * footer whenever the feature is enabled and either "protect every image" is on
+ * or at least one marked image was rendered; otherwise the page is byte-identical
+ * to stock WP.
  *
  * HONESTY. This is a DETERRENT, not DRM. The pixels are on the visitor's screen;
  * a screenshot, devtools, or a direct file fetch still captures them. The admin
@@ -118,12 +121,12 @@ final class IWSL_Media_Protection {
 
 	/**
 	 * The validated settings, defaulted for a fresh site. `enabled` defaults true
-	 * so a marked image is protected the moment the flag is granted — safe,
-	 * because nothing happens until the owner explicitly marks an image. The
-	 * global keyboard deterrent (Ctrl/Cmd+S) defaults OFF: it is page-wide (if
-	 * still only on pages with a protected image) and stays strictly opt-in.
+	 * so protection is live the moment the flag is granted. `protect_all` also
+	 * defaults true: enabling the feature deters saving on EVERY front-end image,
+	 * which is what owners expect from "protect my images". The global keyboard
+	 * deterrent (Ctrl/Cmd+S) defaults OFF and stays strictly opt-in.
 	 *
-	 * @return array{ enabled:bool, global_deterrent:bool }
+	 * @return array{ enabled:bool, protect_all:bool, global_deterrent:bool }
 	 */
 	public function settings(): array {
 		$raw = $this->store->get( self::OPTION_KEY, array() );
@@ -132,6 +135,7 @@ final class IWSL_Media_Protection {
 		}
 		return array(
 			'enabled'          => array_key_exists( 'enabled', $raw ) ? (bool) $raw['enabled'] : true,
+			'protect_all'      => array_key_exists( 'protect_all', $raw ) ? (bool) $raw['protect_all'] : true,
 			'global_deterrent' => array_key_exists( 'global_deterrent', $raw ) ? (bool) $raw['global_deterrent'] : false,
 		);
 	}
@@ -140,12 +144,13 @@ final class IWSL_Media_Protection {
 	 * Pure settings sanitizer for the admin-post payload — checkbox semantics
 	 * (absent = false), unknown keys dropped, always a fresh immutable copy.
 	 *
-	 * @param array $input Raw request fields (enabled, global_deterrent).
-	 * @return array{ enabled:bool, global_deterrent:bool }
+	 * @param array $input Raw request fields (enabled, protect_all, global_deterrent).
+	 * @return array{ enabled:bool, protect_all:bool, global_deterrent:bool }
 	 */
 	public static function sanitize_settings( array $input ): array {
 		return array(
 			'enabled'          => ! empty( $input['enabled'] ),
+			'protect_all'      => ! empty( $input['protect_all'] ),
 			'global_deterrent' => ! empty( $input['global_deterrent'] ),
 		);
 	}
@@ -541,20 +546,22 @@ final class IWSL_Media_Protection {
 
 	/**
 	 * The complete footer output for this request: '' unless the gate is open,
-	 * the feature enabled AND at least one protected image was rendered on the
-	 * page. Otherwise the tiny self-contained inline style + script.
+	 * the feature enabled AND either "protect every image" is on or at least one
+	 * marked image was rendered on the page. Otherwise the tiny self-contained
+	 * inline style + script.
 	 */
 	public function footer_markup(): string {
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
 			return '';
 		}
-		$settings = $this->settings();
-		if ( empty( $settings['enabled'] ) || ! $this->protected_seen ) {
+		$settings    = $this->settings();
+		$protect_all = ! empty( $settings['protect_all'] );
+		if ( empty( $settings['enabled'] ) || ( ! $this->protected_seen && ! $protect_all ) ) {
 			return '';
 		}
-		return '<style id="iwsl-media-protection-css">' . self::footer_css() . '</style>'
-			. '<script id="iwsl-media-protection-js">' . self::footer_js( ! empty( $settings['global_deterrent'] ) ) . '</script>';
+		return '<style id="iwsl-media-protection-css">' . self::footer_css( $protect_all ) . '</style>'
+			. '<script id="iwsl-media-protection-js">' . self::footer_js( ! empty( $settings['global_deterrent'] ), $protect_all ) . '</script>';
 	}
 
 	/** `wp_footer` callback — echoes {@see footer_markup()} (already built safe). */
@@ -562,24 +569,50 @@ final class IWSL_Media_Protection {
 		echo $this->footer_markup(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- self-built inline asset, no user input.
 	}
 
-	/** Pure: the deterrent CSS, scoped entirely to the protected markers. */
-	public static function footer_css(): string {
-		return '.iwsl-protected{-webkit-user-drag:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}'
+	/**
+	 * Pure: the deterrent CSS. Always scoped to the protected markers; when
+	 * $protect_all, ALSO a site-wide `img` rule so every front-end image resists
+	 * drag / long-press save (`-webkit-touch-callout:none` is what suppresses the
+	 * iOS long-press "Save Image" menu). Returns a self-contained string.
+	 */
+	public static function footer_css( bool $protect_all = false ): string {
+		$css = '.iwsl-protected{-webkit-user-drag:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}'
 			. '.iwsl-protected-wrap{position:relative;display:inline-block;max-width:100%;}'
 			. '.iwsl-protected-shield{position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;z-index:2;'
 			. '-webkit-user-drag:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}';
+		if ( $protect_all ) {
+			$css .= 'img{-webkit-user-drag:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}';
+		}
+		return $css;
 	}
 
 	/**
-	 * Pure: the deterrent JS — capture-phase contextmenu/dragstart suppression
-	 * scoped to the protected markers, plus (opt-in) a page-level Ctrl/Cmd+S
-	 * block. Self-contained, no external asset, no eval.
+	 * Pure: the deterrent JS — capture-phase contextmenu/dragstart suppression.
+	 * Scoped to the protected markers by default; when $protect_all the selector
+	 * also includes `img` and the handler fires for any IMG target (so Android
+	 * Chrome's long-press contextmenu is suppressed too), plus every current and
+	 * later-added `<img>` is set draggable="false" via a MutationObserver. Kept
+	 * self-contained, no external asset, no eval.
 	 */
-	public static function footer_js( bool $global_deterrent ): string {
-		$js = '(function(){var s=".iwsl-protected,.iwsl-protected-wrap,.iwsl-protected-shield";'
-			. 'function h(e){var t=e.target;if(t&&t.closest&&t.closest(s)){e.preventDefault();}}'
+	public static function footer_js( bool $global_deterrent, bool $protect_all = false ): string {
+		$selector = $protect_all
+			? 'img,.iwsl-protected,.iwsl-protected-wrap,.iwsl-protected-shield'
+			: '.iwsl-protected,.iwsl-protected-wrap,.iwsl-protected-shield';
+		$all = $protect_all ? 'true' : 'false';
+		$js  = '(function(){var s="' . $selector . '";var a=' . $all . ';'
+			. 'function h(e){var t=e.target;'
+			. 'if(t&&((a&&t.tagName==="IMG")||(t.closest&&t.closest(s)))){e.preventDefault();}}'
 			. 'document.addEventListener("contextmenu",h,true);'
 			. 'document.addEventListener("dragstart",h,true);';
+		if ( $protect_all ) {
+			$js .= 'function d(n){var i=n.getElementsByTagName?n.getElementsByTagName("img"):[];'
+				. 'for(var k=0;k<i.length;k++){i[k].setAttribute("draggable","false");}}'
+				. 'function r(){d(document);try{var m=new MutationObserver(function(rs){'
+				. 'for(var x=0;x<rs.length;x++){var nn=rs[x].addedNodes;for(var y=0;y<nn.length;y++){var el=nn[y];'
+				. 'if(el.tagName==="IMG"){el.setAttribute("draggable","false");}else if(el.nodeType===1){d(el);}}}});'
+				. 'm.observe(document.documentElement||document.body,{childList:true,subtree:true});}catch(err){}}'
+				. 'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",r);}else{r();}';
+		}
 		if ( $global_deterrent ) {
 			$js .= 'document.addEventListener("keydown",function(e){'
 				. 'if((e.ctrlKey||e.metaKey)&&"s"===String(e.key).toLowerCase()){e.preventDefault();}});';
@@ -633,11 +666,11 @@ final class IWSL_Media_Protection {
 		$action   = function_exists( 'admin_url' ) ? admin_url( 'admin-post.php' ) : '';
 
 		echo '<p class="description" style="max-width:640px;">'
-			. esc_html__( 'Discourages casual copying of images you explicitly mark as protected: right-click, drag-to-save and long-press grab nothing. Only images you tick are ever touched — nothing is applied site-wide, and pages without a protected image are left completely untouched.', 'infraweaver-connector' )
+			. esc_html__( 'Discourages casual copying of your images: right-click, drag-to-save and mobile long-press are blocked. With “Protect every image on the site” on (the default) this covers every image on the front end, including block-theme and lazy-loaded images. You can also mark individual images below for the stronger overlay deterrent.', 'infraweaver-connector' )
 			. '</p>';
 
 		echo '<p class="description" style="max-width:640px;">'
-			. esc_html__( 'To mark an image: open Media → Library, click the image, tick “Protect this image (discourage copying)”, and save.', 'infraweaver-connector' )
+			. esc_html__( 'To mark an individual image: open Media → Library, click the image, tick “Protect this image (discourage copying)”, and save.', 'infraweaver-connector' )
 			. '</p>';
 
 		$count = $this->protected_count();
@@ -648,7 +681,7 @@ final class IWSL_Media_Protection {
 		}
 
 		echo '<div class="notice notice-info inline" style="margin-top:12px;padding:12px;max-width:640px;"><p>'
-			. esc_html__( 'Honest note: this is a deterrent, not DRM. It stops the casual “Save image as…”, but a determined visitor can still screenshot the page or fetch the file directly. Do not rely on it for images that must stay secret.', 'infraweaver-connector' )
+			. esc_html__( 'Honest note: this is a deterrent, not DRM. It stops the casual right-click / long-press “Save image as…”, but the image still loads in the visitor’s browser, so a determined visitor can screenshot the page or fetch the file directly. Do not rely on it for images that must stay secret.', 'infraweaver-connector' )
 			. '</p></div>';
 
 		echo '<form method="post" action="' . esc_url( $action ) . '" style="margin-top:12px;max-width:640px;">';
@@ -662,7 +695,10 @@ final class IWSL_Media_Protection {
 			? __( 'Media protection is on.', 'infraweaver-connector' )
 			: __( 'Media protection is off.', 'infraweaver-connector' ) ) . '</span>';
 		echo '<label><input type="checkbox" name="enabled" value="1"' . ( ! empty( $settings['enabled'] ) ? ' checked' : '' ) . '> '
-			. esc_html__( 'Protect marked images', 'infraweaver-connector' ) . iwsl_field_help( 'Turns the copy deterrent on for the images you ticked in the Media Library.' ) . '</label> ';
+			. esc_html__( 'Enable media protection', 'infraweaver-connector' ) . iwsl_field_help( 'Master switch for the image copy deterrent.' ) . '</label> ';
+		echo '<label><input type="checkbox" name="protect_all" value="1"' . ( ! empty( $settings['protect_all'] ) ? ' checked' : '' ) . '> '
+			. esc_html__( 'Protect every image on the site', 'infraweaver-connector' )
+			. iwsl_field_help( 'Deters right-click and mobile long-press saving on every front-end image — including block-theme and lazy-loaded images — not only the ones you tick individually. On by default.' ) . '</label> ';
 		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Save changes', 'infraweaver-connector' ) . '</button>';
 		echo '</div>';
 
