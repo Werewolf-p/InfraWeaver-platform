@@ -51,9 +51,21 @@ function isTypingTarget(target: EventTarget | null) {
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
-function StatusBar() {
+// Live UTC clock isolated as a leaf so its 1s tick re-renders only this tiny
+// node — not StatusBar (and its pod/cluster status) or the dashboard shell.
+function LiveClock() {
   const [time, setTime] = useState(new Date());
 
+  useEffect(() => {
+    const interval = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const utcTime = time.toUTCString().split(" ")[4];
+  return <span>{utcTime} UTC</span>;
+}
+
+function StatusBar() {
   const { data: pods } = useQuery({
     queryKey: ["pods", "status-bar"],
     queryFn: async () => {
@@ -76,15 +88,9 @@ function StatusBar() {
     staleTime: 50000,
   });
 
-  useEffect(() => {
-    const interval = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
   const runningPods = (pods ?? []).filter(p => p.status === "Running").length;
   const totalPods = (pods ?? []).length;
   const isHealthy = !cluster || cluster.status === "healthy";
-  const utcTime = time.toUTCString().split(" ")[4];
   const issueCount = Math.max(0, totalPods - runningPods) + (isHealthy ? 0 : 1);
 
   return (
@@ -101,7 +107,7 @@ function StatusBar() {
       </div>
       <div className="flex items-center gap-4 text-slate-600 dark:text-slate-500">
         <span>Cluster {isHealthy ? "healthy" : "degraded"}</span>
-        <span>{utcTime} UTC</span>
+        <LiveClock />
       </div>
     </div>
   );
@@ -711,32 +717,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           </div>
         )}
-        <div className="hidden xl:flex items-center justify-between gap-3 border-b border-gray-200 dark:border-[#1e1e1e] bg-white dark:bg-[#101010] px-6 py-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-gray-400 dark:text-[#8a8a8a]">Recent</span>
-            {recentPages.length > 0 ? (
-              recentPages.slice(0, 4).map((page) => (
-                <Link
-                  key={`${page.href}-${page.visitedAt}`}
-                  href={page.href}
-                  className="truncate rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#141414] px-3 py-1 text-xs text-gray-500 dark:text-[#9e9e9e] transition-colors hover:border-[#0078D4]/40 hover:text-gray-900 dark:hover:text-white"
-                >
-                  {page.title}
-                </Link>
-              ))
-            ) : (
-              <span className="text-xs text-gray-400 dark:text-[#9a9a9a]">Use quick search to jump between dashboards and operator tools.</span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => setSearchOpen(true)}
-            className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-gray-50 dark:bg-[#141414] px-3 py-1.5 text-xs text-gray-500 dark:text-[#9e9e9e] transition-colors hover:border-[#0078D4]/40 hover:text-gray-900 dark:hover:text-white"
-          >
-            Quick search
-            <span className="rounded-md border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#0d0d0d] px-1.5 py-0.5 font-mono text-[10px] text-gray-400 dark:text-[#9a9a9a]">⌘K</span>
-          </button>
-        </div>
         <main
           id="dashboard-main"
           ref={mainRef}
