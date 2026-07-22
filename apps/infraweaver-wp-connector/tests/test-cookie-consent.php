@@ -342,6 +342,28 @@ $cc_f->apply_recommended_defaults( array( 'accent' => '#112233', 'banner_layout'
 iwsl_assert_same( '#112233', $cc_f->settings()['accent'], 'one-click: accent override applied' );
 iwsl_assert_same( 'box', $cc_f->settings()['banner_layout'], 'one-click: layout override applied' );
 
+// REGRESSION (re-run guided setup must NOT clobber the operator's full-form
+// choices): configure a custom set, then re-run apply_recommended_defaults() with
+// only a brand-accent tweak. Categories / vendor overrides / legal model / DNT set
+// in the full form must survive — a configured site re-bases on its CURRENT
+// settings, not on the hardcoded recommended baseline.
+$cc_f->save_settings(
+	array(
+		'enabled'          => '1',
+		'default_model'    => 'opt-out',
+		'categories'       => array( 'preferences' => '1', 'statistics' => '1' ), // marketing OFF on purpose
+		'vendor_overrides' => array( 'youtube' => 'preferences' ),
+		'respect_dnt'      => '1',
+	)
+);
+$cc_f->apply_recommended_defaults( array( 'accent' => '#654321' ) ); // wizard re-run — brand tweak only
+$cc_rerun = $cc_f->settings();
+iwsl_assert_same( '#654321', $cc_rerun['accent'], 're-run: accent tweak applied' );
+iwsl_assert_same( false, $cc_rerun['categories']['marketing'], 're-run: operator marketing-off preserved (NOT reset to recommended all-on)' );
+iwsl_assert_same( 'preferences', $cc_rerun['vendor_overrides']['youtube'] ?? '', 're-run: per-vendor override preserved' );
+iwsl_assert_same( 'opt-out', $cc_rerun['default_model'], 're-run: operator legal model preserved' );
+iwsl_assert_same( true, $cc_rerun['respect_dnt'], 're-run: operator DNT choice preserved' );
+
 // Locked site: one click persists NOTHING (gate is STATEMENT 1 of the save).
 $store_lk = new IWSL_Memory_Store();
 $ent_lk   = iwsl_cc_entitlements( $store_lk, $CC_NOW, 'active', array( 'plus' => true ) ); // cookie_consent ABSENT

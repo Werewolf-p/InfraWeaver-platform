@@ -181,26 +181,33 @@ final class IWSL_Teardown {
 	}
 
 	/**
-	 * Self-heal to a clean state at init: for every tier-gated feature that is NOT
-	 * (switched ON and currently entitled), purge its footprint. Each engine purge
-	 * is cheap-when-clean, so the common all-active case is bounded and does
-	 * essentially no work. Meant to run ADMIN-side only (the bootstrap gates the
-	 * call with is_admin()), so the front-end hot path pays nothing.
+	 * Self-heal to a clean state at init: purge the footprint of any feature the
+	 * operator has EXPLICITLY switched OFF. Meant to run ADMIN-side only (the
+	 * bootstrap gates the call with is_admin()), so the front-end hot path pays
+	 * nothing, and it catches an out-of-band switch-off (e.g. one flipped over the
+	 * signed command channel) that didn't go through handle_feature_toggle().
 	 *
-	 * Free features (no switch, no entitlement — e.g. the perf audit) are skipped:
-	 * "off or un-entitled" is meaningless for them, so init never purges them.
+	 * CRITICAL — this purge is DESTRUCTIVE and irreversible, so it keys ONLY on the
+	 * durable operator switch (`is_on()` reads the stored on/off map; default ON),
+	 * NEVER on entitlement state. `evaluate()['unlocked']` folds in a 2-hour
+	 * heartbeat-freshness window that is refreshed only by an external, dual-signed
+	 * console health-sweep, plus `linked`/`state==active`. Keying the delete on that
+	 * would let a transient, reversible hiccup — a console-sweep gap >2h, a
+	 * re-enroll/rotation, or a single backward clock step (NTP) — silently DROP the
+	 * stats table, delete every `_iwseo_*` post meta, wipe redirects/SMTP/consent,
+	 * etc. on the next admin request (is_admin() covers the ~1/min admin-ajax WP
+	 * Heartbeat). A lapsed entitlement must only make a feature DORMANT — every hook
+	 * re-gates at runtime — and preserve its data so re-entitling restores it. Data
+	 * is destroyed on exactly two events: an explicit operator disable, and uninstall.
+	 *
+	 * Free features (no switch — e.g. the perf audit) are skipped.
 	 */
 	public static function clean_at_init( IWSL_Feature_Switches $switches, IWSL_Entitlements $ent, IWSL_WP_Store $store ): void {
 		foreach ( self::flags() as $flag ) {
 			if ( ! IWSL_Feature_Switches::is_switchable( $flag ) ) {
 				continue;
 			}
-			$active = $switches->is_on( $flag );
-			if ( $active ) {
-				$gate   = $ent->evaluate( $flag );
-				$active = ! empty( $gate['unlocked'] );
-			}
-			if ( ! $active ) {
+			if ( ! $switches->is_on( $flag ) ) {
 				self::purge( $flag, $ent, $store );
 			}
 		}

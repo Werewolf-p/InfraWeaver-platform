@@ -11,7 +11,8 @@
  *   - flush_page_cache() is a safe no-op with no plugin/cache present.
  *   - engine_for() maps a flag to the right engine class, and null for unknown.
  *   - purge() returns [] for an unknown flag and an array via method_exists.
- *   - clean_at_init() purges ONLY features that are off or un-entitled.
+ *   - clean_at_init() purges ONLY features the operator explicitly switched OFF —
+ *     never on a lapsed entitlement (that would risk data-loss on a transient hiccup).
  */
 
 declare(strict_types=1);
@@ -119,8 +120,12 @@ IWSL_Teardown::clean_at_init( $sw_lazy_off, $ent, $wp_store );
 iwsl_assert( in_array( 'iwsl_lazy_load', $GLOBALS['iwsl_td_deleted'], true ), 'lazy_load OFF → its footprint option is purged at init' );
 iwsl_assert( ! in_array( 'iwsl_page_cache', $GLOBALS['iwsl_td_deleted'], true ), 'a still-active feature is NOT purged at init' );
 
-// Scenario C: NOT entitled (unenrolled) → every switchable feature is treated as
-// inactive, so clean_at_init attempts to purge each of them.
+// Scenario C (CRITICAL safety guarantee): a feature whose ENTITLEMENT has lapsed
+// but whose operator switch is still ON must NOT be purged. A transient, reversible
+// loss of entitlement (a stale console heartbeat, a re-enroll/rotation, or a
+// backward clock step) must never delete data — the feature just goes dormant.
+// Here the site is unenrolled (nothing unlocked) yet no switch is off, so
+// clean_at_init purges NOTHING.
 $now_c      = 10000000;
 $ent_none   = new IWSL_Entitlements(
 	( static function () { $s = new IWSL_Memory_Store(); $s->set( 'state', 'unenrolled' ); return $s; } )(),
@@ -131,4 +136,13 @@ $ent_none   = new IWSL_Entitlements(
 $sw_none                    = new IWSL_Feature_Switches( $ent_none, new IWSL_Memory_Store() );
 $GLOBALS['iwsl_td_deleted'] = array();
 IWSL_Teardown::clean_at_init( $sw_none, $ent_none, $wp_store );
-iwsl_assert( in_array( 'iwsl_lazy_load', $GLOBALS['iwsl_td_deleted'], true ), 'un-entitled → lazy_load footprint purged at init' );
+iwsl_assert_same( 0, count( $GLOBALS['iwsl_td_deleted'] ), 'un-entitled but switch ON → clean_at_init purges NOTHING (no data-loss on a transient entitlement lapse)' );
+
+// Scenario D: un-entitled AND the operator has explicitly switched a feature OFF →
+// that feature (and only it) is still purged. A deliberate disable is always honoured.
+$sw_off_store = new IWSL_Memory_Store();
+$sw_off_store->set( IWSL_Feature_Switches::OPTION, array( 'lazy_load' => false ) );
+$sw_none_off                = new IWSL_Feature_Switches( $ent_none, $sw_off_store );
+$GLOBALS['iwsl_td_deleted'] = array();
+IWSL_Teardown::clean_at_init( $sw_none_off, $ent_none, $wp_store );
+iwsl_assert( in_array( 'iwsl_lazy_load', $GLOBALS['iwsl_td_deleted'], true ), 'explicitly switched-off feature IS purged even when un-entitled' );

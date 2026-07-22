@@ -345,7 +345,14 @@ final class IWSL_Cookie_Consent {
 	 * @return array{ ok:bool, reason?:string, settings?:array, gate?:array }
 	 */
 	public function apply_recommended_defaults( array $overrides = array() ): array {
-		return $this->save_settings( array_merge( $this->recommended_defaults(), $overrides ) );
+		// First-time setup starts from the GDPR-safe recommended baseline; a RE-RUN on
+		// an ALREADY-configured site starts from the site's CURRENT settings, so the
+		// wizard's sparse overrides (accent / layout / policy URL / title / message)
+		// change only those fields and never silently reset the operator's category
+		// toggles, per-vendor overrides, legal model, or GPC/DNT choices made in the
+		// full settings form below the wizard.
+		$base = $this->is_configured() ? $this->settings() : $this->recommended_defaults();
+		return $this->save_settings( array_merge( $base, $overrides ) );
 	}
 
 	/**
