@@ -14,15 +14,21 @@ jest.mock("@/addons/wordpress-manager/lib/iwsl-managed-ops", () => ({
 jest.mock("@/addons/wordpress-manager/lib/connector-package", () => ({
   buildConnectorPackage: jest.fn(),
 }));
+jest.mock("@/addons/wordpress-manager/lib/channel-registry", () => ({
+  getChannelRegistry: jest.fn(),
+}));
 
 import { runConnectorUpdateSweep } from "@/addons/wordpress-manager/lib/update-sweep";
 import { listExternalSites, type ExternalSiteRecord } from "@/addons/wordpress-manager/lib/iwsl-link-store";
 import { updateConnectorPlugin } from "@/addons/wordpress-manager/lib/iwsl-managed-ops";
 import { buildConnectorPackage } from "@/addons/wordpress-manager/lib/connector-package";
+import { getChannelRegistry } from "@/addons/wordpress-manager/lib/channel-registry";
+import { ConnectorArtifactUnavailableError } from "@/addons/wordpress-manager/lib/connector-artifact";
 
 const listMock = listExternalSites as jest.MockedFunction<typeof listExternalSites>;
 const updateMock = updateConnectorPlugin as jest.MockedFunction<typeof updateConnectorPlugin>;
 const pkgMock = buildConnectorPackage as jest.MockedFunction<typeof buildConnectorPackage>;
+const registryMock = getChannelRegistry as jest.MockedFunction<typeof getChannelRegistry>;
 
 /** Minimal managed-link record — only the fields the sweep filters on matter. */
 function link(overrides: Partial<ExternalSiteRecord>): ExternalSiteRecord {
@@ -48,6 +54,9 @@ beforeEach(() => {
   jest.clearAllMocks();
   pkgMock.mockResolvedValue({ zip: Buffer.from(""), version: "1.4.0", filename: "x.zip" });
   updateMock.mockResolvedValue({ version: "1.4.0" });
+  // Default board: every channel points at the bundled version, so a fleet with
+  // no channels assigned behaves exactly as the pre-channel sweep did.
+  registryMock.mockResolvedValue({ prod: "1.4.0", beta: "1.4.0", alpha: "1.4.0" });
   const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
   warnSpy = warn;
 });
@@ -68,10 +77,10 @@ describe("runConnectorUpdateSweep", () => {
     const summary = await runConnectorUpdateSweep();
 
     expect(updateMock).toHaveBeenCalledTimes(2);
-    expect(updateMock).toHaveBeenCalledWith("managed-active");
-    expect(updateMock).toHaveBeenCalledWith("managed-quarantined");
-    expect(updateMock).not.toHaveBeenCalledWith("managed-pending");
-    expect(updateMock).not.toHaveBeenCalledWith("external");
+    expect(updateMock).toHaveBeenCalledWith("managed-active", "1.4.0", expect.any(String));
+    expect(updateMock).toHaveBeenCalledWith("managed-quarantined", "1.4.0", expect.any(String));
+    expect(updateMock).not.toHaveBeenCalledWith("managed-pending", "1.4.0", expect.any(String));
+    expect(updateMock).not.toHaveBeenCalledWith("external", "1.4.0", expect.any(String));
     expect(summary.total).toBe(2);
     expect(summary.updated).toBe(2);
     expect(summary.failed).toBe(0);
@@ -96,7 +105,7 @@ describe("runConnectorUpdateSweep", () => {
     expect(summary.updated).toBe(2);
     expect(summary.failed).toBe(1);
     const broken = summary.results.find((r) => r.site === "broken");
-    expect(broken).toEqual({ site: "broken", ok: false, reason: "pod not running" });
+    expect(broken).toEqual({ site: "broken", ok: false, reason: "pod not running", channel: "prod", target: "1.4.0" });
   });
 
   test("carries the read-back version and null when the link is not commandable", async () => {
@@ -105,7 +114,7 @@ describe("runConnectorUpdateSweep", () => {
 
     const summary = await runConnectorUpdateSweep();
 
-    expect(summary.results[0]).toEqual({ site: "quarantined", ok: true, version: null });
+    expect(summary.results[0]).toEqual({ site: "quarantined", ok: true, version: null, channel: "prod", target: "1.4.0" });
   });
 
   test("no enrolled managed links → an empty, zeroed summary", async () => {
@@ -163,9 +172,9 @@ describe("runConnectorUpdateSweep", () => {
     });
 
     expect(updateMock).toHaveBeenCalledTimes(2);
-    expect(updateMock).toHaveBeenCalledWith("keep-1");
-    expect(updateMock).toHaveBeenCalledWith("keep-2");
-    expect(updateMock).not.toHaveBeenCalledWith("skip-me");
+    expect(updateMock).toHaveBeenCalledWith("keep-1", "1.4.0", expect.any(String));
+    expect(updateMock).toHaveBeenCalledWith("keep-2", "1.4.0", expect.any(String));
+    expect(updateMock).not.toHaveBeenCalledWith("skip-me", "1.4.0", expect.any(String));
     expect(summary.total).toBe(2);
     expect(summary.updated).toBe(2);
   });
@@ -226,5 +235,69 @@ describe("runConnectorUpdateSweep", () => {
     expect(summary.updated).toBe(12);
     expect(peak).toBeLessThanOrEqual(4); // SWEEP_CONCURRENCY
     expect(peak).toBeGreaterThan(1); // ...but not serialised
+  });
+});
+
+describe("runConnectorUpdateSweep — channel-aware targeting", () => {
+  test("targets each site with ITS OWN channel's version, not one global version", async () => {
+    registryMock.mockResolvedValue({ prod: "1.4.0", beta: "1.5.0", alpha: "1.6.0" });
+    listMock.mockResolvedValue([
+      link({ siteName: "p", channel: "prod" }),
+      link({ siteName: "b", channel: "beta" }),
+      link({ siteName: "a", channel: "alpha" }),
+      link({ siteName: "unset" }), // no channel ⇒ prod
+    ]);
+    updateMock.mockImplementation(async (_site: string, target?: string) => ({ version: target ?? null }));
+
+    const summary = await runConnectorUpdateSweep();
+
+    expect(updateMock).toHaveBeenCalledWith("p", "1.4.0", expect.any(String));
+    expect(updateMock).toHaveBeenCalledWith("b", "1.5.0", expect.any(String));
+    expect(updateMock).toHaveBeenCalledWith("a", "1.6.0", expect.any(String));
+    expect(updateMock).toHaveBeenCalledWith("unset", "1.4.0", expect.any(String));
+    expect(summary.updated).toBe(4);
+    const beta = summary.results.find((r) => r.site === "b");
+    expect(beta).toMatchObject({ channel: "beta", target: "1.5.0", ok: true, version: "1.5.0" });
+  });
+
+  test("skips a site already AT or AHEAD of its channel target — no reinstall", async () => {
+    registryMock.mockResolvedValue({ prod: "1.4.0", beta: "1.5.0", alpha: "1.6.0" });
+    listMock.mockResolvedValue([
+      link({ siteName: "current", channel: "beta", connectorVersion: "1.5.0" }), // == target
+      link({ siteName: "ahead", channel: "beta", connectorVersion: "1.6.0" }), // > target
+      link({ siteName: "behind", channel: "beta", connectorVersion: "1.4.0" }), // < target
+    ]);
+
+    const summary = await runConnectorUpdateSweep();
+
+    expect(updateMock).toHaveBeenCalledTimes(1);
+    expect(updateMock).toHaveBeenCalledWith("behind", "1.5.0", expect.any(String));
+    expect(summary.updated).toBe(1);
+    expect(summary.skipped).toBe(2);
+    expect(summary.failed).toBe(0);
+    const current = summary.results.find((r) => r.site === "current");
+    expect(current).toMatchObject({ ok: true, skipped: "already at channel target", version: "1.5.0" });
+  });
+
+  test("unavailable target artifact → a clear ERROR, never a mismatched install", async () => {
+    // alpha points at a version this console can't produce; updateConnectorPlugin
+    // refuses it (throws) rather than shipping the bundled bytes mislabelled.
+    registryMock.mockResolvedValue({ prod: "1.4.0", beta: "1.5.0", alpha: "9.9.9" });
+    listMock.mockResolvedValue([link({ siteName: "canary", channel: "alpha", connectorVersion: "1.4.0" })]);
+    updateMock.mockImplementation(async (_site: string, target?: string) => {
+      if (target === "9.9.9") throw new ConnectorArtifactUnavailableError("9.9.9", "1.4.0");
+      return { version: target ?? null };
+    });
+
+    const summary = await runConnectorUpdateSweep();
+
+    // Aimed at the channel target — and NEVER fell back to the bundled version.
+    expect(updateMock).toHaveBeenCalledWith("canary", "9.9.9", expect.any(String));
+    expect(updateMock).not.toHaveBeenCalledWith("canary", "1.4.0", expect.any(String));
+    expect(summary.updated).toBe(0);
+    expect(summary.failed).toBe(1);
+    const canary = summary.results.find((r) => r.site === "canary");
+    expect(canary).toMatchObject({ ok: false, channel: "alpha", target: "9.9.9" });
+    expect(canary?.reason).toMatch(/no connector artifact/i);
   });
 });

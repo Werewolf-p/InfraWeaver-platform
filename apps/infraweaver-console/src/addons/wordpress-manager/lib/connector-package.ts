@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { zipSync } from "fflate";
+import type { ReleaseChannel } from "./channels";
 
 /**
  * Package the vendored InfraWeaver Connector plugin (vendor/wp-connector/,
@@ -41,7 +42,16 @@ async function isValidPluginDir(dir: string): Promise<boolean> {
  * baked vendor copy. This makes the dynamic source fail-safe: a missing or
  * mid-swap sync dir degrades to the baked copy instead of breaking the route.
  */
-async function resolveDir(): Promise<string> {
+async function resolveDir(channel?: ReleaseChannel): Promise<string> {
+  // Per-channel source first: a git-sync sidecar volume tracking this channel's
+  // release ref (IWSL_CONNECTOR_DIR_ALPHA / _BETA / _PROD) lets alpha ship
+  // different code than prod with no console rebuild. Falls back to the shared
+  // dynamic dir, then the baked copy — each step validated so a missing or
+  // mid-swap volume degrades safely instead of breaking the install.
+  const perChannel = channel ? process.env[`IWSL_CONNECTOR_DIR_${channel.toUpperCase()}`] : undefined;
+  if (perChannel && (await isValidPluginDir(perChannel))) {
+    return perChannel;
+  }
   const override = process.env.IWSL_CONNECTOR_DIR;
   if (override && (await isValidPluginDir(override))) {
     return override;
@@ -97,8 +107,8 @@ async function build(root: string): Promise<ConnectorPackage> {
   };
 }
 
-export async function buildConnectorPackage(): Promise<ConnectorPackage> {
-  const root = await resolveDir();
+export async function buildConnectorPackage(channel?: ReleaseChannel): Promise<ConnectorPackage> {
+  const root = await resolveDir(channel);
   const version = await peekVersion(root);
   const key = `${root}@${version}`;
   // Re-zip only when the resolved source or its version changes — so a git-sync

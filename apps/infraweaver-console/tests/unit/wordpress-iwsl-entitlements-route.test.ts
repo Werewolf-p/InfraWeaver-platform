@@ -14,6 +14,12 @@ jest.mock("@/addons/wordpress-manager/lib/update-sweep", () => ({ runConnectorUp
 jest.mock("@/addons/wordpress-manager/lib/manage/metrics", () => ({ exportConnectorMetrics: jest.fn(), exportSiteMetrics: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/manage/site-sweep", () => ({ runSiteSnapshotSweep: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/connector-package", () => ({ buildConnectorPackage: jest.fn() }));
+jest.mock("@/addons/wordpress-manager/lib/channel-registry", () => ({
+  getChannelRegistryDetail: jest.fn(),
+  promoteChannel: jest.fn(),
+  rollbackChannel: jest.fn(),
+  setChannelVersion: jest.fn(),
+}));
 jest.mock("@/addons/wordpress-manager/lib/iwsl-enrollment", () => ({
   confirmFingerprint: jest.fn(),
   createExternalSite: jest.fn(),
@@ -36,6 +42,7 @@ jest.mock("@/addons/wordpress-manager/lib/iwsl-managed-ops", () => ({
   rotateConnectorKey: jest.fn(),
   setConnectorQuarantine: jest.fn(),
   setRotationPolicy: jest.fn(),
+  setSiteChannel: jest.fn(),
   setSiteEntitlements: jest.fn(),
   setSiteTier: jest.fn(),
   updateConnectorPlugin: jest.fn(),

@@ -2,6 +2,7 @@ import * as k8s from "@kubernetes/client-node";
 import { loadKubeConfig } from "@/lib/k8s";
 import { upsertCnameRecord, deleteRecordsByName, resolveZoneId } from "@/lib/cloudflare";
 import { WORDPRESS_NAMESPACE } from "./wordpress-rbac";
+import { DEFAULT_CHANNEL, isReleaseChannel, type ReleaseChannel } from "./channels";
 import { assertValidSiteName, assertValidSiteId, resourceNames, deriveSiteId, buildHost, legacySiteHost } from "./naming";
 import { isAllowedDomain, publicCnameTarget, publicDnsProxied, authentikIssuerBase, adminUser, adminEmail } from "./config";
 import { isInstalledScript, coreInstallScript } from "./core-install";
@@ -49,6 +50,8 @@ export interface CreateSiteInput {
   plugins?: string[];
   /** §5.1 — install + enroll the InfraWeaver Connector once running (default true). */
   connector?: boolean;
+  /** §5.1 — release channel the new site's Connector rides (default prod). */
+  channel?: ReleaseChannel;
   wpStorage?: string;
   dbStorage?: string;
 }
@@ -107,16 +110,26 @@ async function applySecrets(core: k8s.CoreV1Api, site: string, data: SecretData)
 }
 
 /** Persist the desired post-provision setup (plugins + auth mode) to the vault. */
-async function writeIntent(site: string, authMode: AuthMode, plugins: string[], connector: boolean, applied: boolean): Promise<void> {
+async function writeIntent(
+  site: string,
+  authMode: AuthMode,
+  plugins: string[],
+  connector: boolean,
+  applied: boolean,
+  channel: ReleaseChannel = DEFAULT_CHANNEL,
+): Promise<void> {
   await writeSecret(vaultPaths(site).config, {
     authMode,
     plugins: plugins.join(","),
     connector: connector ? "true" : "false",
+    // §5.1 — the release channel the Connector enrollment carries onto the link
+    // record. Persisted here because enrollment is deferred to the reconcile pass.
+    channel,
     applied: applied ? "true" : "false",
   });
 }
 
-async function readIntent(site: string): Promise<{ authMode: AuthMode; plugins: string[]; connector: boolean; applied: boolean } | null> {
+async function readIntent(site: string): Promise<{ authMode: AuthMode; plugins: string[]; connector: boolean; channel: ReleaseChannel; applied: boolean } | null> {
   const cfg = await readSecret(vaultPaths(site).config);
   if (!cfg) return null;
   return {
@@ -125,6 +138,8 @@ async function readIntent(site: string): Promise<{ authMode: AuthMode; plugins: 
     // Absent on pre-connector sites → false: existing sites never get a
     // surprise enrollment; the site-settings card is the opt-in for those.
     connector: cfg.connector === "true",
+    // Absent (pre-channel sites) → prod, matching the link-record default.
+    channel: isReleaseChannel(cfg.channel) ? cfg.channel : DEFAULT_CHANNEL,
     applied: cfg.applied === "true",
   };
 }
@@ -196,8 +211,9 @@ export async function createSite(input: CreateSiteInput): Promise<SiteSummary> {
 
   const desiredPlugins = [...new Set(input.plugins ?? [])];
   const connector = input.connector ?? true; // §5.1 — default ON for IW-provisioned sites
+  const channel = input.channel ?? DEFAULT_CHANNEL; // §5.1 — prod unless the form picked a train
   const setupPending = authMode !== "none" || desiredPlugins.length > 0 || connector;
-  await writeIntent(site, authMode, desiredPlugins, connector, !setupPending);
+  await writeIntent(site, authMode, desiredPlugins, connector, !setupPending, channel);
   if (setupPending) triggerReconcile(site);
 
   return { site, host, ready: false, replicas: 1, domain, internal, authMode, setupPending, dnsWarning };
@@ -650,7 +666,7 @@ export async function setProtection(site: string, authMode: AuthMode): Promise<S
   const intent = await readIntent(site);
   const plugins = intent?.plugins ?? [];
   const nowGated = isGatedAuthMode(authMode);
-  await writeIntent(site, authMode, plugins, intent?.connector ?? false, nowGated ? false : intent?.applied ?? true);
+  await writeIntent(site, authMode, plugins, intent?.connector ?? false, nowGated ? false : intent?.applied ?? true, intent?.channel ?? DEFAULT_CHANNEL);
   if (nowGated) {
     settled.delete(site); // clear the settled short-circuit so the reconcile actually re-runs
     triggerReconcile(site);
@@ -724,7 +740,7 @@ export async function reconcileSite(site: string): Promise<void> {
   if (intent.connector) {
     const { enrollManagedSite, getManagedLink } = await import("./iwsl-managed");
     try {
-      if (!(await getManagedLink(site))) await enrollManagedSite(site, "provisioner");
+      if (!(await getManagedLink(site))) await enrollManagedSite(site, "provisioner", intent.channel);
     } catch (err) {
       console.warn(`[wordpress] connector enrollment for ${site} failed (enable it from site settings to retry):`, err instanceof Error ? err.message : err);
     }
@@ -736,7 +752,7 @@ export async function reconcileSite(site: string): Promise<void> {
     console.warn(`[wordpress] user sync for ${site} failed (will retry on next access sync):`, err instanceof Error ? err.message : err),
   );
 
-  await writeIntent(site, intent.authMode, intent.plugins, intent.connector, true);
+  await writeIntent(site, intent.authMode, intent.plugins, intent.connector, true, intent.channel);
 }
 
 const reconcileInFlight = new Set<string>();

@@ -1,5 +1,6 @@
 import "server-only";
 import { AddonHttpError } from "./errors";
+import type { ReleaseChannel } from "./channels";
 import { execInWpPod } from "./k8s-exec";
 import { findWpPodName, listSites } from "./provision";
 import { buildConnectorPackage } from "./connector-package";
@@ -92,7 +93,7 @@ function warmSnapshotAfterEnroll(site: string): void {
   })();
 }
 
-export async function enrollManagedSite(site: string, actor: string): Promise<ExternalSiteView> {
+export async function enrollManagedSite(site: string, actor: string, channel?: ReleaseChannel): Promise<ExternalSiteView> {
   const summary = (await listSites()).find((s) => s.site === site);
   if (!summary) throw new AddonHttpError("Site not found", 404);
   const pod = await requireRunningPod(site);
@@ -106,7 +107,7 @@ export async function enrollManagedSite(site: string, actor: string): Promise<Ex
     await deleteExternalSite(existing.siteId);
   }
 
-  const record = await createManagedSiteRecord({ siteName: site, url: `https://${summary.host}` }, actor);
+  const record = await createManagedSiteRecord({ siteName: site, url: `https://${summary.host}` }, actor, undefined, channel);
   try {
     const pkg = await buildConnectorPackage();
     await execInWpPod(pod, installConnectorScript(), {

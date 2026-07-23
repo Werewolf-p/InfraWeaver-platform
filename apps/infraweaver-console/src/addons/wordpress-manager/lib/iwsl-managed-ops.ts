@@ -18,9 +18,11 @@ import { AddonHttpError } from "./errors";
 import { clampRotationIntervalMs } from "./rotation-policy";
 import { normalizeEntitlements, type EntitlementMap, type SiteEntitlements } from "./entitlements";
 import { deriveEntitlementsForTier, type TierId } from "./tiers";
+import { isReleaseChannel, type ReleaseChannel } from "./channels";
 import { execInWpPod } from "./k8s-exec";
 import { findWpPodName } from "./provision";
 import { buildConnectorPackage } from "./connector-package";
+import { resolveConnectorArtifact } from "./connector-artifact";
 import { loadOrCreateIwKeys } from "./iwsl-keys";
 import { listExternalSites, mutateExternalSites, type ExternalSiteRecord } from "./iwsl-link-store";
 import { confirmIdentity, evaluateIdentity, isIdentitySuspended } from "./iwsl-identity";
@@ -732,6 +734,39 @@ export async function setSiteTier(site: string, tierId: TierId, actor: string): 
   return setSiteEntitlements(site, deriveEntitlementsForTier(tierId), actor, tierId);
 }
 
+export interface SetChannelResult {
+  channel: ReleaseChannel;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+/**
+ * Assign a release channel to this managed link — the operator-facing action.
+ * Unlike `setSiteTier`, this is PURE console bookkeeping: it only records which
+ * release train the site rides, so there is no wire push and no signed method
+ * here (the channel isn't a plugin-side flag). The channel is acted on later, and
+ * only by the operator-initiated, signed update sweep, which resolves the channel
+ * to a version and carries THAT over the existing signed install path. This keeps
+ * the signed-channel invariant intact: the site never self-selects its train, and
+ * assigning one touches nothing on the site itself. `wordpress:admin` + audit
+ * (`updatedBy`) are enforced by the API route, mirroring set-tier.
+ */
+export async function setSiteChannel(
+  site: string,
+  channelId: ReleaseChannel,
+  actor: string,
+): Promise<SetChannelResult> {
+  if (!isReleaseChannel(channelId)) throw new AddonHttpError("Unknown release channel", 400);
+  const record = await requireManagedRecord(site);
+  const updatedAt = new Date().toISOString();
+  await mutateExternalSites((sites) => {
+    const target = sites.find((s) => s.siteId === record.siteId);
+    if (!target) throw new AddonHttpError("Connector link vanished", 409);
+    target.channel = channelId;
+  });
+  return { channel: channelId, updatedAt, updatedBy: actor };
+}
+
 /**
  * Quarantine cuts the signing path immediately without touching the site;
  * release restores it (only for a link that finished enrollment). Releasing
@@ -853,17 +888,33 @@ export async function purgeConnectorEnrollment(
  * Upgrade the Connector in place (`plugin install --force`) without touching
  * link state — `iwsl_` options survive, so keys and epochs stay pinned. Ends
  * with a health.check so the caller sees the running version.
+ *
+ * `targetVersion` selects WHICH version to install; it defaults to the version
+ * bundled in this console image, preserving the original single-version behaviour
+ * for the per-site update op. The channel-aware fleet sweep passes each site's
+ * resolved channel target instead. The bytes come from `resolveConnectorArtifact`,
+ * which REFUSES (throws `ConnectorArtifactUnavailableError`) rather than ship the
+ * bundled bytes under a mismatched label — so a target this console can't produce
+ * surfaces as a clear per-site failure, never a wrong install.
  */
-export async function updateConnectorPlugin(site: string): Promise<{ version: string | null }> {
+export async function updateConnectorPlugin(
+  site: string,
+  targetVersion?: string,
+  channel?: ReleaseChannel,
+): Promise<{ version: string | null }> {
   const record = await requireManagedRecord(site);
   // Pushing plugin code into the pod is state-changing — refuse it while the
   // link is in identity safe mode (§5); the remedy for a suspected clone is
   // quarantine/kill, not a reinstall.
   requireIdentityConfirmed(record);
   const pod = await requireRunningPod(site);
-  const pkg = await buildConnectorPackage();
+  // Default to the bundled version so the per-site op is unchanged; the sweep
+  // passes a per-channel target. resolveConnectorArtifact throws when the target
+  // isn't deliverable, aborting BEFORE any install touches the pod.
+  const target = targetVersion ?? (await buildConnectorPackage(channel)).version;
+  const { zipBase64 } = await resolveConnectorArtifact(target, channel);
   await execInWpPod(pod, installConnectorScript(), {
-    stdin: pkg.zip.toString("base64"),
+    stdin: zipBase64,
     timeoutMs: INSTALL_TIMEOUT_MS,
   });
   if (record.state !== "active" || !record.fingerprintConfirmed || !record.wpPk) {

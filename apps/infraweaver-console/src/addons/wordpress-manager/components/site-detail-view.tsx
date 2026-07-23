@@ -25,6 +25,8 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { DEFAULT_TIER_ID, TIERS, resolveTierId, type TierId } from "../lib/tiers";
+import { DEFAULT_CHANNEL, resolveChannel, type ReleaseChannel } from "../lib/channels";
+import { ChannelBadge } from "./channel-badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SiteRuntimeCard } from "./site-runtime-card";
 import { SiteTabs } from "./site-tabs";
@@ -155,6 +157,19 @@ export function SiteDetailView({ site }: { site: string }) {
       if (!res.ok) return DEFAULT_TIER_ID;
       const body = (await res.json()) as { link?: { tier?: TierId } | null };
       return resolveTierId(body.link ?? undefined);
+    },
+  });
+
+  // At-a-glance release channel for the header badge — read from the same console
+  // link record (authoritative), degrading silently to prod when unlinked or the
+  // read fails. Orthogonal to the tier; managed on the Connector tab.
+  const { data: siteChannel } = useQuery({
+    queryKey: ["wordpress-site-channel", site],
+    queryFn: async (): Promise<ReleaseChannel> => {
+      const res = await fetch(`/api/wordpress/sites/${site}/iwsl`);
+      if (!res.ok) return DEFAULT_CHANNEL;
+      const body = (await res.json()) as { link?: { channel?: ReleaseChannel } | null };
+      return resolveChannel(body.link ?? undefined);
     },
   });
 
@@ -319,6 +334,15 @@ export function SiteDetailView({ site }: { site: string }) {
             >
               <Sparkles className="h-3 w-3" aria-hidden />
               {TIERS[siteTier].displayName}
+            </Link>
+          )}
+          {siteChannel && siteChannel !== DEFAULT_CHANNEL && (
+            <Link
+              href={`/wordpress/${site}/connector`}
+              title="Manage this site's release channel on the Connector tab"
+              className="inline-flex rounded-full transition-opacity hover:opacity-80"
+            >
+              <ChannelBadge channel={siteChannel} />
             </Link>
           )}
           {status && (

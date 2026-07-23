@@ -17,6 +17,7 @@ import {
 } from "@/lib/iwsl";
 import { parseSafeExternalUrl, requestSafeExternalUrl } from "@/lib/outbound-url";
 import { AddonHttpError } from "./errors";
+import { DEFAULT_CHANNEL, type ReleaseChannel } from "./channels";
 import { loadOrCreateIwKeys } from "./iwsl-keys";
 import { PLAIN_PERMALINKS_HINT, isPlainPermalinkSymptom, looksLikeWordpressHtml } from "./iwsl-rest-hint";
 import {
@@ -133,6 +134,7 @@ export async function createManagedSiteRecord(
   input: { siteName: string; url: string },
   actor: string,
   now = Date.now(),
+  channel: ReleaseChannel = DEFAULT_CHANNEL,
 ): Promise<ExternalSiteView> {
   const { keys } = await loadOrCreateIwKeys();
   const record = await mutateExternalSites((sites) => {
@@ -156,6 +158,9 @@ export async function createManagedSiteRecord(
       rejections: 0,
       managed: true,
       siteName: input.siteName,
+      // §5.1 — persist the assigned release channel alongside tier. Absent ⇒ prod,
+      // so a prod record stays lean; a non-default train is recorded explicitly.
+      ...(channel !== DEFAULT_CHANNEL ? { channel } : {}),
     };
     sites.push(created);
     return created;

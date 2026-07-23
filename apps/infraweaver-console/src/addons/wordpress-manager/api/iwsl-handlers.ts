@@ -35,6 +35,7 @@ import {
   rotateConnectorKey,
   setConnectorQuarantine,
   setRotationPolicy,
+  setSiteChannel,
   setSiteEntitlements,
   setSiteTier,
   updateConnectorPlugin,
@@ -42,6 +43,13 @@ import {
 import { MAX_SITE_INTERVAL_MS } from "../lib/rotation-policy";
 import { MAX_ENTITLEMENT_FLAGS } from "../lib/entitlements";
 import { isTierId } from "../lib/tiers";
+import { isReleaseChannel } from "../lib/channels";
+import {
+  getChannelRegistryDetail,
+  promoteChannel,
+  rollbackChannel,
+  setChannelVersion,
+} from "../lib/channel-registry";
 import { isValidSiteId } from "../lib/naming";
 
 /**
@@ -339,7 +347,7 @@ export async function enrollManagedSiteHandler(site: string): Promise<NextRespon
   return guard(async () => json({ link: await enrollManagedSite(site, gate.ctx.username) }, 201));
 }
 
-const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin", "confirm-identity", "set-rotation-policy", "set-entitlements", "set-tier"] as const;
+const OPS_ACTIONS = ["health", "debug", "rotate", "quarantine", "release", "deactivate", "update-plugin", "confirm-identity", "set-rotation-policy", "set-entitlements", "set-tier", "set-channel"] as const;
 type OpsAction = (typeof OPS_ACTIONS)[number];
 
 const opsSchema = z
@@ -367,6 +375,9 @@ const opsSchema = z
     // Payload for set-tier: a tier id. Narrowed to a known tier server-side
     // before it derives the flag map that gets signed and pushed.
     tier: z.string().max(64).optional(),
+    // Payload for set-channel: a release channel id. Narrowed to a known channel
+    // server-side; pure console bookkeeping (no wire push at assign time).
+    channel: z.string().max(32).optional(),
   })
   .strict();
 
@@ -387,6 +398,8 @@ const OPS_POLICY: Record<OpsAction, { permission: WordpressPermission; ratePerMi
   "set-entitlements": { permission: "wordpress:admin", ratePerMin: 10 },
   // Assigning a payment tier drives the same signed push — admin.
   "set-tier": { permission: "wordpress:admin", ratePerMin: 10 },
+  // Assigning a release channel steers which version the update sweep targets — admin.
+  "set-channel": { permission: "wordpress:admin", ratePerMin: 10 },
 };
 
 /**
@@ -458,6 +471,20 @@ export async function managedOpsHandler(req: NextRequest, site: string): Promise
           { result: "success", resource: `wordpress/${site}` },
         );
         return json({ entitlements: saved });
+      }
+      case "set-channel": {
+        const channel = parsed.data.channel;
+        if (!isReleaseChannel(channel)) return fail("A known release channel is required", 400);
+        const saved = await setSiteChannel(site, channel, gate.ctx.username);
+        // Steering a site's release train is an operational control — leave a
+        // forensic trail of who moved it to which channel, and when.
+        await auditLog(
+          "wordpress:set-channel",
+          gate.ctx.username,
+          `site ${site} channel → ${channel}`,
+          { result: "success", resource: `wordpress/${site}` },
+        );
+        return json({ channel: saved });
       }
     }
   });
@@ -627,4 +654,83 @@ export async function connectorUpdateSweepHandler(req: NextRequest): Promise<Nex
   // pushes to every enrolled managed link, unchanged.
   const sites = await parseSweepSites(req);
   return guard(async () => json({ summary: await runConnectorUpdateSweep({ sites }) }));
+}
+
+// ── Release-channel registry (§5.1 the "release board") ──────────────────────
+
+/**
+ * GET — the current channel → version board (with who/when per channel). A read,
+ * so `wordpress:read` suffices; the mutating ops below demand admin.
+ */
+export async function getChannelRegistryHandler(): Promise<NextResponse> {
+  const gate = await authorize("wordpress:read");
+  if (!gate.ok) return gate.error;
+  return guard(async () => json({ registry: await getChannelRegistryDetail() }));
+}
+
+const channelRegistrySchema = z
+  .object({
+    action: z.enum(["promote", "rollback", "set-version"]),
+    // promote: move `from`'s version onto `to` (direction enforced server-side).
+    from: z.string().max(32).optional(),
+    to: z.string().max(32).optional(),
+    // rollback / set-version: pin `channel` to an explicit `version`.
+    channel: z.string().max(32).optional(),
+    version: z.string().max(64).optional(),
+  })
+  .strict();
+
+/**
+ * POST — mutate the release board: promote a channel's version to the next-more-
+ * stable channel, roll a channel back to a prior version, or pin an explicit
+ * version. Steering which build a channel points at governs what the fleet update
+ * sweep will push, so it is namespace-wide `wordpress:admin`, same as the tier ops
+ * and the fleet update sweep. Rate-limited and audited.
+ */
+export async function channelRegistryOpsHandler(req: NextRequest): Promise<NextResponse> {
+  const gate = await authorize("wordpress:admin");
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("channel-registry", gate.ctx.username, 10);
+  if (limited) return limited;
+  const parsed = channelRegistrySchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return fail("Invalid channel-registry operation", 400);
+  const actor = gate.ctx.username;
+  return guard(async () => {
+    switch (parsed.data.action) {
+      case "promote": {
+        const { from, to } = parsed.data;
+        if (!isReleaseChannel(from) || !isReleaseChannel(to)) {
+          return fail("promote requires known `from` and `to` channels", 400);
+        }
+        const registry = await promoteChannel(from, to, actor);
+        await auditLog("wordpress:channel-promote", actor, `promote ${from} → ${to} (${registry[to].version})`, {
+          result: "success",
+          resource: "wordpress/channels",
+        });
+        return json({ registry });
+      }
+      case "rollback": {
+        const { channel, version } = parsed.data;
+        if (!isReleaseChannel(channel)) return fail("rollback requires a known `channel`", 400);
+        if (!version) return fail("rollback requires a `version`", 400);
+        const registry = await rollbackChannel(channel, version, actor);
+        await auditLog("wordpress:channel-rollback", actor, `rollback ${channel} → ${version}`, {
+          result: "success",
+          resource: "wordpress/channels",
+        });
+        return json({ registry });
+      }
+      case "set-version": {
+        const { channel, version } = parsed.data;
+        if (!isReleaseChannel(channel)) return fail("set-version requires a known `channel`", 400);
+        if (!version) return fail("set-version requires a `version`", 400);
+        const registry = await setChannelVersion(channel, version, actor);
+        await auditLog("wordpress:channel-set-version", actor, `set ${channel} → ${version}`, {
+          result: "success",
+          resource: "wordpress/channels",
+        });
+        return json({ registry });
+      }
+    }
+  });
 }

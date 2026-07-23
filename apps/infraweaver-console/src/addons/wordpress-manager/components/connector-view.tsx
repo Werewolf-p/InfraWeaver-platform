@@ -15,6 +15,7 @@ import {
   CircleArrowUp,
   CircleDashed,
   Fingerprint,
+  GitBranch,
   KeyRound,
   Link2,
   Loader2,
@@ -40,6 +41,15 @@ import {
   resolveTierId,
   type TierId,
 } from "../lib/tiers";
+import {
+  CHANNELS,
+  DEFAULT_CHANNEL,
+  isReleaseChannel,
+  listChannels,
+  resolveChannel,
+  type ReleaseChannel,
+} from "../lib/channels";
+import { ChannelBadge } from "./channel-badge";
 import { SiteTabs } from "./site-tabs";
 
 /** Slice of ExternalSiteView the connector tab renders (§5.1 managed link). */
@@ -68,6 +78,8 @@ interface ManagedLink {
   entitlements?: { flags?: EntitlementMap; updatedAt?: string; updatedBy?: string };
   /** Console-authoritative payment tier (absent ⇒ Free). Derives the flag map above. */
   tier?: TierId;
+  /** Console-authoritative release channel (absent ⇒ prod). Steers which Connector version the update sweep targets. */
+  channel?: ReleaseChannel;
   /** §5 identity binding — the site's confirmed canonical URL. */
   canonicalUrl?: string;
   /** §5 safe mode: state-changing ops suspended after a self-reported URL change. */
@@ -261,6 +273,9 @@ export function ConnectorView({ site }: { site: string }) {
   // Tier selector (seeded from the link's authoritative tier below).
   const [selectedTier, setSelectedTier] = useState<TierId>(DEFAULT_TIER_ID);
   const tierSeededKey = useRef<string>("");
+  // Release-channel selector (seeded from the link's authoritative channel below).
+  const [selectedChannel, setSelectedChannel] = useState<ReleaseChannel>(DEFAULT_CHANNEL);
+  const channelSeededKey = useRef<string>("");
   // Auto-rotation schedule form (seeded from the link's saved policy below).
   const [rotAuto, setRotAuto] = useState(true);
   const [rotValue, setRotValue] = useState(30);
@@ -303,6 +318,18 @@ export function ConnectorView({ site }: { site: string }) {
     if (tierSeededKey.current === key) return;
     tierSeededKey.current = key;
     setSelectedTier(current);
+  }, [link]);
+
+  // Seed the channel selector from the link's authoritative channel, re-seeding
+  // only when the stored channel actually changes so a routine refetch doesn't
+  // discard an in-flight selection the operator is eyeing (mirrors the tier seed).
+  useEffect(() => {
+    if (!link) return;
+    const current = resolveChannel(link);
+    const key = `${link.siteId}:${current}`;
+    if (channelSeededKey.current === key) return;
+    channelSeededKey.current = key;
+    setSelectedChannel(current);
   }, [link]);
 
   const enrollMutation = useMutation({
@@ -392,6 +419,23 @@ export function ConnectorView({ site }: { site: string }) {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const channelMutation = useMutation({
+    // Assign a release channel. Pure console bookkeeping — unlike the tier, this
+    // pushes NOTHING to the plugin at assign time; it only records which release
+    // train the site rides. The version it resolves to lands on the plugin later,
+    // through the operator-initiated, signed update sweep. A site can never move
+    // itself onto a less-stable train.
+    mutationFn: (channelId: ReleaseChannel) =>
+      postOp<{ channel: { channel: ReleaseChannel; updatedAt: string; updatedBy: string } }>(site, "set-channel", {
+        channel: channelId,
+      }),
+    onSuccess: ({ channel }) => {
+      toast.success(`Release channel set to ${CHANNELS[channel.channel].label} — applied on the next update sweep`);
+      refetchLink();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const revokeMutation = useMutation({
     // Revoke = assign the Free tier, whose flag map has every paid flag explicitly
     // off, so the plugin's wholesale replace clears the site over the signed channel.
@@ -463,6 +507,9 @@ export function ConnectorView({ site }: { site: string }) {
   const tierDirty = selectedTier !== currentTierId;
   const isFreeTier = currentTierId === DEFAULT_TIER_ID;
   const entitlementsBusy = tierMutation.isPending || revokeMutation.isPending;
+  // Authoritative release channel, resolved from the console record only.
+  const currentChannel = resolveChannel(link ?? undefined);
+  const channelDirty = selectedChannel !== currentChannel;
   // §5 safe mode: the site self-reported a changed canonical URL. Read-only
   // health/debug stay available; key rotation and plugin update are blocked.
   const identitySuspended = link?.identitySuspended === true;
@@ -846,6 +893,67 @@ export function ConnectorView({ site }: { site: string }) {
                 {revokeMutation.isPending ? "Revoking…" : revokeArmed && !isFreeTier ? "Confirm revoke" : "Revoke"}
               </button>
             </div>
+          </div>
+        </section>
+      )}
+
+      {/* Release channel — which Connector release train the update sweep targets */}
+      {link && (
+        <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-zinc-200">
+              <GitBranch className="h-5 w-5 text-violet-300" aria-hidden />
+              <h2 className="text-lg font-medium">Release channel</h2>
+            </div>
+            <ChannelBadge channel={currentChannel} />
+          </div>
+          <p className="mt-1 max-w-prose text-sm text-zinc-400">
+            Which Connector release train this site rides. Orthogonal to the plan above — the channel decides{" "}
+            <span className="text-zinc-300">which version</span> the update sweep installs, not what the site is
+            entitled to. Assigning a channel is pure console bookkeeping; the version only lands when you run the update
+            sweep, so a site can never move itself onto a less-stable train.
+          </p>
+
+          <div className="mt-4 flex flex-wrap items-end gap-x-3 gap-y-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+            <div className="min-w-0 grow">
+              <label htmlFor={`channel-${site}`} className="text-xs font-medium text-zinc-400">
+                Assign channel
+              </label>
+              <select
+                id={`channel-${site}`}
+                value={selectedChannel}
+                disabled={channelMutation.isPending}
+                onChange={(e) => {
+                  if (isReleaseChannel(e.target.value)) setSelectedChannel(e.target.value);
+                }}
+                className="mt-1 block w-full max-w-xs rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {listChannels().map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 max-w-prose text-xs text-zinc-500">{CHANNELS[selectedChannel].blurb}</p>
+            </div>
+            <button
+              type="button"
+              disabled={channelMutation.isPending || !channelDirty}
+              title={!channelDirty ? "Already on this channel" : undefined}
+              onClick={() => channelMutation.mutate(selectedChannel)}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-violet-500 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {channelMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <GitBranch className="h-4 w-4" aria-hidden />
+              )}
+              {channelMutation.isPending
+                ? "Applying…"
+                : channelDirty
+                  ? `Move to ${CHANNELS[selectedChannel].label}`
+                  : "Applied"}
+            </button>
           </div>
         </section>
       )}

@@ -57,6 +57,12 @@ jest.mock("@/addons/wordpress-manager/lib/health-sweep", () => ({ runHealthSweep
 jest.mock("@/addons/wordpress-manager/lib/update-sweep", () => ({ runConnectorUpdateSweep: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/rotation-sweep", () => ({ runRotationSweep: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/connector-package", () => ({ buildConnectorPackage: jest.fn() }));
+jest.mock("@/addons/wordpress-manager/lib/channel-registry", () => ({
+  getChannelRegistryDetail: jest.fn(),
+  promoteChannel: jest.fn(),
+  rollbackChannel: jest.fn(),
+  setChannelVersion: jest.fn(),
+}));
 // Site metrics/snapshot sweep reach @/lib/kube-client (ESM @kubernetes/client-node) at load.
 jest.mock("@/addons/wordpress-manager/lib/manage/metrics", () => ({ exportConnectorMetrics: jest.fn(), exportSiteMetrics: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/manage/site-sweep", () => ({ runSiteSnapshotSweep: jest.fn() }));

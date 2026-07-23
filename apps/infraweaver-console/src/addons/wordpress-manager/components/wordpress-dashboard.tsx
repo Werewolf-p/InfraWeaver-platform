@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   CircleArrowUp,
   CircleDashed,
+  GitBranch,
   Lock,
   Sparkles,
 } from "lucide-react";
@@ -21,6 +22,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select } from "@/components/ui/select";
+import { CHANNELS, DEFAULT_CHANNEL, isReleaseChannel, listChannels, type ReleaseChannel } from "../lib/channels";
+import { ReleaseBoard } from "./release-board";
 import { isValidSiteName } from "../lib/naming";
 import {
   type SiteSelection,
@@ -36,8 +39,8 @@ import { ExternalSitesPanel } from "./external-sites-panel";
 import { FleetBulkToolbar } from "./fleet-bulk-toolbar";
 import { FLEET_DEMO_TABS, FleetDemoArea, type FleetTabId } from "./demo/fleet-tabs";
 
-/** Top-level dashboard tabs: the real "Sites" surface plus the demo fleet views. */
-type DashTab = "sites" | FleetTabId;
+/** Top-level dashboard tabs: the real "Sites" + "Releases" surfaces plus the demo fleet views. */
+type DashTab = "sites" | "releases" | FleetTabId;
 
 interface SiteSummary {
   site: string;
@@ -138,6 +141,8 @@ export function WordpressDashboard() {
   const [authMode, setAuthMode] = useState<AuthMode>("none");
   // §5.1 — the Connector (remote-management link) defaults ON for provisioned sites.
   const [connector, setConnector] = useState(true);
+  // §5.1 — the release channel the new site's Connector rides (default prod).
+  const [channel, setChannel] = useState<ReleaseChannel>(DEFAULT_CHANNEL);
   const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
   const [toDelete, setToDelete] = useState<string | null>(null);
   // Fleet bulk-action selection. Persists while the page is mounted; derived
@@ -189,6 +194,7 @@ export function WordpressDashboard() {
     setInternal(false);
     setAuthMode("none");
     setConnector(true);
+    setChannel(DEFAULT_CHANNEL);
     setSelectedPlugins([]);
     setDomain(config?.defaultDomain || config?.domains[0] || "");
   };
@@ -202,6 +208,9 @@ export function WordpressDashboard() {
         authMode,
         plugins: effectivePlugins.length > 0 ? effectivePlugins : undefined,
         connector,
+        // Release channel the Connector rides. Only meaningful when the connector
+        // is installed; harmless (server-defaulted to prod) otherwise.
+        channel,
       };
       const res = await fetch("/api/wordpress/sites", {
         method: "POST",
@@ -264,6 +273,7 @@ export function WordpressDashboard() {
   const [tab, setTab] = useState<DashTab>("sites");
   const dashTabs: ReadonlyArray<{ id: DashTab; label: string; icon: ElementType; demo: boolean }> = [
     { id: "sites", label: "Sites", icon: Globe, demo: false },
+    { id: "releases", label: "Releases", icon: GitBranch, demo: false },
     ...FLEET_DEMO_TABS.map((entry) => ({ id: entry.id, label: entry.label, icon: entry.icon, demo: false })),
   ];
 
@@ -427,6 +437,34 @@ export function WordpressDashboard() {
                       is running (can be changed later from site settings)
                     </span>
                   </label>
+
+                  {/* Release channel — only meaningful when the Connector is installed */}
+                  {connector && (
+                    <div>
+                      <label className="flex items-center gap-2 text-sm font-medium text-zinc-300" htmlFor="wp-channel">
+                        <GitBranch className="h-4 w-4 text-violet-300" aria-hidden /> Release channel
+                      </label>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        Which Connector release train the site rides. Production unless you&rsquo;re canarying a build —
+                        can be changed later from the Connector tab.
+                      </p>
+                      <Select
+                        id="wp-channel"
+                        className="mt-3 max-w-xs"
+                        value={channel}
+                        onChange={(event) => {
+                          if (isReleaseChannel(event.target.value)) setChannel(event.target.value);
+                        }}
+                      >
+                        {listChannels().map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                      <p className="mt-2 max-w-prose text-xs text-zinc-500">{CHANNELS[channel].blurb}</p>
+                    </div>
+                  )}
 
                   {/* Authentik protection */}
                   <fieldset>
@@ -682,7 +720,13 @@ export function WordpressDashboard() {
         </>
       )}
 
-      {tab !== "sites" && (
+      {tab === "releases" && (
+        <div className="mt-6">
+          <ReleaseBoard />
+        </div>
+      )}
+
+      {tab !== "sites" && tab !== "releases" && (
         <div className="mt-6">
           <FleetDemoArea tab={tab} />
         </div>

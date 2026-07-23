@@ -106,6 +106,8 @@ const createSchema = z.object({
   authMode: z.enum(["none", "login", "admin", "full"]).optional(),
   plugins: z.array(z.string().regex(/^[a-z0-9-]+$/)).max(50).optional(),
   connector: z.boolean().optional(),
+  // §5.1 — which Connector release train the new site rides. Absent ⇒ prod.
+  channel: z.enum(["prod", "beta", "alpha"]).optional(),
   wpStorage: z.string().regex(STORAGE_RE, "storage must be a positive size like 5Gi").optional(),
   dbStorage: z.string().regex(STORAGE_RE, "storage must be a positive size like 5Gi").optional(),
 }).strict();
@@ -165,6 +167,7 @@ export async function createSiteHandler(req: NextRequest): Promise<NextResponse>
       authMode: parsed.data.authMode ?? "none",
       plugins: parsed.data.plugins,
       connector: parsed.data.connector,
+      channel: parsed.data.channel,
       wpStorage: parsed.data.wpStorage,
       dbStorage: parsed.data.dbStorage,
     });

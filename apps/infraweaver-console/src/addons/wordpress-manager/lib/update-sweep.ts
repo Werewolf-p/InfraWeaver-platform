@@ -4,6 +4,9 @@ import { listExternalSites } from "./iwsl-link-store";
 import { updateConnectorPlugin } from "./iwsl-managed-ops";
 import { isValidSiteId } from "./naming";
 import { mapWithConcurrency } from "./concurrency";
+import { compareConnectorVersions } from "./connector-version";
+import { getChannelRegistry } from "./channel-registry";
+import { resolveChannel, type ReleaseChannel } from "./channels";
 
 /**
  * Fleet-wide Connector update (§5.1 maintenance). Runs the same in-place
@@ -33,24 +36,44 @@ export interface ConnectorUpdateSiteResult {
   /** The WordPress-manager site name (managed link's siteName). */
   site: string;
   ok: boolean;
+  /** The release channel this site rides (`channel ?? prod`), for the UI. */
+  channel: ReleaseChannel;
+  /** The version its channel resolves to — what this run aimed to install. */
+  target: string;
   /**
    * Running Connector version after the update, read back over a signed
    * health.check. Null when the link is not commandable (e.g. quarantined) so
-   * the reinstall happened but no signed round-trip confirmed the version.
+   * the reinstall happened but no signed round-trip confirmed the version. For a
+   * skipped-already-current site this is the version the site is already on.
    */
   version?: string | null;
+  /**
+   * Set (with `ok:true`) when the site was left untouched because it is already
+   * at or ahead of its channel target — no reinstall was attempted.
+   */
+  skipped?: string;
   /** Thrown-error message when the update did not complete. */
   reason?: string;
 }
 
 export interface ConnectorUpdateSweepSummary {
   ranAt: string;
-  /** Bundled Connector version this sweep pushed (from the console image). */
+  /**
+   * The Connector version bundled in this console image. Retained as the
+   * reference build; per-site targets now come from each site's channel (see
+   * each result's `target`), not one global version.
+   */
   targetVersion: string;
   /** Number of enrolled managed links the sweep attempted THIS run (after the cap). */
   total: number;
   updated: number;
   failed: number;
+  /**
+   * Sites that were already at or ahead of their channel target and so were left
+   * untouched (no reinstall attempted). Counted separately from `updated` so the
+   * operator sees the sweep converged without needless installs.
+   */
+  skipped: number;
   /**
    * Enrolled managed links left untouched this run because the per-run cap was
    * hit. Non-zero means "run the sweep again to continue" — those sites keep
@@ -96,7 +119,11 @@ const SWEEP_CONCURRENCY = 4;
 export async function runConnectorUpdateSweep(
   options: ConnectorUpdateSweepOptions = {},
 ): Promise<ConnectorUpdateSweepSummary> {
-  const [records, pkg] = await Promise.all([listExternalSites(), buildConnectorPackage()]);
+  const [records, pkg, registry] = await Promise.all([
+    listExternalSites(),
+    buildConnectorPackage(),
+    getChannelRegistry(),
+  ]);
   let enrolled = records.filter(
     (site) => site.managed && site.siteName && site.state !== "pending",
   );
@@ -121,28 +148,45 @@ export async function runConnectorUpdateSweep(
   const results = await mapWithConcurrency(
     targets,
     SWEEP_CONCURRENCY,
-    async (target): Promise<ConnectorUpdateSiteResult> => {
-      const siteName = target.siteName as string;
+    async (site): Promise<ConnectorUpdateSiteResult> => {
+      const siteName = site.siteName as string;
+      // PER-SITE target: the version this site's channel resolves to, not one
+      // global bundled version. Absent/unknown channel ⇒ prod (resolveChannel).
+      const channel = resolveChannel(site);
+      const target = registry[channel];
+      const base = { site: siteName, channel, target };
+      // Already at or ahead of the channel target ⇒ nothing to install. A null
+      // compare (missing/unparseable current version) is NOT "current" — fall
+      // through and let the install refresh it.
+      const cmp = compareConnectorVersions(site.connectorVersion, target);
+      if (cmp !== null && cmp >= 0) {
+        return { ...base, ok: true, version: site.connectorVersion, skipped: "already at channel target" };
+      }
       try {
-        const { version } = await updateConnectorPlugin(siteName);
-        return { site: siteName, ok: true, version };
+        const { version } = await updateConnectorPlugin(siteName, target, channel);
+        return { ...base, ok: true, version };
       } catch (err) {
-        // A per-site failure (pod down, plugin dir not writable, exec timeout)
-        // is logged and recorded, but the sweep carries on for the rest.
+        // A per-site failure — a pod down / exec timeout, OR the channel target
+        // has no deliverable artifact (ConnectorArtifactUnavailableError). Either
+        // way it is logged and recorded as an error; the site keeps its current
+        // Connector and the sweep carries on. NEVER a mismatched install.
         const reason = err instanceof Error ? err.message : String(err);
-        console.warn(`[wordpress:iwsl] connector update for ${siteName} failed:`, reason);
-        return { site: siteName, ok: false, reason };
+        console.warn(`[wordpress:iwsl] connector update for ${siteName} (${channel}→${target}) failed:`, reason);
+        return { ...base, ok: false, reason };
       }
     },
   );
 
-  const updated = results.filter((r) => r.ok).length;
+  const updated = results.filter((r) => r.ok && !r.skipped).length;
+  const skipped = results.filter((r) => r.ok && r.skipped).length;
+  const failed = results.filter((r) => !r.ok).length;
   return {
     ranAt: new Date().toISOString(),
     targetVersion: pkg.version,
     total: results.length,
     updated,
-    failed: results.length - updated,
+    failed,
+    skipped,
     deferred,
     results,
   };

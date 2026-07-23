@@ -3,6 +3,7 @@ import { makeCoreApi } from "@/lib/kube-client";
 import type { SlhdsaAlg } from "@/lib/iwsl";
 import type { SiteEntitlements } from "./entitlements";
 import type { TierId } from "./tiers";
+import type { ReleaseChannel } from "./channels";
 import { isK8sNotFound, isTransientApiError } from "./k8s-errors";
 
 /**
@@ -119,6 +120,17 @@ export interface ExternalSiteRecord {
    * WordPress side self-reports, so a site can never raise its own tier.
    */
   tier?: TierId;
+  /**
+   * Assigned release channel — the CONSOLE-AUTHORITATIVE choice of which Connector
+   * release train this site rides (see `channels.ts`). Absent ⇒ prod/base, exactly
+   * as absent `tier` ⇒ Free. Orthogonal to `tier`: the tier decides *what a site is
+   * entitled to*, the channel decides *which Connector version the update sweep
+   * targets it with*. A site can never self-set it — it is assigned here on the
+   * console and only ever acted on by the operator-initiated, signed update sweep
+   * (which carries the resolved version). Resolve reads from THIS field (via
+   * `resolveChannel`), never from anything the WordPress side self-reports.
+   */
+  channel?: ReleaseChannel;
   /** Last signed health.check outcome (§12.5 diagnostics). */
   lastHealth?: { at: string; ok: boolean; roundtripMs?: number; reason?: string };
   /**
