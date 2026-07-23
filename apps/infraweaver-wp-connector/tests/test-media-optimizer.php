@@ -1124,6 +1124,250 @@ if ( class_exists( 'IWSL_Admin' ) ) {
 	echo "  [skip] AJAX endpoint tests — IWSL_Admin not loadable in this harness\n";
 }
 
+// ── 14b. Background (WP-cron) conversion queue ───────────────────────────────
+//
+// schedule_background() arms a job + one cron tick; run_background_tick() advances
+// ONE MAX_BATCH per tick, refreshes counters, and re-arms while work remains — or
+// finishes (done / stalled) and unschedules. Runs while the fake $wpdb above is
+// still installed (background_state()/tick call library_stats()). In-memory stubs
+// for the option store + WP-Cron API are declared here (guarded), matching the
+// pattern the earlier sections use for the attachment/URL layers.
+
+$GLOBALS['iwsl_mo_options'] = array(); // option_name => value
+$GLOBALS['iwsl_mo_cron']    = array(); // hook => next timestamp (single events)
+
+if ( ! function_exists( 'get_option' ) ) {
+	function get_option( string $key, $default = false ) {
+		return array_key_exists( $key, $GLOBALS['iwsl_mo_options'] ) ? $GLOBALS['iwsl_mo_options'][ $key ] : $default;
+	}
+}
+if ( ! function_exists( 'update_option' ) ) {
+	function update_option( string $key, $value ): bool {
+		$GLOBALS['iwsl_mo_options'][ $key ] = $value;
+		return true;
+	}
+}
+if ( ! function_exists( 'delete_option' ) ) {
+	function delete_option( string $key ): bool {
+		$had = array_key_exists( $key, $GLOBALS['iwsl_mo_options'] );
+		unset( $GLOBALS['iwsl_mo_options'][ $key ] );
+		return $had;
+	}
+}
+if ( ! function_exists( 'wp_schedule_single_event' ) ) {
+	function wp_schedule_single_event( int $timestamp, string $hook, array $args = array() ) {
+		$GLOBALS['iwsl_mo_cron'][ $hook ] = $timestamp;
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_next_scheduled' ) ) {
+	function wp_next_scheduled( string $hook, array $args = array() ) {
+		return $GLOBALS['iwsl_mo_cron'][ $hook ] ?? false;
+	}
+}
+if ( ! function_exists( 'wp_clear_scheduled_hook' ) ) {
+	function wp_clear_scheduled_hook( string $hook, array $args = array() ) {
+		$had = isset( $GLOBALS['iwsl_mo_cron'][ $hook ] );
+		unset( $GLOBALS['iwsl_mo_cron'][ $hook ] );
+		return $had ? 1 : 0;
+	}
+}
+// The picked-selection path re-validates each id's MIME server-side; the shared
+// auto get_posts stub can't model meta_query NOT EXISTS, so the done branch below
+// drives a picked-id job (select_batch_from_ids DOES honour "skip done" via
+// get_post_meta). Guarded so the later section-15 definition is a no-op.
+if ( ! function_exists( 'get_post_mime_type' ) ) {
+	function get_post_mime_type( int $id ) {
+		return isset( $GLOBALS['iwsl_mo_attachments'][ $id ] ) ? (string) $GLOBALS['iwsl_mo_attachments'][ $id ]['mime'] : '';
+	}
+}
+
+/** Reset the background-queue globals between sub-cases. */
+$iwsl_mo_bg_reset = static function (): void {
+	iwsl_mo_reset();
+	$GLOBALS['iwsl_mo_options'] = array();
+	$GLOBALS['iwsl_mo_cron']    = array();
+	$GLOBALS['iwsl_mo_urls']    = array();
+	$GLOBALS['iwsl_mo_attmeta'] = array();
+	$GLOBALS['iwsl_mo_posts']   = array();
+};
+$iwsl_bg_hook   = IWSL_Media_Optimizer::BG_TICK_HOOK;
+$iwsl_bg_option = IWSL_Media_Optimizer::BG_JOB_OPTION;
+
+// (a) unlocked gate: schedule stores a running job + arms a tick; state has shape.
+$iwsl_mo_bg_reset();
+$base_bg = iwsl_mo_tempdir();
+$GLOBALS['iwsl_mo_attachments'][1601] = array( 'path' => $base_bg . '/one.png', 'mime' => 'image/png' );
+$GLOBALS['iwsl_mo_attachments'][1602] = array( 'path' => $base_bg . '/two.png', 'mime' => 'image/png' );
+$opt_bg = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base_bg,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) )
+);
+$sched = $opt_bg->schedule_background( 'webp_lossless', 'copy', 'auto', array(), true, true );
+iwsl_assert_same( true, $sched['ok'], 'bg-schedule: unlocked gate returns ok' );
+iwsl_assert_same( 'running', $sched['state']['status'], 'bg-schedule: scheduled job status is running' );
+iwsl_assert_same( true, $sched['state']['active'], 'bg-schedule: scheduled state is active' );
+iwsl_assert_same( 2, $sched['state']['stats']['remaining'], 'bg-schedule: initial snapshot counts both png' );
+iwsl_assert( isset( $GLOBALS['iwsl_mo_options'][ $iwsl_bg_option ] ), 'bg-schedule: a job option is stored' );
+iwsl_assert_same( 'running', $GLOBALS['iwsl_mo_options'][ $iwsl_bg_option ]['status'], 'bg-schedule: stored job status is running' );
+iwsl_assert( false !== wp_next_scheduled( $iwsl_bg_hook ), 'bg-schedule: a cron tick is armed' );
+$state_a = $opt_bg->background_state();
+iwsl_assert_same( array( 'active', 'status', 'stats', 'current', 'updated' ), array_keys( $state_a ), 'bg-state: shape is { active, status, stats, current, updated }' );
+iwsl_assert_same( array( 'total', 'optimized', 'remaining' ), array_keys( $state_a['stats'] ), 'bg-state: stats block shape is { total, optimized, remaining }' );
+
+// (b) locked gate: refused, stores no job, arms no tick.
+$iwsl_mo_bg_reset();
+$store_bg_locked = new IWSL_Memory_Store();
+$store_bg_locked->set( 'state', 'active' );
+$store_bg_locked->set( 'last_verified_at', $NOW - 60000 );
+$store_bg_locked->set( 'entitlements', array( 'plus' => true ) ); // image_optimization absent
+$ent_bg_locked = new IWSL_Entitlements( $store_bg_locked, static function () use ( $NOW ): int {
+	return $NOW; } );
+$opt_bg_locked = new IWSL_Media_Optimizer( $ent_bg_locked, iwsl_mo_tempdir(), static function () use ( $NOW ): int {
+	return $NOW; }, array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) ) );
+$sched_locked = $opt_bg_locked->schedule_background();
+iwsl_assert_same( false, $sched_locked['ok'], 'bg-schedule: locked gate refuses' );
+iwsl_assert_same( 'entitlement-locked', $sched_locked['reason'], 'bg-schedule: refusal reason entitlement-locked' );
+iwsl_assert( ! isset( $GLOBALS['iwsl_mo_options'][ $iwsl_bg_option ] ), 'bg-schedule: locked gate stores no job' );
+iwsl_assert( false === wp_next_scheduled( $iwsl_bg_hook ), 'bg-schedule: locked gate arms no tick' );
+
+// (c) done branch: a picked-id job whose single source converts in one tick →
+//     'done', current null (skip-done leaves the picked set empty), unscheduled.
+//     Picked ids use select_batch_from_ids, which honours "skip done" in-harness
+//     (auto get_posts can't model meta_query NOT EXISTS — see the stub note above).
+$iwsl_mo_bg_reset();
+$base_done = iwsl_mo_tempdir();
+$png_done  = $base_done . '/solo.png';
+file_put_contents( $png_done, iwsl_mo_valid_png( 8, 8 ) );
+$GLOBALS['iwsl_mo_attachments'][1650] = array( 'path' => $png_done, 'mime' => 'image/png' );
+$fake_done = new IWSL_Recording_Converter( 0.4 );
+$opt_done  = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base_done,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => $fake_done )
+);
+$opt_done->schedule_background( 'webp_lossless', 'copy', 'auto', array( 1650 ), false, true );
+unset( $GLOBALS['iwsl_mo_cron'][ $iwsl_bg_hook ] ); // WP-Cron consumes the due event
+$opt_done->run_background_tick();
+$st_done = $opt_done->background_state();
+iwsl_assert_same( 'done', $st_done['status'], 'bg-tick(done): marked done once the backlog clears' );
+iwsl_assert_same( false, $st_done['active'], 'bg-tick(done): a done job is not active' );
+iwsl_assert_same( 0, $st_done['stats']['remaining'], 'bg-tick(done): remaining is 0 when done' );
+iwsl_assert_same( null, $st_done['current'], 'bg-tick(done): current is null when nothing is left' );
+iwsl_assert_same( 1, $fake_done->convert_calls, 'bg-tick(done): the one source was converted' );
+iwsl_assert( false === wp_next_scheduled( $iwsl_bg_hook ), 'bg-tick(done): cron hook cleared when done' );
+
+// (d) reschedule branch: an AUTO backlog larger than MAX_BATCH. One tick converts
+//     exactly MAX_BATCH, leaves work, stays 'running', and re-arms the next tick.
+$iwsl_mo_bg_reset();
+$base_more = iwsl_mo_tempdir();
+for ( $iwsl_bg_i = 0; $iwsl_bg_i < 11; $iwsl_bg_i++ ) {
+	$iwsl_bg_path = $base_more . "/img{$iwsl_bg_i}.png";
+	file_put_contents( $iwsl_bg_path, iwsl_mo_valid_png( 6, 6 ) );
+	$GLOBALS['iwsl_mo_attachments'][ 1700 + $iwsl_bg_i ] = array( 'path' => $iwsl_bg_path, 'mime' => 'image/png' );
+}
+$fake_more = new IWSL_Recording_Converter( 0.4 );
+$opt_more  = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base_more,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => $fake_more )
+);
+$opt_more->schedule_background( 'webp_lossless', 'copy', 'auto', array(), false, true );
+iwsl_assert_same( 11, $opt_more->background_state()['stats']['remaining'], 'bg-tick(more): 11 pending before any tick' );
+unset( $GLOBALS['iwsl_mo_cron'][ $iwsl_bg_hook ] );
+$opt_more->run_background_tick();
+$st_more = $opt_more->background_state();
+iwsl_assert_same( 'running', $st_more['status'], 'bg-tick(more): stays running while work remains' );
+iwsl_assert_same( 1, $st_more['stats']['remaining'], 'bg-tick(more): one MAX_BATCH converted, one remains' );
+iwsl_assert_same( 10, $fake_more->convert_calls, 'bg-tick(more): exactly one bounded MAX_BATCH ran' );
+iwsl_assert( is_array( $st_more['current'] ) && isset( $st_more['current']['id'], $st_more['current']['name'] ), 'bg-tick(more): current names the next candidate (id + name, no thumb)' );
+iwsl_assert( false !== wp_next_scheduled( $iwsl_bg_hook ), 'bg-tick(more): a follow-up tick is re-armed while remaining>0' );
+
+// (e) work remains but a batch makes NO progress (every source refused pre-decode)
+//     → 'stalled' + unscheduled, so the queue never hot-loops.
+$iwsl_mo_bg_reset();
+$base_stall    = iwsl_mo_tempdir();
+$outside_stall = iwsl_mo_tempdir();
+$png_stall     = $outside_stall . '/x.png';
+file_put_contents( $png_stall, iwsl_mo_valid_png( 4, 4 ) );
+$GLOBALS['iwsl_mo_attachments'][1801] = array( 'path' => $png_stall, 'mime' => 'image/png' ); // path-escape → always refused
+$fake_stall = new IWSL_Recording_Converter( 0.4 );
+$opt_stall  = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base_stall,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => $fake_stall )
+);
+$opt_stall->schedule_background( 'webp_lossless', 'copy', 'auto', array(), false, true );
+unset( $GLOBALS['iwsl_mo_cron'][ $iwsl_bg_hook ] );
+$opt_stall->run_background_tick();
+$st_stall = $opt_stall->background_state();
+iwsl_assert_same( 'stalled', $st_stall['status'], 'bg-tick: no progress with work remaining → stalled' );
+iwsl_assert_same( 1, $st_stall['stats']['remaining'], 'bg-tick: the un-convertible source still counts as remaining' );
+iwsl_assert_same( 0, $fake_stall->convert_calls, 'bg-tick: a refused-before-decode source never reaches the converter' );
+iwsl_assert( false === wp_next_scheduled( $iwsl_bg_hook ), 'bg-tick: a stalled job unschedules (no hot loop)' );
+
+// (f) entitlement revoked mid-run: the next tick sets 'stopped' + unschedules,
+//     BEFORE any batch runs (gate re-check precedes the conversion work).
+$iwsl_mo_bg_reset();
+$GLOBALS['iwsl_mo_options'][ $iwsl_bg_option ] = array(
+	'params'  => array( 'converter' => 'webp_lossless', 'mode' => 'copy', 'types' => 'auto', 'ids' => array(), 'rewrite' => true, 'skip_optimized' => true ),
+	'status'  => 'running',
+	'started' => $NOW,
+	'stats'   => array( 'total' => 1, 'optimized' => 0, 'remaining' => 1 ),
+	'current' => null,
+	'updated' => $NOW,
+);
+$GLOBALS['iwsl_mo_cron'][ $iwsl_bg_hook ] = 123; // a pending tick to be cleared
+$store_rev = new IWSL_Memory_Store();
+$store_rev->set( 'state', 'active' );
+$store_rev->set( 'last_verified_at', $NOW - 60000 );
+$store_rev->set( 'entitlements', array( 'plus' => true ) ); // image_optimization revoked
+$ent_rev = new IWSL_Entitlements( $store_rev, static function () use ( $NOW ): int {
+	return $NOW; } );
+$fake_rev = new IWSL_Recording_Converter( 0.4 );
+$opt_rev  = new IWSL_Media_Optimizer( $ent_rev, iwsl_mo_tempdir(), static function () use ( $NOW ): int {
+	return $NOW; }, array( 'webp_lossless' => $fake_rev ) );
+$opt_rev->run_background_tick();
+iwsl_assert_same( 'stopped', $opt_rev->background_state()['status'], 'bg-tick: revoked entitlement stops a running job' );
+iwsl_assert_same( 0, $fake_rev->convert_calls, 'bg-tick: a stopped tick never reaches the converter' );
+iwsl_assert( false === wp_next_scheduled( $iwsl_bg_hook ), 'bg-tick: a stopped job clears its cron hook' );
+
+// (g) no job → idle state (shape preserved); cancel drops the job + unschedules.
+$iwsl_mo_bg_reset();
+$opt_idle = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	iwsl_mo_tempdir(),
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) )
+);
+$idle = $opt_idle->background_state();
+iwsl_assert_same( 'idle', $idle['status'], 'bg-state: no job → status idle' );
+iwsl_assert_same( false, $idle['active'], 'bg-state: idle is not active' );
+iwsl_assert_same( null, $idle['current'], 'bg-state: idle current is null' );
+iwsl_assert_same( 0, $idle['updated'], 'bg-state: idle updated is 0' );
+iwsl_assert_same( array( 'total', 'optimized', 'remaining' ), array_keys( $idle['stats'] ), 'bg-state: idle stats still carry the full shape' );
+
+$opt_idle->schedule_background();
+iwsl_assert( isset( $GLOBALS['iwsl_mo_options'][ $iwsl_bg_option ] ), 'bg-cancel: a job exists before cancel' );
+$cancel = $opt_idle->cancel_background();
+iwsl_assert_same( true, $cancel['ok'], 'bg-cancel: returns ok' );
+iwsl_assert( ! isset( $GLOBALS['iwsl_mo_options'][ $iwsl_bg_option ] ), 'bg-cancel: job option deleted' );
+iwsl_assert( false === wp_next_scheduled( $iwsl_bg_hook ), 'bg-cancel: cron hook cleared' );
+iwsl_assert_same( 'idle', $opt_idle->background_state()['status'], 'bg-cancel: state returns to idle' );
+
+// Drop the background-queue globals so they never leak into a sibling suite.
+unset( $GLOBALS['iwsl_mo_options'], $GLOBALS['iwsl_mo_cron'] );
+
 // This suite is the only one that installs a global $wpdb; other suites bring
 // their own recording fake. Remove it so it never leaks across the shared runner.
 unset( $GLOBALS['wpdb'] );

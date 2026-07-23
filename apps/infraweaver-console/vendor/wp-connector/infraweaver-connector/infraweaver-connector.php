@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.13.0
+ * Version: 0.14.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.13.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.14.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -344,6 +344,20 @@ if ( $iwsl_switches->is_on( IWSL_Auto_Convert::FEATURE ) ) {
 // AJAX (test/status/offload/remove/manual) + admin-post save handler are self-wired
 // inside register() (each re-checks manage_options + nonce + the gate).
 ( new IWSL_Media_Offload( $iwsl_ent, new IWSL_WP_Store() ) )->register();
+
+// Background image conversion tick (gated on `image_optimization` inside the
+// callback). Registered UNCONDITIONALLY — WP-Cron fires outside admin, so the hook
+// must exist on every request for a scheduled tick to resolve. The tick re-checks
+// the entitlement as its first act and self-unschedules once the backlog is done,
+// stalled, or the flag is revoked, so a locked/revoked site pays nothing.
+if ( function_exists( 'add_action' ) ) {
+	add_action(
+		IWSL_Media_Optimizer::BG_TICK_HOOK,
+		static function (): void {
+			( new IWSL_Media_Optimizer( iwsl_plugin()->entitlements() ) )->run_background_tick();
+		}
+	);
+}
 
 // Speed Pack (Pro, `speed_pack`). Writes a managed .htaccess block; maybe_revoke()
 // tears it down the moment the flag is revoked (presence-based, like page cache).

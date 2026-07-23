@@ -46,6 +46,15 @@ final class IWSL_Admin {
 	const MO_STATUS_ACTION = 'iwsl_mo_status';
 	const MO_BATCH_ACTION  = 'iwsl_mo_run_batch';
 
+	/**
+	 * AJAX actions for the server-side "Convert in background" job — start (schedule)
+	 * and cancel. Same defence as the foreground batch handler: manage_options +
+	 * OPTIMIZE_NONCE (check_ajax_referer) + the LAYER-2 entitlement re-check. The
+	 * heavy lifting lives in IWSL_Media_Optimizer::{schedule,cancel,state}_background().
+	 */
+	const MO_BG_START_ACTION  = 'iwsl_mo_bg_start';
+	const MO_BG_CANCEL_ACTION = 'iwsl_mo_bg_cancel';
+
 	/** admin-post action + nonce for the SMTP settings save. */
 	const EMAIL_SETTINGS_ACTION = 'iwsl_email_settings';
 	const EMAIL_SETTINGS_NONCE  = 'iwsl_email_settings';
@@ -764,6 +773,8 @@ final class IWSL_Admin {
 		// cap + nonce + entitlement gate as the admin-post handler; no nopriv twin.
 		add_action( 'wp_ajax_' . self::MO_STATUS_ACTION, array( $this, 'handle_mo_status_ajax' ) );
 		add_action( 'wp_ajax_' . self::MO_BATCH_ACTION, array( $this, 'handle_mo_run_batch_ajax' ) );
+		add_action( 'wp_ajax_' . self::MO_BG_START_ACTION, array( $this, 'handle_mo_bg_start_ajax' ) );
+		add_action( 'wp_ajax_' . self::MO_BG_CANCEL_ACTION, array( $this, 'handle_mo_bg_cancel_ajax' ) );
 		add_action( 'admin_post_' . self::EMAIL_SETTINGS_ACTION, array( $this, 'handle_email_settings_save' ) );
 		add_action( 'admin_post_' . self::EMAIL_LOG_CLEAR_ACTION, array( $this, 'handle_email_log_clear' ) );
 		add_action( 'admin_post_' . self::EMAIL_TEST_ACTION, array( $this, 'handle_email_test' ) );
@@ -1733,6 +1744,12 @@ JS;
 		// and reveals its controls only when granted AND switched on.
 		self::render_jump_rail( $tabs, $unlocked, $this->switches() );
 
+		// Compact-list control bar: every feature card folds by default (see
+		// render_feature_card), so this "Open all / Close all" toggle lets the owner
+		// expand the whole page at once. Progressive-enhancement only — the cards are
+		// keyboard/screen-reader accessible with zero JS.
+		self::render_cards_controls();
+
 		echo '<div class="iwsl-cards">';
 		foreach ( $tabs as $tab ) {
 			$this->render_feature_card( $tab, $unlocked );
@@ -1740,7 +1757,81 @@ JS;
 		echo '</div>'; // .iwsl-cards
 
 		self::render_shell_script();
+		self::render_cards_script();
 		echo '</div>'; // .wrap.iwsl-shell
+	}
+
+	/**
+	 * The control bar above the feature cards: an accessible Open-all / Close-all
+	 * toggle button. State lives in aria-pressed; the JS in render_cards_script()
+	 * sets every card's <details>.open to match and remembers the choice per page
+	 * in localStorage. Static, read-only markup — no request input, no state change.
+	 */
+	private static function render_cards_controls(): void {
+		echo '<div class="iwsl-cards-controls">';
+		echo '<button type="button" class="button iwsl-cards-toggle" id="iwsl-cards-toggle" aria-pressed="false"'
+			. ' data-open-label="' . esc_attr__( 'Open all', 'infraweaver-connector' ) . '"'
+			. ' data-close-label="' . esc_attr__( 'Close all', 'infraweaver-connector' ) . '">'
+			. esc_html__( 'Open all', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+	}
+
+	/**
+	 * The Open-all / Close-all controller for the folded feature cards. Vanilla JS,
+	 * no dependencies: toggles every `details.iwsl-card` open/closed, keeps the
+	 * button's aria-pressed + label in sync, and remembers the all-open/all-closed
+	 * choice per page (data-iwsl-scope) in localStorage. Also opens a single card
+	 * when its jump-rail anchor is clicked, so the sticky rail stays useful while
+	 * cards are folded. The cards work without this script (native <details>).
+	 */
+	private static function render_cards_script(): void {
+		echo "<script>\n";
+		echo <<<'JS'
+(function(){
+	var shell = document.querySelector('.iwsl-shell');
+	if (!shell) { return; }
+	var btn = document.getElementById('iwsl-cards-toggle');
+	var cards = Array.prototype.slice.call(shell.querySelectorAll('details.iwsl-card'));
+	if (!btn || !cards.length) { return; }
+
+	var scope = (shell.dataset && shell.dataset.iwslScope) ? shell.dataset.iwslScope : '';
+	var KEY = 'iwsl_cards_open_' + scope;
+	var openLabel = btn.getAttribute('data-open-label') || btn.textContent;
+	var closeLabel = btn.getAttribute('data-close-label') || btn.textContent;
+
+	function apply(open){
+		cards.forEach(function(d){ d.open = open; });
+		btn.setAttribute('aria-pressed', open ? 'true' : 'false');
+		btn.textContent = open ? closeLabel : openLabel;
+	}
+
+	// Restore the remembered all-open choice (all-closed is the default, so only an
+	// explicit '1' re-opens). Never forces cards closed on load — a card the user
+	// (or the background monitor) opened individually stays as the markup left it.
+	var saved = null;
+	try { saved = localStorage.getItem(KEY); } catch (e) {}
+	if (saved === '1') { apply(true); }
+
+	btn.addEventListener('click', function(){
+		var open = btn.getAttribute('aria-pressed') !== 'true';
+		apply(open);
+		try { localStorage.setItem(KEY, open ? '1' : '0'); } catch (e) {}
+	});
+
+	// Jump-rail anchors point at #iwsl-card-<id>; a folded <details> would just
+	// scroll into view still closed, so open the targeted card on click.
+	var jump = shell.querySelector('.iwsl-jump');
+	if (jump) {
+		jump.addEventListener('click', function(e){
+			var a = e.target && e.target.closest ? e.target.closest('a[href^="#iwsl-card-"]') : null;
+			if (!a) { return; }
+			var target = document.getElementById(a.getAttribute('href').slice(1));
+			if (target && target.tagName === 'DETAILS') { target.open = true; }
+		});
+	}
+})();
+JS;
+		echo "\n</script>\n";
 	}
 
 	/**
@@ -1792,9 +1883,13 @@ JS;
 			'locked' => __( 'Locked', 'infraweaver-connector' ),
 		);
 
-		echo '<section class="iwsl-card iwsl-card--' . esc_attr( $state ) . '" id="iwsl-card-' . esc_attr( $id ) . '" tabindex="-1">';
+		// Each card is a native <details> with NO `open` attribute, so the overview is
+		// a compact, scannable list of feature names + status by default; the <summary>
+		// is the card header (title, help, status, lock glyph) and expanding it reveals
+		// the switch + the feature body. Zero-JS baseline, keyboard/screen-reader safe.
+		echo '<details class="iwsl-card iwsl-card--' . esc_attr( $state ) . '" id="iwsl-card-' . esc_attr( $id ) . '" tabindex="-1">';
 
-		echo '<header class="iwsl-card__head">';
+		echo '<summary class="iwsl-card__head">';
 		echo '<div class="iwsl-card__titlerow">';
 		echo '<h2 class="iwsl-card__title">' . esc_html( $label ) . '</h2>';
 		$help = self::feature_help( $id );
@@ -1808,9 +1903,20 @@ JS;
 		}
 		echo '</div>';
 
-		// The on/off control (the switch) sits DIRECTLY beside the feature name,
-		// grouped left — never pushed to the far right — so it reads as part of the
-		// feature. The state label follows it, keeping the head as one tidy group.
+		// A locked card still folds — keep the lock glyph on the summary so the sealed
+		// state reads at a glance without expanding. The state label carries the text.
+		if ( 'locked' === $state ) {
+			echo '<span class="dashicons dashicons-lock iwsl-card__headlock" aria-hidden="true"></span>';
+		}
+		echo '<span class="iwsl-card__state iwsl-card__state--' . esc_attr( $state ) . '">' . esc_html( $state_label[ $state ] ) . '</span>';
+		echo '<span class="dashicons dashicons-arrow-down-alt2 iwsl-card__chev" aria-hidden="true"></span>';
+		echo '</summary>';
+
+		// Everything below the summary lives inside the fold. The on/off control (the
+		// switch, or the upgrade note when locked) sits at the top of the revealed
+		// area, directly above the feature body.
+		echo '<div class="iwsl-card__reveal">';
+
 		if ( null !== $flag ) {
 			echo '<div class="iwsl-card__control">';
 			if ( $granted ) {
@@ -1825,9 +1931,6 @@ JS;
 			}
 			echo '</div>';
 		}
-
-		echo '<span class="iwsl-card__state iwsl-card__state--' . esc_attr( $state ) . '">' . esc_html( $state_label[ $state ] ) . '</span>';
-		echo '</header>';
 
 		if ( 'on' === $state ) {
 			echo '<div class="iwsl-card__body">';
@@ -1849,7 +1952,8 @@ JS;
 			echo '</div>';
 		}
 
-		echo '</section>';
+		echo '</div>'; // .iwsl-card__reveal
+		echo '</details>';
 	}
 
 	/** The enable/disable switch itself: a real POST toggle (works without JS). */
@@ -1911,7 +2015,7 @@ JS;
 
 .iwsl-shell .iwsl-cards{ display: flex; flex-direction: column; gap: 16px; }
 .iwsl-shell .iwsl-card{ border: 1px solid var(--iw-line); border-radius: var(--iw-r-sm, 12px); background: var(--iw-panel); overflow: visible; scroll-margin-top: 96px; }
-.iwsl-shell .iwsl-card__titlerow{ display: flex; align-items: center; gap: 7px; min-width: 0; }
+.iwsl-shell .iwsl-card__titlerow{ display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1 1 auto; }
 .iwsl-shell .iwsl-help{ position: relative; display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--iw-line-2); background: var(--iw-panel-2); color: var(--iw-ink-2); cursor: help; flex: 0 0 auto; }
 .iwsl-shell .iwsl-help__q{ font-size: 11px; font-weight: 700; line-height: 1; }
 .iwsl-shell .iwsl-help--field{ width: 15px; height: 15px; margin-left: 5px; vertical-align: middle; }
@@ -1922,14 +2026,30 @@ JS;
 .iwsl-shell .iwsl-help:hover .iwsl-help__tip, .iwsl-shell .iwsl-help:focus-visible .iwsl-help__tip{ opacity: 1; visibility: visible; }
 .iwsl-shell .iwsl-card--off{ opacity: .92; }
 .iwsl-shell .iwsl-card--locked{ opacity: .7; }
-.iwsl-shell .iwsl-card__head{ display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid transparent; }
-.iwsl-shell .iwsl-card--on .iwsl-card__head{ border-bottom-color: var(--iw-line); }
+.iwsl-shell .iwsl-card__head{ display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid transparent; cursor: pointer; list-style: none; user-select: none; }
+.iwsl-shell .iwsl-card__head::-webkit-details-marker{ display: none; }
+.iwsl-shell .iwsl-card__head:hover .iwsl-card__title{ color: var(--iw-signal); }
+.iwsl-shell .iwsl-card__head:focus-visible{ outline: 2px solid var(--iw-signal); outline-offset: -2px; }
+/* Divider under the summary only when the card is expanded — a folded summary
+   reads as a single compact row with no rule beneath it. */
+.iwsl-shell .iwsl-card[open] > .iwsl-card__head{ border-bottom-color: var(--iw-line); }
+.iwsl-shell .iwsl-card__headlock{ font-size: 15px !important; width: 15px !important; height: 15px !important; color: var(--iw-faint); flex: 0 0 auto; }
+.iwsl-shell .iwsl-card__chev{ font-size: 18px !important; width: 18px; height: 18px; color: var(--iw-faint); flex: 0 0 auto; transition: transform .15s; }
+.iwsl-shell .iwsl-card[open] > .iwsl-card__head .iwsl-card__chev{ transform: rotate(180deg); }
 .iwsl-shell .iwsl-card__title{ margin: 0; font-size: 16px; line-height: 1.1; color: var(--iw-ink); }
 .iwsl-shell .iwsl-card__state{ font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 .iwsl-shell .iwsl-card__state--on{ color: var(--iw-good); }
 .iwsl-shell .iwsl-card__state--off{ color: var(--iw-faint); }
 .iwsl-shell .iwsl-card__state--locked{ color: var(--iw-faint); }
-.iwsl-shell .iwsl-card__control{ flex: 0 0 auto; }
+/* The on/off switch (or the upgrade note) now lives inside the fold, above the
+   feature body. */
+.iwsl-shell .iwsl-card__reveal{ display: block; }
+.iwsl-shell .iwsl-card__control{ padding: 14px 18px 0; }
+.iwsl-shell .iwsl-card__control + .iwsl-card__body{ padding-top: 12px; }
+
+/* Open-all / Close-all control bar above the folded feature cards. */
+.iwsl-shell .iwsl-cards-controls{ display: flex; justify-content: flex-end; margin: 0 0 12px; }
+.iwsl-shell .iwsl-cards-toggle{ font-size: 13px; }
 .iwsl-shell .iwsl-card__lock{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--iw-faint); }
 .iwsl-shell .iwsl-card__lock .dashicons{ font-size: 15px; width: 15px; height: 15px; }
 .iwsl-shell .iwsl-card__body{ padding: 16px 18px 20px; }
@@ -1970,6 +2090,7 @@ JS;
 	.iwsl-shell .iwsl-card__head{ flex-wrap: nowrap; gap: 10px; padding: 13px 14px; }
 	.iwsl-shell .iwsl-card__title{ overflow-wrap: anywhere; }
 	.iwsl-shell .iwsl-card__body{ padding: 14px 14px 16px; }
+	.iwsl-shell .iwsl-card__control{ padding: 12px 14px 0; }
 }
 
 /* ── "Start here" helper line at the top of each category page ─────────── */
@@ -3288,6 +3409,10 @@ JS;
 		echo '<div class="iwsl-primary">';
 		echo '<span class="iwsl-primary__meta">' . esc_html__( 'Re-encodes to WebP — originals kept, only smaller results are saved.', 'infraweaver-connector' ) . '</span>';
 		echo '<button type="submit" id="iwsl-mo-run-all" name="op" value="run" class="button button-primary">' . esc_html__( 'Optimize all images', 'infraweaver-connector' ) . '</button>';
+		// Server-side background job: schedules the same conversion via WP-Cron/loopback
+		// so it keeps running even if this tab closes. JS-only (no-JS falls back to the
+		// foreground POST buttons); the popup doubles as a live monitor for it.
+		echo '<button type="button" id="iwsl-mo-bg-all" class="button">' . esc_html__( 'Convert in the background — keeps going even if you close this tab', 'infraweaver-connector' ) . '</button>';
 		echo '<button type="submit" id="iwsl-mo-replace-all" name="op" value="replace-all" class="button button-link-delete">' . esc_html__( 'Replace all larger files with lossless', 'infraweaver-connector' ) . '</button>';
 		echo '</div>';
 		echo '<p class="description" id="iwsl-mo-replace-all-note" style="margin:-6px 0 4px;">' . esc_html__( 'Replace mode swaps each original for its WebP only where the WebP is smaller, then deletes the original — any hardcoded file link in post content will break.', 'infraweaver-connector' ) . '</p>';
@@ -3363,6 +3488,11 @@ JS;
 			'nonce'           => wp_create_nonce( self::OPTIMIZE_NONCE ),
 			'statusAction'    => self::MO_STATUS_ACTION,
 			'batchAction'     => self::MO_BATCH_ACTION,
+			'bgStartAction'   => self::MO_BG_START_ACTION,
+			'bgCancelAction'  => self::MO_BG_CANCEL_ACTION,
+			// How often the popup re-polls the status endpoint while monitoring a
+			// server-side background job (ms).
+			'bgPollMs'        => 2000,
 			'maxRequest'      => IWSL_Media_Optimizer::MAX_REQUEST,
 			// Stop the loop after this many consecutive batches that make no headway
 			// (e.g. every remaining image has no smaller lossless version) — the guard
@@ -3390,6 +3520,10 @@ JS;
 				'errGeneric'    => __( 'The run was refused by the server.', 'infraweaver-connector' ),
 				'close'         => __( 'Close', 'infraweaver-connector' ),
 				'inProgress'    => __( 'In progress — view progress', 'infraweaver-connector' ),
+				'titleBackground' => __( 'Converting in the background', 'infraweaver-connector' ),
+				'bgRunning'       => __( 'Converting in the background — you can safely close this window; it keeps going.', 'infraweaver-connector' ),
+				'bgStopped'       => __( 'Background conversion stopped. Images already converted are kept.', 'infraweaver-connector' ),
+				'stopBg'          => __( 'Stop background', 'infraweaver-connector' ),
 			),
 		);
 
@@ -3430,6 +3564,9 @@ JS;
 		echo '<div class="iwsl-mo-bar" id="iwsl-mo-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="iwsl-mo-bar__fill" id="iwsl-mo-bar-fill"></div></div>';
 		echo '<p class="iwsl-mo-log" id="iwsl-mo-log" role="status" aria-live="polite"></p>';
 		echo '<div class="iwsl-mo-modal__actions">';
+		// Cancels a server-side background job (hidden unless the popup is monitoring
+		// one). Sits left of Close; the JS shows/hides it and wires the AJAX cancel.
+		echo '<button type="button" class="button button-link-delete" id="iwsl-mo-bg-stop" style="margin-right:auto;" hidden>' . esc_html( $cfg['i18n']['stopBg'] ) . '</button>';
 		echo '<button type="button" class="button button-primary" id="iwsl-mo-modal-close" data-iwsl-mo-close>' . $lbl_close . '</button>';
 		echo '</div>';
 		echo '</div></div>';
@@ -3496,12 +3633,18 @@ JS;
 
 	var runBtn = document.getElementById('iwsl-mo-run-all');
 	var repBtn = document.getElementById('iwsl-mo-replace-all');
+	var bgBtn = document.getElementById('iwsl-mo-bg-all');      // "Convert in background".
+	var stopBgBtn = document.getElementById('iwsl-mo-bg-stop'); // in-modal cancel control.
 	var closeEls = modal.querySelectorAll('[data-iwsl-mo-close]');
 	var lastFocus = null;
 	var busy = false;
 	var stopRequested = false;
 	var pending = null;   // card {id,name,thumb} of the image currently converting.
 	var imgTimer = null;  // setInterval handle for the per-image activity bar.
+	var serverBg = null;    // last-known server background_state (monitor + button).
+	var monitoring = false; // popup is polling a server-side background job.
+	var monTimer = null;    // setTimeout handle for the background monitor poll.
+	var lastMonCurId = null;// current-image id last seen while monitoring.
 
 	// Durable "a run is active" marker so a reload / navigation / disconnect does
 	// not orphan the popup. Stores which run kind is live ('optimize'|'replace');
@@ -3512,12 +3655,20 @@ JS;
 	var origRep = repBtn ? repBtn.textContent : '';
 	function activeKind(){ try { return localStorage.getItem(STORE) || ''; } catch (e) { return ''; } }
 	function saveActive(kind){ try { localStorage.setItem(STORE, kind); } catch (e) {} }
+	// A server-side background job is authoritative — it survives reloads and other
+	// browsers/devices — so it wins over the local localStorage marker.
+	function isBgActive(){ return !!(serverBg && serverBg.active); }
 	function refreshButtons(){
 		var active = activeKind();
-		if (runBtn) { runBtn.textContent = (active === 'optimize') ? cfg.i18n.inProgress : origRun; runBtn.classList.toggle('iwsl-mo-inprogress', active === 'optimize'); }
+		// The primary "Optimize" button doubles as the unified in-progress / view
+		// button: it reads "In progress" when a server background job is running OR a
+		// local foreground run was left active.
+		var runOn = isBgActive() || (active === 'optimize');
+		if (runBtn) { runBtn.textContent = runOn ? cfg.i18n.inProgress : origRun; runBtn.classList.toggle('iwsl-mo-inprogress', runOn); }
 		if (repBtn) { repBtn.textContent = (active === 'replace') ? cfg.i18n.inProgress : origRep; repBtn.classList.toggle('iwsl-mo-inprogress', active === 'replace'); }
 	}
 	function clearActive(){ try { localStorage.removeItem(STORE); } catch (e) {} refreshButtons(); }
+	function showStopBg(on){ if (stopBgBtn) { stopBgBtn.hidden = !on; } }
 
 	function el(id){ return document.getElementById(id); }
 	function setText(id, v){ var n = el(id); if (n) { n.textContent = String(v); } }
@@ -3625,6 +3776,11 @@ JS;
 	function closeModal(){
 		stopRequested = true;
 		stopImgBar();
+		// Closing only stops LOCAL polling — a server background job keeps running, so
+		// the "In progress" button stays lit and re-opening resumes the monitor.
+		stopMonitor();
+		monitoring = false;
+		showStopBg(false);
 		modal.hidden = true;
 		document.removeEventListener('keydown', onKeydown, true);
 		if (lastFocus && lastFocus.focus) { lastFocus.focus(); }
@@ -3736,9 +3892,125 @@ JS;
 		step();
 	}
 
+	// ── Server-side background job: monitor ─────────────────────────────────────
+	// The popup doubles as a live monitor for the "Convert in background" job. It
+	// does NOT run the browser batch loop — it polls the status endpoint every
+	// cfg.bgPollMs, mirroring the server's stats + current image, until the job is
+	// done. Closing the popup only stops polling; the job keeps running server-side.
+	function stopMonitor(){ if (monTimer) { clearTimeout(monTimer); monTimer = null; } }
+
+	function renderBg(bg){
+		var s = applyStats(bg.stats);
+		var cur = bg.current || null;
+		showCurrent(cur);
+		if (cur && cur.id) {
+			// New image → restart the time-based activity bar so it reads as "working".
+			if (cur.id !== lastMonCurId) { lastMonCurId = cur.id; startImgBar(); }
+			setLog(cfg.i18n.bgRunning);
+		} else {
+			stopImgBar(); setImgBar(0);
+			setLog(fmt(cfg.i18n.converting, s.optimized, s.total));
+		}
+		return s;
+	}
+
+	function finishBackground(bg){
+		stopMonitor();
+		stopImgBar();
+		monitoring = false;
+		var s = applyStats((bg && bg.stats) || {});
+		showCurrent(null);
+		setImgBar(0);
+		setLog(s.remaining > 0 ? cfg.i18n.doneLeftovers : cfg.i18n.done, 'done');
+		serverBg = { active: false, status: 'done' };
+		clearActive();       // server job finished — flip the button back to normal.
+		showStopBg(false);
+		var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); }
+	}
+
+	function monitorTick(){
+		var probe = new URLSearchParams();
+		probe.set('action', cfg.statusAction);
+		probe.set('nonce', cfg.nonce);
+		post(probe).then(function(payload){
+			if (stopRequested || !monitoring) { return; }
+			if (!payload || !payload.success || !payload.data) {
+				setLog(cfg.i18n.errNetwork, 'error');
+				monTimer = setTimeout(monitorTick, cfg.bgPollMs);
+				return;
+			}
+			serverBg = payload.data.background || null;
+			var bg = serverBg || {};
+			renderBg(bg);
+			refreshButtons();
+			if (bg.status === 'done' || !bg.active) { finishBackground(bg); return; }
+			monTimer = setTimeout(monitorTick, cfg.bgPollMs);
+		}).catch(function(){
+			if (!stopRequested && monitoring) { monTimer = setTimeout(monitorTick, cfg.bgPollMs); }
+		});
+	}
+
+	// Open the popup as a monitor for a job already running on the server.
+	function openMonitor(){
+		if (busy) { return; }      // a foreground loop owns the popup — leave it.
+		stopRequested = false;
+		monitoring = true;
+		lastMonCurId = null;
+		stopImgBar(); setImgBar(0); showCurrent(null);
+		applyStats({ total: 0, optimized: 0, remaining: 0 });
+		setText('iwsl-mo-total', '–'); setText('iwsl-mo-optimized', '–'); setText('iwsl-mo-remaining', '–');
+		setLog(cfg.i18n.starting);
+		openModal(cfg.i18n.titleBackground);
+		showStopBg(true);
+		monitorTick();
+	}
+
+	// Schedule a NEW background job from the visible form, then monitor it. The
+	// server re-validates every field; the marker of record is the server state, so
+	// no localStorage marker is set here (it would go stale after the job finishes).
+	function startBackground(){
+		if (busy || monitoring) { return; }
+		var body = new URLSearchParams();
+		body.set('action', cfg.bgStartAction);
+		body.set('nonce', cfg.nonce);
+		body.set('converter', fieldVal('converter') || 'webp_lossless');
+		body.set('types', fieldVal('types') || 'auto');
+		body.set('mode', modeVal());
+		body.set('ids', fieldVal('ids') || '');
+		body.set('rewrite', checkedVal('rewrite'));
+		body.set('iwsl_mo_skip_optimized', checkedVal('iwsl_mo_skip_optimized'));
+		monitoring = true;
+		stopRequested = false;
+		lastMonCurId = null;
+		stopImgBar(); setImgBar(0); showCurrent(null);
+		applyStats({ total: 0, optimized: 0, remaining: 0 });
+		setText('iwsl-mo-total', '–'); setText('iwsl-mo-optimized', '–'); setText('iwsl-mo-remaining', '–');
+		setLog(cfg.i18n.starting);
+		openModal(cfg.i18n.titleBackground);
+		showStopBg(true);
+		post(body).then(function(payload){
+			if (stopRequested) { return; }
+			if (!payload || !payload.success || (payload.data && payload.data.ok === false)) {
+				monitoring = false; showStopBg(false);
+				setLog(errorMessage(payload), 'error');
+				return;
+			}
+			serverBg = (payload.data && payload.data.state) ? payload.data.state : { active: true, status: 'running' };
+			refreshButtons();
+			monitorTick();
+		}).catch(function(){
+			monitoring = false; showStopBg(false);
+			setLog(cfg.i18n.errNetwork, 'error');
+		});
+	}
+
 	function start(kind, title, override){
 		if (busy) { return; }
 		busy = true;
+		// Foreground run and background monitor are mutually exclusive uses of the popup.
+		monitoring = false;
+		stopMonitor();
+		showStopBg(false);
 		stopRequested = false;
 		pending = null;
 		stopImgBar();
@@ -3778,7 +4050,35 @@ JS;
 	if (runBtn) {
 		runBtn.addEventListener('click', function(e){
 			e.preventDefault();
+			// A server background job owns the "In progress" state → view it (monitor),
+			// never start a conflicting foreground run on top of it.
+			if (isBgActive()) { openMonitor(); return; }
 			start('optimize', cfg.i18n.titleOptimize, null);
+		});
+	}
+	if (bgBtn) {
+		bgBtn.addEventListener('click', function(e){
+			e.preventDefault();
+			if (isBgActive()) { openMonitor(); return; } // already running → just watch.
+			startBackground();
+		});
+	}
+	if (stopBgBtn) {
+		stopBgBtn.addEventListener('click', function(e){
+			e.preventDefault();
+			var body = new URLSearchParams();
+			body.set('action', cfg.bgCancelAction);
+			body.set('nonce', cfg.nonce);
+			post(body).then(function(){
+				stopMonitor();
+				monitoring = false;
+				serverBg = { active: false, status: 'idle' };
+				clearActive();
+				stopImgBar(); setImgBar(0); showCurrent(null);
+				showStopBg(false);
+				setLog(cfg.i18n.bgStopped);
+				var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); }
+			}).catch(function(){ setLog(cfg.i18n.errNetwork, 'error'); });
 		});
 	}
 	if (repBtn) {
@@ -3791,9 +4091,34 @@ JS;
 		});
 	}
 
-	// On load, reflect any run left active by a prior visit: the button reads
-	// "In progress" and clicking it re-opens the popup and resumes.
+	// Open the feature card that holds the optimizer (folded by default) so an active
+	// background job's "In progress" button is not hidden inside a collapsed card.
+	function openOwnCard(){
+		var host = form.closest ? form.closest('details.iwsl-card') : null;
+		if (host && !host.open) { host.open = true; }
+	}
+
+	// On load, resolve the AUTHORITATIVE state with one status ping: whether a server
+	// background job is running (survives reloads / other devices). The unified button
+	// then reflects that OR a local foreground marker. If a job is live, surface its
+	// card so the "In progress" button is visible.
+	function pingStatus(){
+		var probe = new URLSearchParams();
+		probe.set('action', cfg.statusAction);
+		probe.set('nonce', cfg.nonce);
+		post(probe).then(function(payload){
+			if (payload && payload.success && payload.data) {
+				serverBg = payload.data.background || null;
+				refreshButtons();
+				if (isBgActive()) { openOwnCard(); }
+			}
+		}).catch(function(){});
+	}
+
+	// Reflect any run left active by a prior visit (localStorage marker), then confirm
+	// against the server (background job) with a single status ping.
 	refreshButtons();
+	pingStatus();
 })();
 JS;
 		echo "\n</script>\n";
@@ -4218,10 +4543,22 @@ JS;
 		$p         = $this->read_media_optimize_request();
 		$next_id   = $optimizer->next_candidate_id( $p['converter'], $p['types'], $p['ids'], $p['skip_optimized'] );
 
+		// Server-side background job state (for the popup's monitor mode + the unified
+		// "In progress" button). Enrich its `current` with a thumbnail via mo_card()
+		// so the monitor can show the image being converted right now.
+		$background = $optimizer->background_state();
+		if ( isset( $background['current']['id'] ) ) {
+			$card = $this->mo_card( (int) $background['current']['id'] );
+			if ( null !== $card ) {
+				$background['current'] = $card;
+			}
+		}
+
 		wp_send_json_success(
 			array(
-				'stats' => $optimizer->library_stats(),
-				'next'  => $this->mo_card( $next_id ),
+				'stats'      => $optimizer->library_stats(),
+				'next'       => $this->mo_card( $next_id ),
+				'background' => $background,
 			)
 		);
 	}
@@ -4292,6 +4629,60 @@ JS;
 				'next'    => $next,
 			)
 		);
+	}
+
+	/**
+	 * AJAX: schedule the server-side "Convert in background" job. Reads the SAME run
+	 * parameters as the foreground batch (converter/types/mode/rewrite/skip) from the
+	 * visible form via read_media_optimize_request(), then hands off to
+	 * IWSL_Media_Optimizer::schedule_background(), which drives the conversion server
+	 * side so it survives this tab closing. Identical defence to the batch handler:
+	 * capability + OPTIMIZE_NONCE (check_ajax_referer) + LAYER-2 entitlement re-check
+	 * (LAYER 3 lives in the engine). Emits the { ok, state } descriptor for the monitor.
+	 */
+	public function handle_mo_bg_start_ajax(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'reason' => 'forbidden' ), 403 );
+		}
+		check_ajax_referer( self::OPTIMIZE_NONCE, 'nonce' );
+
+		// LAYER 2: re-check the gate before scheduling any work.
+		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_send_json_error( array( 'reason' => 'entitlement-locked' ), 403 );
+		}
+
+		$p      = $this->read_media_optimize_request();
+		$result = $this->optimizer()->schedule_background(
+			$p['converter'],
+			$p['mode'],
+			$p['types'],
+			$p['ids'],
+			$p['rewrite'],
+			$p['skip_optimized']
+		);
+
+		wp_send_json_success( $result );
+	}
+
+	/**
+	 * AJAX: cancel the server-side background conversion job. Same gate as the start
+	 * handler (capability + OPTIMIZE_NONCE + LAYER-2 entitlement re-check). Delegates
+	 * to IWSL_Media_Optimizer::cancel_background(); images already converted are kept.
+	 */
+	public function handle_mo_bg_cancel_ajax(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'reason' => 'forbidden' ), 403 );
+		}
+		check_ajax_referer( self::OPTIMIZE_NONCE, 'nonce' );
+
+		// LAYER 2: re-check the gate before touching the job.
+		$gate = $this->plugin->entitlements()->evaluate( IWSL_Media_Optimizer::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_send_json_error( array( 'reason' => 'entitlement-locked' ), 403 );
+		}
+
+		wp_send_json_success( $this->optimizer()->cancel_background() );
 	}
 
 	// ── Section 3: SMTP Email Delivery & Log ───────────────────────────────────

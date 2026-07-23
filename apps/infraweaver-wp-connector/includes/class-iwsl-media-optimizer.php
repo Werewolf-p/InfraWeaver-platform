@@ -66,6 +66,13 @@ final class IWSL_Media_Optimizer {
 	/** Run-lock TTL (seconds). */
 	const LOCK_TTL = 60;
 
+	/** Cron hook that advances the background conversion job by one batch. */
+	const BG_TICK_HOOK = 'iwsl_mo_bg_tick';
+	/** Option holding the single background-conversion job record. */
+	const BG_JOB_OPTION = 'iwsl_mo_bg_job';
+	/** Seconds between arming a tick and its firing. */
+	const BG_TICK_DELAY = 5;
+
 	/** @var IWSL_Entitlements */
 	private $entitlements;
 
@@ -508,6 +515,228 @@ final class IWSL_Media_Optimizer {
 			'url'    => $url,
 			'exists' => is_file( $path ),
 		);
+	}
+
+	// ── background (WP-cron) conversion queue ──────────────────────────────────
+	//
+	// A fire-and-forget backlog runner. schedule_background() records a single job
+	// in an option and arms one cron tick; each tick (run_background_tick) does ONE
+	// bounded MAX_BATCH via run(), refreshes the whole-library counters, and — while
+	// work remains and the last batch advanced — arms the next tick. The gate is
+	// re-checked every tick, so a revoked site stops within one tick. There is no
+	// self-set surface: the cron action is registered in the plugin bootstrap and the
+	// job only ever carries server-derived params. Every wp_* call is guarded, so the
+	// whole queue degrades to a sane idle state under the zero-dependency harness.
+
+	/**
+	 * Arm a background conversion of the whole backlog. STATEMENT 1 is the gate —
+	 * a locked site is refused before any job is stored or tick armed. Records one
+	 * job (params + a fresh library_stats snapshot, status 'running') and schedules
+	 * a single cron tick if none is pending.
+	 *
+	 * @param int[] $ids Optional operator-picked attachment ids (server re-validated
+	 *                   per tick by run()); empty falls back to the auto backlog.
+	 * @return array{ ok:bool, reason?:string, state?:array }
+	 */
+	public function schedule_background( string $converter = 'webp_lossless', string $mode = self::MODE_COPY, string $types = 'auto', array $ids = array(), bool $rewrite = true, bool $skip_optimized = true ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'reason' => 'entitlement-locked' );
+		}
+
+		$now = ( $this->now_ms )();
+		$job = array(
+			'params'  => array(
+				'converter'      => $converter,
+				'mode'           => self::MODE_REPLACE === $mode ? self::MODE_REPLACE : self::MODE_COPY,
+				'types'          => $types,
+				'ids'            => array_values( array_map( 'intval', $ids ) ),
+				'rewrite'        => (bool) $rewrite,
+				'skip_optimized' => (bool) $skip_optimized,
+			),
+			'status'  => 'running',
+			'started' => $now,
+			'stats'   => $this->library_stats(),
+			'current' => null,
+			'updated' => $now,
+		);
+		$this->save_job( $job );
+		$this->ensure_tick_scheduled();
+		return array( 'ok' => true, 'state' => $this->background_state() );
+	}
+
+	/**
+	 * Cron callback: advance the background job by ONE bounded batch. No-op unless a
+	 * 'running' job is present. Re-checks the gate (a revoked site is set 'stopped'
+	 * and unscheduled), skips if another run holds the single-flight lock, then runs
+	 * one MAX_BATCH via run() with the stored params, refreshes the counters, and
+	 * either arms the next tick ('running') or finishes ('done' / 'stalled').
+	 */
+	public function run_background_tick(): void {
+		$job = $this->read_job();
+		if ( null === $job || 'running' !== ( $job['status'] ?? '' ) ) {
+			return;
+		}
+
+		// Re-check the gate every tick — a console revocation stops the job promptly.
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			$job['status']  = 'stopped';
+			$job['updated'] = ( $this->now_ms )();
+			$this->save_job( $job );
+			$this->clear_tick();
+			return;
+		}
+
+		// Re-entrancy: another run/tick is mid-batch — let it finish (and arm the
+		// next tick); stacking a second batch on the same job would double-work.
+		if ( $this->is_run_locked() ) {
+			return;
+		}
+
+		$params         = is_array( $job['params'] ?? null ) ? $job['params'] : array();
+		$converter      = (string) ( $params['converter'] ?? 'webp_lossless' );
+		$mode           = (string) ( $params['mode'] ?? self::MODE_COPY );
+		$types          = (string) ( $params['types'] ?? 'auto' );
+		$ids            = is_array( $params['ids'] ?? null ) ? $params['ids'] : array();
+		$rewrite        = ! empty( $params['rewrite'] );
+		$skip_optimized = ! isset( $params['skip_optimized'] ) || ! empty( $params['skip_optimized'] );
+
+		$before  = isset( $job['stats']['remaining'] ) ? (int) $job['stats']['remaining'] : PHP_INT_MAX;
+		$summary = $this->run( $converter, self::MAX_BATCH, $mode, false, $types, $ids, $rewrite, $skip_optimized );
+
+		$stats         = $this->library_stats();
+		$converted     = (int) ( $summary['converted'] ?? 0 );
+		$made_progress = $converted > 0 || $stats['remaining'] < $before;
+
+		$next_id        = $this->next_candidate_id( $converter, $types, $ids, $skip_optimized );
+		$job['stats']   = $stats;
+		$job['current'] = $this->describe_candidate( $next_id );
+		$job['updated'] = ( $this->now_ms )();
+
+		if ( $stats['remaining'] > 0 && $made_progress ) {
+			$job['status'] = 'running';
+		} elseif ( $stats['remaining'] > 0 ) {
+			$job['status'] = 'stalled'; // work remains but the batch made no headway — stop the loop.
+		} else {
+			$job['status'] = 'done';
+		}
+		$this->save_job( $job );
+
+		if ( 'running' === $job['status'] ) {
+			$this->ensure_tick_scheduled();
+		} else {
+			$this->clear_tick();
+		}
+	}
+
+	/**
+	 * Read-only snapshot for the admin poller: { active, status, stats, current,
+	 * updated }. With no job the shape is preserved with status 'idle' and a fresh
+	 * library_stats() so the UI can render a live "nothing running" panel.
+	 *
+	 * @return array{ active:bool, status:string, stats:array{total:int,optimized:int,remaining:int}, current:?array, updated:int }
+	 */
+	public function background_state(): array {
+		$job = $this->read_job();
+		if ( null === $job ) {
+			return array(
+				'active'  => false,
+				'status'  => 'idle',
+				'stats'   => $this->library_stats(),
+				'current' => null,
+				'updated' => 0,
+			);
+		}
+		$status = (string) ( $job['status'] ?? 'idle' );
+		$stats  = is_array( $job['stats'] ?? null ) ? $job['stats'] : $this->library_stats();
+		return array(
+			'active'  => 'running' === $status,
+			'status'  => $status,
+			'stats'   => array(
+				'total'     => (int) ( $stats['total'] ?? 0 ),
+				'optimized' => (int) ( $stats['optimized'] ?? 0 ),
+				'remaining' => (int) ( $stats['remaining'] ?? 0 ),
+			),
+			'current' => is_array( $job['current'] ?? null ) ? $job['current'] : null,
+			'updated' => (int) ( $job['updated'] ?? 0 ),
+		);
+	}
+
+	/**
+	 * Cancel any background job: drop the job option and clear the cron hook.
+	 * Idempotent — safe when nothing is running.
+	 *
+	 * @return array{ ok:bool }
+	 */
+	public function cancel_background(): array {
+		$this->delete_job();
+		$this->clear_tick();
+		return array( 'ok' => true );
+	}
+
+	/**
+	 * A minimal "now converting" descriptor for the poller: { id, name } (basename
+	 * when the source path resolves) — no thumbnail; the admin layer adds that.
+	 * null when there is nothing left to convert.
+	 *
+	 * @return array{ id:int, name:string }|null
+	 */
+	private function describe_candidate( int $attachment_id ): ?array {
+		if ( $attachment_id <= 0 ) {
+			return null;
+		}
+		$source = $this->resolve_source_path( $attachment_id );
+		return array(
+			'id'   => $attachment_id,
+			'name' => '' === $source ? '' : basename( $source ),
+		);
+	}
+
+	/** True while the single-flight run lock is held (a batch is in flight). */
+	private function is_run_locked(): bool {
+		return function_exists( 'get_transient' ) && false !== get_transient( self::LOCK_TRANSIENT );
+	}
+
+	/** Arm one cron tick, but never duplicate an already-pending one. */
+	private function ensure_tick_scheduled(): void {
+		if ( ! function_exists( 'wp_schedule_single_event' ) ) {
+			return;
+		}
+		if ( function_exists( 'wp_next_scheduled' ) && false !== wp_next_scheduled( self::BG_TICK_HOOK ) ) {
+			return;
+		}
+		wp_schedule_single_event( time() + self::BG_TICK_DELAY, self::BG_TICK_HOOK );
+	}
+
+	/** Clear any pending cron tick for the background queue. */
+	private function clear_tick(): void {
+		if ( function_exists( 'wp_clear_scheduled_hook' ) ) {
+			wp_clear_scheduled_hook( self::BG_TICK_HOOK );
+		}
+	}
+
+	/** The background job record, or null when absent / outside WordPress. */
+	private function read_job(): ?array {
+		if ( ! function_exists( 'get_option' ) ) {
+			return null;
+		}
+		$job = get_option( self::BG_JOB_OPTION, array() );
+		return is_array( $job ) && array() !== $job ? $job : null;
+	}
+
+	/** Persist the background job record (guarded). */
+	private function save_job( array $job ): void {
+		if ( function_exists( 'update_option' ) ) {
+			update_option( self::BG_JOB_OPTION, $job );
+		}
+	}
+
+	/** Delete the background job record (guarded). */
+	private function delete_job(): void {
+		if ( function_exists( 'delete_option' ) ) {
+			delete_option( self::BG_JOB_OPTION );
+		}
 	}
 
 	/**
