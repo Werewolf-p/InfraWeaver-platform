@@ -44,6 +44,8 @@ require __DIR__ . '/../includes/class-iwsl-plugin.php';
 require __DIR__ . '/../includes/class-iwsl-media-converter.php';
 require __DIR__ . '/../includes/class-iwsl-webp-lossless-converter.php';
 require __DIR__ . '/../includes/class-iwsl-media-optimizer.php';
+require __DIR__ . '/../includes/class-iwsl-s3-client.php';
+require __DIR__ . '/../includes/class-iwsl-media-offload.php';
 require __DIR__ . '/../includes/class-iwsl-redirect-matcher.php';
 require __DIR__ . '/../includes/class-iwsl-exact-path-matcher.php';
 require __DIR__ . '/../includes/class-iwsl-redirects.php';
@@ -159,7 +161,7 @@ function iwsl_now_t0( int $offset_ms = 5000 ): callable {
 	};
 }
 
-$suites = array( 'jcs', 'slhdsa', 'slhdsa-192f', 'verifier', 'enrollment', 'wp-store', 'rotation', 'plugin', 'command-handler', 'purge', 'entitlements', 'feature-switches', 'media-optimizer', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache', 'config-editor', 'ui-help',
+$suites = array( 'jcs', 'slhdsa', 'slhdsa-192f', 'verifier', 'enrollment', 'wp-store', 'rotation', 'plugin', 'command-handler', 'purge', 'entitlements', 'feature-switches', 'media-optimizer', 's3-client', 'media-offload', 'email-delivery', 'redirects', 'white-label', 'db-optimizer', 'page-cache', 'config-editor', 'ui-help',
 	// Wave 2 feature suites. broken-link-scan runs after media-optimizer (whose
 	// global stubs it is designed around); speed-pack MUST be last (it defines
 	// remove_action/remove_filter recorder stubs).

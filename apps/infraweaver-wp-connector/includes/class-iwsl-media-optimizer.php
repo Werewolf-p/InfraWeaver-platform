@@ -407,12 +407,13 @@ final class IWSL_Media_Optimizer {
 	 * @param int      $limit Maximum ids to return.
 	 * @return int[]
 	 */
-	private function select_batch_from_ids( array $ids, array $mimes, int $limit ): array {
+	private function select_batch_from_ids( array $ids, array $mimes, int $limit, bool $skip_optimized = false ): array {
 		if ( array() === $mimes || ! function_exists( 'get_post' ) || ! function_exists( 'get_post_mime_type' ) ) {
 			return array();
 		}
-		$limit = max( 1, min( self::MAX_REQUEST, $limit ) );
-		$out   = array();
+		$limit    = max( 1, min( self::MAX_REQUEST, $limit ) );
+		$can_skip = $skip_optimized && function_exists( 'get_post_meta' );
+		$out      = array();
 		foreach ( $ids as $id ) {
 			$id = (int) $id;
 			if ( $id <= 0 ) {
@@ -426,12 +427,87 @@ final class IWSL_Media_Optimizer {
 			if ( ! is_string( $mime ) || ! in_array( $mime, $mimes, true ) ) {
 				continue;
 			}
+			// "Skip done" also applies to an operator-picked set, so a one-at-a-time
+			// loop over picked images advances instead of re-offering a converted one.
+			// The derivative meta this engine writes is an ARRAY (see write_meta), so
+			// test emptiness type-aware rather than casting to string (an array cast
+			// warns and would misreport under strict runtimes).
+			if ( $can_skip ) {
+				$done_meta = get_post_meta( $id, self::META_KEY, true );
+				$has_done  = is_array( $done_meta ) ? array() !== $done_meta : '' !== (string) $done_meta;
+				if ( $has_done ) {
+					continue;
+				}
+			}
 			$out[] = $id;
 			if ( count( $out ) >= $limit ) {
 				break;
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * The attachment id this engine would process NEXT for the given selection —
+	 * the single oldest candidate select_batch()/select_batch_from_ids() would
+	 * pick, or 0 when nothing is left (or outside WordPress). Powers the progress
+	 * popup's "now converting" preview and its strictly one-image-at-a-time loop;
+	 * touches no file. Mirrors run()'s converter/MIME/selection resolution exactly.
+	 */
+	public function next_candidate_id( string $converter_id = 'webp_lossless', string $types = 'auto', array $ids = array(), bool $skip_optimized = true ): int {
+		$converter = $this->converters[ $converter_id ] ?? null;
+		if ( ! $converter instanceof IWSL_Media_Converter ) {
+			return 0;
+		}
+		$accepted = $converter->accepts();
+		$mimes    = ( 'auto' === $types )
+			? $accepted
+			: array_values( array_intersect( $accepted, array( $types ) ) );
+		if ( array() === $mimes ) {
+			return 0;
+		}
+		$batch = array() !== $ids
+			? $this->select_batch_from_ids( $ids, $mimes, 1, $skip_optimized )
+			: $this->select_batch( $converter, 1, $mimes, $skip_optimized );
+		return isset( $batch[0] ) ? (int) $batch[0] : 0;
+	}
+
+	/**
+	 * The lossless WebP derivative for one attachment, as a read-only descriptor
+	 * for the S3 offload feature. Reuses resolve_source_path() + derivative_path()
+	 * (the same server-side path logic convert_one() uses) and derives the public
+	 * URL from the attachment's own URL — the derivative shares the source's
+	 * directory, so url_dir(source_url) . basename(path) is exact. Touches no file
+	 * and never writes: `exists` is a plain is_file() probe. Returns empty strings
+	 * with exists=false when the id is invalid, unresolvable, or outside WordPress.
+	 *
+	 * @return array{ path:string, url:string, exists:bool }
+	 */
+	public function derivative_for( int $attachment_id ): array {
+		$empty = array( 'path' => '', 'url' => '', 'exists' => false );
+		if ( $attachment_id <= 0 ) {
+			return $empty;
+		}
+		$source = $this->resolve_source_path( $attachment_id );
+		if ( '' === $source ) {
+			return $empty;
+		}
+		$path = $this->derivative_path( $source );
+		if ( '' === $path ) {
+			return $empty;
+		}
+		$url = '';
+		if ( function_exists( 'wp_get_attachment_url' ) ) {
+			$src_url = (string) wp_get_attachment_url( $attachment_id );
+			if ( '' !== $src_url ) {
+				$url = self::url_dir( $src_url ) . basename( $path );
+			}
+		}
+		return array(
+			'path'   => $path,
+			'url'    => $url,
+			'exists' => is_file( $path ),
+		);
 	}
 
 	/**

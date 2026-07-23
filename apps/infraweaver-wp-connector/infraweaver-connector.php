@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.12.0
+ * Version: 0.13.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.12.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.13.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -68,6 +68,7 @@ require_once __DIR__ . '/includes/class-iwsl-plus-feature.php';
 require_once __DIR__ . '/includes/class-iwsl-media-converter.php';
 require_once __DIR__ . '/includes/class-iwsl-webp-lossless-converter.php';
 require_once __DIR__ . '/includes/class-iwsl-media-optimizer.php';
+require_once __DIR__ . '/includes/class-iwsl-s3-client.php';
 require_once __DIR__ . '/includes/class-iwsl-redirect-matcher.php';
 require_once __DIR__ . '/includes/class-iwsl-exact-path-matcher.php';
 require_once __DIR__ . '/includes/class-iwsl-redirects.php';
@@ -97,6 +98,7 @@ require_once __DIR__ . '/includes/class-iwsl-maintenance-mode.php';
 require_once __DIR__ . '/includes/class-iwsl-scheduled-db-cleanup.php';
 require_once __DIR__ . '/includes/class-iwsl-activity-log.php';
 require_once __DIR__ . '/includes/class-iwsl-auto-convert.php';
+require_once __DIR__ . '/includes/class-iwsl-media-offload.php';
 require_once __DIR__ . '/includes/class-iwsl-speed-pack.php';
 require_once __DIR__ . '/includes/class-iwsl-stats-classifier.php';
 require_once __DIR__ . '/includes/class-iwsl-statistics.php';
@@ -333,6 +335,15 @@ if ( $iwsl_switches->is_on( IWSL_Auto_Convert::FEATURE ) ) {
 	add_action( 'admin_post_' . IWSL_Auto_Convert::ACTION_SAVE, array( $iwsl_auto_convert, 'handle_save' ) );
 	add_action( 'admin_post_' . IWSL_Auto_Convert::ACTION_BACKLOG, array( $iwsl_auto_convert, 'handle_backlog' ) );
 }
+
+// Media Offload to S3 / Hetzner Object Storage (gated on `image_optimization` — it
+// only ships the optimizer's WebP derivatives, so no new console flag). Registered
+// on every request because the URL-rewrite filters serve offloaded images on the
+// FRONT END; register()'s STATEMENT 1 is the entitlement gate, so a locked/revoked
+// site attaches no filters and no handlers and behaves like stock WordPress. Its
+// AJAX (test/status/offload/remove/manual) + admin-post save handler are self-wired
+// inside register() (each re-checks manage_options + nonce + the gate).
+( new IWSL_Media_Offload( $iwsl_ent, new IWSL_WP_Store() ) )->register();
 
 // Speed Pack (Pro, `speed_pack`). Writes a managed .htaccess block; maybe_revoke()
 // tears it down the moment the flag is revoked (presence-based, like page cache).

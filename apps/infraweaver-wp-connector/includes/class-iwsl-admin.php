@@ -1064,6 +1064,11 @@ final class IWSL_Admin {
 			$fg               = $ent->evaluate( $feature );
 			$unlocked[ $key ] = ! empty( $fg['unlocked'] );
 		}
+		// Media Offload (S3) is a sub-capability of Image Optimization — it shares
+		// the 'image_optimization' entitlement rather than carrying a distinct tier
+		// flag, so its tab/panel inherits the 'images' unlock state. Kept OUT of
+		// feature_flag_map() so the one-card-per-feature invariant holds (no dup).
+		$unlocked['media-offload'] = ! empty( $unlocked['images'] );
 		return $unlocked;
 	}
 
@@ -1083,6 +1088,7 @@ final class IWSL_Admin {
 			'media-protect'     => array( 'Media Protection', function () use ( $ent ) { ( new IWSL_Media_Protection( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 				'elementor'         => array( 'Elementor Blocks', function () use ( $ent ) { ( new IWSL_Elementor_Blocks( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'auto-convert'      => array( 'Scheduled Auto-Convert', function () use ( $ent ) { ( new IWSL_Auto_Convert( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'media-offload'     => array( 'Media Offload (S3)', function () use ( $ent ) { ( new IWSL_Media_Offload( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'svg'               => array( 'SVG Uploads', function () use ( $ent ) { ( new IWSL_SVG_Upload( $ent ) )->render_section(); } ),
 			'seo-audit'         => array( 'SEO Meta Audit', function () use ( $ent ) { ( new IWSL_SEO_Audit( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'duplicate'         => array( 'One-Click Duplicate', function () use ( $ent ) { ( new IWSL_Duplicate_Post( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
@@ -3302,16 +3308,11 @@ JS;
 		echo '<input type="hidden" name="ids" id="iwsl-mo-ids" value="">';
 		echo '<button type="button" class="button" id="iwsl-mo-pick">' . esc_html__( 'Choose images…', 'infraweaver-connector' ) . '</button> ';
 		echo '<button type="button" class="button" id="iwsl-mo-clear">' . esc_html__( 'Clear', 'infraweaver-connector' ) . '</button><br>';
-		echo '<span id="iwsl-mo-picked" class="description">' . esc_html__( 'No images selected — the count below is used instead.', 'infraweaver-connector' ) . '</span>';
+		echo '<span id="iwsl-mo-picked" class="description">' . esc_html__( 'No images selected — the whole library is optimized, one image at a time.', 'infraweaver-connector' ) . '</span>';
 		echo '</td></tr>';
 
-		echo '<tr><th scope="row"><label for="iwsl-mo-count">' . esc_html__( 'Images this run', 'infraweaver-connector' ) . '</label>' . iwsl_field_help( 'How many images to shrink in one go.' ) . '</th><td>';
-		echo '<input type="number" id="iwsl-mo-count" name="count" min="1" max="' . (int) IWSL_Media_Optimizer::MAX_REQUEST . '" value="25" style="width:100px;"> ';
-		echo '<span class="description">' . esc_html( sprintf(
-			/* translators: %d is the per-run image ceiling. */
-			__( 'Up to %d. Used only when no images are picked above. Bigger requests self-queue across batches (each run is time-bounded — just run again to continue).', 'infraweaver-connector' ),
-			IWSL_Media_Optimizer::MAX_REQUEST
-		) ) . '</span></td></tr>';
+		echo '<tr><th scope="row">' . esc_html__( 'How it runs', 'infraweaver-connector' ) . iwsl_field_help( 'Images are converted one at a time so you can watch each one.' ) . '</th><td>';
+		echo '<span class="description">' . esc_html__( 'Images are converted one at a time so you can watch each one. The popup loops automatically through the whole library — just leave it open.', 'infraweaver-connector' ) . '</span></td></tr>';
 
 		echo '<tr><th scope="row">' . esc_html__( 'Skip done', 'infraweaver-connector' ) . iwsl_field_help( 'Only work on images that have not been optimized yet, so re-running never duplicates.' ) . '</th><td>';
 		echo '<label style="display:block;"><input type="checkbox" name="iwsl_mo_skip_optimized" value="1" checked> <strong>' . esc_html__( 'Only optimize images not already optimized', 'infraweaver-connector' ) . '</strong><br><span class="description" style="margin-left:24px;">' . esc_html__( 'Recommended. Each run skips images already converted and moves on to new ones — so running it again never re-processes or duplicates anything. Uncheck to re-scan every image (already-optimized ones are still skipped unless the original file changed).', 'infraweaver-connector' ) . '</span></label>';
@@ -3371,6 +3372,9 @@ JS;
 			'i18n'            => array(
 				'titleOptimize' => __( 'Optimizing images', 'infraweaver-connector' ),
 				'titleReplace'  => __( 'Replacing with lossless WebP', 'infraweaver-connector' ),
+				'imageProgress' => __( 'Current image', 'infraweaver-connector' ),
+				'nowConverting' => __( 'Converting this image…', 'infraweaver-connector' ),
+				'overall'       => __( 'Overall progress', 'infraweaver-connector' ),
 				'total'         => __( 'Total images', 'infraweaver-connector' ),
 				'optimized'     => __( 'Already lossless', 'infraweaver-connector' ),
 				'remaining'     => __( 'Remaining', 'infraweaver-connector' ),
@@ -3385,21 +3389,39 @@ JS;
 				'errForbidden'  => __( 'You do not have permission to run this action.', 'infraweaver-connector' ),
 				'errGeneric'    => __( 'The run was refused by the server.', 'infraweaver-connector' ),
 				'close'         => __( 'Close', 'infraweaver-connector' ),
+				'inProgress'    => __( 'In progress — view progress', 'infraweaver-connector' ),
 			),
 		);
 
 		// Modal shell — hidden until a run starts. role=dialog + aria-modal, an
 		// aria-live log line, and a labelled progress bar for assistive tech.
-		$title     = esc_html( $cfg['i18n']['titleOptimize'] );
-		$lbl_total = esc_html( $cfg['i18n']['total'] );
-		$lbl_opt   = esc_html( $cfg['i18n']['optimized'] );
-		$lbl_rem   = esc_html( $cfg['i18n']['remaining'] );
-		$lbl_close = esc_html( $cfg['i18n']['close'] );
+		$title       = esc_html( $cfg['i18n']['titleOptimize'] );
+		$lbl_total   = esc_html( $cfg['i18n']['total'] );
+		$lbl_opt     = esc_html( $cfg['i18n']['optimized'] );
+		$lbl_rem     = esc_html( $cfg['i18n']['remaining'] );
+		$lbl_close   = esc_html( $cfg['i18n']['close'] );
+		$lbl_cur     = esc_html( $cfg['i18n']['imageProgress'] );
+		$lbl_overall = esc_html( $cfg['i18n']['overall'] );
+		$lbl_imgbar  = esc_attr( $cfg['i18n']['nowConverting'] );
 
 		echo '<div id="iwsl-mo-modal" class="iwsl-mo-modal" hidden role="dialog" aria-modal="true" aria-labelledby="iwsl-mo-modal-title">';
 		echo '<div class="iwsl-mo-modal__backdrop" data-iwsl-mo-close></div>';
 		echo '<div class="iwsl-mo-modal__panel" role="document">';
 		echo '<h2 id="iwsl-mo-modal-title" class="iwsl-mo-modal__title">' . $title . '</h2>';
+
+		// Current-image block — the one attachment being converted right now: its
+		// thumbnail, name, and a per-image activity bar. Sits above the overall
+		// library counters/bar so the eye lands on "what's happening now" first.
+		echo '<div class="iwsl-mo-current" id="iwsl-mo-current" hidden>';
+		echo '<span class="iwsl-mo-current__cap">' . $lbl_cur . '</span>';
+		echo '<div class="iwsl-mo-current__row">';
+		echo '<img id="iwsl-mo-cur-thumb" class="iwsl-mo-current__thumb" alt="" hidden>';
+		echo '<span class="iwsl-mo-current__name" id="iwsl-mo-cur-name"></span>';
+		echo '</div>';
+		echo '<div class="iwsl-mo-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="' . $lbl_imgbar . '"><div class="iwsl-mo-bar__fill" id="iwsl-mo-img-fill"></div></div>';
+		echo '</div>';
+
+		echo '<span class="iwsl-mo-overall-cap">' . $lbl_overall . '</span>';
 		echo '<div class="iwsl-mo-stats">';
 		echo '<div class="iwsl-mo-stat"><span class="iwsl-mo-stat__label">' . $lbl_total . '</span><span class="iwsl-mo-stat__num" id="iwsl-mo-total">–</span></div>';
 		echo '<div class="iwsl-mo-stat"><span class="iwsl-mo-stat__label">' . $lbl_opt . '</span><span class="iwsl-mo-stat__num" id="iwsl-mo-optimized">–</span></div>';
@@ -3419,6 +3441,13 @@ JS;
 .iwsl-mo-modal__backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.55); }
 .iwsl-mo-modal__panel{ position:relative; background:#fff; color:#1d2327; width:min(460px,92vw); max-height:90vh; overflow:auto; border-radius:10px; padding:22px 24px; box-shadow:0 12px 40px rgba(0,0,0,.35); }
 .iwsl-mo-modal__title{ margin:0 0 14px; font-size:18px; }
+.iwsl-mo-current{ margin:0 0 14px; }
+.iwsl-mo-current[hidden]{ display:none; }
+.iwsl-mo-current__cap, .iwsl-mo-overall-cap{ display:block; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; color:#50575e; margin:0 0 6px; }
+.iwsl-mo-current__row{ display:flex; align-items:center; gap:12px; margin:0 0 8px; min-height:64px; }
+.iwsl-mo-current__thumb{ width:64px; height:64px; flex:0 0 64px; object-fit:cover; border-radius:8px; background:#f0f0f1; }
+.iwsl-mo-current__thumb[hidden]{ display:none; }
+.iwsl-mo-current__name{ font-size:13px; color:#3c434a; word-break:break-word; }
 .iwsl-mo-stats{ display:flex; gap:10px; flex-wrap:wrap; margin:0 0 14px; }
 .iwsl-mo-stat{ flex:1 1 120px; background:#f0f0f1; border-radius:8px; padding:10px 12px; text-align:center; }
 .iwsl-mo-stat__label{ display:block; font-size:12px; color:#50575e; }
@@ -3429,12 +3458,17 @@ JS;
 .iwsl-mo-log.is-error{ color:#b32d2e; font-weight:600; }
 .iwsl-mo-log.is-done{ color:#1a7f37; font-weight:600; }
 .iwsl-mo-modal__actions{ display:flex; justify-content:flex-end; }
+.iwsl-mo-inprogress::before{ content:""; display:inline-block; width:10px; height:10px; margin-right:7px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:-1px; animation:iwsl-mo-spin .8s linear infinite; }
+@keyframes iwsl-mo-spin{ to{ transform:rotate(360deg); } }
 @media (prefers-color-scheme: dark){
 	.iwsl-mo-modal__panel{ background:#1d2327; color:#e0e0e2; }
 	.iwsl-mo-stat{ background:#2c3338; }
 	.iwsl-mo-stat__label{ color:#a7aaad; }
 	.iwsl-mo-bar{ background:#3c434a; }
 	.iwsl-mo-log{ color:#c3c4c7; }
+	.iwsl-mo-current__cap, .iwsl-mo-overall-cap{ color:#a7aaad; }
+	.iwsl-mo-current__name{ color:#c3c4c7; }
+	.iwsl-mo-current__thumb{ background:#2c3338; }
 }
 </style>';
 
@@ -3466,6 +3500,24 @@ JS;
 	var lastFocus = null;
 	var busy = false;
 	var stopRequested = false;
+	var pending = null;   // card {id,name,thumb} of the image currently converting.
+	var imgTimer = null;  // setInterval handle for the per-image activity bar.
+
+	// Durable "a run is active" marker so a reload / navigation / disconnect does
+	// not orphan the popup. Stores which run kind is live ('optimize'|'replace');
+	// the triggering button then reads as "In progress" and re-opening it resumes
+	// from the server-authoritative status. Cleared only on natural completion.
+	var STORE = 'iwsl_mo_active_run';
+	var origRun = runBtn ? runBtn.textContent : '';
+	var origRep = repBtn ? repBtn.textContent : '';
+	function activeKind(){ try { return localStorage.getItem(STORE) || ''; } catch (e) { return ''; } }
+	function saveActive(kind){ try { localStorage.setItem(STORE, kind); } catch (e) {} }
+	function refreshButtons(){
+		var active = activeKind();
+		if (runBtn) { runBtn.textContent = (active === 'optimize') ? cfg.i18n.inProgress : origRun; runBtn.classList.toggle('iwsl-mo-inprogress', active === 'optimize'); }
+		if (repBtn) { repBtn.textContent = (active === 'replace') ? cfg.i18n.inProgress : origRep; repBtn.classList.toggle('iwsl-mo-inprogress', active === 'replace'); }
+	}
+	function clearActive(){ try { localStorage.removeItem(STORE); } catch (e) {} refreshButtons(); }
 
 	function el(id){ return document.getElementById(id); }
 	function setText(id, v){ var n = el(id); if (n) { n.textContent = String(v); } }
@@ -3498,6 +3550,55 @@ JS;
 		return { total: total, optimized: optimized, remaining: remaining };
 	}
 
+	// ── Current-image block ────────────────────────────────────────────────────
+	// Shows the single attachment being converted (thumbnail + name) plus a
+	// per-image bar. That bar is a TIME-BASED activity fill, NOT real encode
+	// progress: the encoder exposes no sub-progress, so the bar eases toward a
+	// ceiling while the one-image request is in flight and snaps to 100% when the
+	// request returns. It signals "this image is being worked on", nothing more.
+	function showCurrent(card){
+		var wrap = el('iwsl-mo-current');
+		var thumb = el('iwsl-mo-cur-thumb');
+		var name = el('iwsl-mo-cur-name');
+		if (!card || !card.id) {
+			if (wrap) { wrap.hidden = true; }
+			if (thumb) { thumb.hidden = true; thumb.removeAttribute('src'); }
+			if (name) { name.textContent = ''; }
+			return;
+		}
+		if (wrap) { wrap.hidden = false; }
+		if (name) { name.textContent = card.name || ''; }
+		if (thumb) {
+			if (card.thumb) { thumb.src = card.thumb; thumb.hidden = false; }
+			else { thumb.removeAttribute('src'); thumb.hidden = true; } // no thumb → hide the img.
+		}
+	}
+
+	function setImgBar(pct){
+		pct = Math.round(pct);
+		if (pct < 0) { pct = 0; } if (pct > 100) { pct = 100; }
+		var fill = el('iwsl-mo-img-fill');
+		if (fill) {
+			fill.style.width = pct + '%';
+			if (fill.parentNode && fill.parentNode.setAttribute) { fill.parentNode.setAttribute('aria-valuenow', String(pct)); }
+		}
+	}
+
+	function stopImgBar(){ if (imgTimer) { clearInterval(imgTimer); imgTimer = null; } }
+
+	// Ease 0 → ~92% over ~700ms (ease-out cubic), then hold at the ceiling until
+	// the request returns and the caller snaps to 100%.
+	function startImgBar(){
+		stopImgBar();
+		var started = Date.now();
+		var DURATION = 700, CEIL = 92;
+		setImgBar(0);
+		imgTimer = setInterval(function(){
+			var t = Math.min(1, (Date.now() - started) / DURATION);
+			setImgBar(CEIL * (1 - Math.pow(1 - t, 3)));
+		}, 40);
+	}
+
 	function focusable(){
 		return Array.prototype.slice.call(
 			modal.querySelectorAll('button:not([disabled]), [href], input, [tabindex]:not([tabindex="-1"])')
@@ -3523,6 +3624,7 @@ JS;
 	}
 	function closeModal(){
 		stopRequested = true;
+		stopImgBar();
 		modal.hidden = true;
 		document.removeEventListener('keydown', onKeydown, true);
 		if (lastFocus && lastFocus.focus) { lastFocus.focus(); }
@@ -3552,15 +3654,16 @@ JS;
 		body.set('nonce', cfg.nonce);
 		body.set('converter', fieldVal('converter') || 'webp_lossless');
 		body.set('types', fieldVal('types') || 'auto');
+		// ALWAYS one image at a time — the server forces limit=1 regardless, and the
+		// popup shows each conversion, so the loop sends exactly one per request.
+		body.set('count', '1');
 		if (override && override.mode) {
 			body.set('mode', override.mode);
-			body.set('count', String(cfg.maxRequest));
 			body.set('ids', '');
 			body.set('rewrite', '');
 			body.set('iwsl_mo_skip_optimized', override.skip ? '1' : '');
 		} else {
 			body.set('mode', modeVal());
-			body.set('count', fieldVal('count') || '25');
 			body.set('ids', fieldVal('ids') || '');
 			body.set('rewrite', checkedVal('rewrite'));
 			body.set('iwsl_mo_skip_optimized', checkedVal('iwsl_mo_skip_optimized'));
@@ -3586,8 +3689,12 @@ JS;
 
 	function finish(kind){
 		busy = false;
-		if (kind === 'done') { setLog(cfg.i18n.done, 'done'); }
-		else if (kind === 'leftovers') { setLog(cfg.i18n.doneLeftovers, 'done'); }
+		stopImgBar();
+		// Natural completion clears the marker (button returns to its normal label).
+		// A 'stopped' end (Close / disconnect) deliberately keeps it, so the button
+		// stays "In progress" and the user can re-open to resume the leftover work.
+		if (kind === 'done') { setLog(cfg.i18n.done, 'done'); clearActive(); }
+		else if (kind === 'leftovers') { setLog(cfg.i18n.doneLeftovers, 'done'); clearActive(); }
 		else if (kind === 'stopped') { setLog(cfg.i18n.stopped); }
 		var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); }
 	}
@@ -3598,20 +3705,29 @@ JS;
 
 		function step(){
 			if (stopRequested) { finish('stopped'); return; }
+			// Reveal the image about to convert and start its activity bar; the
+			// single-image request runs while the bar eases toward its ceiling.
+			if (pending) { showCurrent(pending); setLog(cfg.i18n.nowConverting); }
+			startImgBar();
 			post(batchBody(override)).then(function(payload){
-				if (stopRequested) { finish('stopped'); return; }
-				if (!payload || !payload.success) { busy = false; setLog(errorMessage(payload), 'error'); var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); } return; }
+				stopImgBar();
+				if (stopRequested) { setImgBar(0); finish('stopped'); return; }
+				if (!payload || !payload.success) { setImgBar(0); busy = false; setLog(errorMessage(payload), 'error'); var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); } return; }
 				var data = payload.data || {};
+				setImgBar(100); // this image's request returned — snap the activity bar to done.
 				var s = applyStats(data.stats);
 				setLog(fmt(cfg.i18n.converting, s.optimized, s.total));
 				var converted = (data.summary && parseInt(data.summary.converted, 10)) || 0;
-				if (s.remaining <= 0) { finish('done'); return; }
+				pending = data.next || null; // the image the NEXT request will convert.
+				if (s.remaining <= 0) { showCurrent(null); finish('done'); return; }
 				if (lastRemaining !== null && s.remaining >= lastRemaining && converted === 0) { noProgress++; }
 				else { noProgress = 0; }
 				lastRemaining = s.remaining;
-				if (noProgress >= cfg.noProgressLimit) { finish('leftovers'); return; }
-				step();
+				if (noProgress >= cfg.noProgressLimit) { showCurrent(null); finish('leftovers'); return; }
+				// Short hold so the user sees 100% before the next image swaps in.
+				setTimeout(step, 250);
 			}).catch(function(){
+				stopImgBar(); setImgBar(0);
 				busy = false;
 				setLog(cfg.i18n.errNetwork, 'error');
 				var c = el('iwsl-mo-modal-close'); if (c) { c.focus(); }
@@ -3620,25 +3736,41 @@ JS;
 		step();
 	}
 
-	function start(title, override){
+	function start(kind, title, override){
 		if (busy) { return; }
 		busy = true;
 		stopRequested = false;
+		pending = null;
+		stopImgBar();
+		setImgBar(0);
+		showCurrent(null);
+		saveActive(kind);
+		refreshButtons();
 		applyStats({ total: 0, optimized: 0, remaining: 0 });
 		setText('iwsl-mo-total', '–'); setText('iwsl-mo-optimized', '–'); setText('iwsl-mo-remaining', '–');
 		setLog(cfg.i18n.starting);
 		openModal(title);
 		// Seed the counters from the read-only status endpoint, then loop batches.
+		// The probe also returns `next` — the FIRST image to convert — so the popup
+		// can show it before the very first conversion request goes out.
 		var probe = new URLSearchParams();
 		probe.set('action', cfg.statusAction);
 		probe.set('nonce', cfg.nonce);
+		probe.set('converter', fieldVal('converter') || 'webp_lossless');
+		probe.set('types', fieldVal('types') || 'auto');
+		probe.set('ids', (override && override.mode) ? '' : (fieldVal('ids') || ''));
+		probe.set('iwsl_mo_skip_optimized', (override && override.mode) ? (override.skip ? '1' : '') : checkedVal('iwsl_mo_skip_optimized'));
 		post(probe).then(function(payload){
 			if (stopRequested) { finish('stopped'); return; }
-			if (payload && payload.success && payload.data) { applyStats(payload.data.stats); }
+			if (payload && payload.success && payload.data) {
+				applyStats(payload.data.stats);
+				pending = payload.data.next || null;
+				if (pending) { showCurrent(pending); }
+			}
 			else if (payload && !payload.success) { busy = false; setLog(errorMessage(payload), 'error'); return; }
 			loop(override);
 		}).catch(function(){
-			// Status probe failed — still attempt the loop (batches carry their own stats).
+			// Status probe failed — still attempt the loop (batches carry their own stats + next).
 			if (!stopRequested) { loop(override); }
 		});
 	}
@@ -3646,16 +3778,22 @@ JS;
 	if (runBtn) {
 		runBtn.addEventListener('click', function(e){
 			e.preventDefault();
-			start(cfg.i18n.titleOptimize, null);
+			start('optimize', cfg.i18n.titleOptimize, null);
 		});
 	}
 	if (repBtn) {
 		repBtn.addEventListener('click', function(e){
 			e.preventDefault();
-			if (!window.confirm(cfg.replaceConfirm)) { return; }
-			start(cfg.i18n.titleReplace, { mode: 'replace', skip: false });
+			// Fresh start needs the destructive-replace confirmation; re-opening an
+			// already-active replace run (resume after close/disconnect) does not.
+			if (activeKind() !== 'replace' && !window.confirm(cfg.replaceConfirm)) { return; }
+			start('replace', cfg.i18n.titleReplace, { mode: 'replace', skip: false });
 		});
 	}
+
+	// On load, reflect any run left active by a prior visit: the button reads
+	// "In progress" and clicking it re-opens the popup and resumes.
+	refreshButtons();
 })();
 JS;
 		echo "\n</script>\n";
@@ -4058,9 +4196,12 @@ JS;
 	}
 
 	/**
-	 * AJAX: read-only whole-library optimization counters for the progress popup.
-	 * Same gate as the run: manage_options + OPTIMIZE_NONCE + the entitlement check.
-	 * Emits { stats: { total, optimized, remaining } } on success.
+	 * AJAX: read-only whole-library optimization counters for the progress popup,
+	 * plus the FIRST image the run will convert so the popup can show it before the
+	 * very first conversion. Same gate as the run: manage_options + OPTIMIZE_NONCE +
+	 * the entitlement check. Stays strictly read-only — it only previews the next
+	 * candidate (see next_candidate_id()), it converts nothing. Emits
+	 * { stats: { total, optimized, remaining }, next: card|null } on success.
 	 */
 	public function handle_mo_status_ajax(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -4073,7 +4214,37 @@ JS;
 			wp_send_json_error( array( 'reason' => 'entitlement-locked' ), 403 );
 		}
 
-		wp_send_json_success( array( 'stats' => $this->optimizer()->library_stats() ) );
+		$optimizer = $this->optimizer();
+		$p         = $this->read_media_optimize_request();
+		$next_id   = $optimizer->next_candidate_id( $p['converter'], $p['types'], $p['ids'], $p['skip_optimized'] );
+
+		wp_send_json_success(
+			array(
+				'stats' => $optimizer->library_stats(),
+				'next'  => $this->mo_card( $next_id ),
+			)
+		);
+	}
+
+	/**
+	 * A tiny display descriptor for one attachment — id, title, and thumbnail URL —
+	 * for the progress popup's "current image" block. Read-only; every WordPress
+	 * call is function_exists-guarded so it is inert in the no-WP test harness.
+	 * Returns null for a non-positive id (nothing to show).
+	 *
+	 * @return array{ id:int, name:string, thumb:string }|null
+	 */
+	private function mo_card( int $id ): ?array {
+		if ( $id <= 0 ) {
+			return null;
+		}
+		return array(
+			'id'    => $id,
+			'name'  => function_exists( 'get_the_title' ) ? (string) get_the_title( $id ) : '',
+			'thumb' => function_exists( 'wp_get_attachment_image_url' )
+				? (string) ( wp_get_attachment_image_url( $id, 'thumbnail' ) ?: '' )
+				: '',
+		);
 	}
 
 	/**
@@ -4082,7 +4253,10 @@ JS;
 	 * capability + OPTIMIZE_NONCE (check_ajax_referer) + LAYER-2 entitlement re-check,
 	 * with the authoritative LAYER-3 gate inside run(). Server stays authoritative —
 	 * every run parameter is re-validated here via the shared helper; the JS only
-	 * orchestrates the loop. Emits { summary, stats } on success.
+	 * orchestrates the loop. ALWAYS exactly one image per request (limit=1) so the
+	 * popup can show each conversion. Emits { summary, stats, current, next } on
+	 * success, where `current` is the image just converted and `next` the following
+	 * one (either may be null).
 	 */
 	public function handle_mo_run_batch_ajax(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -4099,13 +4273,23 @@ JS;
 		$optimizer = $this->optimizer();
 		$p         = $this->read_media_optimize_request();
 
+		// The image this request is ABOUT to convert (read-only preview), captured
+		// before run() so the popup can name what it is working on.
+		$current = $this->mo_card( $optimizer->next_candidate_id( $p['converter'], $p['types'], $p['ids'], $p['skip_optimized'] ) );
+
+		// ALWAYS one image at a time — force limit=1 regardless of the request count.
 		// One batch only — never a dry run, never a preview. LAYER 3 lives in run().
-		$summary = $optimizer->run( $p['converter'], $p['count'], $p['mode'], false, $p['types'], $p['ids'], $p['rewrite'], $p['skip_optimized'] );
+		$summary = $optimizer->run( $p['converter'], 1, $p['mode'], false, $p['types'], $p['ids'], $p['rewrite'], $p['skip_optimized'] );
+
+		// The image the NEXT request will convert, resolved after this one ran.
+		$next = $this->mo_card( $optimizer->next_candidate_id( $p['converter'], $p['types'], $p['ids'], $p['skip_optimized'] ) );
 
 		wp_send_json_success(
 			array(
 				'summary' => $summary,
 				'stats'   => $optimizer->library_stats(),
+				'current' => $current,
+				'next'    => $next,
 			)
 		);
 	}

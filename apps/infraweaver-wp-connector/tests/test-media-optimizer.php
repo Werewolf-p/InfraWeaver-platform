@@ -1132,3 +1132,92 @@ unset( $GLOBALS['wpdb'] );
 // than fataling — the same guard every WordPress call in this engine carries.
 $stats_no_wp = $opt_stats->library_stats();
 iwsl_assert_same( array( 'total' => 0, 'optimized' => 0, 'remaining' => 0 ), $stats_no_wp, 'library_stats: returns all-zeros with no $wpdb (no-WP harness guard)' );
+
+// The picked-selection path re-validates each id's MIME server-side via
+// get_post_mime_type(); stub it against the in-memory registry (additive — no
+// earlier section touches picked ids, so this changes nothing above).
+if ( ! function_exists( 'get_post_mime_type' ) ) {
+	function get_post_mime_type( int $id ) {
+		return isset( $GLOBALS['iwsl_mo_attachments'][ $id ] ) ? (string) $GLOBALS['iwsl_mo_attachments'][ $id ]['mime'] : '';
+	}
+}
+
+// ── 16. next_candidate_id(): the one image the run would convert NEXT ─────────
+//
+// Powers the progress popup's strictly one-image-at-a-time loop. Proves it names
+// the OLDEST candidate for the auto batch, honours "skip done" on a picked set
+// (advancing past already-optimized sources), and returns 0 when nothing is left.
+
+iwsl_mo_reset();
+$base_nc = iwsl_mo_tempdir();
+$opt_nc  = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base_nc,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) )
+);
+
+// (a) auto path: empty library → 0 (nothing to convert).
+iwsl_assert_same( 0, $opt_nc->next_candidate_id( 'webp_lossless', 'auto', array(), true ), 'next_candidate: empty library → 0' );
+
+// (b) auto path: the OLDEST (lowest-id) matching attachment is the next candidate.
+$GLOBALS['iwsl_mo_attachments'][1301] = array( 'path' => $base_nc . '/a.png', 'mime' => 'image/png' );
+$GLOBALS['iwsl_mo_attachments'][1302] = array( 'path' => $base_nc . '/b.png', 'mime' => 'image/png' );
+iwsl_assert_same( 1301, $opt_nc->next_candidate_id( 'webp_lossless', 'auto', array(), true ), 'next_candidate(auto): returns the oldest candidate id' );
+
+// (c) picked path + skip done: an already-optimized pick is passed over for the
+//     next unoptimized one; with skip OFF the first pick is offered regardless.
+iwsl_mo_reset();
+$GLOBALS['iwsl_mo_attachments'][1401] = array( 'path' => $base_nc . '/p1.png', 'mime' => 'image/png' );
+$GLOBALS['iwsl_mo_attachments'][1402] = array( 'path' => $base_nc . '/p2.png', 'mime' => 'image/png' );
+$GLOBALS['iwsl_mo_meta'][1401][ IWSL_Media_Optimizer::META_KEY ] = array( 'converter' => 'webp_lossless', 'source_size' => 1, 'source_mtime' => 1 );
+iwsl_assert_same( 1402, $opt_nc->next_candidate_id( 'webp_lossless', 'auto', array( 1401, 1402 ), true ), 'next_candidate(picked+skip): skips the optimized pick, offers the unoptimized one' );
+iwsl_assert_same( 1401, $opt_nc->next_candidate_id( 'webp_lossless', 'auto', array( 1401, 1402 ), false ), 'next_candidate(picked, no skip): offers the first pick regardless of meta' );
+
+// (d) picked path + skip done: every pick already optimized → 0 (none remain).
+$GLOBALS['iwsl_mo_meta'][1402][ IWSL_Media_Optimizer::META_KEY ] = array( 'converter' => 'webp_lossless', 'source_size' => 1, 'source_mtime' => 1 );
+iwsl_assert_same( 0, $opt_nc->next_candidate_id( 'webp_lossless', 'auto', array( 1401, 1402 ), true ), 'next_candidate(picked+skip): all picks optimized → 0' );
+
+// ── 17. derivative_for(): read-only lossless-WebP descriptor (S3 offload) ─────
+//
+// The sibling S3 offload feature reads each attachment's derivative through this
+// accessor. Proves the { path, url, exists } shape, that path/url are derived
+// from the SAME logic convert_one() uses (foo.png → foo-png.webp beside it),
+// that `exists` tracks the file on disk, and that an unresolvable / non-positive
+// id returns empty strings with exists=false. Strictly read-only — no file made.
+
+iwsl_mo_reset();
+$GLOBALS['iwsl_mo_urls'] = array();
+$base_df = iwsl_mo_tempdir();
+$png_df  = $base_df . '/photo.png';
+file_put_contents( $png_df, iwsl_mo_valid_png( 8, 8 ) );
+$GLOBALS['iwsl_mo_attachments'][1501] = array( 'path' => $png_df, 'mime' => 'image/png' );
+$GLOBALS['iwsl_mo_urls'][1501]        = 'http://site/u/photo.png';
+$opt_df = new IWSL_Media_Optimizer(
+	iwsl_mo_unlocked_entitlements( $NOW ),
+	$base_df,
+	static function () use ( $NOW ): int {
+		return $NOW; },
+	array( 'webp_lossless' => new IWSL_Recording_Converter( 0.4 ) )
+);
+
+// (a) before the derivative exists: shape + derived path/url, exists=false.
+$df = $opt_df->derivative_for( 1501 );
+iwsl_assert_same( array( 'path', 'url', 'exists' ), array_keys( $df ), 'derivative_for: shape is { path, url, exists }' );
+iwsl_assert_same( $base_df . '/photo-png.webp', $df['path'], 'derivative_for: path is the ext-folded sibling derivative' );
+iwsl_assert_same( 'http://site/u/photo-png.webp', $df['url'], 'derivative_for: url is derived from the attachment url + derivative basename' );
+iwsl_assert_same( false, $df['exists'], 'derivative_for: exists=false when the derivative is not on disk' );
+
+// (b) once the derivative is written, exists flips true (plain is_file probe).
+file_put_contents( $base_df . '/photo-png.webp', str_repeat( 'w', 64 ) );
+$df2 = $opt_df->derivative_for( 1501 );
+iwsl_assert_same( true, $df2['exists'], 'derivative_for: exists=true after the derivative file appears' );
+
+// (c) non-positive id → empty descriptor (nothing to resolve).
+$df_zero = $opt_df->derivative_for( 0 );
+iwsl_assert_same( array( 'path' => '', 'url' => '', 'exists' => false ), $df_zero, 'derivative_for: id<=0 → empty strings, exists=false' );
+
+// (d) unresolvable id (no such attachment) → empty descriptor.
+$df_missing = $opt_df->derivative_for( 999999 );
+iwsl_assert_same( array( 'path' => '', 'url' => '', 'exists' => false ), $df_missing, 'derivative_for: unresolvable id → empty strings, exists=false' );
