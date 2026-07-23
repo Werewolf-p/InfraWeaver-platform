@@ -952,5 +952,32 @@ export async function updateConnectorPlugin(
       );
     }
   }
+
+  // Auto-resync entitlements after a successful update: re-derive and re-push this
+  // site's CURRENT tier flag map so an updated connector always carries the FULL
+  // current entitlement set. This closes the stale-map gap where a newly-added paid
+  // feature stayed locked on a site until someone re-assigned its tier by hand (the
+  // hi2 case) — every update now heals it automatically, per-site button and fleet
+  // sweep alike. Best-effort and seq-rollback tolerant: the health.check above just
+  // advanced the signed command seq, so this push rides a synced seq; if it still
+  // rolls back (a concurrent command raced the seq) one retry clears it. A failure
+  // here must NEVER fail an update whose install + verified health.check already
+  // succeeded — the next update or sweep simply re-attempts the resync.
+  if (version && record.tier) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await setSiteTier(site, record.tier, "connector-auto-resync");
+        break;
+      } catch (err) {
+        const seqRollback = err instanceof AddonHttpError && err.message.includes("seq-rollback");
+        if (seqRollback && attempt < 3) continue;
+        console.warn(
+          `[wordpress:iwsl] post-update entitlements resync for ${site} skipped (update OK; reconciles on the next update/sweep):`,
+          err instanceof Error ? err.message : err,
+        );
+        break;
+      }
+    }
+  }
   return { version };
 }
