@@ -298,6 +298,81 @@ final class IWSL_S3_Client {
 		return $out;
 	}
 
+	/**
+	 * List the buckets visible to the configured credentials — a SERVICE-level
+	 * SigV4-signed GET on the object-storage root (`https://<endpoint>/`, canonical
+	 * URI `/`, empty query, empty-body payload hash). The Host is the bare endpoint —
+	 * NEVER `<bucket>.<endpoint>` — so no bucket subdomain is addressed, and a
+	 * configured bucket is NOT required (this works with an empty bucket). Hetzner's
+	 * ListBuckets is per-location, so this reports only the buckets in the endpoint's
+	 * location. The `<Name>` elements become `buckets`, `<Owner><ID>` becomes `owner`.
+	 * On a non-2xx reply `ok` is false, `status` is surfaced, and `error` carries the
+	 * XML `<Code>` when present (else the transport error, else `http-<status>`). The
+	 * `secret_key` never appears in any returned value.
+	 *
+	 * @return array{ ok:bool, buckets:string[], owner:string, status:int, error:string }
+	 */
+	public function list_buckets(): array {
+		$err = $this->precheck_service();
+		if ( '' !== $err ) {
+			return array( 'ok' => false, 'buckets' => array(), 'owner' => '', 'status' => 0, 'error' => $err );
+		}
+
+		$host          = $this->endpoint; // SERVICE-level: the bare endpoint, no bucket subdomain.
+		$canonical_uri = '/';
+		$url           = 'https://' . $host . $canonical_uri;
+		$payload_hash  = self::EMPTY_PAYLOAD_HASH; // body-less GET.
+		$amz_date      = $this->amz_date();
+
+		$sign_headers = array(
+			'host'                 => $host,
+			'x-amz-content-sha256' => $payload_hash,
+			'x-amz-date'           => $amz_date,
+		);
+
+		$signed = self::sigv4(
+			'GET',
+			$canonical_uri,
+			'',
+			$sign_headers,
+			$payload_hash,
+			$amz_date,
+			$this->region,
+			self::SERVICE,
+			$this->access_key,
+			$this->secret_key
+		);
+
+		$wire                  = $sign_headers;
+		$wire['authorization'] = $signed['authorization'];
+
+		$raw = ( $this->http )( array(
+			'method'  => 'GET',
+			'url'     => $url,
+			'headers' => $wire,
+			'body'    => '',
+		) );
+		$res = self::normalize_response( $raw );
+
+		if ( '' !== $res['error'] || $res['status'] < 200 || $res['status'] >= 300 ) {
+			return array(
+				'ok'      => false,
+				'buckets' => array(),
+				'owner'   => '',
+				'status'  => $res['status'],
+				'error'   => self::list_error( $res ),
+			);
+		}
+
+		return array(
+			'ok'      => true,
+			'buckets' => self::parse_bucket_names( $res['body'] ),
+			'owner'   => self::parse_owner_id( $res['body'] ),
+			'status'  => $res['status'],
+			'error'   => '',
+		);
+	}
+
 	// ── AWS Signature V4 (pure) ───────────────────────────────────────────────
 
 	/**
@@ -479,6 +554,27 @@ final class IWSL_S3_Client {
 	}
 
 	/**
+	 * Service-level pre-flight validation (no bucket / no key) for list_buckets().
+	 * Same fail-closed idiom as precheck(): endpoint present, https-only, credentials
+	 * present, and not an SSRF target. The secret is never referenced in any code.
+	 */
+	private function precheck_service(): string {
+		if ( '' === $this->endpoint ) {
+			return 'endpoint-missing';
+		}
+		if ( $this->endpoint_insecure ) {
+			return 'endpoint-insecure-scheme';
+		}
+		if ( '' === $this->access_key || '' === $this->secret_key ) {
+			return 'credentials-missing';
+		}
+		if ( $this->resolves_to_private_ip( $this->endpoint ) ) {
+			return 'endpoint-private-ip';
+		}
+		return '';
+	}
+
+	/**
 	 * Whether the endpoint host resolves to a loopback / link-local / private
 	 * (RFC1918 or ULA) / reserved address — an SSRF target that must never be
 	 * signed and requested. Duplicates the guard idea in IWSL_Broken_Link_Scan
@@ -582,6 +678,65 @@ final class IWSL_S3_Client {
 			return $res['error'];
 		}
 		return 'http-' . (int) $res['status'];
+	}
+
+	/**
+	 * The error code for a failed ListBuckets: prefer the S3 XML `<Code>` (e.g.
+	 * SignatureDoesNotMatch / AccessDenied), then the transport error, then
+	 * `http-<status>`. Never carries the secret.
+	 */
+	private static function list_error( array $res ): string {
+		$code = self::parse_xml_tag( $res['body'], 'Code' );
+		if ( '' !== $code ) {
+			return $code;
+		}
+		return self::request_error( $res );
+	}
+
+	/**
+	 * The bucket names from a ListAllMyBucketsResult body. Only `<Bucket>` entries
+	 * carry a `<Name>` (the owner carries `<ID>`/`<DisplayName>`), so a global
+	 * `<Name>` match yields exactly the bucket names, in document order.
+	 */
+	private static function parse_bucket_names( string $xml ): array {
+		if ( '' === $xml ) {
+			return array();
+		}
+		$names = array();
+		if ( preg_match_all( '#<Name>(.*?)</Name>#s', $xml, $m ) ) {
+			foreach ( $m[1] as $raw ) {
+				$name = self::xml_decode( trim( (string) $raw ) );
+				if ( '' !== $name ) {
+					$names[] = $name;
+				}
+			}
+		}
+		return $names;
+	}
+
+	/** The owner id (`<Owner><ID>…</ID></Owner>`) from a ListAllMyBucketsResult body, or ''. */
+	private static function parse_owner_id( string $xml ): string {
+		if ( '' !== $xml && preg_match( '#<Owner>.*?<ID>(.*?)</ID>.*?</Owner>#s', $xml, $m ) ) {
+			return self::xml_decode( trim( (string) $m[1] ) );
+		}
+		return '';
+	}
+
+	/** The text of the FIRST `<$tag>…</$tag>` element, xml-decoded, or '' when absent. */
+	private static function parse_xml_tag( string $xml, string $tag ): string {
+		if ( '' === $xml ) {
+			return '';
+		}
+		$q = preg_quote( $tag, '#' );
+		if ( preg_match( '#<' . $q . '>(.*?)</' . $q . '>#s', $xml, $m ) ) {
+			return self::xml_decode( trim( (string) $m[1] ) );
+		}
+		return '';
+	}
+
+	/** Decode XML/HTML entities in a parsed value (bucket / owner ids are plain, but be safe). */
+	private static function xml_decode( string $value ): string {
+		return html_entity_decode( $value, ENT_QUOTES | ENT_XML1, 'UTF-8' );
 	}
 
 	/**

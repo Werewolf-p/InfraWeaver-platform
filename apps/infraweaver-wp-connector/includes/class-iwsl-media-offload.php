@@ -96,6 +96,7 @@ final class IWSL_Media_Offload {
 	const AJAX_BATCH     = 'iwsl_media_offload_batch';
 	const AJAX_UNOFFLOAD = 'iwsl_media_offload_unoffload';
 	const AJAX_MANUAL    = 'iwsl_media_offload_manual';
+	const AJAX_BUCKETS   = 'iwsl_media_offload_buckets';
 	const NONCE          = 'iwsl_media_offload';
 
 	/** admin-post settings save action + nonce (PRG). */
@@ -220,6 +221,7 @@ final class IWSL_Media_Offload {
 			add_action( 'wp_ajax_' . self::AJAX_BATCH, array( $this, 'handle_batch_ajax' ) );
 			add_action( 'wp_ajax_' . self::AJAX_UNOFFLOAD, array( $this, 'handle_unoffload_ajax' ) );
 			add_action( 'wp_ajax_' . self::AJAX_MANUAL, array( $this, 'handle_manual_ajax' ) );
+			add_action( 'wp_ajax_' . self::AJAX_BUCKETS, array( $this, 'handle_buckets_ajax' ) );
 			add_action( 'admin_post_' . self::ACTION_SAVE, array( $this, 'handle_save' ) );
 		}
 	}
@@ -678,6 +680,95 @@ final class IWSL_Media_Offload {
 		$this->send_json( $this->set_manual( $id, $mode ) );
 	}
 
+	/**
+	 * AJAX: enumerate the buckets the entered (or stored) credentials can see, grouped
+	 * by Hetzner location, for the wizard's live dropdown. Reads the access key +
+	 * secret from POST (the creds the operator just typed); the aggregation itself
+	 * enforces the gate + the stored-secret fallback + secret hygiene.
+	 */
+	public function handle_buckets_ajax(): void {
+		$this->ajax_guard();
+		$access_key = isset( $_POST['access_key'] ) && is_scalar( $_POST['access_key'] ) ? (string) $_POST['access_key'] : '';
+		$secret_key = isset( $_POST['secret_key'] ) && is_scalar( $_POST['secret_key'] ) ? (string) $_POST['secret_key'] : '';
+		$this->send_json( $this->list_buckets( $access_key, $secret_key ) );
+	}
+
+	/**
+	 * Enumerate the buckets visible to a pair of S3 credentials, grouped by Hetzner
+	 * location. STATEMENT 1 is the gate. The ENTERED secret is used only in memory;
+	 * a BLANK secret (the wizard re-opened, where the field shows only a placeholder)
+	 * falls back to the STORED decrypted secret so listing still works. Each location
+	 * is queried at its OWN endpoint because Hetzner's ListBuckets is per-location.
+	 * Returns { ok, owner, locations:{ fsn1:[], nbg1:[], hel1:[] }, error }. When every
+	 * location fails on auth, `ok` is false with a friendly reason. The `secret_key`
+	 * is NEVER returned, echoed, or logged.
+	 *
+	 * @return array{ ok:bool, owner:string, locations:array<string,string[]>, error:string }
+	 */
+	public function list_buckets( string $access_key, string $secret_key ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'owner' => '', 'locations' => array(), 'error' => 'entitlement-locked' );
+		}
+
+		$access_key = self::request_string( $access_key );
+		$secret_key = self::request_string( $secret_key );
+		if ( '' === $secret_key ) {
+			$stored     = $this->settings()['secret'];
+			$secret_key = '' !== $stored ? (string) $this->decrypt_secret( $stored ) : '';
+		}
+		if ( '' === $access_key || '' === $secret_key ) {
+			return array( 'ok' => false, 'owner' => '', 'locations' => array(), 'error' => 'incomplete-credentials' );
+		}
+
+		$locations   = array();
+		$owner       = '';
+		$any_ok      = false;
+		$queried     = 0;
+		$auth_errors = 0;
+
+		foreach ( array_keys( self::LOCATIONS ) as $loc ) {
+			$locations[ $loc ] = array();
+			$client            = $this->s3(
+				array(
+					'endpoint'   => $loc . '.' . self::ENDPOINT_SUFFIX,
+					'region'     => $loc,
+					'bucket'     => '', // service-level listing needs no bucket.
+					'access_key' => $access_key,
+					'secret_key' => $secret_key,
+					'acl'        => self::ACL,
+					'path_style' => self::PATH_STYLE,
+				)
+			);
+			if ( ! method_exists( $client, 'list_buckets' ) ) {
+				continue;
+			}
+			++$queried;
+			$res = $client->list_buckets();
+			if ( ! is_array( $res ) ) {
+				continue;
+			}
+			if ( ! empty( $res['ok'] ) ) {
+				$any_ok            = true;
+				$locations[ $loc ] = isset( $res['buckets'] ) && is_array( $res['buckets'] )
+					? array_values( array_map( 'strval', $res['buckets'] ) )
+					: array();
+				if ( '' === $owner && isset( $res['owner'] ) && '' !== (string) $res['owner'] ) {
+					$owner = (string) $res['owner'];
+				}
+			} elseif ( self::is_auth_error( isset( $res['error'] ) ? (string) $res['error'] : '' ) ) {
+				++$auth_errors;
+			}
+		}
+
+		if ( ! $any_ok ) {
+			$reason = ( $queried > 0 && $auth_errors >= $queried ) ? 'auth-failed' : 'no-buckets-listed';
+			return array( 'ok' => false, 'owner' => '', 'locations' => $locations, 'error' => $reason );
+		}
+
+		return array( 'ok' => true, 'owner' => $owner, 'locations' => $locations, 'error' => '' );
+	}
+
 	/** admin-post: PRG settings save (manage_options + nonce + gate). */
 	public function handle_save(): void {
 		if ( function_exists( 'current_user_can' ) && ! current_user_can( 'manage_options' ) ) {
@@ -749,9 +840,11 @@ final class IWSL_Media_Offload {
 
 	/**
 	 * The admin section. Locked → a notice listing the gate reasons. Unlocked → the
-	 * connection wizard (location → bucket → access key → secret → Test connection),
-	 * the enable + rule toggles, and the "Offload now" / "Remove from bucket" progress
-	 * controls. The secret is NEVER rendered — only a "secret is set" indicator.
+	 * connection wizard (access key + secret → Load my buckets → pick one from the live
+	 * location-grouped dropdown, which auto-sets the location; a manual-entry fallback
+	 * covers keys without list permission → Test connection), the enable + rule toggles,
+	 * and the "Offload now" / "Remove from bucket" progress controls. The secret is
+	 * NEVER rendered — only a "secret is set" indicator.
 	 */
 	public function render_section(): void {
 		$gate = $this->entitlements->evaluate( self::FEATURE );
@@ -782,32 +875,17 @@ final class IWSL_Media_Offload {
 			wp_nonce_field( self::NONCE_SAVE );
 		}
 
-		// Step 1 — location.
-		echo '<fieldset class="iwsl-step"><legend>' . self::esc_html_safe( 'Step 1 — Storage location' ) . '</legend>';
-		echo '<p><label>' . self::esc_html_safe( 'Hetzner location' ) . ' <select name="location">';
-		foreach ( self::LOCATIONS as $code => $label ) {
-			echo '<option value="' . self::esc_attr_safe( $code ) . '" ' . self::selected( $code === $view['location'] ) . '>'
-				. self::esc_html_safe( $label . ' (' . $code . ')' ) . '</option>';
-		}
-		echo '</select></label></p></fieldset>';
+		// Step 1 — credentials, then a live bucket dropdown loaded from them (manual fallback included).
+		$this->render_bucket_step( $view );
 
-		// Step 2 — bucket + credentials.
-		echo '<fieldset class="iwsl-step"><legend>' . self::esc_html_safe( 'Step 2 — Bucket & credentials' ) . '</legend>';
-		echo '<p><label>' . self::esc_html_safe( 'Bucket name' ) . ' <input type="text" name="bucket" value="' . self::esc_attr_safe( $view['bucket'] ) . '" autocomplete="off" /></label></p>';
-		echo '<p><label>' . self::esc_html_safe( 'Access key' ) . ' <input type="text" name="access_key" value="' . self::esc_attr_safe( $view['access_key'] ) . '" autocomplete="off" /></label></p>';
-		$secret_ph = $view['has_secret'] ? 'Secret is set — leave blank to keep it' : 'Secret key';
-		echo '<p><label>' . self::esc_html_safe( 'Secret key' ) . ' <input type="password" name="secret_key" value="" placeholder="' . self::esc_attr_safe( $secret_ph ) . '" autocomplete="new-password" /></label></p>';
-		echo '<p><button type="button" class="button" id="iwsl-offload-test">' . self::esc_html_safe( 'Test connection' ) . '</button> <span id="iwsl-offload-test-result" aria-live="polite"></span></p>';
-		echo '<p class="description">' . self::esc_html_safe( 'Tip: save your bucket and credentials first, then test.' ) . '</p></fieldset>';
-
-		// Step 3 — enable + rule.
-		echo '<fieldset class="iwsl-step"><legend>' . self::esc_html_safe( 'Step 3 — Turn it on' ) . '</legend>';
+		// Step 2 — enable + rule.
+		echo '<fieldset class="iwsl-step"><legend>' . self::esc_html_safe( 'Step 2 — Turn it on' ) . '</legend>';
 		echo '<p><label><input type="checkbox" name="enabled" value="1" ' . self::checked( $view['enabled'] ) . '/> ' . self::esc_html_safe( 'Serve offloaded images from the bucket' ) . '</label></p>';
 		echo '<p><label><input type="checkbox" name="rule_all" value="1" ' . self::checked( $view['rule_all'] ) . '/> ' . self::esc_html_safe( 'Offload all lossless-optimized images' ) . '</label></p></fieldset>';
 
-		// Step 4 — bucket access: public objects vs private presigned-URL delivery.
+		// Step 3 — bucket access: public objects vs private presigned-URL delivery.
 		$is_private = self::ACCESS_PRIVATE === $view['access'];
-		echo '<fieldset class="iwsl-step"><legend>' . self::esc_html_safe( 'Step 4 — Bucket access' ) . '</legend>';
+		echo '<fieldset class="iwsl-step"><legend>' . self::esc_html_safe( 'Step 3 — Bucket access' ) . '</legend>';
 		echo '<p><label>' . self::esc_html_safe( 'Bucket access' ) . ' <select name="access">';
 		echo '<option value="' . self::esc_attr_safe( self::ACCESS_PUBLIC ) . '" ' . self::selected( ! $is_private ) . '>'
 			. self::esc_html_safe( 'Public — anyone with the link can view (fastest, fully cacheable)' ) . '</option>';
@@ -824,6 +902,54 @@ final class IWSL_Media_Offload {
 
 		echo '<p><button type="submit" class="button button-primary">' . self::esc_html_safe( 'Save settings' ) . '</button></p>';
 		echo '</form>';
+	}
+
+	/**
+	 * Credentials + a LIVE bucket dropdown loaded from those credentials. "Load my
+	 * buckets" calls handle_buckets_ajax and the JS builds a `<select name="bucket">`
+	 * grouped by location (`<optgroup>`), each `<option data-location="…">`; picking one
+	 * auto-sets the hidden `location`. A manual-entry fallback (a plain bucket field +
+	 * a location `<select>`) covers keys that lack the ListBuckets permission. The
+	 * manual controls are DISABLED until toggled, so exactly one bucket/location pair is
+	 * ever submitted, and both paths save through the same validated fields. The secret
+	 * field is write-only — never pre-filled; a placeholder hints that one is stored.
+	 */
+	private function render_bucket_step( array $view ): void {
+		$secret_ph = $view['has_secret'] ? 'Secret is set — leave blank to keep it' : 'Secret key';
+
+		echo '<fieldset class="iwsl-step"><legend>' . self::esc_html_safe( 'Step 1 — Credentials & bucket' ) . '</legend>';
+		echo '<p><label>' . self::esc_html_safe( 'Access key' ) . ' <input type="text" name="access_key" id="iwsl-offload-ak" value="' . self::esc_attr_safe( $view['access_key'] ) . '" autocomplete="off" /></label></p>';
+		echo '<p><label>' . self::esc_html_safe( 'Secret key' ) . ' <input type="password" name="secret_key" id="iwsl-offload-sk" value="" placeholder="' . self::esc_attr_safe( $secret_ph ) . '" autocomplete="new-password" /></label></p>';
+		echo '<p><button type="button" class="button" id="iwsl-offload-load-buckets">' . self::esc_html_safe( 'Load my buckets' ) . '</button> <span id="iwsl-offload-buckets-status" aria-live="polite"></span></p>';
+
+		// Dynamic dropdown (default). Selecting an option auto-sets the hidden location.
+		echo '<div id="iwsl-offload-bucket-dynamic">';
+		echo '<p><label>' . self::esc_html_safe( 'Bucket' ) . ' <select name="bucket" id="iwsl-offload-bucket-select">';
+		if ( '' !== $view['bucket'] ) {
+			echo '<option value="' . self::esc_attr_safe( $view['bucket'] ) . '" data-location="' . self::esc_attr_safe( $view['location'] ) . '" selected="selected">'
+				. self::esc_html_safe( $view['bucket'] . ' (' . $view['location'] . ')' ) . '</option>';
+		} else {
+			echo '<option value="">' . self::esc_html_safe( '— Load your buckets to choose —' ) . '</option>';
+		}
+		echo '</select></label></p>';
+		echo '<input type="hidden" name="location" id="iwsl-offload-location" value="' . self::esc_attr_safe( $view['location'] ) . '" />';
+		echo '<p id="iwsl-offload-owner" class="description" aria-live="polite"></p>';
+		echo '</div>';
+
+		// Manual fallback for keys without ListBuckets permission (disabled until toggled).
+		echo '<p><label><input type="checkbox" id="iwsl-offload-manual-toggle" /> ' . self::esc_html_safe( 'Enter bucket manually (for keys without list permission)' ) . '</label></p>';
+		echo '<div id="iwsl-offload-bucket-manual" style="display:none;">';
+		echo '<p><label>' . self::esc_html_safe( 'Bucket name' ) . ' <input type="text" name="bucket" id="iwsl-offload-bucket-manual-input" value="' . self::esc_attr_safe( $view['bucket'] ) . '" autocomplete="off" disabled="disabled" /></label></p>';
+		echo '<p><label>' . self::esc_html_safe( 'Location' ) . ' <select name="location" id="iwsl-offload-location-manual" disabled="disabled">';
+		foreach ( self::LOCATIONS as $code => $label ) {
+			echo '<option value="' . self::esc_attr_safe( $code ) . '" ' . self::selected( $code === $view['location'] ) . '>'
+				. self::esc_html_safe( $label . ' (' . $code . ')' ) . '</option>';
+		}
+		echo '</select></label></p></div>';
+
+		echo '<p><button type="button" class="button" id="iwsl-offload-test">' . self::esc_html_safe( 'Test connection' ) . '</button> <span id="iwsl-offload-test-result" aria-live="polite"></span></p>';
+		echo '<p class="description">' . self::esc_html_safe( 'Load your buckets, pick one (the location fills in automatically), then Save. Save your bucket and credentials before testing.' ) . '</p>';
+		echo '</fieldset>';
 	}
 
 	/** The "Offload now" + "Remove from bucket" progress controls (JS-driven). */
@@ -856,17 +982,25 @@ final class IWSL_Media_Offload {
 	/** The small AJAX-loop script driving Test connection + offload/remove progress. */
 	private function render_inline_script(): void {
 		$cfg = array(
-			'ajaxUrl'  => function_exists( 'admin_url' ) ? admin_url( 'admin-ajax.php' ) : 'admin-ajax.php',
-			'nonce'    => function_exists( 'wp_create_nonce' ) ? wp_create_nonce( self::NONCE ) : '',
-			'actTest'  => self::AJAX_TEST,
-			'actBatch' => self::AJAX_BATCH,
-			'actUnoff' => self::AJAX_UNOFFLOAD,
+			'ajaxUrl'    => function_exists( 'admin_url' ) ? admin_url( 'admin-ajax.php' ) : 'admin-ajax.php',
+			'nonce'      => function_exists( 'wp_create_nonce' ) ? wp_create_nonce( self::NONCE ) : '',
+			'actTest'    => self::AJAX_TEST,
+			'actBatch'   => self::AJAX_BATCH,
+			'actUnoff'   => self::AJAX_UNOFFLOAD,
+			'actBuckets' => self::AJAX_BUCKETS,
+			'locLabels'  => self::LOCATIONS,
 		);
 		$json = function_exists( 'wp_json_encode' ) ? wp_json_encode( $cfg ) : json_encode( $cfg );
 		echo "<script>(function(){var cfg=" . $json . ";\n";
 		echo <<<'JS'
 function post(action,extra){var b=new URLSearchParams();b.set('action',action);b.set('nonce',cfg.nonce);if(extra){for(var k in extra){b.set(k,extra[k]);}}return fetch(cfg.ajaxUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b.toString()}).then(function(r){return r.json();});}
 var t=document.getElementById('iwsl-offload-test');if(t){t.addEventListener('click',function(){var o=document.getElementById('iwsl-offload-test-result');o.textContent='Testing…';post(cfg.actTest,{}).then(function(j){o.textContent=(j&&j.success&&j.data&&j.data.ok)?'Connection OK':'Connection failed';}).catch(function(){o.textContent='Connection failed';});});}
+var lb=document.getElementById('iwsl-offload-load-buckets');
+if(lb){lb.addEventListener('click',function(){var st=document.getElementById('iwsl-offload-buckets-status');var ak=document.getElementById('iwsl-offload-ak');var sk=document.getElementById('iwsl-offload-sk');if(st){st.textContent='Loading buckets…';}post(cfg.actBuckets,{access_key:ak?ak.value:'',secret_key:sk?sk.value:''}).then(function(j){var d=(j&&j.data)?j.data:{};var none='No buckets found for these keys — create one in the Hetzner Cloud console, or check the key permissions.';if(!d.ok){if(st){st.textContent=(d.error==='auth-failed')?'Could not authenticate with those keys — check the access key and secret.':none;}return;}var sel=document.getElementById('iwsl-offload-bucket-select');var count=0;if(sel){while(sel.firstChild){sel.removeChild(sel.firstChild);}var ph=document.createElement('option');ph.value='';ph.textContent='— Select a bucket —';sel.appendChild(ph);var locs=d.locations||{};for(var code in locs){if(!Object.prototype.hasOwnProperty.call(locs,code)){continue;}var names=locs[code]||[];if(!names.length){continue;}var og=document.createElement('optgroup');og.label=((cfg.locLabels&&cfg.locLabels[code])||code)+' ('+code+')';for(var i=0;i<names.length;i++){var opt=document.createElement('option');opt.value=names[i];opt.setAttribute('data-location',code);opt.textContent=names[i];og.appendChild(opt);count++;}sel.appendChild(og);}}if(st){st.textContent=count?('Loaded '+count+' bucket(s) — pick one below.'):none;}var own=document.getElementById('iwsl-offload-owner');if(own){own.textContent=d.owner?('Account: '+d.owner):'';}}).catch(function(){if(st){st.textContent='Could not load buckets (network error).';}});});}
+var bsel=document.getElementById('iwsl-offload-bucket-select');
+if(bsel){bsel.addEventListener('change',function(){var o=bsel.options[bsel.selectedIndex];var loc=o?o.getAttribute('data-location'):'';var h=document.getElementById('iwsl-offload-location');if(h&&loc){h.value=loc;}});}
+var mt=document.getElementById('iwsl-offload-manual-toggle');
+if(mt){mt.addEventListener('change',function(){var manual=mt.checked;var dyn=document.getElementById('iwsl-offload-bucket-dynamic');var man=document.getElementById('iwsl-offload-bucket-manual');if(dyn){dyn.style.display=manual?'none':'';}if(man){man.style.display=manual?'':'none';}var ds=document.getElementById('iwsl-offload-bucket-select');var dl=document.getElementById('iwsl-offload-location');var ms=document.getElementById('iwsl-offload-bucket-manual-input');var ml=document.getElementById('iwsl-offload-location-manual');if(ds){ds.disabled=manual;}if(dl){dl.disabled=manual;}if(ms){ms.disabled=!manual;}if(ml){ml.disabled=!manual;}});}
 var prog=document.getElementById('iwsl-offload-progress');
 function loop(action,extra,label){post(action,extra).then(function(j){var d=j&&j.data?j.data:{};var st=d.stats;if(st){var s=document.getElementById('iwsl-offload-stats');if(s){s.textContent='Qualifying: '+st.qualifying+' — Offloaded: '+st.offloaded+' — Remaining: '+st.remaining;}}var more=(action===cfg.actBatch)?(d.next&&d.next.id):(d.remaining>0);if(more){prog.textContent=label+' ('+((st&&st.remaining)||d.remaining||'…')+' left)';loop(action,extra,label);}else{prog.textContent=label+' complete.';}}).catch(function(){prog.textContent=label+' stopped (error).';});}
 var start=document.getElementById('iwsl-offload-start');if(start){start.addEventListener('click',function(){prog.textContent='Offloading…';loop(cfg.actBatch,{},'Offloading');});}
@@ -1171,6 +1305,15 @@ JS;
 	/** Access-key-id validation: 8–128 printable key characters. */
 	private static function is_valid_access_key( string $key ): bool {
 		return 1 === preg_match( '/^[A-Za-z0-9]{8,128}$/', $key );
+	}
+
+	/** Whether a list_buckets error code signals bad/rejected credentials (vs. a transient/other fault). */
+	private static function is_auth_error( string $error ): bool {
+		return in_array(
+			$error,
+			array( 'SignatureDoesNotMatch', 'InvalidAccessKeyId', 'AccessDenied', 'http-401', 'http-403' ),
+			true
+		);
 	}
 
 	/** Read a scalar request value as a trimmed, unslashed string. */

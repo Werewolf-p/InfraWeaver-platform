@@ -444,3 +444,61 @@ $req_none = $GLOBALS['iwsl_s3_reqs'][0];
 iwsl_assert_same( true, $put_none['ok'], 'acl(empty): PUT still succeeds with no ACL header' );
 iwsl_assert_same( null, iwsl_s3_hdr( $req_none, 'x-amz-acl' ), 'acl(empty): no x-amz-acl header is sent' );
 iwsl_assert( false === strpos( (string) iwsl_s3_hdr( $req_none, 'authorization' ), 'x-amz-acl' ), 'acl(empty): x-amz-acl absent from SignedHeaders' );
+
+// ── 15. list_buckets: SERVICE-level signed GET, names/owner parsed, no bucket in host ─
+// Structural (KAT-free): a canned ListAllMyBucketsResult over an injected transport.
+$lb_xml = '<?xml version="1.0" encoding="UTF-8"?>'
+	. '<ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+	. '<Owner><ID>project-abc123</ID><DisplayName>project</DisplayName></Owner>'
+	. '<Buckets>'
+	. '<Bucket><Name>rlservers</Name><CreationDate>2024-01-01T00:00:00.000Z</CreationDate></Bucket>'
+	. '<Bucket><Name>media-cdn</Name><CreationDate>2024-02-01T00:00:00.000Z</CreationDate></Bucket>'
+	. '</Buckets>'
+	. '</ListAllMyBucketsResult>';
+
+$GLOBALS['iwsl_s3_reqs'] = array();
+// A configured bucket is NOT required for a service-level listing — build with an empty bucket.
+$lb_client = new IWSL_S3_Client(
+	iwsl_s3_config( array( 'bucket' => '' ) ),
+	iwsl_s3_transport( array( 'status' => 200, 'headers' => array(), 'body' => $lb_xml, 'error' => '' ) )
+);
+$lb = $lb_client->list_buckets();
+iwsl_assert_same( true, $lb['ok'], 'list_buckets: ok:true on 200' );
+iwsl_assert_same( 200, $lb['status'], 'list_buckets: status surfaced' );
+iwsl_assert_same( array( 'rlservers', 'media-cdn' ), $lb['buckets'], 'list_buckets: <Name> names parsed in document order' );
+iwsl_assert_same( 'project-abc123', $lb['owner'], 'list_buckets: <Owner><ID> parsed' );
+iwsl_assert_same( '', $lb['error'], 'list_buckets: no error on success' );
+
+$lreq = $GLOBALS['iwsl_s3_reqs'][0];
+iwsl_assert_same( 'GET', $lreq['method'], 'list_buckets: method GET' );
+iwsl_assert_same( 'https://fsn1.your-objectstorage.com/', $lreq['url'], 'list_buckets: request goes to https://<endpoint>/ (service root)' );
+iwsl_assert_same( 'fsn1.your-objectstorage.com', iwsl_s3_hdr( $lreq, 'host' ), 'list_buckets: Host is the bare endpoint — no bucket subdomain' );
+iwsl_assert( false === strpos( $lreq['url'], 'my-bucket' ), 'list_buckets: no bucket appears anywhere in the URL' );
+iwsl_assert_same( IWSL_S3_Client::EMPTY_PAYLOAD_HASH, iwsl_s3_hdr( $lreq, 'x-amz-content-sha256' ), 'list_buckets: empty-payload hash signed (body-less GET)' );
+$lauth = (string) iwsl_s3_hdr( $lreq, 'authorization' );
+iwsl_assert(
+	1 === preg_match( '#^AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/\d{8}/fsn1/s3/aws4_request, SignedHeaders=[a-z0-9;\-]+, Signature=[0-9a-f]{64}$#', $lauth ),
+	'list_buckets: SigV4 Authorization header over /s3/aws4_request'
+);
+// Empty <Buckets/> ⇒ ok:true with an empty list.
+$lb_empty = ( new IWSL_S3_Client(
+	iwsl_s3_config( array( 'bucket' => '' ) ),
+	iwsl_s3_transport( array( 'status' => 200, 'headers' => array(), 'body' => '<ListAllMyBucketsResult><Owner><ID>p</ID></Owner><Buckets/></ListAllMyBucketsResult>', 'error' => '' ) )
+) )->list_buckets();
+iwsl_assert_same( true, $lb_empty['ok'], 'list_buckets(empty): ok:true' );
+iwsl_assert_same( array(), $lb_empty['buckets'], 'list_buckets(empty): empty bucket list' );
+iwsl_assert_same( 'p', $lb_empty['owner'], 'list_buckets(empty): owner still parsed' );
+
+// 403 ⇒ ok:false, status surfaced, error carries the XML <Code>.
+$lb_403 = ( new IWSL_S3_Client(
+	iwsl_s3_config( array( 'bucket' => '' ) ),
+	iwsl_s3_transport( array( 'status' => 403, 'headers' => array(), 'body' => '<Error><Code>SignatureDoesNotMatch</Code><Message>nope</Message></Error>', 'error' => '' ) )
+) )->list_buckets();
+iwsl_assert_same( false, $lb_403['ok'], 'list_buckets(403): ok:false' );
+iwsl_assert_same( 403, $lb_403['status'], 'list_buckets(403): status surfaced' );
+iwsl_assert_same( array(), $lb_403['buckets'], 'list_buckets(403): no buckets' );
+iwsl_assert_same( 'SignatureDoesNotMatch', $lb_403['error'], 'list_buckets(403): error code from the XML <Code>' );
+
+// The secret NEVER appears in any list_buckets output, header, or the captured request.
+$lb_haystack = json_encode( array( $lb, $lb_empty, $lb_403, $GLOBALS['iwsl_s3_reqs'] ) );
+iwsl_assert( false === strpos( (string) $lb_haystack, IWSL_S3_TEST_SECRET ), 'list_buckets: secret_key appears in no output, header, or signed request' );

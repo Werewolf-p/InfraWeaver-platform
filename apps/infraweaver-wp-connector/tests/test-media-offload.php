@@ -476,6 +476,138 @@ iwsl_assert( false !== strpos( $html10, 'Bucket access' ), 'render: the Bucket a
 iwsl_assert( false !== strpos( $html10, 'private_url_ttl' ), 'render: the signed-link lifetime field is present' );
 iwsl_assert( false !== strpos( $html10, '403' ), 'render: the page-cache 403 warning is present' );
 
+// ── 11. Buckets AJAX: per-location aggregation + owner + stored-secret fallback ────
+// A fake S3 client that ONLY answers list_buckets() with a canned per-location result.
+
+final class IWSL_MO_Fake_Lister {
+
+	/** @var bool */    private $ok;
+	/** @var string[] */ private $names;
+	/** @var string */  private $owner;
+	/** @var string */  private $error;
+
+	public function __construct( bool $ok, array $names, string $owner, string $error ) {
+		$this->ok    = $ok;
+		$this->names = $names;
+		$this->owner = $owner;
+		$this->error = $error;
+	}
+
+	public function list_buckets(): array {
+		return array(
+			'ok'      => $this->ok,
+			'buckets' => $this->names,
+			'owner'   => $this->owner,
+			'status'  => $this->ok ? 200 : 403,
+			'error'   => $this->error,
+		);
+	}
+}
+
+/**
+ * An offload engine whose s3 factory returns a per-location IWSL_MO_Fake_Lister from
+ * $map (keyed by region) and records every secret_key it is handed (into
+ * $GLOBALS['iwsl_mo_seen_secrets']) so the stored-secret fallback can be proven.
+ */
+function iwsl_mo_lister_engine( IWSL_Store $store, int $now, IWSL_Entitlements $ent, array $map ): IWSL_Media_Offload {
+	return new IWSL_Media_Offload(
+		$ent,
+		$store,
+		static function () use ( $now ): int {
+			return $now;
+		},
+		static function (): string {
+			return 'iwsl-test-salt-material-000000000000000000000000';
+		},
+		static function ( array $config ) use ( $map ): object {
+			$GLOBALS['iwsl_mo_seen_secrets'][] = isset( $config['secret_key'] ) ? (string) $config['secret_key'] : '';
+			$region = isset( $config['region'] ) ? (string) $config['region'] : '';
+			$c      = $map[ $region ] ?? array( 'ok' => false, 'names' => array(), 'owner' => '', 'error' => 'http-403' );
+			return new IWSL_MO_Fake_Lister( (bool) $c['ok'], $c['names'], (string) $c['owner'], (string) $c['error'] );
+		},
+		static function ( int $id ): array {
+			return iwsl_mo_derivative( $id );
+		},
+		static function (): string {
+			return $GLOBALS['iwsl_mo_up'];
+		},
+		static function ( int $limit ): array {
+			return $GLOBALS['iwsl_mo_candidates'] ?? array();
+		}
+	);
+}
+
+$GLOBALS['iwsl_mo_seen_secrets'] = array();
+$MO_BUCKETS = array(
+	'fsn1' => array( 'ok' => true, 'names' => array( 'fsn-alpha', 'fsn-beta' ), 'owner' => 'proj-owner-9', 'error' => '' ),
+	'nbg1' => array( 'ok' => true, 'names' => array( 'rlservers' ), 'owner' => 'proj-owner-9', 'error' => '' ),
+	'hel1' => array( 'ok' => true, 'names' => array(), 'owner' => 'proj-owner-9', 'error' => '' ),
+);
+
+$store11        = new IWSL_Memory_Store();
+$eng11          = iwsl_mo_lister_engine( $store11, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), $MO_BUCKETS );
+$MO_STORED_SEC  = 'stored-hetzner-secret-ABC/xyz+9';
+$eng11->save_settings( array( 'location' => 'nbg1', 'bucket' => 'rlservers', 'access_key' => 'AK1234567890', 'secret_key' => $MO_STORED_SEC, 'enabled' => true, 'rule_all' => true ) );
+
+// (a) entered creds ⇒ aggregation grouped by location, with the owner carried through.
+$GLOBALS['iwsl_mo_seen_secrets'] = array();
+$lb11 = $eng11->list_buckets( 'AK1234567890', 'entered-secret-value-123' );
+iwsl_assert_same( true, $lb11['ok'], 'buckets: ok when at least one location lists' );
+iwsl_assert_same( 'proj-owner-9', $lb11['owner'], 'buckets: owner id carried from the listing' );
+iwsl_assert_same( array( 'fsn-alpha', 'fsn-beta' ), $lb11['locations']['fsn1'], 'buckets: fsn1 group carries its names' );
+iwsl_assert_same( array( 'rlservers' ), $lb11['locations']['nbg1'], 'buckets: nbg1 group carries its names' );
+iwsl_assert_same( array(), $lb11['locations']['hel1'], 'buckets: hel1 group is empty (no buckets there)' );
+iwsl_assert_same(
+	true,
+	array_key_exists( 'fsn1', $lb11['locations'] ) && array_key_exists( 'nbg1', $lb11['locations'] ) && array_key_exists( 'hel1', $lb11['locations'] ),
+	'buckets: all three Hetzner locations are present in the grouping'
+);
+iwsl_assert( in_array( 'entered-secret-value-123', $GLOBALS['iwsl_mo_seen_secrets'], true ), 'buckets: the ENTERED secret is used when one is provided' );
+
+// (b) an EMPTY POST secret falls back to the stored, decrypted secret.
+$GLOBALS['iwsl_mo_seen_secrets'] = array();
+$lb11b = $eng11->list_buckets( 'AK1234567890', '' );
+iwsl_assert_same( true, $lb11b['ok'], 'buckets(fallback): ok using the stored secret' );
+iwsl_assert( in_array( $MO_STORED_SEC, $GLOBALS['iwsl_mo_seen_secrets'], true ), 'buckets(fallback): empty POST secret falls back to the stored decrypted secret' );
+iwsl_assert( ! in_array( '', $GLOBALS['iwsl_mo_seen_secrets'], true ), 'buckets(fallback): no location was queried with an empty secret' );
+
+// (c) the secret NEVER appears in the response.
+iwsl_assert( false === strpos( (string) json_encode( $lb11b ), $MO_STORED_SEC ), 'buckets: the secret NEVER appears in the AJAX response' );
+iwsl_assert_same( false, array_key_exists( 'secret', $lb11b ), 'buckets: the response carries no secret key' );
+
+// (d) ALL locations failing on auth ⇒ ok:false with a friendly reason.
+$MO_BUCKETS_FAIL = array(
+	'fsn1' => array( 'ok' => false, 'names' => array(), 'owner' => '', 'error' => 'InvalidAccessKeyId' ),
+	'nbg1' => array( 'ok' => false, 'names' => array(), 'owner' => '', 'error' => 'SignatureDoesNotMatch' ),
+	'hel1' => array( 'ok' => false, 'names' => array(), 'owner' => '', 'error' => 'http-403' ),
+);
+$eng11c = iwsl_mo_lister_engine( new IWSL_Memory_Store(), $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), $MO_BUCKETS_FAIL );
+$lb11c  = $eng11c->list_buckets( 'AKBADKEY00001', 'wrong-secret' );
+iwsl_assert_same( false, $lb11c['ok'], 'buckets(all-auth-fail): ok:false' );
+iwsl_assert_same( 'auth-failed', $lb11c['error'], 'buckets(all-auth-fail): friendly auth-failed reason' );
+
+// (e) a locked gate refuses (STATEMENT 1).
+$eng11d = iwsl_mo_lister_engine( new IWSL_Memory_Store(), $MO_NOW, iwsl_mo_gate( $MO_NOW, 'active', array() ), $MO_BUCKETS );
+iwsl_assert_same( 'entitlement-locked', $eng11d->list_buckets( 'AK1234567890', 'x' )['error'], 'buckets(locked): refused' );
+
+// (f) save still validates bucket + location (both the dropdown and the manual path save here).
+iwsl_assert_same( 'bad-bucket', $eng11->save_settings( array( 'location' => 'fsn1', 'bucket' => 'BAD_BUCKET', 'access_key' => 'AK1234567890' ) )['reason'], 'buckets: save still rejects an invalid bucket' );
+iwsl_assert_same( 'bad-location', $eng11->save_settings( array( 'location' => 'zzz9', 'bucket' => 'rlservers', 'access_key' => 'AK1234567890' ) )['reason'], 'buckets: save still rejects an invalid location' );
+$ok11 = $eng11->save_settings( array( 'location' => 'fsn1', 'bucket' => 'fsn-alpha', 'access_key' => 'AK1234567890', 'secret_key' => '', 'enabled' => true, 'rule_all' => true ) );
+iwsl_assert_same( true, $ok11['ok'], 'buckets: a valid bucket+location chosen from the dropdown saves' );
+
+// (g) the wizard renders the dynamic dropdown, the load button, and the manual fallback.
+$GLOBALS['iwsl_mo_candidates'] = array();
+ob_start();
+$eng11->render_section();
+$html11 = ob_get_clean();
+iwsl_assert( false !== strpos( $html11, 'Load my buckets' ), 'render: the dynamic "Load my buckets" button is present' );
+iwsl_assert( false !== strpos( $html11, 'iwsl-offload-bucket-select' ), 'render: the grouped bucket <select> is present' );
+iwsl_assert( false !== strpos( $html11, IWSL_Media_Offload::AJAX_BUCKETS ), 'render: the buckets AJAX action is wired into the inline script' );
+iwsl_assert( false !== strpos( $html11, 'Enter bucket manually' ), 'render: the manual-entry fallback toggle is present' );
+
+unset( $GLOBALS['iwsl_mo_seen_secrets'] );
+
 // Clean up the temp uploads tree + suite globals so nothing leaks into a later suite.
 foreach ( array_reverse( glob( $GLOBALS['iwsl_mo_up'] . '/{,*/,*/*/}*', GLOB_BRACE ) ?: array() ) as $p ) {
 	is_dir( $p ) ? @rmdir( $p ) : @unlink( $p );
