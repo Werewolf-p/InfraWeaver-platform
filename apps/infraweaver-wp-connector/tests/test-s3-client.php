@@ -356,3 +356,91 @@ iwsl_assert(
 	false !== strpos( (string) iwsl_s3_hdr( $GLOBALS['iwsl_s3_reqs'][0], 'authorization' ), 'Credential=AKIAEXAMPLE/' ),
 	'security: Authorization carries the access key id (never the secret)'
 );
+
+// ── 11. presigned_get_url: AWS published query-string presign example (KAT) ─────
+// The AWS "Authenticating Requests: Using Query Parameters (SigV4)" reference
+// vector: GET examplebucket/test.txt, us-east-1, 20130524T000000Z, X-Amz-Expires
+// 86400, host=examplebucket.s3.amazonaws.com, payload literal UNSIGNED-PAYLOAD. AWS
+// documents the signature as aeeed9bb…604d404; our presigner reproduces the entire
+// URL byte-for-byte (cross-verification against AWS's own published example).
+$aws_presign = new IWSL_S3_Client(
+	array(
+		'endpoint'   => 's3.amazonaws.com',
+		'region'     => 'us-east-1',
+		'bucket'     => 'examplebucket',
+		'access_key' => 'AKIAIOSFODNN7EXAMPLE',
+		'secret_key' => 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+		'path_style' => false,
+		'clock'      => static function (): int {
+			return 1369353600; // 2013-05-24T00:00:00Z — fixed.
+		},
+	),
+	iwsl_s3_transport( array() )
+);
+iwsl_assert_same(
+	'https://examplebucket.s3.amazonaws.com/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404',
+	$aws_presign->presigned_get_url( 'test.txt', 86400 ),
+	'presign KAT: full URL equals the AWS published query-string presign example'
+);
+
+// ── 12. presigned_get_url: required X-Amz-* params, host/path, deterministic sig ─
+$vh_presign = new IWSL_S3_Client( iwsl_s3_config(), iwsl_s3_transport( array() ) );
+$purl       = $vh_presign->presigned_get_url( 'images/photo.png', 3600 );
+
+iwsl_assert(
+	0 === strpos( $purl, 'https://my-bucket.fsn1.your-objectstorage.com/images/photo.png?' ),
+	'presign: virtual-hosted host + encoded key path, then the query string'
+);
+iwsl_assert( false !== strpos( $purl, 'X-Amz-Algorithm=AWS4-HMAC-SHA256' ), 'presign: X-Amz-Algorithm=AWS4-HMAC-SHA256' );
+iwsl_assert( false !== strpos( $purl, 'X-Amz-Credential=AKIAEXAMPLE%2F20150830%2Ffsn1%2Fs3%2Faws4_request' ), 'presign: X-Amz-Credential is the url-encoded scope' );
+iwsl_assert( false !== strpos( $purl, 'X-Amz-Date=20150830T123600Z' ), 'presign: X-Amz-Date from the injected clock' );
+iwsl_assert( false !== strpos( $purl, 'X-Amz-Expires=3600' ), 'presign: X-Amz-Expires present' );
+iwsl_assert( false !== strpos( $purl, 'X-Amz-SignedHeaders=host' ), 'presign: X-Amz-SignedHeaders=host (only host is signed)' );
+iwsl_assert( 1 === preg_match( '/[?&]X-Amz-Signature=[0-9a-f]{64}$/', $purl ), 'presign: X-Amz-Signature is a 64-hex string, appended last' );
+// Deterministic pinned signature under the frozen clock — the SAME SigV4 presign
+// machinery the AWS KAT above validates, so this pin is anchored to a real vector.
+iwsl_assert(
+	false !== strpos( $purl, 'X-Amz-Signature=3fc3b03745bae041d76d50063d14251ce8ac415194a804b06857d6736ede4042' ),
+	'presign: deterministic signature for the frozen fsn1 vector'
+);
+
+// Path-style presign: https://<endpoint>/<bucket>/<key>?…
+$ps_presign = new IWSL_S3_Client( iwsl_s3_config( array( 'path_style' => true ) ), iwsl_s3_transport( array() ) );
+iwsl_assert(
+	0 === strpos( $ps_presign->presigned_get_url( 'images/photo.png', 3600 ), 'https://fsn1.your-objectstorage.com/my-bucket/images/photo.png?' ),
+	'presign(path-style): host is the bare endpoint, bucket in the path'
+);
+
+// ── 13. presign: expires clamped to [60, 604800]; secret NEVER in the URL ───────
+$clamp_client = new IWSL_S3_Client( iwsl_s3_config(), iwsl_s3_transport( array() ) );
+iwsl_assert( false !== strpos( $clamp_client->presigned_get_url( 'k', 1 ), 'X-Amz-Expires=60&' ), 'presign: below-min expires clamps up to 60' );
+iwsl_assert( false !== strpos( $clamp_client->presigned_get_url( 'k', 99999999 ), 'X-Amz-Expires=604800&' ), 'presign: above-max expires clamps down to 604800 (7 days)' );
+iwsl_assert( false !== strpos( $clamp_client->presigned_get_url( 'k', 3600 ), 'X-Amz-Expires=3600&' ), 'presign: an in-range expires is unchanged' );
+iwsl_assert(
+	false === strpos( $clamp_client->presigned_get_url( 'secret/path.png', 3600 ), IWSL_S3_TEST_SECRET ),
+	'presign: secret_key NEVER appears in the presigned URL (only the signature does)'
+);
+
+// ── 14. put_object x-amz-acl: sent + signed only when a non-empty ACL is set ─────
+// acl='private' ⇒ the header is present AND part of SignedHeaders.
+$GLOBALS['iwsl_s3_reqs'] = array();
+$acl_priv = new IWSL_S3_Client(
+	iwsl_s3_config( array( 'acl' => 'private' ) ),
+	iwsl_s3_transport( array( 'status' => 200, 'headers' => array(), 'body' => '', 'error' => '' ) )
+);
+$acl_priv->put_object( 'k.webp', 'x', 'image/webp' );
+$req_priv = $GLOBALS['iwsl_s3_reqs'][0];
+iwsl_assert_same( 'private', iwsl_s3_hdr( $req_priv, 'x-amz-acl' ), "acl(private): x-amz-acl header is 'private'" );
+iwsl_assert( false !== strpos( (string) iwsl_s3_hdr( $req_priv, 'authorization' ), 'x-amz-acl' ), 'acl(private): x-amz-acl is in SignedHeaders' );
+
+// acl='' ⇒ NO x-amz-acl header, and it is NOT in SignedHeaders.
+$GLOBALS['iwsl_s3_reqs'] = array();
+$acl_none = new IWSL_S3_Client(
+	iwsl_s3_config( array( 'acl' => '' ) ),
+	iwsl_s3_transport( array( 'status' => 200, 'headers' => array(), 'body' => '', 'error' => '' ) )
+);
+$put_none = $acl_none->put_object( 'k.webp', 'x', 'image/webp' );
+$req_none = $GLOBALS['iwsl_s3_reqs'][0];
+iwsl_assert_same( true, $put_none['ok'], 'acl(empty): PUT still succeeds with no ACL header' );
+iwsl_assert_same( null, iwsl_s3_hdr( $req_none, 'x-amz-acl' ), 'acl(empty): no x-amz-acl header is sent' );
+iwsl_assert( false === strpos( (string) iwsl_s3_hdr( $req_none, 'authorization' ), 'x-amz-acl' ), 'acl(empty): x-amz-acl absent from SignedHeaders' );

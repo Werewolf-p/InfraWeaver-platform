@@ -51,6 +51,10 @@ final class IWSL_MO_Fake_S3 {
 	public $heads = array();
 	/** @var string[] */
 	public $deletes = array();
+	/** @var array<int,array> every presigned_get_url call (key + expires). */
+	public $presigns = array();
+	/** @var string the acl the engine configured for this client (captured by the factory). */
+	public $acl = '';
 
 	public $put_ok      = true;
 	public $head_ok     = true;
@@ -75,6 +79,13 @@ final class IWSL_MO_Fake_S3 {
 
 	public function public_url( string $key ): string {
 		return 'https://my-bucket.fsn1.your-objectstorage.com/' . $key;
+	}
+
+	public function presigned_get_url( string $key, int $expires = 3600 ): string {
+		$this->presigns[] = array( 'key' => $key, 'expires' => $expires );
+		return 'https://my-bucket.fsn1.your-objectstorage.com/' . $key
+			. '?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=' . $expires
+			. '&X-Amz-Signature=' . str_repeat( 'a', 64 );
 	}
 
 	public function test_connection( ?string $probe_key = null ): array {
@@ -138,6 +149,7 @@ function iwsl_mo_engine( IWSL_Store $store, int $now, IWSL_Entitlements $ent, IW
 			return 'iwsl-test-salt-material-000000000000000000000000';
 		},
 		static function ( array $config ) use ( $fake ): object {
+			$fake->acl = isset( $config['acl'] ) ? (string) $config['acl'] : '';
 			return $fake;
 		},
 		static function ( int $id ): array {
@@ -376,6 +388,93 @@ iwsl_assert_same( 'deny', $eng7->manual_map()[701], 'manual: deny stored' );
 $eng7->set_manual( 701, 'clear' );
 iwsl_assert_same( false, isset( $eng7->manual_map()[701] ), 'manual: clear removes the override' );
 iwsl_assert_same( 'bad-mode', $eng7->set_manual( 701, 'bogus' )['reason'], 'manual: an unknown mode is rejected' );
+
+// ── 8. Private access: the three rewrite filters mint presigned URLs ──────────────
+
+$GLOBALS['iwsl_mo_meta'] = array();
+$store8 = new IWSL_Memory_Store();
+$fake8  = new IWSL_MO_Fake_S3();
+$eng8   = iwsl_mo_engine( $store8, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), $fake8 );
+$eng8->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => 'super-secret-value-123', 'enabled' => true, 'rule_all' => true, 'access' => 'private', 'private_url_ttl' => 1800 ) );
+iwsl_mo_mark_optimized( 801 );
+
+$r8 = $eng8->offload_one( 801 );
+iwsl_assert_same( true, $r8['ok'], 'private: offload happy path succeeds' );
+// A PRIVATE offload PUTs the object with acl='private' (captured via the factory).
+iwsl_assert_same( 'private', $fake8->acl, 'private: the offload PUT uses acl=private' );
+
+$orig8 = 'https://site.test/wp-content/uploads/2024/05/photo801.webp';
+
+$u8 = $eng8->filter_attachment_url( $orig8, 801 );
+iwsl_assert( false !== strpos( $u8, 'X-Amz-Signature=' ), 'private rewrite(url): returns a presigned URL (has X-Amz-Signature)' );
+iwsl_assert( false !== strpos( $u8, '2024/05/photo801.webp' ), 'private rewrite(url): presigns the stored offload key' );
+
+$src8 = $eng8->filter_image_src( array( $orig8, 800, 600, false ), 801, 'full', false );
+iwsl_assert( false !== strpos( (string) $src8[0], 'X-Amz-Signature=' ), 'private rewrite(src): src[0] is a presigned URL' );
+
+$sources8 = array( 800 => array( 'url' => $orig8, 'descriptor' => 'w', 'value' => 800 ) );
+$out8     = $eng8->filter_srcset( $sources8, array( 800, 600 ), $orig8, array(), 801 );
+iwsl_assert( false !== strpos( (string) $out8[800]['url'], 'X-Amz-Signature=' ), 'private rewrite(srcset): each source is a presigned URL' );
+
+// The configured TTL is forwarded to the presigner (never persisted in meta).
+$last8 = $fake8->presigns[ count( $fake8->presigns ) - 1 ];
+iwsl_assert_same( 1800, $last8['expires'], 'private rewrite: the saved TTL is passed to presigned_get_url' );
+iwsl_assert_same( '2024/05/photo801.webp', $last8['key'], 'private rewrite: presigns the stored key, not a persisted URL' );
+// The stored meta URL is the plain public URL — the presigned URL is NEVER persisted.
+iwsl_assert( false === strpos( $eng8->offload_meta( 801 )['url'], 'X-Amz-Signature=' ), 'private: no presigned URL is written to meta' );
+
+// ── 9. Public access: rewrite returns the plain public URL (no signature) ─────────
+
+$GLOBALS['iwsl_mo_meta'] = array();
+$store9 = new IWSL_Memory_Store();
+$fake9  = new IWSL_MO_Fake_S3();
+$eng9   = iwsl_mo_engine( $store9, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), $fake9 );
+$eng9->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => 'super-secret-value-123', 'enabled' => true, 'rule_all' => true, 'access' => 'public' ) );
+iwsl_mo_mark_optimized( 901 );
+$eng9->offload_one( 901 );
+
+iwsl_assert_same( 'public-read', $fake9->acl, 'public: the offload PUT uses acl=public-read' );
+$u9 = $eng9->filter_attachment_url( 'https://site.test/wp-content/uploads/2024/05/photo901.webp', 901 );
+iwsl_assert_same( 'https://my-bucket.fsn1.your-objectstorage.com/2024/05/photo901.webp', $u9, 'public: rewrite returns the plain public bucket URL' );
+iwsl_assert( false === strpos( $u9, 'X-Amz-Signature=' ), 'public: no signature appears in the public URL' );
+iwsl_assert_same( 0, count( $fake9->presigns ), 'public: presigned_get_url is never called for public access' );
+
+// ── 10. access/ttl settings: exposed to render (never the secret) + TTL clamping ──
+
+$store10  = new IWSL_Memory_Store();
+$eng10    = iwsl_mo_engine( $store10, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), new IWSL_MO_Fake_S3() );
+$SECRET10 = 'TTL-secret-should-not-leak-777';
+$eng10->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => $SECRET10, 'enabled' => true, 'rule_all' => true, 'access' => 'private', 'private_url_ttl' => 3600 ) );
+
+$v10 = $eng10->settings_for_render();
+iwsl_assert_same( 'private', $v10['access'], 'settings_for_render: access mode is exposed' );
+iwsl_assert_same( 3600, $v10['private_url_ttl'], 'settings_for_render: private_url_ttl is exposed' );
+iwsl_assert_same( false, array_key_exists( 'secret', $v10 ), 'settings_for_render: still carries NO secret key' );
+iwsl_assert( false === strpos( var_export( $v10, true ), $SECRET10 ), 'settings_for_render: the secret plaintext is absent' );
+
+// TTL clamping: below 300 ⇒ 300; above 604800 ⇒ 604800.
+$eng10->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => '', 'access' => 'private', 'private_url_ttl' => 5 ) );
+iwsl_assert_same( 300, $eng10->settings()['private_url_ttl'], 'ttl: a below-min lifetime clamps up to 300 (5 minutes)' );
+$eng10->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => '', 'access' => 'private', 'private_url_ttl' => 99999999 ) );
+iwsl_assert_same( 604800, $eng10->settings()['private_url_ttl'], 'ttl: an above-max lifetime clamps down to 604800 (7 days)' );
+
+// Defaults: access is public; TTL is 86400 (one day).
+$store10b = new IWSL_Memory_Store();
+$eng10b   = iwsl_mo_engine( $store10b, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), new IWSL_MO_Fake_S3() );
+iwsl_assert_same( 'public', $eng10b->settings()['access'], 'default: access mode is public' );
+iwsl_assert_same( 86400, $eng10b->settings()['private_url_ttl'], 'default: private_url_ttl is 86400 (1 day)' );
+
+// A private render surfaces the Bucket-access control, the TTL field, and the cache warning.
+$GLOBALS['iwsl_mo_candidates'] = array();
+$store10c = new IWSL_Memory_Store();
+$eng10c   = iwsl_mo_engine( $store10c, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), new IWSL_MO_Fake_S3() );
+$eng10c->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => 'zzz', 'access' => 'private', 'private_url_ttl' => 3600 ) );
+ob_start();
+$eng10c->render_section();
+$html10 = ob_get_clean();
+iwsl_assert( false !== strpos( $html10, 'Bucket access' ), 'render: the Bucket access control is present' );
+iwsl_assert( false !== strpos( $html10, 'private_url_ttl' ), 'render: the signed-link lifetime field is present' );
+iwsl_assert( false !== strpos( $html10, '403' ), 'render: the page-cache 403 warning is present' );
 
 // Clean up the temp uploads tree + suite globals so nothing leaks into a later suite.
 foreach ( array_reverse( glob( $GLOBALS['iwsl_mo_up'] . '/{,*/,*/*/}*', GLOB_BRACE ) ?: array() ) as $p ) {

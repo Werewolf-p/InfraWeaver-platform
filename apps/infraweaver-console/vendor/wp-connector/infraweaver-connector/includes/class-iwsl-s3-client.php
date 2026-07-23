@@ -46,6 +46,13 @@ final class IWSL_S3_Client {
 	/** sha256 hex of the empty string — the payload hash for a body-less request. */
 	const EMPTY_PAYLOAD_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
+	/** The documented payload-hash literal for a query-string presigned request (body not signed). */
+	const UNSIGNED_PAYLOAD = 'UNSIGNED-PAYLOAD';
+
+	/** SigV4 query-string presign lifetime bounds (seconds) — S3 caps at 7 days. */
+	const PRESIGN_MIN_EXPIRES = 60;
+	const PRESIGN_MAX_EXPIRES = 604800;
+
 	/** Per-request network timeout for the default transport (seconds). */
 	const TIMEOUT_S = 20;
 
@@ -101,7 +108,9 @@ final class IWSL_S3_Client {
 		$this->bucket     = isset( $config['bucket'] ) ? trim( (string) $config['bucket'] ) : '';
 		$this->access_key = isset( $config['access_key'] ) ? (string) $config['access_key'] : '';
 		$this->secret_key = isset( $config['secret_key'] ) ? (string) $config['secret_key'] : '';
-		$this->acl        = isset( $config['acl'] ) && '' !== (string) $config['acl'] ? (string) $config['acl'] : self::DEFAULT_ACL;
+		// An ABSENT acl key defaults to public-read; an explicit '' means "send no
+		// x-amz-acl" (private / bucket-policy delivery). '' is preserved verbatim.
+		$this->acl        = array_key_exists( 'acl', $config ) ? (string) $config['acl'] : self::DEFAULT_ACL;
 		$this->path_style = ! empty( $config['path_style'] );
 
 		$this->clock = isset( $config['clock'] ) && is_callable( $config['clock'] )
@@ -132,10 +141,13 @@ final class IWSL_S3_Client {
 		if ( '' !== $err ) {
 			return array( 'ok' => false, 'status' => 0, 'error' => $err );
 		}
-		$res  = $this->execute( 'PUT', $key, $body, array(
-			'content-type' => $content_type,
-			'x-amz-acl'    => $this->acl,
-		) );
+		$amz = array( 'content-type' => $content_type );
+		if ( '' !== $this->acl ) {
+			// Only sign + send x-amz-acl when an ACL is actually configured (a private
+			// bucket omits it entirely — the header is neither wired nor signed).
+			$amz['x-amz-acl'] = $this->acl;
+		}
+		$res  = $this->execute( 'PUT', $key, $body, $amz );
 		$ok   = '' === $res['error'] && $res['status'] >= 200 && $res['status'] < 300;
 		$out  = array( 'ok' => $ok, 'status' => $res['status'] );
 		$etag = self::etag_of( $res );
@@ -204,6 +216,50 @@ final class IWSL_S3_Client {
 			return 'https://' . $this->endpoint . '/' . rawurlencode( $this->bucket ) . $path;
 		}
 		return 'https://' . $this->bucket . '.' . $this->endpoint . $path;
+	}
+
+	/**
+	 * A SigV4 query-string presigned GET URL — a time-limited link that authorizes a
+	 * single read with no credentials (the signature is the authorization). The
+	 * canonical request is GET over the key path (same host/style logic as
+	 * public_url), the sorted X-Amz-* query, `host` as the only signed header, and the
+	 * literal UNSIGNED-PAYLOAD as the payload hash. The final X-Amz-Signature is
+	 * appended AFTER signing. The `secret_key` never appears in the URL — only the
+	 * derived hex signature does. `$expires` (seconds) is clamped to S3's
+	 * [60, 604800] (7-day max). The injected clock drives X-Amz-Date, so the URL is
+	 * deterministic under test.
+	 */
+	public function presigned_get_url( string $key, int $expires = 3600 ): string {
+		$expires  = self::clamp_expires( $expires );
+		$host     = $this->host();
+		$uri      = $this->canonical_uri( $key );
+		$amz_date = $this->amz_date();
+		$scope    = substr( $amz_date, 0, 8 ) . '/' . $this->region . '/' . self::SERVICE . '/aws4_request';
+
+		$canonical_query = self::canonical_query(
+			array(
+				'X-Amz-Algorithm'     => self::ALGORITHM,
+				'X-Amz-Credential'    => $this->access_key . '/' . $scope,
+				'X-Amz-Date'          => $amz_date,
+				'X-Amz-Expires'       => (string) $expires,
+				'X-Amz-SignedHeaders' => 'host',
+			)
+		);
+
+		$signed = self::sigv4(
+			'GET',
+			$uri,
+			$canonical_query,
+			array( 'host' => $host ),
+			self::UNSIGNED_PAYLOAD,
+			$amz_date,
+			$this->region,
+			self::SERVICE,
+			$this->access_key,
+			$this->secret_key
+		);
+
+		return 'https://' . $host . $uri . '?' . $canonical_query . '&X-Amz-Signature=' . $signed['signature'];
 	}
 
 	/**
@@ -473,6 +529,30 @@ final class IWSL_S3_Client {
 	/** sha256 hex of the request body — the SIGNED payload hash (never UNSIGNED-PAYLOAD). */
 	private static function hashed_payload( string $body ): string {
 		return '' === $body ? self::EMPTY_PAYLOAD_HASH : hash( 'sha256', $body );
+	}
+
+	/**
+	 * A SigV4 canonical query string: each name + value RFC3986-encoded (rawurlencode),
+	 * the pairs sorted by name. Used for query-string presigning.
+	 */
+	private static function canonical_query( array $params ): string {
+		ksort( $params, SORT_STRING );
+		$pairs = array();
+		foreach ( $params as $name => $value ) {
+			$pairs[] = rawurlencode( (string) $name ) . '=' . rawurlencode( (string) $value );
+		}
+		return implode( '&', $pairs );
+	}
+
+	/** Clamp a presign lifetime to S3's supported [60, 604800] second window. */
+	private static function clamp_expires( int $expires ): int {
+		if ( $expires < self::PRESIGN_MIN_EXPIRES ) {
+			return self::PRESIGN_MIN_EXPIRES;
+		}
+		if ( $expires > self::PRESIGN_MAX_EXPIRES ) {
+			return self::PRESIGN_MAX_EXPIRES;
+		}
+		return $expires;
 	}
 
 	/** Encode a key into a canonical path: leading '/', each segment url-encoded, '/' kept. */

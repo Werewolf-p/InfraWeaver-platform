@@ -64,9 +64,17 @@ final class IWSL_Media_Offload {
 	/** Object-storage host suffix; endpoint host = "<loc>.<suffix>". */
 	const ENDPOINT_SUFFIX = 'your-objectstorage.com';
 
-	/** Fixed object ACL + addressing (virtual-hosted) for public delivery. */
-	const ACL        = 'public-read';
-	const PATH_STYLE = false;
+	/** Object ACL per delivery mode + addressing (virtual-hosted). */
+	const ACL         = 'public-read'; // public delivery — the object is world-readable.
+	const ACL_PRIVATE = 'private';     // private delivery — reads go through presigned URLs.
+	const PATH_STYLE  = false;
+
+	/** Delivery modes + presigned-link lifetime bounds (seconds; S3 caps at 7 days). */
+	const ACCESS_PUBLIC  = 'public';
+	const ACCESS_PRIVATE = 'private';
+	const DEFAULT_TTL    = 86400;  // 1 day.
+	const MIN_TTL        = 300;    // 5 minutes.
+	const MAX_TTL        = 604800; // 7 days.
 	/** Content type of every offloaded object (always the lossless WebP derivative). */
 	const CONTENT_TYPE = 'image/webp';
 
@@ -288,7 +296,7 @@ final class IWSL_Media_Offload {
 	 * here for INTERNAL use only — never expose this map to render (use
 	 * settings_for_render(), which strips the secret).
 	 *
-	 * @return array{ enabled:bool, rule_all:bool, location:string, bucket:string, access_key:string, secret:string }
+	 * @return array{ enabled:bool, rule_all:bool, location:string, bucket:string, access_key:string, secret:string, access:string, private_url_ttl:int }
 	 */
 	public function settings(): array {
 		return self::normalize_settings( $this->store->get( self::SETTINGS_KEY, array() ) );
@@ -299,17 +307,19 @@ final class IWSL_Media_Offload {
 	 * replaced with a boolean `has_secret`. The plaintext secret is never present, so
 	 * no template / AJAX response can ever echo it.
 	 *
-	 * @return array{ enabled:bool, rule_all:bool, location:string, bucket:string, access_key:string, has_secret:bool }
+	 * @return array{ enabled:bool, rule_all:bool, location:string, bucket:string, access_key:string, has_secret:bool, access:string, private_url_ttl:int }
 	 */
 	public function settings_for_render(): array {
 		$s = $this->settings();
 		return array(
-			'enabled'    => $s['enabled'],
-			'rule_all'   => $s['rule_all'],
-			'location'   => $s['location'],
-			'bucket'     => $s['bucket'],
-			'access_key' => $s['access_key'],
-			'has_secret' => '' !== $s['secret'],
+			'enabled'         => $s['enabled'],
+			'rule_all'        => $s['rule_all'],
+			'location'        => $s['location'],
+			'bucket'          => $s['bucket'],
+			'access_key'      => $s['access_key'],
+			'has_secret'      => '' !== $s['secret'],
+			'access'          => $s['access'],
+			'private_url_ttl' => $s['private_url_ttl'],
 		);
 	}
 
@@ -424,13 +434,20 @@ final class IWSL_Media_Offload {
 			}
 		}
 
+		$access = isset( $input['access'] ) && self::ACCESS_PRIVATE === self::request_string( $input['access'] )
+			? self::ACCESS_PRIVATE
+			: self::ACCESS_PUBLIC;
+		$ttl    = self::clamp_ttl( isset( $input['private_url_ttl'] ) ? (int) $input['private_url_ttl'] : self::DEFAULT_TTL );
+
 		$clean = array(
-			'enabled'    => ! empty( $input['enabled'] ),
-			'rule_all'   => ! empty( $input['rule_all'] ),
-			'location'   => $location,
-			'bucket'     => $bucket,
-			'access_key' => $access_key,
-			'secret'     => $secret_enc,
+			'enabled'         => ! empty( $input['enabled'] ),
+			'rule_all'        => ! empty( $input['rule_all'] ),
+			'location'        => $location,
+			'bucket'          => $bucket,
+			'access_key'      => $access_key,
+			'secret'          => $secret_enc,
+			'access'          => $access,
+			'private_url_ttl' => $ttl,
 		);
 		$this->store->set( self::SETTINGS_KEY, $clean );
 
@@ -711,13 +728,14 @@ final class IWSL_Media_Offload {
 		$s      = $this->settings();
 		$loc    = isset( self::LOCATIONS[ $s['location'] ] ) ? $s['location'] : self::default_location();
 		$secret = '' !== $s['secret'] ? (string) $this->decrypt_secret( $s['secret'] ) : '';
+		$acl    = self::ACCESS_PRIVATE === $s['access'] ? self::ACL_PRIVATE : self::ACL;
 		return array(
 			'endpoint'   => $loc . '.' . self::ENDPOINT_SUFFIX,
 			'region'     => $loc,
 			'bucket'     => $s['bucket'],
 			'access_key' => $s['access_key'],
 			'secret_key' => $secret,
-			'acl'        => self::ACL,
+			'acl'        => $acl,
 			'path_style' => self::PATH_STYLE,
 		);
 	}
@@ -786,6 +804,23 @@ final class IWSL_Media_Offload {
 		echo '<fieldset class="iwsl-step"><legend>' . self::esc_html_safe( 'Step 3 — Turn it on' ) . '</legend>';
 		echo '<p><label><input type="checkbox" name="enabled" value="1" ' . self::checked( $view['enabled'] ) . '/> ' . self::esc_html_safe( 'Serve offloaded images from the bucket' ) . '</label></p>';
 		echo '<p><label><input type="checkbox" name="rule_all" value="1" ' . self::checked( $view['rule_all'] ) . '/> ' . self::esc_html_safe( 'Offload all lossless-optimized images' ) . '</label></p></fieldset>';
+
+		// Step 4 — bucket access: public objects vs private presigned-URL delivery.
+		$is_private = self::ACCESS_PRIVATE === $view['access'];
+		echo '<fieldset class="iwsl-step"><legend>' . self::esc_html_safe( 'Step 4 — Bucket access' ) . '</legend>';
+		echo '<p><label>' . self::esc_html_safe( 'Bucket access' ) . ' <select name="access">';
+		echo '<option value="' . self::esc_attr_safe( self::ACCESS_PUBLIC ) . '" ' . self::selected( ! $is_private ) . '>'
+			. self::esc_html_safe( 'Public — anyone with the link can view (fastest, fully cacheable)' ) . '</option>';
+		echo '<option value="' . self::esc_attr_safe( self::ACCESS_PRIVATE ) . '" ' . self::selected( $is_private ) . '>'
+			. self::esc_html_safe( 'Private — images served through temporary signed links' ) . '</option>';
+		echo '</select></label></p>';
+		echo '<p><label>' . self::esc_html_safe( 'Signed-link lifetime (seconds)' )
+			. ' <input type="number" name="private_url_ttl" min="' . self::esc_attr_safe( (string) self::MIN_TTL ) . '" max="' . self::esc_attr_safe( (string) self::MAX_TTL ) . '" step="1" value="' . self::esc_attr_safe( (string) $view['private_url_ttl'] ) . '" /></label>'
+			. ' <span class="description">' . self::esc_html_safe( 'Only used for Private access. Between 5 minutes (300) and 7 days (604800).' ) . '</span></p>';
+		echo '<p class="description iwsl-offload-private-warning"><strong>' . self::esc_html_safe( 'Private access and caching:' ) . '</strong> '
+			. self::esc_html_safe( 'Private images are delivered through temporary signed links that stop working once the lifetime above passes. If a full-page cache or a CDN stores your pages for LONGER than this lifetime, those cached pages will keep serving the old, now-expired links and the images can fail to load (HTTP 403 Forbidden). Set your page-cache and CDN lifetimes SHORTER than the signed-link lifetime, or use Public access if you cache pages aggressively.' )
+			. '</p>';
+		echo '</fieldset>';
 
 		echo '<p><button type="submit" class="button button-primary">' . self::esc_html_safe( 'Save settings' ) . '</button></p>';
 		echo '</form>';
@@ -978,12 +1013,29 @@ JS;
 		return is_array( $d ) && ! empty( $d['exists'] );
 	}
 
-	/** The offloaded public URL for an attachment (gate-checked), or '' when not offloaded. */
+	/**
+	 * The delivery URL for an offloaded attachment (gate-checked), or '' when not
+	 * offloaded. PUBLIC access serves the stored public bucket URL. PRIVATE access
+	 * mints a fresh, time-limited presigned GET URL from the stored key at RENDER TIME
+	 * (never persisted, so each page load gets a link valid for the full TTL).
+	 */
 	private function offloaded_url( int $attachment_id ): string {
 		if ( $attachment_id <= 0 || ! $this->is_unlocked() ) {
 			return '';
 		}
-		return $this->offload_meta( $attachment_id )['url'];
+		$meta = $this->offload_meta( $attachment_id );
+		if ( '' === $meta['key'] ) {
+			return '';
+		}
+		$s = $this->settings();
+		if ( self::ACCESS_PRIVATE === $s['access'] ) {
+			$client = $this->s3();
+			if ( ! method_exists( $client, 'presigned_get_url' ) ) {
+				return '';
+			}
+			return (string) $client->presigned_get_url( $meta['key'], (int) $s['private_url_ttl'] );
+		}
+		return $meta['url'];
 	}
 
 	/** Memoized per-request gate evaluation for the hot-path rewrite filters. */
@@ -1068,21 +1120,38 @@ JS;
 	 * shape. Immutable; unknown location collapses to the default; everything safe.
 	 *
 	 * @param mixed $raw
-	 * @return array{ enabled:bool, rule_all:bool, location:string, bucket:string, access_key:string, secret:string }
+	 * @return array{ enabled:bool, rule_all:bool, location:string, bucket:string, access_key:string, secret:string, access:string, private_url_ttl:int }
 	 */
 	private static function normalize_settings( $raw ): array {
 		$raw      = is_array( $raw ) ? $raw : array();
 		$location = isset( $raw['location'] ) && isset( self::LOCATIONS[ (string) $raw['location'] ] )
 			? (string) $raw['location']
 			: self::default_location();
+		$access   = isset( $raw['access'] ) && self::ACCESS_PRIVATE === (string) $raw['access']
+			? self::ACCESS_PRIVATE
+			: self::ACCESS_PUBLIC;
+		$ttl      = self::clamp_ttl( isset( $raw['private_url_ttl'] ) ? (int) $raw['private_url_ttl'] : self::DEFAULT_TTL );
 		return array(
-			'enabled'    => ! empty( $raw['enabled'] ),
-			'rule_all'   => ! empty( $raw['rule_all'] ),
-			'location'   => $location,
-			'bucket'     => isset( $raw['bucket'] ) ? (string) $raw['bucket'] : '',
-			'access_key' => isset( $raw['access_key'] ) ? (string) $raw['access_key'] : '',
-			'secret'     => isset( $raw['secret'] ) ? (string) $raw['secret'] : '',
+			'enabled'         => ! empty( $raw['enabled'] ),
+			'rule_all'        => ! empty( $raw['rule_all'] ),
+			'location'        => $location,
+			'bucket'          => isset( $raw['bucket'] ) ? (string) $raw['bucket'] : '',
+			'access_key'      => isset( $raw['access_key'] ) ? (string) $raw['access_key'] : '',
+			'secret'          => isset( $raw['secret'] ) ? (string) $raw['secret'] : '',
+			'access'          => $access,
+			'private_url_ttl' => $ttl,
 		);
+	}
+
+	/** Clamp a presigned-link lifetime to the supported [300, 604800] second window. */
+	private static function clamp_ttl( int $ttl ): int {
+		if ( $ttl < self::MIN_TTL ) {
+			return self::MIN_TTL;
+		}
+		if ( $ttl > self::MAX_TTL ) {
+			return self::MAX_TTL;
+		}
+		return $ttl;
 	}
 
 	/** The first configured location (fsn1) — the deterministic default. */
