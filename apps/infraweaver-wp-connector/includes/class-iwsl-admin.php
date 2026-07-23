@@ -1281,10 +1281,71 @@ final class IWSL_Admin {
 		echo '<details class="iwsl-cdnwz-how"><summary>' . esc_html__( 'How do I set this up?', 'infraweaver-connector' ) . '</summary><div class="iwsl-cdnwz-how__body">';
 		echo '<ol>';
 		echo '<li>' . esc_html__( 'Sign in to your CDN provider and create a new pull zone (a “website”/“distribution” that fetches from an origin).', 'infraweaver-connector' ) . '</li>';
-		echo '<li>' . esc_html__( 'Set its origin / source URL to the address above.', 'infraweaver-connector' ) . '</li>';
+		echo '<li>' . esc_html__( 'Find the box for the origin address and set it to the address above. Every provider names this box differently — the list below tells you the exact label to look for.', 'infraweaver-connector' ) . '</li>';
 		echo '<li>' . esc_html__( 'The provider gives you a CDN hostname (for example cdn.example.com or something.b-cdn.net). You’ll paste that in the next step.', 'infraweaver-connector' ) . '</li>';
 		echo '</ol>';
-		echo '<p class="iwsl-wz__note">' . esc_html__( 'BunnyCDN: create a Pull Zone, Origin URL = the address above, then use the zone’s hostname. Cloudflare: this differs — you point your DNS at Cloudflare rather than using a separate CDN host, so this feature is usually not needed there.', 'infraweaver-connector' ) . '</p>';
+
+		echo '<p class="iwsl-cdnwz-how__lead"><strong>' . esc_html__( 'Can’t find the “origin” box? Here’s what it’s called on each provider:', 'infraweaver-connector' ) . '</strong></p>';
+
+		// The origin field has a different label on every CDN, so "I can't find the
+		// upstream/origin field" is the #1 setup blocker. Give the EXACT box name to
+		// look for per provider, plus the synonyms to try on anything not listed.
+		$cdn_providers = array(
+			array(
+				'name'  => 'Bunny.net',
+				'where' => __( 'Pull Zones → Add Pull Zone. The box is labelled', 'infraweaver-connector' ),
+				'field' => __( 'Origin URL', 'infraweaver-connector' ),
+				'host'  => __( 'your CDN host ends in .b-cdn.net', 'infraweaver-connector' ),
+			),
+			array(
+				'name'  => 'KeyCDN',
+				'where' => __( 'Zones → Add Zone, with Zone Type = Pull. The box is labelled', 'infraweaver-connector' ),
+				'field' => __( 'Origin URL', 'infraweaver-connector' ),
+				'host'  => __( 'your CDN host ends in .kxcdn.com', 'infraweaver-connector' ),
+			),
+			array(
+				'name'  => 'Amazon CloudFront',
+				'where' => __( 'Create distribution. The box is labelled', 'infraweaver-connector' ),
+				'field' => __( 'Origin domain', 'infraweaver-connector' ),
+				'host'  => __( 'your CDN host ends in .cloudfront.net', 'infraweaver-connector' ),
+			),
+			array(
+				'name'  => 'Fastly',
+				'where' => __( 'Create a service, then Origins. Add the address as a', 'infraweaver-connector' ),
+				'field' => __( 'Host', 'infraweaver-connector' ),
+				'host'  => __( 'your CDN host is the domain Fastly assigns (or one you add)', 'infraweaver-connector' ),
+			),
+			array(
+				'name'  => __( 'Other providers', 'infraweaver-connector' ),
+				'where' => __( 'Look for a box named', 'infraweaver-connector' ),
+				'field' => __( 'Origin, Source, Upstream, or Backend host', 'infraweaver-connector' ),
+				'host'  => __( 'any of those is where the address above goes', 'infraweaver-connector' ),
+			),
+		);
+
+		echo '<dl class="iwsl-cdnwz-prov">';
+		foreach ( $cdn_providers as $p ) {
+			echo '<dt>' . esc_html( $p['name'] ) . '</dt>';
+			echo '<dd>' . esc_html( $p['where'] ) . ' <code>' . esc_html( $p['field'] ) . '</code> — ' . esc_html( $p['host'] ) . '.</dd>';
+		}
+		echo '</dl>';
+
+		echo '<p class="iwsl-wz__note">' . esc_html__( 'Cloudflare works differently — there is no origin or upstream box. You move your site’s DNS to Cloudflare and it caches your assets automatically, so you usually don’t need this feature. Leave the CDN off.', 'infraweaver-connector' ) . '</p>';
+
+		// Hetzner Object Storage is S3 storage, NOT a pull-CDN — it has no pull zones of
+		// its own. It is either served directly (this plugin's Media Offload) or used as
+		// the ORIGIN a real CDN pulls from. Public bucket URL matches IWSL_S3_Client's
+		// virtual-hosted form: https://<bucket>.<location>.your-objectstorage.com .
+		echo '<details class="iwsl-cdnwz-hetzner"><summary>' . esc_html__( 'Using a Hetzner Object Storage (S3) bucket?', 'infraweaver-connector' ) . '</summary><div class="iwsl-cdnwz-how__body">';
+		echo '<p>' . esc_html__( 'Hetzner Object Storage is S3-compatible storage, not a CDN — it has no “pull zone” of its own. Its public bucket URL looks like this (location is fsn1 Falkenstein, nbg1 Nuremberg, or hel1 Helsinki):', 'infraweaver-connector' ) . '</p>';
+		echo '<p class="iwsl-cdnwz-code"><code>https://&lt;bucket&gt;.&lt;location&gt;.your-objectstorage.com</code></p>';
+		echo '<p>' . esc_html__( 'You have two options:', 'infraweaver-connector' ) . '</p>';
+		echo '<ol>';
+		echo '<li>' . esc_html__( 'Serve straight from the bucket. This plugin’s Media Offload feature already copies your images to a public Hetzner bucket and serves them from that URL — for many sites that is enough and you don’t need a separate CDN here.', 'infraweaver-connector' ) . '</li>';
+		echo '<li>' . esc_html__( 'Add edge caching. Create a pull zone at a real CDN (Bunny.net, KeyCDN, CloudFront…) and set that CDN’s Origin URL to the bucket URL above — not to this site. Then paste the CDN host it gives you into the next step.', 'infraweaver-connector' ) . '</li>';
+		echo '</ol>';
+		echo '<p class="iwsl-wz__note">' . esc_html__( 'The bucket must be Public for a CDN to read it. A private bucket serves images only through temporary signed links, which a CDN cannot cache.', 'infraweaver-connector' ) . '</p>';
+		echo '</div></details>';
 		echo '</div></details>';
 		echo '</section>';
 
@@ -1348,6 +1409,16 @@ final class IWSL_Admin {
 .iwsl-shell .iwsl-cdnwz-how__body{ margin-top: 8px; }
 .iwsl-shell .iwsl-cdnwz-how__body ol{ margin: 0 0 4px 18px; }
 .iwsl-shell .iwsl-cdnwz-how__body li{ margin: 0 0 6px; }
+.iwsl-shell .iwsl-cdnwz-how__lead{ margin: 12px 0 6px; }
+.iwsl-shell .iwsl-cdnwz-prov{ margin: 0 0 4px; display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; }
+.iwsl-shell .iwsl-cdnwz-prov dt{ font-weight: 600; white-space: nowrap; }
+.iwsl-shell .iwsl-cdnwz-prov dd{ margin: 0; }
+.iwsl-shell .iwsl-cdnwz-prov code{ font-size: 12px; padding: 1px 5px; border-radius: 5px; background: color-mix(in oklch, var(--iw-signal) 12%, transparent); }
+@media (max-width: 520px){ .iwsl-shell .iwsl-cdnwz-prov{ grid-template-columns: 1fr; gap: 2px 0; } .iwsl-shell .iwsl-cdnwz-prov dd{ margin: 0 0 8px; } }
+.iwsl-shell .iwsl-cdnwz-hetzner{ margin-top: 14px; }
+.iwsl-shell .iwsl-cdnwz-hetzner summary{ cursor: pointer; color: var(--iw-signal); font-weight: 600; }
+.iwsl-shell .iwsl-cdnwz-code{ margin: 8px 0; overflow-x: auto; }
+.iwsl-shell .iwsl-cdnwz-code code{ display: inline-block; font-size: 12px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; background: color-mix(in oklch, var(--iw-signal) 12%, transparent); }
 .iwsl-shell .iwsl-cdnwz-result{ margin-top: 14px; }
 .iwsl-shell .iwsl-cdnwz-result:empty{ display: none; }
 .iwsl-shell .iwsl-cdnwz-note{ padding: 10px 12px; border-radius: 10px; font-size: 13px; }
