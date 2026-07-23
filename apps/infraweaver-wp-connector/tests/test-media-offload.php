@@ -40,6 +40,86 @@ if ( ! function_exists( 'delete_post_meta' ) ) {
 		return true;
 	}
 }
+// Original-file seams (scope='all'): the attachment's own file, mime, and public URL.
+if ( ! function_exists( 'get_attached_file' ) ) {
+	function get_attached_file( int $post_id ) {
+		return $GLOBALS['iwsl_mo_files'][ $post_id ] ?? '';
+	}
+}
+if ( ! function_exists( 'get_post_mime_type' ) ) {
+	function get_post_mime_type( $post_id = 0 ) {
+		return $GLOBALS['iwsl_mo_mimes'][ (int) $post_id ] ?? '';
+	}
+}
+if ( ! function_exists( 'wp_get_attachment_url' ) ) {
+	function wp_get_attachment_url( int $post_id ) {
+		return $GLOBALS['iwsl_mo_urls'][ $post_id ] ?? '';
+	}
+}
+// Uploads base URL + attachment metadata seams — used by the management row builder.
+if ( ! function_exists( 'wp_upload_dir' ) ) {
+	function wp_upload_dir() {
+		return array( 'basedir' => $GLOBALS['iwsl_mo_up'] ?? '', 'baseurl' => 'https://site.test/wp-content/uploads' );
+	}
+}
+if ( ! function_exists( 'wp_get_attachment_metadata' ) ) {
+	function wp_get_attachment_metadata( $post_id = 0 ) {
+		return $GLOBALS['iwsl_mo_attmeta'][ (int) $post_id ] ?? array();
+	}
+}
+
+/**
+ * A minimal WP_Query stub backing the management list. Reads image attachment records
+ * from $GLOBALS['iwsl_mo_list'] (id => [mime,file,title]); applies the post_mime_type
+ * filter ('image' ⇒ image/*, else exact), the status meta_query (EXISTS / NOT EXISTS on
+ * the offload meta, checked against $GLOBALS['iwsl_mo_meta']), a free `s` filename/title
+ * search, then paging. Exposes ->posts (ids) and ->found_posts (pre-paging total).
+ */
+if ( ! class_exists( 'WP_Query' ) ) {
+	class WP_Query {
+		/** @var int[] */ public $posts = array();
+		/** @var int */   public $found_posts = 0;
+
+		public function __construct( array $args = array() ) {
+			$list    = $GLOBALS['iwsl_mo_list'] ?? array();
+			$mime    = isset( $args['post_mime_type'] ) ? (string) $args['post_mime_type'] : 'image';
+			$search  = isset( $args['s'] ) ? (string) $args['s'] : '';
+			$meta    = ( isset( $args['meta_query'][0] ) && is_array( $args['meta_query'][0] ) ) ? $args['meta_query'][0] : null;
+			$matched = array();
+			foreach ( $list as $id => $rec ) {
+				$rmime = (string) ( $rec['mime'] ?? '' );
+				if ( 'image' === $mime ) {
+					if ( 0 !== strpos( $rmime, 'image/' ) ) {
+						continue;
+					}
+				} elseif ( $rmime !== $mime ) {
+					continue;
+				}
+				if ( null !== $meta ) {
+					$has     = isset( $GLOBALS['iwsl_mo_meta'][ (int) $id ][ IWSL_Media_Offload::OFFLOAD_META ] );
+					$compare = (string) ( $meta['compare'] ?? 'EXISTS' );
+					if ( 'EXISTS' === $compare && ! $has ) {
+						continue;
+					}
+					if ( 'NOT EXISTS' === $compare && $has ) {
+						continue;
+					}
+				}
+				if ( '' !== $search ) {
+					$hay = (string) ( $rec['file'] ?? '' ) . ' ' . (string) ( $rec['title'] ?? '' );
+					if ( false === stripos( $hay, $search ) ) {
+						continue;
+					}
+				}
+				$matched[] = (int) $id;
+			}
+			$this->found_posts = count( $matched );
+			$per   = (int) ( $args['posts_per_page'] ?? 10 );
+			$paged = max( 1, (int) ( $args['paged'] ?? 1 ) );
+			$this->posts = $per > 0 ? array_slice( $matched, ( $paged - 1 ) * $per, $per ) : $matched;
+		}
+	}
+}
 
 // ── a fake S3 client (records every call; returns configurable results) ───────────
 
@@ -137,8 +217,12 @@ function iwsl_mo_derivative( int $id ): array {
 	return array( 'path' => $path, 'url' => 'https://site.test/wp-content/uploads/2024/05/photo' . $id . '.webp', 'exists' => (bool) $exists );
 }
 
-/** Build an offload engine over $store with the fake S3 client + injected seams. */
-function iwsl_mo_engine( IWSL_Store $store, int $now, IWSL_Entitlements $ent, IWSL_MO_Fake_S3 $fake ): IWSL_Media_Offload {
+/**
+ * Build an offload engine over $store with the fake S3 client + injected seams. An optional
+ * $http_get seam feeds the bring-back-to-disk download (default null ⇒ engine's own default,
+ * never hit because those tests always inject one).
+ */
+function iwsl_mo_engine( IWSL_Store $store, int $now, IWSL_Entitlements $ent, IWSL_MO_Fake_S3 $fake, ?callable $http_get = null ): IWSL_Media_Offload {
 	return new IWSL_Media_Offload(
 		$ent,
 		$store,
@@ -160,7 +244,32 @@ function iwsl_mo_engine( IWSL_Store $store, int $now, IWSL_Entitlements $ent, IW
 		},
 		static function ( int $limit ): array {
 			return $GLOBALS['iwsl_mo_candidates'] ?? array();
-		}
+		},
+		$http_get
+	);
+}
+
+/** Register an image attachment for the WP_Query-backed management list (writes a real file). */
+function iwsl_mo_list_add( int $id, string $mime, string $rel, string $title = '' ): void {
+	$path = $GLOBALS['iwsl_mo_up'] . '/' . $rel;
+	@mkdir( dirname( $path ), 0777, true );
+	if ( ! is_file( $path ) ) {
+		file_put_contents( $path, 'list-bytes-' . $id );
+	}
+	$GLOBALS['iwsl_mo_files'][ $id ] = $path;
+	$GLOBALS['iwsl_mo_mimes'][ $id ] = $mime;
+	$GLOBALS['iwsl_mo_list'][ $id ]  = array( 'mime' => $mime, 'file' => $rel, 'title' => $title );
+}
+
+/** Seed a stored offload mapping directly (bypasses a live PUT) for list/bring-back setups. */
+function iwsl_mo_seed_offload( int $id, string $key, string $variant = 'original', string $src_url = '' ): void {
+	$GLOBALS['iwsl_mo_meta'][ $id ][ IWSL_Media_Offload::OFFLOAD_META ] = array(
+		'key'     => $key,
+		'url'     => 'https://my-bucket.fsn1.your-objectstorage.com/' . $key,
+		'etag'    => 'seed-etag',
+		'ts'      => 1,
+		'variant' => $variant,
+		'src_url' => $src_url,
 	);
 }
 
@@ -169,10 +278,31 @@ function iwsl_mo_mark_optimized( int $id ): void {
 	$GLOBALS['iwsl_mo_meta'][ $id ][ IWSL_Media_Optimizer::META_KEY ] = array( 'ok' => true );
 }
 
+/**
+ * Seed an attachment with NO optimizer derivative but a REAL original file on disk
+ * (under the temp uploads root) plus its mime + public URL — the scope='all' case.
+ */
+function iwsl_mo_make_original( int $id, string $mime, string $rel ): void {
+	$path = $GLOBALS['iwsl_mo_up'] . '/' . $rel;
+	@mkdir( dirname( $path ), 0777, true );
+	if ( ! is_file( $path ) ) {
+		file_put_contents( $path, 'ORIGINAL-image-bytes-' . $id );
+	}
+	$GLOBALS['iwsl_mo_files'][ $id ]        = $path;
+	$GLOBALS['iwsl_mo_mimes'][ $id ]        = $mime;
+	$GLOBALS['iwsl_mo_urls'][ $id ]         = 'https://site.test/wp-content/uploads/' . $rel;
+	$GLOBALS['iwsl_mo_deriv_exists'][ $id ] = false; // no optimizer-produced derivative.
+}
+
 // Reset per-run globals.
 $GLOBALS['iwsl_mo_meta']         = array();
 $GLOBALS['iwsl_mo_deriv_exists'] = array();
 $GLOBALS['iwsl_mo_candidates']   = array();
+$GLOBALS['iwsl_mo_files']        = array();
+$GLOBALS['iwsl_mo_mimes']        = array();
+$GLOBALS['iwsl_mo_urls']         = array();
+$GLOBALS['iwsl_mo_list']         = array();
+$GLOBALS['iwsl_mo_attmeta']      = array();
 
 // ── 1. Qualify rule: optimized + rule ON ⇒ yes; deny overrides; allow w/o marker ──
 
@@ -608,9 +738,303 @@ iwsl_assert( false !== strpos( $html11, 'Enter bucket manually' ), 'render: the 
 
 unset( $GLOBALS['iwsl_mo_seen_secrets'] );
 
+// ── 12. Scope 'all': already-WebP / never-optimized images offload their ORIGINAL ──
+
+$GLOBALS['iwsl_mo_meta']         = array();
+$GLOBALS['iwsl_mo_deriv_exists'] = array();
+$GLOBALS['iwsl_mo_files']        = array();
+$GLOBALS['iwsl_mo_mimes']        = array();
+$GLOBALS['iwsl_mo_urls']         = array();
+
+$store12 = new IWSL_Memory_Store();
+$fake12  = new IWSL_MO_Fake_S3();
+$eng12   = iwsl_mo_engine( $store12, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), $fake12 );
+
+// scope is absent here ⇒ it must default to 'optimized' (back-compat).
+$eng12->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => 'super-secret-value-123', 'enabled' => true, 'rule_all' => true ) );
+iwsl_assert_same( 'optimized', $eng12->settings()['scope'], 'scope: absent on save ⇒ defaults to optimized' );
+
+// An already-WebP image with NO optimizer meta does NOT qualify under scope='optimized'.
+iwsl_mo_make_original( 1201, 'image/webp', '2024/06/already1201.webp' );
+iwsl_assert_same( false, $eng12->qualifies( 1201 ), 'scope(optimized): an already-WebP image with no optimizer meta does NOT qualify (back-compat)' );
+
+// Switch to scope='all': the SAME image now qualifies and offloads its ORIGINAL file.
+$eng12->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => '', 'enabled' => true, 'rule_all' => true, 'scope' => 'all' ) );
+iwsl_assert_same( 'all', $eng12->settings()['scope'], 'scope: all persisted' );
+iwsl_assert_same( true, $eng12->qualifies( 1201 ), 'scope(all): any image attachment qualifies on the rule' );
+
+$r12 = $eng12->offload_one( 1201 );
+iwsl_assert_same( true, $r12['ok'], 'scope(all): already-WebP image offloads OK' );
+iwsl_assert_same( 'original', $r12['variant'], 'scope(all): variant=original (its OWN original file was shipped)' );
+iwsl_assert_same( '2024/06/already1201.webp', $r12['key'], 'scope(all): key is the uploads-relative path of the original' );
+iwsl_assert_same( 'image/webp', $fake12->puts[0]['content_type'], 'scope(all): PUT content-type is the ORIGINAL mime (get_post_mime_type)' );
+$m12 = $eng12->offload_meta( 1201 );
+iwsl_assert_same( 'original', $m12['variant'], 'scope(all): meta records variant=original' );
+iwsl_assert_same( 'https://site.test/wp-content/uploads/2024/06/already1201.webp', $m12['src_url'], 'scope(all): meta records the original src_url this offload replaces' );
+
+// Rewrite: the original file URL ⇒ its bucket URL (same name/format).
+$bucket12 = 'https://my-bucket.fsn1.your-objectstorage.com/2024/06/already1201.webp';
+iwsl_assert_same( $bucket12, $eng12->filter_attachment_url( $m12['src_url'], 1201 ), 'scope(all) rewrite(url): original file URL ⇒ its bucket URL' );
+
+// srcset correctness: only the offloaded original is rewritten; un-offloaded sub-sizes stay on disk.
+$sub12       = 'https://site.test/wp-content/uploads/2024/06/already1201-500x500.webp';
+$srcset12_in = array(
+	1000 => array( 'url' => $m12['src_url'], 'descriptor' => 'w', 'value' => 1000 ),
+	500  => array( 'url' => $sub12, 'descriptor' => 'w', 'value' => 500 ),
+);
+$srcset12 = $eng12->filter_srcset( $srcset12_in, array( 1000, 1000 ), $m12['src_url'], array(), 1201 );
+iwsl_assert_same( $bucket12, $srcset12[1000]['url'], 'scope(all) srcset: the offloaded original is served from the bucket' );
+iwsl_assert_same( $sub12, $srcset12[500]['url'], 'scope(all) srcset: an un-offloaded sub-size is LEFT on disk (no broken bucket 404)' );
+
+// Manual DENY still overrides in scope='all'.
+iwsl_mo_make_original( 1202, 'image/jpeg', '2024/06/photo1202.jpg' );
+$eng12->set_manual( 1202, 'deny' );
+iwsl_assert_same( false, $eng12->qualifies( 1202 ), 'scope(all): manual DENY still overrides the rule' );
+
+// An OPTIMIZED image still ships its DERIVATIVE under scope='all'.
+$GLOBALS['iwsl_mo_mimes'][1203] = 'image/png'; // an image the optimizer turned into WebP.
+iwsl_mo_mark_optimized( 1203 );
+$r12c = $eng12->offload_one( 1203 );
+iwsl_assert_same( true, $r12c['ok'], 'scope(all): optimized image offloads OK' );
+iwsl_assert_same( 'derivative', $r12c['variant'], 'scope(all): an optimized image still ships the smaller WebP derivative' );
+iwsl_assert_same( '2024/05/photo1203.webp', $r12c['key'], 'scope(all): the derivative key is used for the optimized image' );
+
+// ...and under scope='optimized' too (derivative in BOTH scopes). Uses a fresh id 1204
+// so it needs no meta reset — wiping global meta here would erase 1201's mapping that
+// the unoffload assertion below depends on.
+$store12d = new IWSL_Memory_Store();
+$fake12d  = new IWSL_MO_Fake_S3();
+$eng12d   = iwsl_mo_engine( $store12d, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), $fake12d );
+$eng12d->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => 'x', 'enabled' => true, 'rule_all' => true, 'scope' => 'optimized' ) );
+iwsl_mo_mark_optimized( 1204 );
+$r12d = $eng12d->offload_one( 1204 );
+iwsl_assert_same( 'derivative', $r12d['variant'], 'scope(optimized): an optimized image ships the derivative' );
+
+// Unoffload clears an ORIGINAL-variant mapping too.
+$u12 = $eng12->unoffload_one( 1201 );
+iwsl_assert_same( true, $u12['ok'], 'scope(all) unoffload(original): ok' );
+iwsl_assert_same( array( '2024/06/already1201.webp' ), $fake12->deletes, 'scope(all) unoffload(original): DELETE called with the original key' );
+iwsl_assert_same( false, $eng12->is_offloaded( 1201 ), 'scope(all) unoffload(original): mapping cleared for the original variant' );
+
+// save_settings validates the scope enum (a bogus value is rejected).
+iwsl_assert_same( 'bad-scope', $eng12->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'scope' => 'bogus' ) )['reason'], 'scope: an invalid scope enum is rejected' );
+
+// The wizard renders the scope control + the secret still never leaks.
+$GLOBALS['iwsl_mo_candidates'] = array();
+ob_start();
+$eng12->render_section();
+$html12 = ob_get_clean();
+iwsl_assert( false !== strpos( $html12, 'name="scope"' ), 'render: the scope control is present' );
+iwsl_assert( false !== strpos( $html12, 'All images' ), 'render: the "All images" scope option label is present' );
+iwsl_assert( false !== strpos( $html12, 'Only optimized images' ), 'render: the "Only optimized images" scope option label is present' );
+iwsl_assert( false === strpos( $html12, 'super-secret-value-123' ), 'render: the secret is NEVER echoed even with the scope control present' );
+
+// ── 13. Management list: format + status + search filtering, paging, and counts ───
+
+$GLOBALS['iwsl_mo_meta']    = array();
+$GLOBALS['iwsl_mo_files']   = array();
+$GLOBALS['iwsl_mo_mimes']   = array();
+$GLOBALS['iwsl_mo_list']    = array();
+$GLOBALS['iwsl_mo_attmeta'] = array();
+
+$store13 = new IWSL_Memory_Store();
+$eng13   = iwsl_mo_engine( $store13, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), new IWSL_MO_Fake_S3() );
+$eng13->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => 'super-secret-value-123', 'enabled' => true, 'rule_all' => true ) );
+
+// Five image attachments: three on disk, two offloaded (seeded meta so the EXISTS filter bites).
+iwsl_mo_list_add( 3001, 'image/jpeg', '2024/07/sunset3001.jpg' );
+iwsl_mo_list_add( 3002, 'image/png', '2024/07/logo3002.png' );
+iwsl_mo_list_add( 3003, 'image/webp', '2024/07/hero3003.webp' );
+iwsl_mo_list_add( 3004, 'image/jpeg', '2024/07/beach3004.jpg' );
+iwsl_mo_list_add( 3005, 'image/webp', '2024/07/icon3005.webp' );
+iwsl_mo_seed_offload( 3004, '2024/07/beach3004.jpg', 'original', 'https://site.test/wp-content/uploads/2024/07/beach3004.jpg' );
+iwsl_mo_seed_offload( 3005, '2024/07/icon3005.webp', 'original', 'https://site.test/wp-content/uploads/2024/07/icon3005.webp' );
+
+// (a) unfiltered: all five, correct overall counts + distinct formats.
+$L = $eng13->list_attachments( 1, 24, '', 'all', '' );
+iwsl_assert_same( true, $L['ok'], 'list: ok' );
+iwsl_assert_same( 5, $L['total_matching'], 'list: all images matched' );
+iwsl_assert_same( 5, count( $L['rows'] ), 'list: all five rows returned' );
+iwsl_assert_same( array( 'all' => 5, 'offloaded' => 2, 'disk' => 3 ), $L['counts'], 'list: overall counts (5 total, 2 on bucket, 3 on disk)' );
+iwsl_assert_same( array( 'image/jpeg', 'image/png', 'image/webp' ), $L['formats'], 'list: distinct image formats present (sorted)' );
+
+// A row carries the expected shape (offloaded row shows bucket_url + variant + location).
+$rowsById = array();
+foreach ( $L['rows'] as $r ) { $rowsById[ $r['id'] ] = $r; }
+iwsl_assert_same( true, $rowsById[3004]['offloaded'], 'list: seeded id is reported offloaded' );
+iwsl_assert_same( 'original', $rowsById[3004]['variant'], 'list: offloaded row carries its variant' );
+iwsl_assert_same( 'fsn1', $rowsById[3004]['location'], 'list: offloaded row carries the bucket location' );
+iwsl_assert( false !== strpos( $rowsById[3004]['bucket_url'], '2024/07/beach3004.jpg' ), 'list: offloaded row carries the bucket URL' );
+iwsl_assert_same( false, $rowsById[3001]['offloaded'], 'list: on-disk row is reported not offloaded' );
+iwsl_assert_same( '', $rowsById[3001]['bucket_url'], 'list: on-disk row has no bucket URL' );
+iwsl_assert( false !== strpos( $rowsById[3001]['thumb'], 'wp-content/uploads' ), 'list: thumb is the RAW local URL (not the bucket URL)' );
+iwsl_assert( false === strpos( $rowsById[3004]['thumb'], 'your-objectstorage.com' ), 'list: even an offloaded row thumb stays a local URL' );
+
+// (b) format filter.
+$Lf = $eng13->list_attachments( 1, 24, 'image/jpeg', 'all', '' );
+iwsl_assert_same( 2, $Lf['total_matching'], 'list(format=jpeg): only the two JPEGs match' );
+
+// (c) status filters.
+$Lon  = $eng13->list_attachments( 1, 24, '', 'offloaded', '' );
+iwsl_assert_same( 2, $Lon['total_matching'], 'list(status=offloaded): two on the bucket' );
+$Loff = $eng13->list_attachments( 1, 24, '', 'disk', '' );
+iwsl_assert_same( 3, $Loff['total_matching'], 'list(status=disk): three on disk' );
+
+// (d) filename search.
+$Ls = $eng13->list_attachments( 1, 24, '', 'all', 'sunset3001' );
+iwsl_assert_same( 1, $Ls['total_matching'], 'list(search): matches by filename' );
+iwsl_assert_same( 3001, $Ls['rows'][0]['id'], 'list(search): returns the matching attachment' );
+
+// (e) pagination + per_page clamping / defaults.
+$P1 = $eng13->list_attachments( 1, 2, '', 'all', '' );
+iwsl_assert_same( 5, $P1['total_matching'], 'list(page1): total is the full match count' );
+iwsl_assert_same( 2, count( $P1['rows'] ), 'list(page1): first page holds per_page rows' );
+$P3 = $eng13->list_attachments( 3, 2, '', 'all', '' );
+iwsl_assert_same( 1, count( $P3['rows'] ), 'list(page3): last page holds the remainder' );
+iwsl_assert_same( 3, $P3['page'], 'list(page3): echoes the requested page' );
+iwsl_assert_same( 100, $eng13->list_attachments( 1, 500, '', 'all', '' )['per_page'], 'list: per_page caps at 100' );
+iwsl_assert_same( 24, $eng13->list_attachments( 1, 0, '', 'all', '' )['per_page'], 'list: per_page 0 falls back to the default 24' );
+
+// (f) a locked gate refuses the list (STATEMENT 1).
+$eng13_locked = iwsl_mo_engine( new IWSL_Memory_Store(), $MO_NOW, iwsl_mo_gate( $MO_NOW, 'active', array() ), new IWSL_MO_Fake_S3() );
+iwsl_assert_same( 'entitlement-locked', $eng13_locked->list_attachments( 1, 24, '', 'all', '' )['reason'], 'list(locked): refused' );
+
+// ── 14. offload-by-id + bulk offload / bring-back ─────────────────────────────────
+
+$GLOBALS['iwsl_mo_meta']  = array();
+$GLOBALS['iwsl_mo_files'] = array();
+$GLOBALS['iwsl_mo_mimes'] = array();
+
+$store14 = new IWSL_Memory_Store();
+$fake14  = new IWSL_MO_Fake_S3();
+$eng14   = iwsl_mo_engine( $store14, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), $fake14 );
+$eng14->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => 'super-secret-value-123', 'enabled' => true, 'rule_all' => true, 'scope' => 'optimized' ) );
+
+// offload-by-id: a single optimized image offloads and records its mapping.
+iwsl_mo_mark_optimized( 6000 );
+$one = $eng14->offload_one( 6000 );
+iwsl_assert_same( true, $one['ok'], 'offload-by-id: single id offloads' );
+iwsl_assert_same( true, $eng14->is_offloaded( 6000 ), 'offload-by-id: mapping recorded' );
+
+// bulk offload: dedupes, drops non-positive ids, and reports a summary.
+iwsl_mo_mark_optimized( 6001 );
+iwsl_mo_mark_optimized( 6002 );
+$bulkOff = $eng14->bulk( 'offload', array( 6001, 6002, '0', 6001 ) );
+iwsl_assert_same( true, $bulkOff['ok'], 'bulk(offload): ok' );
+iwsl_assert_same( array( 'total' => 2, 'ok' => 2, 'failed' => 0 ), $bulkOff['summary'], 'bulk(offload): summary counts two (deduped, zero dropped)' );
+iwsl_assert_same( true, $eng14->is_offloaded( 6001 ), 'bulk(offload): 6001 offloaded' );
+iwsl_assert_same( true, $eng14->is_offloaded( 6002 ), 'bulk(offload): 6002 offloaded' );
+iwsl_assert_same( 2, count( $bulkOff['results'] ), 'bulk(offload): one result per unique id' );
+
+// bulk bring-back: local files unknown ⇒ delete-only path; objects removed + meta cleared.
+$fake14->deletes = array();
+$bulkBack = $eng14->bulk( 'unoffload', array( 6001, 6002 ) );
+iwsl_assert_same( array( 'total' => 2, 'ok' => 2, 'failed' => 0 ), $bulkBack['summary'], 'bulk(unoffload): summary counts two ok' );
+iwsl_assert_same( false, $eng14->is_offloaded( 6001 ), 'bulk(unoffload): 6001 cleared' );
+iwsl_assert_same( false, $eng14->is_offloaded( 6002 ), 'bulk(unoffload): 6002 cleared' );
+iwsl_assert_same( 2, count( $fake14->deletes ), 'bulk(unoffload): both bucket objects deleted' );
+
+// bad op is rejected.
+iwsl_assert_same( 'bad-op', $eng14->bulk( 'nope', array( 6000 ) )['reason'], 'bulk: an unknown op is rejected' );
+
+// ── 15. Bring back to disk: MISSING local file is downloaded BEFORE the delete ────
+
+$GLOBALS['iwsl_mo_meta']  = array();
+$GLOBALS['iwsl_mo_files'] = array();
+
+$store15 = new IWSL_Memory_Store();
+$fake15  = new IWSL_MO_Fake_S3();
+$RESTORE_BYTES = 'RESTORED-image-bytes-7001-abcdefg';
+$http_calls    = array();
+$http_ok       = static function ( string $url ) use ( &$http_calls, $RESTORE_BYTES ): array {
+	$http_calls[] = $url;
+	return array( 'ok' => true, 'body' => $RESTORE_BYTES, 'status' => 200 );
+};
+$eng15 = iwsl_mo_engine( $store15, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), $fake15, $http_ok );
+$eng15->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => 'super-secret-value-123', 'enabled' => true, 'rule_all' => true, 'scope' => 'all', 'access' => 'public' ) );
+
+$missing15 = $GLOBALS['iwsl_mo_up'] . '/2024/08/gone7001.jpg';
+@unlink( $missing15 );
+$GLOBALS['iwsl_mo_files'][7001] = $missing15;
+iwsl_mo_seed_offload( 7001, '2024/08/gone7001.jpg', 'original', 'https://site.test/wp-content/uploads/2024/08/gone7001.jpg' );
+iwsl_assert_same( false, is_file( $missing15 ), 'bring-back: precondition — local file is missing' );
+
+$bb = $eng15->unoffload_one( 7001 );
+iwsl_assert_same( true, $bb['ok'], 'bring-back: unoffload succeeds' );
+iwsl_assert_same( true, ! empty( $bb['restored'] ), 'bring-back: reports restored=true' );
+iwsl_assert_same( 1, count( $http_calls ), 'bring-back: exactly one download performed' );
+iwsl_assert( false !== strpos( $http_calls[0], '2024/08/gone7001.jpg' ), 'bring-back(public): downloaded from the public bucket URL' );
+iwsl_assert_same( true, is_file( $missing15 ), 'bring-back: the local file was written back to disk' );
+iwsl_assert_same( $RESTORE_BYTES, (string) file_get_contents( $missing15 ), 'bring-back: the downloaded bytes were written to get_attached_file() path' );
+iwsl_assert_same( array( '2024/08/gone7001.jpg' ), $fake15->deletes, 'bring-back: the bucket object was deleted AFTER the restore' );
+iwsl_assert_same( false, $eng15->is_offloaded( 7001 ), 'bring-back: the offload mapping was cleared' );
+
+// Private access: the missing-file restore downloads via a PRESIGNED GET URL.
+$GLOBALS['iwsl_mo_meta']  = array();
+$store15p = new IWSL_Memory_Store();
+$fake15p  = new IWSL_MO_Fake_S3();
+$urls15p  = array();
+$http_p   = static function ( string $url ) use ( &$urls15p ): array {
+	$urls15p[] = $url;
+	return array( 'ok' => true, 'body' => 'PRIV-RESTORE-BYTES', 'status' => 200 );
+};
+$eng15p = iwsl_mo_engine( $store15p, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), $fake15p, $http_p );
+$eng15p->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => 'super-secret-value-123', 'enabled' => true, 'rule_all' => true, 'scope' => 'all', 'access' => 'private', 'private_url_ttl' => 1800 ) );
+$missing15p = $GLOBALS['iwsl_mo_up'] . '/2024/08/gone7003.jpg';
+@unlink( $missing15p );
+$GLOBALS['iwsl_mo_files'][7003] = $missing15p;
+iwsl_mo_seed_offload( 7003, '2024/08/gone7003.jpg', 'original', 'https://site.test/wp-content/uploads/2024/08/gone7003.jpg' );
+$bbp = $eng15p->unoffload_one( 7003 );
+iwsl_assert_same( true, $bbp['ok'], 'bring-back(private): unoffload succeeds' );
+iwsl_assert( false !== strpos( $urls15p[0], 'X-Amz-Signature=' ), 'bring-back(private): downloaded via a presigned GET URL' );
+@unlink( $missing15p );
+
+// ── 16. Bring back ABORTS when the download fails (bucket copy + meta KEPT) ────────
+
+$GLOBALS['iwsl_mo_meta']  = array();
+$store16 = new IWSL_Memory_Store();
+$fake16  = new IWSL_MO_Fake_S3();
+$http_fail = static function ( string $url ): array {
+	return array( 'ok' => false, 'body' => '', 'status' => 500 );
+};
+$eng16 = iwsl_mo_engine( $store16, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), $fake16, $http_fail );
+$eng16->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => 'super-secret-value-123', 'enabled' => true, 'rule_all' => true, 'scope' => 'all', 'access' => 'public' ) );
+
+$missing16 = $GLOBALS['iwsl_mo_up'] . '/2024/08/gone7002.jpg';
+@unlink( $missing16 );
+$GLOBALS['iwsl_mo_files'][7002] = $missing16;
+iwsl_mo_seed_offload( 7002, '2024/08/gone7002.jpg', 'original', 'https://site.test/wp-content/uploads/2024/08/gone7002.jpg' );
+
+$ab = $eng16->unoffload_one( 7002 );
+iwsl_assert_same( false, $ab['ok'], 'abort: unoffload fails when the download fails' );
+iwsl_assert_same( 'restore-failed', $ab['reason'], 'abort: reason is restore-failed' );
+iwsl_assert_same( array(), $fake16->deletes, 'abort: the bucket object was NEVER deleted (last copy kept)' );
+iwsl_assert_same( true, $eng16->is_offloaded( 7002 ), 'abort: the offload mapping is intact' );
+iwsl_assert_same( false, is_file( $missing16 ), 'abort: no partial/empty local file was left behind' );
+
+// ── 17. The secret NEVER appears in any management AJAX response ───────────────────
+
+$GLOBALS['iwsl_mo_meta']  = array();
+$GLOBALS['iwsl_mo_files'] = array();
+$GLOBALS['iwsl_mo_mimes'] = array();
+$GLOBALS['iwsl_mo_list']  = array();
+
+$SECRET17 = 'AJAX-secret-must-never-leak-98765';
+$store17  = new IWSL_Memory_Store();
+$eng17    = iwsl_mo_engine( $store17, $MO_NOW, iwsl_mo_unlocked( $MO_NOW ), new IWSL_MO_Fake_S3() );
+$eng17->save_settings( array( 'location' => 'fsn1', 'bucket' => 'my-bucket', 'access_key' => 'AK1234567890', 'secret_key' => $SECRET17, 'enabled' => true, 'rule_all' => true ) );
+iwsl_mo_list_add( 8001, 'image/jpeg', '2024/09/x8001.jpg' );
+
+$respList = $eng17->list_attachments( 1, 24, '', 'all', '' );
+iwsl_assert( false === strpos( (string) json_encode( $respList ), $SECRET17 ), 'secret: the list AJAX response never contains the secret' );
+iwsl_assert_same( false, array_key_exists( 'secret', $respList ), 'secret: the list response carries no secret key' );
+
+$respBulk = $eng17->bulk( 'offload', array() );
+iwsl_assert( false === strpos( (string) json_encode( $respBulk ), $SECRET17 ), 'secret: the bulk AJAX response never contains the secret' );
+
 // Clean up the temp uploads tree + suite globals so nothing leaks into a later suite.
 foreach ( array_reverse( glob( $GLOBALS['iwsl_mo_up'] . '/{,*/,*/*/}*', GLOB_BRACE ) ?: array() ) as $p ) {
 	is_dir( $p ) ? @rmdir( $p ) : @unlink( $p );
 }
 @rmdir( $GLOBALS['iwsl_mo_up'] );
-unset( $GLOBALS['iwsl_mo_meta'], $GLOBALS['iwsl_mo_deriv_exists'], $GLOBALS['iwsl_mo_candidates'], $GLOBALS['iwsl_mo_up'] );
+unset( $GLOBALS['iwsl_mo_meta'], $GLOBALS['iwsl_mo_deriv_exists'], $GLOBALS['iwsl_mo_candidates'], $GLOBALS['iwsl_mo_files'], $GLOBALS['iwsl_mo_mimes'], $GLOBALS['iwsl_mo_urls'], $GLOBALS['iwsl_mo_list'], $GLOBALS['iwsl_mo_attmeta'], $GLOBALS['iwsl_mo_up'] );

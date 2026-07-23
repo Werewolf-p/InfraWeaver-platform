@@ -14,13 +14,16 @@
  * returns early) and every handler refuses, so the site behaves like stock WP.
  *
  * WHAT IT DOES. A bounded batch pass (ONE image per AJAX request, like the optimizer
- * popup) finds qualifying attachments whose WebP derivative EXISTS and are not yet
- * offloaded, PUTs the file bytes to `<uploads-relative-path>.webp`, HEAD-verifies the
- * object (etag), and ONLY THEN records `_iwsl_offload = { key, url, etag, ts }` in
- * attachment meta. If the PUT or the HEAD verification fails the mapping is NOT
- * written — the image is simply retried next pass. An image qualifies when
- * (rule "offload all optimized" is ON and it carries IWSL_Media_Optimizer::META_KEY)
- * OR it is manually forced on; never when it is manually forced off.
+ * popup) finds qualifying attachments not yet offloaded, PUTs a SOURCE FILE to its
+ * `<uploads-relative-path>` key, HEAD-verifies the object (etag), and ONLY THEN records
+ * `_iwsl_offload = { key, url, etag, ts, variant, src_url }` in attachment meta. If the
+ * PUT or the HEAD verification fails the mapping is NOT written — the image is simply
+ * retried next pass. The SCOPE setting chooses WHICH images qualify under the rule:
+ * `optimized` (default) offloads only images the optimizer turned into a smaller WebP
+ * derivative (variant='derivative'); `all` also offloads images that are already WebP or
+ * were never optimized, uploading each attachment's OWN original file (variant='original',
+ * same format/name). An image qualifies when (rule ON and — per scope — it is optimized
+ * OR is any image attachment) OR it is manually forced on; never when manually forced off.
  *
  * PRESERVATION. Nothing is ever deleted: the local original AND the local derivative
  * always stay on disk. "Remove from bucket" (per-image / bulk) deletes the S3 object
@@ -47,13 +50,27 @@ final class IWSL_Media_Offload {
 	/** Meta that marks an attachment as optimized (the offload-rule input). */
 	const OPTIMIZED_META = IWSL_Media_Optimizer::META_KEY; // '_iwsl_media_optimizer'
 
-	/** Attachment meta holding the offload mapping { key, url, etag, ts }. */
+	/** Attachment meta holding the offload mapping { key, url, etag, ts, variant, src_url }. */
 	const OFFLOAD_META = '_iwsl_offload';
 
 	/** Store key for the settings map (IWSL_WP_Store prefixes → iwsl_media_offload). */
 	const SETTINGS_KEY = 'media_offload';
 	/** Store key for the per-attachment manual allow/deny override map. */
 	const MANUAL_KEY = 'media_offload_manual';
+
+	/**
+	 * Auto-rule SCOPE — which images the rule (rule_all) offloads. `optimized` (default,
+	 * the historical behaviour) offloads only images the optimizer turned into a smaller
+	 * WebP derivative; `all` also offloads images that are already WebP / were never
+	 * optimized, by uploading each attachment's OWN original file. Manual allow/deny
+	 * always overrides in either scope.
+	 */
+	const SCOPE_OPTIMIZED = 'optimized';
+	const SCOPE_ALL       = 'all';
+
+	/** Offload variant recorded per attachment — which source file was shipped. */
+	const VARIANT_DERIVATIVE = 'derivative'; // the optimizer's smaller WebP derivative.
+	const VARIANT_ORIGINAL   = 'original';   // the attachment's own original file (same format/name).
 
 	/** Hetzner Object Storage locations → human label. Location IS the region. */
 	const LOCATIONS = array(
@@ -75,7 +92,7 @@ final class IWSL_Media_Offload {
 	const DEFAULT_TTL    = 86400;  // 1 day.
 	const MIN_TTL        = 300;    // 5 minutes.
 	const MAX_TTL        = 604800; // 7 days.
-	/** Content type of every offloaded object (always the lossless WebP derivative). */
+	/** Content type of an offloaded WebP DERIVATIVE (an original uploads under its own mime). */
 	const CONTENT_TYPE = 'image/webp';
 
 	/** Defensive cap on the manual-override map (unbounded option guard). */
@@ -97,7 +114,16 @@ final class IWSL_Media_Offload {
 	const AJAX_UNOFFLOAD = 'iwsl_media_offload_unoffload';
 	const AJAX_MANUAL    = 'iwsl_media_offload_manual';
 	const AJAX_BUCKETS   = 'iwsl_media_offload_buckets';
+	/** Management panel: paginated media list + per-id offload + bulk (logged-in only, no nopriv). */
+	const AJAX_LIST        = 'iwsl_media_offload_list';
+	const AJAX_OFFLOAD_ONE = 'iwsl_media_offload_one_by_id';
+	const AJAX_BULK        = 'iwsl_media_offload_bulk';
 	const NONCE          = 'iwsl_media_offload';
+
+	/** Management list: default + max page size, and the per-call bulk id cap. */
+	const LIST_PER_PAGE     = 24;
+	const LIST_PER_PAGE_MAX = 100;
+	const BULK_MAX          = 50;
 
 	/** admin-post settings save action + nonce (PRG). */
 	const ACTION_SAVE = 'iwsl_media_offload_save';
@@ -131,6 +157,9 @@ final class IWSL_Media_Offload {
 	/** @var callable(int):int[] fn(limit): candidate attachment ids to consider for offload. */
 	private $candidate_provider;
 
+	/** @var callable(string):array fn(url): { ok, body, status } — HTTP GET seam for bring-back. */
+	private $http_get;
+
 	/** @var bool|null memoized gate result for this request. */
 	private $unlocked_cache = null;
 
@@ -152,7 +181,8 @@ final class IWSL_Media_Offload {
 		?callable $s3_factory = null,
 		?callable $derivative_resolver = null,
 		?callable $upload_basedir = null,
-		?callable $candidate_provider = null
+		?callable $candidate_provider = null,
+		?callable $http_get = null
 	) {
 		$this->entitlements = $entitlements;
 		$this->store        = $store;
@@ -191,6 +221,19 @@ final class IWSL_Media_Offload {
 		$this->candidate_provider = $candidate_provider ?? function ( int $limit ): array {
 			return $this->default_candidates( $limit );
 		};
+
+		$this->http_get = $http_get ?? static function ( string $url ): array {
+			if ( '' === $url || ! function_exists( 'wp_safe_remote_get' ) ) {
+				return array( 'ok' => false, 'body' => '', 'status' => 0 );
+			}
+			$resp = wp_safe_remote_get( $url, array( 'timeout' => 30 ) );
+			if ( function_exists( 'is_wp_error' ) && is_wp_error( $resp ) ) {
+				return array( 'ok' => false, 'body' => '', 'status' => 0 );
+			}
+			$code = function_exists( 'wp_remote_retrieve_response_code' ) ? (int) wp_remote_retrieve_response_code( $resp ) : 0;
+			$body = function_exists( 'wp_remote_retrieve_body' ) ? (string) wp_remote_retrieve_body( $resp ) : '';
+			return array( 'ok' => ( $code >= 200 && $code < 300 && '' !== $body ), 'body' => $body, 'status' => $code );
+		};
 	}
 
 	// ── registration (STATEMENT 1 is the gate; locked ⇒ attach nothing) ───────────
@@ -222,6 +265,9 @@ final class IWSL_Media_Offload {
 			add_action( 'wp_ajax_' . self::AJAX_UNOFFLOAD, array( $this, 'handle_unoffload_ajax' ) );
 			add_action( 'wp_ajax_' . self::AJAX_MANUAL, array( $this, 'handle_manual_ajax' ) );
 			add_action( 'wp_ajax_' . self::AJAX_BUCKETS, array( $this, 'handle_buckets_ajax' ) );
+			add_action( 'wp_ajax_' . self::AJAX_LIST, array( $this, 'handle_list_ajax' ) );
+			add_action( 'wp_ajax_' . self::AJAX_OFFLOAD_ONE, array( $this, 'handle_offload_one_ajax' ) );
+			add_action( 'wp_ajax_' . self::AJAX_BULK, array( $this, 'handle_bulk_ajax' ) );
 			add_action( 'admin_post_' . self::ACTION_SAVE, array( $this, 'handle_save' ) );
 		}
 	}
@@ -229,20 +275,22 @@ final class IWSL_Media_Offload {
 	// ── URL rewrite filters (front-end; offloaded ⇒ bucket URL, else untouched) ───
 
 	/**
-	 * `wp_get_attachment_url`. Serve the public bucket URL for an offloaded
+	 * `wp_get_attachment_url`. Serve the offloaded bucket URL for an offloaded
 	 * attachment; leave every other attachment's URL untouched.
 	 *
 	 * @param mixed $url
 	 * @param mixed $attachment_id
 	 */
 	public function filter_attachment_url( $url, $attachment_id = 0 ): string {
-		$offloaded = $this->offloaded_url( (int) $attachment_id );
+		$offloaded = $this->rewritten_url( (int) $attachment_id, (string) $url );
 		return '' !== $offloaded ? $offloaded : (string) $url;
 	}
 
 	/**
 	 * `wp_get_attachment_image_src`. Replace the src URL (index 0) with the offloaded
 	 * bucket URL for an offloaded attachment; pass everything else through unchanged.
+	 * For an `original`-variant offload only the exact original file we uploaded is
+	 * swapped — a sub-size request is left on disk (no broken bucket 404).
 	 *
 	 * @param mixed $image [url, width, height, is_intermediate] | false
 	 * @param mixed $attachment_id
@@ -254,7 +302,7 @@ final class IWSL_Media_Offload {
 		if ( ! is_array( $image ) || ! isset( $image[0] ) ) {
 			return $image;
 		}
-		$offloaded = $this->offloaded_url( (int) $attachment_id );
+		$offloaded = $this->rewritten_url( (int) $attachment_id, (string) $image[0] );
 		if ( '' !== $offloaded ) {
 			$image[0] = $offloaded;
 		}
@@ -262,8 +310,11 @@ final class IWSL_Media_Offload {
 	}
 
 	/**
-	 * `wp_calculate_image_srcset`. Point every srcset source at the offloaded bucket
-	 * URL for an offloaded attachment; other attachments' srcsets are unchanged.
+	 * `wp_calculate_image_srcset`. Point srcset sources at the offloaded bucket URL for
+	 * an offloaded attachment; other attachments' srcsets are unchanged. A `derivative`
+	 * offload maps EVERY source at the single WebP object (historical behaviour). An
+	 * `original` offload only rewrites the exact original file it shipped — un-offloaded
+	 * sub-sizes stay on disk so no source ever points at a bucket object that is absent.
 	 *
 	 * @param mixed $sources
 	 * @param mixed $size_array
@@ -276,14 +327,25 @@ final class IWSL_Media_Offload {
 		if ( ! is_array( $sources ) ) {
 			return $sources;
 		}
-		$offloaded = $this->offloaded_url( (int) $attachment_id );
-		if ( '' === $offloaded ) {
+		$id = (int) $attachment_id;
+		if ( $id <= 0 || ! $this->is_unlocked() ) {
 			return $sources;
 		}
-		$out = array();
+		$meta = $this->offload_meta( $id );
+		if ( '' === $meta['key'] ) {
+			return $sources;
+		}
+		$delivery = $this->delivery_url_for( $meta );
+		if ( '' === $delivery ) {
+			return $sources;
+		}
+		$only_src = self::VARIANT_ORIGINAL === $meta['variant'] && '' !== $meta['src_url'];
+		$out      = array();
 		foreach ( $sources as $key => $source ) {
 			if ( is_array( $source ) && isset( $source['url'] ) ) {
-				$source['url'] = $offloaded;
+				if ( ! $only_src || (string) $source['url'] === $meta['src_url'] ) {
+					$source['url'] = $delivery;
+				}
 			}
 			$out[ $key ] = $source;
 		}
@@ -298,7 +360,7 @@ final class IWSL_Media_Offload {
 	 * here for INTERNAL use only — never expose this map to render (use
 	 * settings_for_render(), which strips the secret).
 	 *
-	 * @return array{ enabled:bool, rule_all:bool, location:string, bucket:string, access_key:string, secret:string, access:string, private_url_ttl:int }
+	 * @return array{ enabled:bool, rule_all:bool, scope:string, location:string, bucket:string, access_key:string, secret:string, access:string, private_url_ttl:int }
 	 */
 	public function settings(): array {
 		return self::normalize_settings( $this->store->get( self::SETTINGS_KEY, array() ) );
@@ -309,13 +371,14 @@ final class IWSL_Media_Offload {
 	 * replaced with a boolean `has_secret`. The plaintext secret is never present, so
 	 * no template / AJAX response can ever echo it.
 	 *
-	 * @return array{ enabled:bool, rule_all:bool, location:string, bucket:string, access_key:string, has_secret:bool, access:string, private_url_ttl:int }
+	 * @return array{ enabled:bool, rule_all:bool, scope:string, location:string, bucket:string, access_key:string, has_secret:bool, access:string, private_url_ttl:int }
 	 */
 	public function settings_for_render(): array {
 		$s = $this->settings();
 		return array(
 			'enabled'         => $s['enabled'],
 			'rule_all'        => $s['rule_all'],
+			'scope'           => $s['scope'],
 			'location'        => $s['location'],
 			'bucket'          => $s['bucket'],
 			'access_key'      => $s['access_key'],
@@ -341,9 +404,14 @@ final class IWSL_Media_Offload {
 		return $out;
 	}
 
-	/** The offload mapping recorded for an attachment, or an empty shape. */
+	/**
+	 * The offload mapping recorded for an attachment, or an empty shape. Legacy mappings
+	 * written before the scope feature carry no `variant`; they are treated as
+	 * `derivative` (every pre-existing offload was a WebP derivative), preserving the
+	 * historical rewrite behaviour for already-offloaded images.
+	 */
 	public function offload_meta( int $attachment_id ): array {
-		$empty = array( 'key' => '', 'url' => '', 'etag' => '', 'ts' => 0 );
+		$empty = array( 'key' => '', 'url' => '', 'etag' => '', 'ts' => 0, 'variant' => self::VARIANT_DERIVATIVE, 'src_url' => '' );
 		if ( $attachment_id <= 0 || ! function_exists( 'get_post_meta' ) ) {
 			return $empty;
 		}
@@ -351,11 +419,16 @@ final class IWSL_Media_Offload {
 		if ( ! is_array( $raw ) ) {
 			return $empty;
 		}
+		$variant = isset( $raw['variant'] ) && self::VARIANT_ORIGINAL === (string) $raw['variant']
+			? self::VARIANT_ORIGINAL
+			: self::VARIANT_DERIVATIVE;
 		return array(
-			'key'  => isset( $raw['key'] ) ? (string) $raw['key'] : '',
-			'url'  => isset( $raw['url'] ) ? (string) $raw['url'] : '',
-			'etag' => isset( $raw['etag'] ) ? (string) $raw['etag'] : '',
-			'ts'   => isset( $raw['ts'] ) ? (int) $raw['ts'] : 0,
+			'key'     => isset( $raw['key'] ) ? (string) $raw['key'] : '',
+			'url'     => isset( $raw['url'] ) ? (string) $raw['url'] : '',
+			'etag'    => isset( $raw['etag'] ) ? (string) $raw['etag'] : '',
+			'ts'      => isset( $raw['ts'] ) ? (int) $raw['ts'] : 0,
+			'variant' => $variant,
+			'src_url' => isset( $raw['src_url'] ) ? (string) $raw['src_url'] : '',
 		);
 	}
 
@@ -373,11 +446,21 @@ final class IWSL_Media_Offload {
 		return ! empty( $v );
 	}
 
+	/** True when the attachment is an image (its mime type starts with "image/"). */
+	public function is_image_attachment( int $attachment_id ): bool {
+		if ( $attachment_id <= 0 || ! function_exists( 'get_post_mime_type' ) ) {
+			return false;
+		}
+		$mime = get_post_mime_type( $attachment_id );
+		return is_string( $mime ) && 0 === strpos( $mime, 'image/' );
+	}
+
 	/**
-	 * Whether an attachment should be offloaded, per the rule + manual overrides:
-	 *   manual 'deny'  → NEVER (overrides the rule).
-	 *   manual 'allow' → ALWAYS (even without the optimized marker).
-	 *   otherwise      → rule "offload all optimized" ON  AND  the optimized marker.
+	 * Whether an attachment should be offloaded, per the rule + scope + manual overrides:
+	 *   manual 'deny'  → NEVER (overrides the rule, in BOTH scopes).
+	 *   manual 'allow' → ALWAYS (even without the optimized marker, in BOTH scopes).
+	 *   otherwise      → rule ON AND — per scope — the image is optimized (scope
+	 *                    'optimized') OR is any image attachment (scope 'all').
 	 */
 	public function qualifies( int $attachment_id ): bool {
 		if ( $attachment_id <= 0 ) {
@@ -390,7 +473,14 @@ final class IWSL_Media_Offload {
 		if ( 'allow' === $manual ) {
 			return true;
 		}
-		return ! empty( $this->settings()['rule_all'] ) && $this->is_optimized( $attachment_id );
+		$s = $this->settings();
+		if ( empty( $s['rule_all'] ) ) {
+			return false;
+		}
+		if ( self::SCOPE_ALL === $s['scope'] ) {
+			return $this->is_image_attachment( $attachment_id );
+		}
+		return $this->is_optimized( $attachment_id );
 	}
 
 	// ── mutators (STATEMENT 1 is the authoritative gate) ──────────────────────────
@@ -408,6 +498,16 @@ final class IWSL_Media_Offload {
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
 			return array( 'ok' => false, 'reason' => 'entitlement-locked', 'gate' => $gate );
+		}
+
+		$scope = self::SCOPE_OPTIMIZED;
+		if ( isset( $input['scope'] ) ) {
+			$raw_scope = self::request_string( $input['scope'] );
+			if ( self::SCOPE_ALL === $raw_scope ) {
+				$scope = self::SCOPE_ALL;
+			} elseif ( self::SCOPE_OPTIMIZED !== $raw_scope ) {
+				return array( 'ok' => false, 'reason' => 'bad-scope' );
+			}
 		}
 
 		$location = isset( $input['location'] ) ? self::request_string( $input['location'] ) : '';
@@ -444,6 +544,7 @@ final class IWSL_Media_Offload {
 		$clean = array(
 			'enabled'         => ! empty( $input['enabled'] ),
 			'rule_all'        => ! empty( $input['rule_all'] ),
+			'scope'           => $scope,
 			'location'        => $location,
 			'bucket'          => $bucket,
 			'access_key'      => $access_key,
@@ -481,12 +582,14 @@ final class IWSL_Media_Offload {
 	}
 
 	/**
-	 * Offload ONE attachment: PUT its WebP derivative, HEAD-verify the object, and
-	 * ONLY on verification success record the `_iwsl_offload` mapping. STATEMENT 1 is
-	 * the gate. On any put/verify failure the mapping is NOT written (left for retry)
-	 * and the error is surfaced. Never deletes or modifies any local file.
+	 * Offload ONE attachment: PUT its source file, HEAD-verify the object, and ONLY on
+	 * verification success record the `_iwsl_offload` mapping. STATEMENT 1 is the gate.
+	 * The source is the optimizer WebP derivative when it exists (smaller — variant
+	 * 'derivative'), otherwise (scope 'all') the attachment's OWN original file (variant
+	 * 'original', same format/name). On any put/verify failure the mapping is NOT written
+	 * (left for retry) and the error is surfaced. Never deletes or modifies any local file.
 	 *
-	 * @return array{ ok:bool, id:int, reason?:string, key?:string, url?:string, etag?:string, error?:string, skipped?:bool }
+	 * @return array{ ok:bool, id:int, reason?:string, key?:string, url?:string, etag?:string, variant?:string, error?:string, skipped?:bool }
 	 */
 	public function offload_one( int $attachment_id ): array {
 		$gate = $this->entitlements->evaluate( self::FEATURE );
@@ -503,16 +606,15 @@ final class IWSL_Media_Offload {
 			return array( 'ok' => true, 'id' => $attachment_id, 'reason' => 'already-offloaded', 'skipped' => true );
 		}
 
-		$deriv = ( $this->derivative_resolver )( $attachment_id );
-		if ( ! is_array( $deriv ) || empty( $deriv['exists'] ) || empty( $deriv['path'] ) ) {
-			return array( 'ok' => false, 'id' => $attachment_id, 'reason' => 'no-derivative' );
+		$source = $this->offload_source( $attachment_id );
+		if ( empty( $source['ok'] ) ) {
+			return array( 'ok' => false, 'id' => $attachment_id, 'reason' => (string) $source['reason'] );
 		}
-		$path = (string) $deriv['path'];
-
-		$key = $this->offload_key_for( (string) $path );
-		if ( '' === $key ) {
-			return array( 'ok' => false, 'id' => $attachment_id, 'reason' => 'bad-key' );
-		}
+		$variant      = (string) $source['variant'];
+		$path         = (string) $source['path'];
+		$key          = (string) $source['key'];
+		$content_type = (string) $source['content_type'];
+		$src_url      = (string) $source['src_url'];
 
 		$body = $this->read_file( $path );
 		if ( null === $body ) {
@@ -520,7 +622,7 @@ final class IWSL_Media_Offload {
 		}
 
 		$client = $this->s3();
-		$put    = $client->put_object( $key, $body, self::CONTENT_TYPE );
+		$put    = $client->put_object( $key, $body, $content_type );
 		if ( empty( $put['ok'] ) ) {
 			return array(
 				'ok'     => false,
@@ -551,19 +653,77 @@ final class IWSL_Media_Offload {
 
 		$this->write_offload_meta(
 			$attachment_id,
-			array( 'key' => $key, 'url' => $url, 'etag' => $etag, 'ts' => ( $this->now )() )
+			array( 'key' => $key, 'url' => $url, 'etag' => $etag, 'ts' => ( $this->now )(), 'variant' => $variant, 'src_url' => $src_url )
 		);
 
-		return array( 'ok' => true, 'id' => $attachment_id, 'key' => $key, 'url' => $url, 'etag' => $etag );
+		return array( 'ok' => true, 'id' => $attachment_id, 'key' => $key, 'url' => $url, 'etag' => $etag, 'variant' => $variant );
 	}
 
 	/**
-	 * Remove ONE attachment from the bucket: DELETE the object and clear the mapping
-	 * meta. STATEMENT 1 is the gate. Idempotent (a not-offloaded id is a success
-	 * no-op). The local original + derivative are NEVER touched. On a delete failure
-	 * the mapping is kept (so a retry is possible) and the error is surfaced.
+	 * Resolve the SOURCE file to upload for an attachment. Prefers the optimizer's WebP
+	 * derivative when it exists on disk (variant 'derivative', content type image/webp).
+	 * Otherwise — ONLY under scope 'all' — falls back to the attachment's own original
+	 * file (variant 'original', uploaded under its own mime, same key/name). Under scope
+	 * 'optimized' a missing derivative is refused with 'no-derivative' (historical
+	 * behaviour: that scope ships only the smaller WebP). Every key is validated so a
+	 * malformed / escaping path is never signed or PUT.
 	 *
-	 * @return array{ ok:bool, id:int, reason?:string, error?:string }
+	 * @return array{ ok:bool, reason?:string, variant?:string, path?:string, key?:string, content_type?:string, src_url?:string }
+	 */
+	private function offload_source( int $attachment_id ): array {
+		$deriv = ( $this->derivative_resolver )( $attachment_id );
+		if ( is_array( $deriv ) && ! empty( $deriv['exists'] ) && ! empty( $deriv['path'] ) ) {
+			$key = $this->offload_key_for( (string) $deriv['path'] );
+			if ( '' === $key ) {
+				return array( 'ok' => false, 'reason' => 'bad-key' );
+			}
+			return array(
+				'ok'           => true,
+				'variant'      => self::VARIANT_DERIVATIVE,
+				'path'         => (string) $deriv['path'],
+				'key'          => $key,
+				'content_type' => self::CONTENT_TYPE,
+				'src_url'      => $this->attachment_url( $attachment_id ),
+			);
+		}
+
+		if ( self::SCOPE_ALL !== $this->settings()['scope'] ) {
+			return array( 'ok' => false, 'reason' => 'no-derivative' );
+		}
+
+		$path = $this->attached_file( $attachment_id );
+		if ( '' === $path ) {
+			return array( 'ok' => false, 'reason' => 'no-source' );
+		}
+		$key = $this->original_key_for( $path );
+		if ( '' === $key ) {
+			return array( 'ok' => false, 'reason' => 'bad-key' );
+		}
+		$mime = $this->attachment_mime( $attachment_id );
+		if ( '' === $mime || 0 !== strpos( $mime, 'image/' ) ) {
+			return array( 'ok' => false, 'reason' => 'not-image' );
+		}
+		return array(
+			'ok'           => true,
+			'variant'      => self::VARIANT_ORIGINAL,
+			'path'         => $path,
+			'key'          => $key,
+			'content_type' => $mime,
+			'src_url'      => $this->attachment_url( $attachment_id ),
+		);
+	}
+
+	/**
+	 * Remove ONE attachment from the bucket ("bring back to disk"): DELETE the object and
+	 * clear the mapping meta. STATEMENT 1 is the gate. Idempotent (a not-offloaded id is a
+	 * success no-op). NEVER deletes the last copy: if the LOCAL file is MISSING, the bucket
+	 * object is DOWNLOADED back to disk (public → public bucket URL, private → a presigned
+	 * GET) and verified non-empty FIRST; only then is the bucket object deleted. If the
+	 * download/verify fails the bucket copy is KEPT and an error is surfaced. When the local
+	 * file already exists nothing is downloaded (the historical delete-only path). On a
+	 * delete failure the mapping is kept (so a retry is possible) and the error is surfaced.
+	 *
+	 * @return array{ ok:bool, id:int, reason?:string, error?:string, restored?:bool }
 	 */
 	public function unoffload_one( int $attachment_id ): array {
 		$gate = $this->entitlements->evaluate( self::FEATURE );
@@ -578,6 +738,17 @@ final class IWSL_Media_Offload {
 			return array( 'ok' => true, 'id' => $attachment_id, 'reason' => 'not-offloaded' );
 		}
 
+		// Never delete the last copy: restore a missing local file from the bucket first.
+		$restore = $this->ensure_local_copy( $attachment_id, $meta );
+		if ( empty( $restore['ok'] ) ) {
+			return array(
+				'ok'     => false,
+				'id'     => $attachment_id,
+				'reason' => 'restore-failed',
+				'error'  => isset( $restore['error'] ) ? (string) $restore['error'] : 'restore-failed',
+			);
+		}
+
 		$del = $this->s3()->delete_object( $meta['key'] );
 		if ( empty( $del['ok'] ) ) {
 			return array(
@@ -589,7 +760,66 @@ final class IWSL_Media_Offload {
 		}
 
 		$this->clear_offload_meta( $attachment_id );
-		return array( 'ok' => true, 'id' => $attachment_id );
+		$out = array( 'ok' => true, 'id' => $attachment_id );
+		if ( ! empty( $restore['restored'] ) ) {
+			$out['restored'] = true;
+		}
+		return $out;
+	}
+
+	/**
+	 * Guarantee a local copy of an offloaded attachment's file exists BEFORE its bucket
+	 * object is deleted. If the local path is unknown or the file is already present, this
+	 * is a no-op success. Otherwise the bucket object is fetched over HTTP (public bucket
+	 * URL or a fresh presigned GET, via delivery_url_for) and written to the local path,
+	 * then verified non-empty. Returns ok:false (bucket copy MUST be kept) on any
+	 * download / write / verify failure.
+	 *
+	 * @return array{ ok:bool, error?:string, restored?:bool }
+	 */
+	private function ensure_local_copy( int $attachment_id, array $meta ): array {
+		$path = $this->attached_file( $attachment_id );
+		if ( '' === $path ) {
+			return array( 'ok' => true ); // no known local path — nothing to restore.
+		}
+		if ( is_file( $path ) ) {
+			return array( 'ok' => true ); // local file already present.
+		}
+
+		$url = $this->delivery_url_for( $meta );
+		if ( '' === $url ) {
+			return array( 'ok' => false, 'error' => 'no-download-url' );
+		}
+		$resp = ( $this->http_get )( $url );
+		$body = is_array( $resp ) && isset( $resp['body'] ) && is_string( $resp['body'] ) ? (string) $resp['body'] : '';
+		if ( ! is_array( $resp ) || empty( $resp['ok'] ) || '' === $body ) {
+			return array( 'ok' => false, 'error' => 'download-failed' );
+		}
+		if ( ! $this->restore_file( $path, $body ) ) {
+			return array( 'ok' => false, 'error' => 'write-failed' );
+		}
+		if ( ! is_file( $path ) ) {
+			return array( 'ok' => false, 'error' => 'verify-failed' );
+		}
+		$size = filesize( $path );
+		if ( false === $size || $size <= 0 ) {
+			return array( 'ok' => false, 'error' => 'verify-failed' );
+		}
+		return array( 'ok' => true, 'restored' => true );
+	}
+
+	/** Write restored bytes to a local path (creating its directory), true on a non-empty write. */
+	private function restore_file( string $path, string $body ): bool {
+		$dir = dirname( $path );
+		if ( '' !== $dir && ! is_dir( $dir ) ) {
+			if ( function_exists( 'wp_mkdir_p' ) ) {
+				wp_mkdir_p( $dir );
+			} else {
+				@mkdir( $dir, 0755, true );
+			}
+		}
+		$bytes = @file_put_contents( $path, $body );
+		return is_int( $bytes ) && $bytes > 0;
 	}
 
 	// ── batch orchestration (ONE image per call; JS loops it) ─────────────────────
@@ -598,7 +828,7 @@ final class IWSL_Media_Offload {
 	public function next_candidate_id(): int {
 		foreach ( ( $this->candidate_provider )( 1 ) as $id ) {
 			$iid = (int) $id;
-			if ( $iid > 0 && $this->qualifies( $iid ) && ! $this->is_offloaded( $iid ) && $this->derivative_exists( $iid ) ) {
+			if ( $iid > 0 && $this->qualifies( $iid ) && ! $this->is_offloaded( $iid ) && $this->has_offloadable_source( $iid ) ) {
 				return $iid;
 			}
 		}
@@ -616,7 +846,7 @@ final class IWSL_Media_Offload {
 				continue;
 			}
 			++$qualifying;
-			if ( ! $this->is_offloaded( $iid ) && $this->derivative_exists( $iid ) ) {
+			if ( ! $this->is_offloaded( $iid ) && $this->has_offloadable_source( $iid ) ) {
 				++$remaining;
 			}
 		}
@@ -769,6 +999,300 @@ final class IWSL_Media_Offload {
 		return array( 'ok' => true, 'owner' => $owner, 'locations' => $locations, 'error' => '' );
 	}
 
+	// ── management panel AJAX: paginated list + per-id offload + bulk ──────────────
+
+	/** AJAX: a filtered, paginated page of the media library with per-image offload state. */
+	public function handle_list_ajax(): void {
+		$this->ajax_guard();
+		$page     = isset( $_POST['page'] ) ? (int) $_POST['page'] : 1;
+		$per_page = isset( $_POST['per_page'] ) ? (int) $_POST['per_page'] : self::LIST_PER_PAGE;
+		$format   = isset( $_POST['format'] ) ? self::request_string( $_POST['format'] ) : '';
+		$status   = isset( $_POST['status'] ) ? self::request_string( $_POST['status'] ) : 'all';
+		$search   = isset( $_POST['search'] ) ? self::request_string( $_POST['search'] ) : '';
+		$this->send_json( $this->list_attachments( $page, $per_page, $format, $status, $search ) );
+	}
+
+	/** AJAX: offload exactly ONE attachment chosen by id (management row action). */
+	public function handle_offload_one_ajax(): void {
+		$this->ajax_guard();
+		$id = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
+		$this->send_json( $this->offload_one( $id ) );
+	}
+
+	/** AJAX: bulk offload / bring-back for a checked set of ids (capped per call). */
+	public function handle_bulk_ajax(): void {
+		$this->ajax_guard();
+		$op  = isset( $_POST['op'] ) ? self::request_string( $_POST['op'] ) : '';
+		$ids = isset( $_POST['ids'] ) && is_array( $_POST['ids'] ) ? $_POST['ids'] : array();
+		$this->send_json( $this->bulk( $op, $ids ) );
+	}
+
+	/**
+	 * A filtered, paginated page of image attachments with each row's offload state.
+	 * STATEMENT 1 is the gate. Inputs are clamped/validated: page ≥ 1, per_page in
+	 * [1, LIST_PER_PAGE_MAX] (default LIST_PER_PAGE), status ∈ {all, offloaded, disk},
+	 * format is a validated image mime or '' (all images), search is a free filename term.
+	 * `counts` is the OVERALL unfiltered tally; `formats` lists the distinct image mimes
+	 * present. Never returns the secret.
+	 *
+	 * @return array{ ok:bool, reason?:string, rows?:array, page?:int, per_page?:int, total_matching?:int, formats?:string[], counts?:array }
+	 */
+	public function list_attachments( int $page, int $per_page, string $format, string $status, string $search ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'reason' => 'entitlement-locked' );
+		}
+		$page     = max( 1, $page );
+		$per_page = $per_page > 0 ? min( $per_page, self::LIST_PER_PAGE_MAX ) : self::LIST_PER_PAGE;
+		$status   = in_array( $status, array( 'all', 'offloaded', 'disk' ), true ) ? $status : 'all';
+		$format   = ( '' !== $format && 1 === preg_match( '#^image/[A-Za-z0-9.+-]+$#', $format ) ) ? $format : '';
+
+		$q    = $this->run_attachment_query( $this->list_query_args( $page, $per_page, $format, $status, $search ) );
+		$rows = array();
+		foreach ( $q['ids'] as $id ) {
+			$rows[] = $this->list_row( (int) $id );
+		}
+
+		return array(
+			'ok'             => true,
+			'rows'           => $rows,
+			'page'           => $page,
+			'per_page'       => $per_page,
+			'total_matching' => (int) $q['total'],
+			'formats'        => $this->present_formats(),
+			'counts'         => $this->list_counts(),
+		);
+	}
+
+	/**
+	 * Bulk offload / bring-back a set of ids. STATEMENT 1 is the gate. `$op` must be
+	 * 'offload' or 'unoffload'; ids are cast, de-duplicated, positive-filtered, and capped
+	 * at BULK_MAX per call. Each id runs the same single mutator (offload_one /
+	 * unoffload_one) so every per-id guarantee (verify-before-record, restore-before-delete)
+	 * holds. Returns per-id results plus an ok/failed summary.
+	 *
+	 * @param array<int,mixed> $ids
+	 * @return array{ ok:bool, reason?:string, op?:string, results?:array, summary?:array }
+	 */
+	public function bulk( string $op, array $ids ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'reason' => 'entitlement-locked' );
+		}
+		if ( 'offload' !== $op && 'unoffload' !== $op ) {
+			return array( 'ok' => false, 'reason' => 'bad-op' );
+		}
+
+		$clean = array();
+		foreach ( $ids as $id ) {
+			$iid = (int) $id;
+			if ( $iid > 0 && ! in_array( $iid, $clean, true ) ) {
+				$clean[] = $iid;
+			}
+			if ( count( $clean ) >= self::BULK_MAX ) {
+				break;
+			}
+		}
+
+		$results = array();
+		$ok      = 0;
+		$failed  = 0;
+		foreach ( $clean as $iid ) {
+			$res       = 'offload' === $op ? $this->offload_one( $iid ) : $this->unoffload_one( $iid );
+			$results[] = $res;
+			if ( ! empty( $res['ok'] ) ) {
+				++$ok;
+			} else {
+				++$failed;
+			}
+		}
+
+		return array(
+			'ok'      => true,
+			'op'      => $op,
+			'results' => $results,
+			'summary' => array( 'total' => count( $clean ), 'ok' => $ok, 'failed' => $failed ),
+		);
+	}
+
+	// ── list query + row helpers (WP_Query-backed; guarded for the harness) ────────
+
+	/** Build the WP_Query args for a filtered/paginated image-attachment page. */
+	private function list_query_args( int $page, int $per_page, string $format, string $status, string $search ): array {
+		$args = array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'post_mime_type' => '' !== $format ? $format : 'image',
+			'fields'         => 'ids',
+			'paged'          => $page,
+			'posts_per_page' => $per_page,
+			'orderby'        => 'date',
+			'order'          => 'DESC',
+		);
+		if ( 'offloaded' === $status ) {
+			$args['meta_query'] = array( array( 'key' => self::OFFLOAD_META, 'compare' => 'EXISTS' ) ); // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+		} elseif ( 'disk' === $status ) {
+			$args['meta_query'] = array( array( 'key' => self::OFFLOAD_META, 'compare' => 'NOT EXISTS' ) ); // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+		}
+		if ( '' !== $search ) {
+			$args['s'] = $search;
+		}
+		return $args;
+	}
+
+	/** Run a WP_Query, returning { ids:int[], total:int }. Empty when WP_Query is absent. */
+	private function run_attachment_query( array $args ): array {
+		if ( ! class_exists( 'WP_Query' ) ) {
+			return array( 'ids' => array(), 'total' => 0 );
+		}
+		$q     = new WP_Query( $args );
+		$posts = isset( $q->posts ) && is_array( $q->posts ) ? $q->posts : array();
+		$ids   = array();
+		foreach ( $posts as $p ) {
+			$ids[] = (int) ( is_object( $p ) && isset( $p->ID ) ? $p->ID : $p );
+		}
+		$total = isset( $q->found_posts ) ? (int) $q->found_posts : count( $ids );
+		return array( 'ids' => $ids, 'total' => $total );
+	}
+
+	/** The OVERALL (unfiltered) tally of image attachments split by offload state. */
+	private function list_counts(): array {
+		$all       = $this->count_attachments( array() );
+		$offloaded = $this->count_attachments( array( array( 'key' => self::OFFLOAD_META, 'compare' => 'EXISTS' ) ) );
+		return array( 'all' => $all, 'offloaded' => $offloaded, 'disk' => max( 0, $all - $offloaded ) );
+	}
+
+	/** Count image attachments, optionally constrained by a meta_query. */
+	private function count_attachments( array $meta_query ): int {
+		$args = array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'post_mime_type' => 'image',
+			'fields'         => 'ids',
+			'paged'          => 1,
+			'posts_per_page' => 1,
+		);
+		if ( array() !== $meta_query ) {
+			$args['meta_query'] = $meta_query; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+		}
+		return $this->run_attachment_query( $args )['total'];
+	}
+
+	/** The distinct image mime types present in the library (for the format filter). */
+	private function present_formats(): array {
+		$q = $this->run_attachment_query(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'post_mime_type' => 'image',
+				'fields'         => 'ids',
+				'paged'          => 1,
+				'posts_per_page' => self::MAX_MANUAL,
+			)
+		);
+		$seen = array();
+		foreach ( $q['ids'] as $id ) {
+			$mime = $this->attachment_mime( (int) $id );
+			if ( '' !== $mime && 0 === strpos( $mime, 'image/' ) ) {
+				$seen[ $mime ] = true;
+			}
+		}
+		$formats = array_keys( $seen );
+		sort( $formats );
+		return $formats;
+	}
+
+	/**
+	 * Build one management row for an attachment. `thumb` is the RAW local thumbnail URL
+	 * (built from disk, bypassing our own bucket-rewrite filters so the table renders fast
+	 * and consistently). `bucket_url`/`variant`/`location` are only populated when offloaded.
+	 *
+	 * @return array{ id:int, name:string, mime:string, size:int, thumb:string, offloaded:bool, variant:string, location:string, bucket_url:string, dims:string }
+	 */
+	private function list_row( int $id ): array {
+		$meta      = $this->offload_meta( $id );
+		$offloaded = '' !== $meta['key'];
+		return array(
+			'id'         => $id,
+			'name'       => $this->attachment_name( $id ),
+			'mime'       => $this->attachment_mime( $id ),
+			'size'       => $this->attachment_filesize( $id ),
+			'thumb'      => $this->raw_thumb_url( $id ),
+			'offloaded'  => $offloaded,
+			'variant'    => $offloaded ? $meta['variant'] : '',
+			'location'   => $offloaded ? $this->settings()['location'] : '',
+			'bucket_url' => $offloaded ? $meta['url'] : '',
+			'dims'       => $this->attachment_dims( $id ),
+		);
+	}
+
+	/** The attachment's display name — its title, else the on-disk filename, else "#id". */
+	private function attachment_name( int $id ): string {
+		$title = function_exists( 'get_the_title' ) ? (string) get_the_title( $id ) : '';
+		if ( '' !== $title ) {
+			return $title;
+		}
+		$file = $this->attached_file( $id );
+		return '' !== $file ? basename( $file ) : ( '#' . $id );
+	}
+
+	/** The attachment's local file size in bytes (0 when unavailable). */
+	private function attachment_filesize( int $id ): int {
+		$file = $this->attached_file( $id );
+		if ( '' === $file || ! is_file( $file ) ) {
+			return 0;
+		}
+		$size = filesize( $file );
+		return is_int( $size ) && $size > 0 ? $size : 0;
+	}
+
+	/** The attachment's "WxH" dimension label from its metadata, or '' when unknown. */
+	private function attachment_dims( int $id ): string {
+		if ( ! function_exists( 'wp_get_attachment_metadata' ) ) {
+			return '';
+		}
+		$m = wp_get_attachment_metadata( $id );
+		if ( is_array( $m ) && isset( $m['width'], $m['height'] ) ) {
+			return (int) $m['width'] . 'x' . (int) $m['height'];
+		}
+		return '';
+	}
+
+	/**
+	 * The RAW local thumbnail URL for an attachment (uploads baseurl + its relative path,
+	 * preferring the generated `thumbnail` size). Built directly from disk metadata so it
+	 * bypasses our bucket-rewrite filters — the table always shows a fast local preview.
+	 * '' when the uploads base URL or the file path is unavailable.
+	 */
+	private function raw_thumb_url( int $id ): string {
+		$baseurl = $this->upload_baseurl();
+		if ( '' === $baseurl ) {
+			return '';
+		}
+		$rel = $this->uploads_relative_key( $this->attached_file( $id ) );
+		if ( '' === $rel ) {
+			return '';
+		}
+		$meta = function_exists( 'wp_get_attachment_metadata' ) ? wp_get_attachment_metadata( $id ) : array();
+		if ( is_array( $meta ) && isset( $meta['sizes']['thumbnail']['file'] ) && is_string( $meta['sizes']['thumbnail']['file'] ) ) {
+			$slash = strrpos( $rel, '/' );
+			$dir   = false !== $slash ? substr( $rel, 0, $slash + 1 ) : '';
+			$rel   = $dir . $meta['sizes']['thumbnail']['file'];
+		}
+		return rtrim( $baseurl, '/' ) . '/' . ltrim( $rel, '/' );
+	}
+
+	/** The uploads base URL (for building raw local media URLs), or '' when unavailable. */
+	private function upload_baseurl(): string {
+		if ( function_exists( 'wp_upload_dir' ) ) {
+			$d = wp_upload_dir();
+			if ( is_array( $d ) && isset( $d['baseurl'] ) && is_string( $d['baseurl'] ) ) {
+				return $d['baseurl'];
+			}
+		}
+		return '';
+	}
+
 	/** admin-post: PRG settings save (manage_options + nonce + gate). */
 	public function handle_save(): void {
 		if ( function_exists( 'current_user_can' ) && ! current_user_can( 'manage_options' ) ) {
@@ -858,13 +1382,125 @@ final class IWSL_Media_Offload {
 
 		echo '<div class="iwsl-media-offload">';
 		echo '<h2>' . self::esc_html_safe( 'Media Offload (S3)' ) . '</h2>';
-		echo '<p class="description">' . self::esc_html_safe( 'Copy your optimized WebP images to Hetzner Object Storage and serve them from the bucket. Your local originals are always kept — nothing is ever deleted.' ) . '</p>';
+		echo '<p class="description">' . self::esc_html_safe( 'Copy your images to Hetzner Object Storage and serve them from the bucket. Choose optimized-only (smaller WebP) or all images below. Your local originals are always kept — nothing is ever deleted.' ) . '</p>';
 
 		$this->render_config_wizard( (string) $action_url, $view );
 		$this->render_offload_controls( $view );
+		$this->render_manage_panel( $view );
 		$this->render_inline_script();
 
 		echo '</div>';
+	}
+
+	/**
+	 * The media-management panel below the wizard: a filter bar (format / status / search),
+	 * a counts summary, a table of images with per-row offload state + actions, bulk
+	 * offload / bring-back buttons, and pagination. Rendered only once the bucket + creds
+	 * are configured; otherwise a hint points back to the wizard. The table body is filled
+	 * client-side from AJAX_LIST using DOM APIs (no untrusted innerHTML). All server output
+	 * here is escaped.
+	 */
+	private function render_manage_panel( array $view ): void {
+		$configured = '' !== $view['bucket'] && '' !== $view['access_key'] && ! empty( $view['has_secret'] );
+
+		echo '<div class="iwsl-offload-manage">';
+		echo '<h3>' . self::esc_html_safe( 'Manage media' ) . '</h3>';
+		if ( ! $configured ) {
+			echo '<p class="description iwsl-offload-manage-hint">' . self::esc_html_safe( 'Finish the connection wizard above — set your bucket, access key and secret and Save — then manage your images here.' ) . '</p></div>';
+			return;
+		}
+
+		// Filter bar. The format <select> is populated client-side from the list response.
+		echo '<div class="iwsl-offload-filters">';
+		echo '<label>' . self::esc_html_safe( 'Format' ) . ' <select id="iwsl-offload-f-format"><option value="">' . self::esc_html_safe( 'All formats' ) . '</option></select></label> ';
+		echo '<label>' . self::esc_html_safe( 'Status' ) . ' <select id="iwsl-offload-f-status">';
+		echo '<option value="all">' . self::esc_html_safe( 'All' ) . '</option>';
+		echo '<option value="offloaded">' . self::esc_html_safe( 'On bucket' ) . '</option>';
+		echo '<option value="disk">' . self::esc_html_safe( 'On disk' ) . '</option>';
+		echo '</select></label> ';
+		echo '<label>' . self::esc_html_safe( 'Search' ) . ' <input type="search" id="iwsl-offload-f-search" placeholder="' . self::esc_attr_safe( 'Filename…' ) . '" autocomplete="off" /></label> ';
+		echo '<button type="button" class="button" id="iwsl-offload-f-apply">' . self::esc_html_safe( 'Apply' ) . '</button>';
+		echo '</div>';
+
+		echo '<p id="iwsl-offload-manage-counts" class="description" aria-live="polite"></p>';
+
+		// Bulk actions.
+		echo '<p class="iwsl-offload-bulk">';
+		echo '<button type="button" class="button" id="iwsl-offload-bulk-offload">' . self::esc_html_safe( 'Offload selected' ) . '</button> ';
+		echo '<button type="button" class="button" id="iwsl-offload-bulk-restore">' . self::esc_html_safe( 'Bring back selected' ) . '</button> ';
+		echo '<span id="iwsl-offload-bulk-status" aria-live="polite"></span>';
+		echo '</p>';
+
+		// Table shell. tbody rows are built by the script from AJAX_LIST.
+		echo '<table class="widefat striped iwsl-offload-table"><thead><tr>';
+		echo '<th class="check-column"><input type="checkbox" id="iwsl-offload-check-all" /></th>';
+		echo '<th>' . self::esc_html_safe( 'Preview' ) . '</th>';
+		echo '<th>' . self::esc_html_safe( 'Filename' ) . '</th>';
+		echo '<th>' . self::esc_html_safe( 'Format' ) . '</th>';
+		echo '<th>' . self::esc_html_safe( 'Size' ) . '</th>';
+		echo '<th>' . self::esc_html_safe( 'Status' ) . '</th>';
+		echo '<th>' . self::esc_html_safe( 'Variant' ) . '</th>';
+		echo '<th>' . self::esc_html_safe( 'Actions' ) . '</th>';
+		echo '</tr></thead><tbody id="iwsl-offload-rows"></tbody></table>';
+
+		// Pagination.
+		echo '<p class="iwsl-offload-pager">';
+		echo '<button type="button" class="button" id="iwsl-offload-prev">' . self::esc_html_safe( '‹ Prev' ) . '</button> ';
+		echo '<span id="iwsl-offload-page-info" aria-live="polite"></span> ';
+		echo '<button type="button" class="button" id="iwsl-offload-next">' . self::esc_html_safe( 'Next ›' ) . '</button>';
+		echo '</p>';
+
+		echo '</div>';
+
+		$this->render_manage_script();
+	}
+
+	/**
+	 * The vanilla-JS driver for the management panel: fetches AJAX_LIST, renders each row
+	 * with DOM APIs (textContent / setAttribute / createElement — never innerHTML with
+	 * server values), wires filters + pagination + per-row + bulk actions, and re-fetches
+	 * after every mutation so status pills stay current.
+	 */
+	private function render_manage_script(): void {
+		$cfg  = array(
+			'ajaxUrl'   => function_exists( 'admin_url' ) ? admin_url( 'admin-ajax.php' ) : 'admin-ajax.php',
+			'nonce'     => function_exists( 'wp_create_nonce' ) ? wp_create_nonce( self::NONCE ) : '',
+			'actList'   => self::AJAX_LIST,
+			'actOne'    => self::AJAX_OFFLOAD_ONE,
+			'actUnoff'  => self::AJAX_UNOFFLOAD,
+			'actBulk'   => self::AJAX_BULK,
+			'perPage'   => self::LIST_PER_PAGE,
+			'onBucket'  => self::esc_html_safe( 'On bucket' ),
+			'onDisk'    => self::esc_html_safe( 'On disk' ),
+			'offload'   => self::esc_html_safe( 'Offload' ),
+			'bringBack' => self::esc_html_safe( 'Bring back to disk' ),
+			'openLabel' => self::esc_html_safe( 'Open on bucket' ),
+		);
+		$json = function_exists( 'wp_json_encode' ) ? wp_json_encode( $cfg ) : json_encode( $cfg );
+		echo "<script>(function(){var mcfg=" . $json . ";\n";
+		echo <<<'JS'
+var state={page:1,per_page:mcfg.perPage,format:'',status:'all',search:'',pages:1,fmtLoaded:false};
+function q(id){return document.getElementById(id);}
+function mpost(action,extra,ids){var b=new URLSearchParams();b.set('action',action);b.set('nonce',mcfg.nonce);if(extra){for(var k in extra){if(Object.prototype.hasOwnProperty.call(extra,k)){b.set(k,extra[k]);}}}if(ids){for(var i=0;i<ids.length;i++){b.append('ids[]',ids[i]);}}return fetch(mcfg.ajaxUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b.toString()}).then(function(r){return r.json();});}
+function humanSize(n){n=Number(n)||0;if(n<1024){return n+' B';}var u=['KB','MB','GB'],i=-1;do{n=n/1024;i++;}while(n>=1024&&i<u.length-1);return n.toFixed(1)+' '+u[i];}
+function pill(row){var span=document.createElement('span');if(row.offloaded){span.textContent='\u{1F7E2} '+mcfg.onBucket+(row.location?(' · '+row.location):'');}else{span.textContent='⚪ '+mcfg.onDisk;}return span;}
+function actionCell(row){var td=document.createElement('td');if(row.offloaded){var back=document.createElement('button');back.type='button';back.className='button button-small';back.textContent=mcfg.bringBack;back.addEventListener('click',function(){rowAction(mcfg.actUnoff,row.id,back);});td.appendChild(back);if(row.bucket_url){td.appendChild(document.createTextNode(' '));var a=document.createElement('a');a.textContent=mcfg.openLabel;a.setAttribute('href',row.bucket_url);a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer');td.appendChild(a);}}else{var off=document.createElement('button');off.type='button';off.className='button button-small';off.textContent=mcfg.offload;off.addEventListener('click',function(){rowAction(mcfg.actOne,row.id,off);});td.appendChild(off);}return td;}
+function rowAction(action,id,btn){if(btn){btn.disabled=true;btn.textContent='…';}mpost(action,{id:id}).then(function(){fetchList();}).catch(function(){if(btn){btn.disabled=false;}});}
+function renderRows(rows){var tb=q('iwsl-offload-rows');while(tb.firstChild){tb.removeChild(tb.firstChild);}if(!rows||!rows.length){var tr=document.createElement('tr');var td=document.createElement('td');td.setAttribute('colspan','8');td.textContent='No images match these filters.';tr.appendChild(td);tb.appendChild(tr);return;}for(var i=0;i<rows.length;i++){var row=rows[i];var tr=document.createElement('tr');var cChk=document.createElement('td');var chk=document.createElement('input');chk.type='checkbox';chk.className='iwsl-offload-rowcheck';chk.value=row.id;cChk.appendChild(chk);tr.appendChild(cChk);var cImg=document.createElement('td');if(row.thumb){var img=document.createElement('img');img.setAttribute('src',row.thumb);img.setAttribute('alt','');img.setAttribute('width','48');img.setAttribute('height','48');img.setAttribute('loading','lazy');img.style.objectFit='cover';cImg.appendChild(img);}tr.appendChild(cImg);var cName=document.createElement('td');cName.textContent=row.name+(row.dims?(' ('+row.dims+')'):'');tr.appendChild(cName);var cFmt=document.createElement('td');var badge=document.createElement('code');badge.textContent=row.mime||'';cFmt.appendChild(badge);tr.appendChild(cFmt);var cSize=document.createElement('td');cSize.textContent=humanSize(row.size);tr.appendChild(cSize);var cStat=document.createElement('td');cStat.appendChild(pill(row));tr.appendChild(cStat);var cVar=document.createElement('td');cVar.textContent=row.variant||'—';tr.appendChild(cVar);tr.appendChild(actionCell(row));tb.appendChild(tr);}}
+function fillFormats(formats){if(state.fmtLoaded){return;}var sel=q('iwsl-offload-f-format');if(!sel){return;}for(var i=0;i<formats.length;i++){var o=document.createElement('option');o.value=formats[i];o.textContent=formats[i];sel.appendChild(o);}state.fmtLoaded=true;}
+function fetchList(){mpost(mcfg.actList,{page:state.page,per_page:state.per_page,format:state.format,status:state.status,search:state.search}).then(function(j){var d=j&&j.data?j.data:{};if(!d.ok){q('iwsl-offload-manage-counts').textContent='Could not load media.';return;}fillFormats(d.formats||[]);renderRows(d.rows||[]);var c=d.counts||{all:0,offloaded:0,disk:0};q('iwsl-offload-manage-counts').textContent=c.all+' images · '+c.offloaded+' on bucket · '+c.disk+' on disk';var total=Number(d.total_matching)||0;state.pages=Math.max(1,Math.ceil(total/state.per_page));q('iwsl-offload-page-info').textContent='Page '+state.page+' of '+state.pages+' ('+total+' matching)';q('iwsl-offload-prev').disabled=(state.page<=1);q('iwsl-offload-next').disabled=(state.page>=state.pages);var ca=q('iwsl-offload-check-all');if(ca){ca.checked=false;}}).catch(function(){q('iwsl-offload-manage-counts').textContent='Could not load media (network error).';});}
+function checkedIds(){var out=[];var list=document.querySelectorAll('.iwsl-offload-rowcheck');for(var i=0;i<list.length;i++){if(list[i].checked){out.push(list[i].value);}}return out;}
+function bulk(op){var ids=checkedIds();var st=q('iwsl-offload-bulk-status');if(!ids.length){st.textContent='Select one or more images first.';return;}st.textContent='Working on '+ids.length+' image(s)…';mpost(mcfg.actBulk,{op:op},ids).then(function(j){var d=j&&j.data?j.data:{};if(d&&d.summary){st.textContent='Done: '+d.summary.ok+' ok, '+d.summary.failed+' failed.';}else{st.textContent='Done.';}fetchList();}).catch(function(){st.textContent='Bulk action failed.';});}
+var ap=q('iwsl-offload-f-apply');if(ap){ap.addEventListener('click',function(){state.format=q('iwsl-offload-f-format').value;state.status=q('iwsl-offload-f-status').value;state.search=q('iwsl-offload-f-search').value;state.page=1;fetchList();});}
+var pv=q('iwsl-offload-prev');if(pv){pv.addEventListener('click',function(){if(state.page>1){state.page--;fetchList();}});}
+var nx=q('iwsl-offload-next');if(nx){nx.addEventListener('click',function(){if(state.page<state.pages){state.page++;fetchList();}});}
+var ca=q('iwsl-offload-check-all');if(ca){ca.addEventListener('change',function(){var list=document.querySelectorAll('.iwsl-offload-rowcheck');for(var i=0;i<list.length;i++){list[i].checked=ca.checked;}});}
+var bo=q('iwsl-offload-bulk-offload');if(bo){bo.addEventListener('click',function(){bulk('offload');});}
+var br=q('iwsl-offload-bulk-restore');if(br){br.addEventListener('click',function(){bulk('unoffload');});}
+fetchList();
+})();</script>
+JS;
+		echo "\n";
 	}
 
 	/** The step-by-step connection wizard (config form + Test connection button). */
@@ -878,10 +1514,17 @@ final class IWSL_Media_Offload {
 		// Step 1 — credentials, then a live bucket dropdown loaded from them (manual fallback included).
 		$this->render_bucket_step( $view );
 
-		// Step 2 — enable + rule.
+		// Step 2 — enable + rule + which-images scope.
+		$scope_all = self::SCOPE_ALL === $view['scope'];
 		echo '<fieldset class="iwsl-step"><legend>' . self::esc_html_safe( 'Step 2 — Turn it on' ) . '</legend>';
 		echo '<p><label><input type="checkbox" name="enabled" value="1" ' . self::checked( $view['enabled'] ) . '/> ' . self::esc_html_safe( 'Serve offloaded images from the bucket' ) . '</label></p>';
-		echo '<p><label><input type="checkbox" name="rule_all" value="1" ' . self::checked( $view['rule_all'] ) . '/> ' . self::esc_html_safe( 'Offload all lossless-optimized images' ) . '</label></p></fieldset>';
+		echo '<p><label><input type="checkbox" name="rule_all" value="1" ' . self::checked( $view['rule_all'] ) . '/> ' . self::esc_html_safe( 'Offload images automatically (per the rule below)' ) . '</label></p>';
+		echo '<p class="iwsl-offload-scope"><strong>' . self::esc_html_safe( 'Which images to offload' ) . '</strong></p>';
+		echo '<p><label><input type="radio" name="scope" value="' . self::esc_attr_safe( self::SCOPE_OPTIMIZED ) . '" ' . self::checked( ! $scope_all ) . '/> '
+			. self::esc_html_safe( 'Only optimized images (smaller WebP)' ) . '</label></p>';
+		echo '<p><label><input type="radio" name="scope" value="' . self::esc_attr_safe( self::SCOPE_ALL ) . '" ' . self::checked( $scope_all ) . '/> '
+			. self::esc_html_safe( 'All images (also uploads images that are already WebP or were never optimized, using the original file)' ) . '</label></p>';
+		echo '<p class="description">' . self::esc_html_safe( '"Only optimized" ships the smaller WebP the optimizer created. "All images" also offloads pictures that are already WebP or were never optimized, uploading each image\'s own original file. Your local files are always kept.' ) . '</p></fieldset>';
 
 		// Step 3 — bucket access: public objects vs private presigned-URL delivery.
 		$is_private = self::ACCESS_PRIVATE === $view['access'];
@@ -1095,13 +1738,14 @@ JS;
 	// ── keys / candidates / meta helpers ──────────────────────────────────────────
 
 	/**
-	 * The object key for a derivative: its path made relative to the uploads base
-	 * dir. Returns '' when the path escapes the uploads root or the key is unsafe
-	 * (empty, absolute, or traversal) so a malformed path is never signed/PUT.
+	 * The uploads-relative object key for a file path (path made relative to the uploads
+	 * base dir). Returns '' when the path escapes the uploads root or the key is unsafe
+	 * (empty, absolute, or traversal) so a malformed path is never signed/PUT. Extension
+	 * validation is applied by the per-variant callers below.
 	 */
-	private function offload_key_for( string $derivative_path ): string {
+	private function uploads_relative_key( string $file_path ): string {
 		$basedir = rtrim( str_replace( '\\', '/', (string) ( $this->upload_basedir )() ), '/' );
-		$path    = str_replace( '\\', '/', $derivative_path );
+		$path    = str_replace( '\\', '/', $file_path );
 		if ( '' === $basedir || 0 !== strpos( $path, $basedir . '/' ) ) {
 			return '';
 		}
@@ -1109,26 +1753,79 @@ JS;
 		if ( '' === $key || '/' === $key[0] || false !== strpos( $key, '..' ) ) {
 			return '';
 		}
-		if ( 1 !== preg_match( '#^[A-Za-z0-9._\-/]+\.webp$#', $key ) ) {
+		return $key;
+	}
+
+	/** The object key for a WebP derivative (must be a `.webp` under the uploads root). */
+	private function offload_key_for( string $derivative_path ): string {
+		$key = $this->uploads_relative_key( $derivative_path );
+		if ( '' === $key || 1 !== preg_match( '#^[A-Za-z0-9._\-/]+\.webp$#', $key ) ) {
 			return '';
 		}
 		return $key;
 	}
 
-	/** Default candidate provider: optimized attachments + manual-allow ids (bounded). */
+	/** The object key for an ORIGINAL image file (any common web image extension). */
+	private function original_key_for( string $original_path ): string {
+		$key = $this->uploads_relative_key( $original_path );
+		if ( '' === $key || 1 !== preg_match( '#^[A-Za-z0-9._\-/]+\.(?:webp|jpe?g|png|gif|avif)$#i', $key ) ) {
+			return '';
+		}
+		return $key;
+	}
+
+	/** The attachment's own original file path (absolute), or '' when unavailable. */
+	private function attached_file( int $attachment_id ): string {
+		if ( $attachment_id <= 0 || ! function_exists( 'get_attached_file' ) ) {
+			return '';
+		}
+		$path = get_attached_file( $attachment_id );
+		return is_string( $path ) ? $path : '';
+	}
+
+	/** The attachment's mime type (e.g. `image/webp`), or '' when unavailable. */
+	private function attachment_mime( int $attachment_id ): string {
+		if ( $attachment_id <= 0 || ! function_exists( 'get_post_mime_type' ) ) {
+			return '';
+		}
+		$mime = get_post_mime_type( $attachment_id );
+		return is_string( $mime ) ? $mime : '';
+	}
+
+	/**
+	 * The attachment's ORIGINAL public URL — the reference an `original`-variant offload
+	 * replaces (captured before the mapping is written, so it is the real on-disk URL,
+	 * not the bucket URL our own filter would otherwise return). '' when unavailable.
+	 */
+	private function attachment_url( int $attachment_id ): string {
+		if ( $attachment_id <= 0 || ! function_exists( 'wp_get_attachment_url' ) ) {
+			return '';
+		}
+		$url = wp_get_attachment_url( $attachment_id );
+		return is_string( $url ) ? $url : '';
+	}
+
+	/**
+	 * Default candidate provider (bounded): under scope 'optimized' the optimized
+	 * attachments; under scope 'all' every image attachment. Manual-allow ids are always
+	 * included (deny ids are filtered later by qualifies()).
+	 */
 	private function default_candidates( int $limit ): array {
-		$ids = array();
+		$ids  = array();
+		$args = array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'posts_per_page' => max( 1, min( $limit, self::MAX_MANUAL ) ),
+			'fields'         => 'ids',
+			'no_found_rows'  => true,
+		);
+		if ( self::SCOPE_ALL === $this->settings()['scope'] ) {
+			$args['post_mime_type'] = 'image'; // all image attachments.
+		} else {
+			$args['meta_key'] = self::OPTIMIZED_META; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+		}
 		if ( function_exists( 'get_posts' ) ) {
-			$posts = get_posts(
-				array(
-					'post_type'      => 'attachment',
-					'post_status'    => 'inherit',
-					'posts_per_page' => max( 1, min( $limit, self::MAX_MANUAL ) ),
-					'fields'         => 'ids',
-					'meta_key'       => self::OPTIMIZED_META, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-					'no_found_rows'  => true,
-				)
-			);
+			$posts = get_posts( $args );
 			if ( is_array( $posts ) ) {
 				foreach ( $posts as $p ) {
 					$ids[ (int) $p ] = true;
@@ -1148,17 +1845,58 @@ JS;
 	}
 
 	/**
-	 * The delivery URL for an offloaded attachment (gate-checked), or '' when not
-	 * offloaded. PUBLIC access serves the stored public bucket URL. PRIVATE access
-	 * mints a fresh, time-limited presigned GET URL from the stored key at RENDER TIME
-	 * (never persisted, so each page load gets a link valid for the full TTL).
+	 * True when the attachment has a source file we can offload right now: its WebP
+	 * derivative (any scope) or — under scope 'all' — its own original image file with a
+	 * valid uploads-relative key and an image mime. Keeps already-WebP images that carry
+	 * no derivative in the batch queue under scope 'all'.
 	 */
-	private function offloaded_url( int $attachment_id ): string {
+	private function has_offloadable_source( int $attachment_id ): bool {
+		if ( $this->derivative_exists( $attachment_id ) ) {
+			return true;
+		}
+		if ( self::SCOPE_ALL !== $this->settings()['scope'] ) {
+			return false;
+		}
+		$path = $this->attached_file( $attachment_id );
+		if ( '' === $path || '' === $this->original_key_for( $path ) ) {
+			return false;
+		}
+		$mime = $this->attachment_mime( $attachment_id );
+		return '' !== $mime && 0 === strpos( $mime, 'image/' );
+	}
+
+	/**
+	 * The delivery URL to serve in place of $url for an offloaded attachment (gate-
+	 * checked), or '' to leave $url untouched. A `derivative` offload always serves the
+	 * bucket object (the single WebP maps every reference — historical behaviour). An
+	 * `original` offload only rewrites the exact original file it shipped: a different
+	 * size ($url ≠ src_url) is left on disk, so no reference points at a bucket object
+	 * that was never uploaded.
+	 */
+	private function rewritten_url( int $attachment_id, string $url ): string {
 		if ( $attachment_id <= 0 || ! $this->is_unlocked() ) {
 			return '';
 		}
 		$meta = $this->offload_meta( $attachment_id );
 		if ( '' === $meta['key'] ) {
+			return '';
+		}
+		if ( self::VARIANT_ORIGINAL === $meta['variant'] && '' !== $meta['src_url'] && '' !== $url && $url !== $meta['src_url'] ) {
+			return '';
+		}
+		return $this->delivery_url_for( $meta );
+	}
+
+	/**
+	 * The public/presigned delivery URL for a stored offload mapping. PUBLIC access
+	 * serves the stored public bucket URL. PRIVATE access mints a fresh, time-limited
+	 * presigned GET URL from the stored key at RENDER TIME (never persisted, so each page
+	 * load gets a link valid for the full TTL). Returns '' when the key is empty or a
+	 * presigner is unavailable.
+	 */
+	private function delivery_url_for( array $meta ): string {
+		$key = isset( $meta['key'] ) ? (string) $meta['key'] : '';
+		if ( '' === $key ) {
 			return '';
 		}
 		$s = $this->settings();
@@ -1167,9 +1905,9 @@ JS;
 			if ( ! method_exists( $client, 'presigned_get_url' ) ) {
 				return '';
 			}
-			return (string) $client->presigned_get_url( $meta['key'], (int) $s['private_url_ttl'] );
+			return (string) $client->presigned_get_url( $key, (int) $s['private_url_ttl'] );
 		}
-		return $meta['url'];
+		return isset( $meta['url'] ) ? (string) $meta['url'] : '';
 	}
 
 	/** Memoized per-request gate evaluation for the hot-path rewrite filters. */
@@ -1254,10 +1992,13 @@ JS;
 	 * shape. Immutable; unknown location collapses to the default; everything safe.
 	 *
 	 * @param mixed $raw
-	 * @return array{ enabled:bool, rule_all:bool, location:string, bucket:string, access_key:string, secret:string, access:string, private_url_ttl:int }
+	 * @return array{ enabled:bool, rule_all:bool, scope:string, location:string, bucket:string, access_key:string, secret:string, access:string, private_url_ttl:int }
 	 */
 	private static function normalize_settings( $raw ): array {
 		$raw      = is_array( $raw ) ? $raw : array();
+		$scope    = isset( $raw['scope'] ) && self::SCOPE_ALL === (string) $raw['scope']
+			? self::SCOPE_ALL
+			: self::SCOPE_OPTIMIZED; // absent / unknown ⇒ back-compat default.
 		$location = isset( $raw['location'] ) && isset( self::LOCATIONS[ (string) $raw['location'] ] )
 			? (string) $raw['location']
 			: self::default_location();
@@ -1268,6 +2009,7 @@ JS;
 		return array(
 			'enabled'         => ! empty( $raw['enabled'] ),
 			'rule_all'        => ! empty( $raw['rule_all'] ),
+			'scope'           => $scope,
 			'location'        => $location,
 			'bucket'          => isset( $raw['bucket'] ) ? (string) $raw['bucket'] : '',
 			'access_key'      => isset( $raw['access_key'] ) ? (string) $raw['access_key'] : '',
