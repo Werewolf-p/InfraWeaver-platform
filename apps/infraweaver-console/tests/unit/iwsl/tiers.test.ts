@@ -92,6 +92,10 @@ describe("deriveEntitlementsForTier", () => {
       statistics: false,
       cookie_consent: false,
       seo_suite: false,
+      media_protection: false,
+      response_scan: false,
+      elementor_blocks: false,
+      media_folders: false,
     });
     expect(deriveEntitlementsForTier("care_basic")).toEqual({
       plus: false,
@@ -117,6 +121,10 @@ describe("deriveEntitlementsForTier", () => {
       statistics: false,
       cookie_consent: false,
       seo_suite: false,
+      media_protection: false,
+      response_scan: false,
+      elementor_blocks: false,
+      media_folders: false,
     });
     expect(deriveEntitlementsForTier("care_pro")).toEqual({
       plus: true,
@@ -142,6 +150,10 @@ describe("deriveEntitlementsForTier", () => {
       statistics: false,
       cookie_consent: false,
       seo_suite: false,
+      media_protection: true,
+      response_scan: true,
+      elementor_blocks: true,
+      media_folders: true,
     });
     expect(deriveEntitlementsForTier("care_ultimate")).toEqual({
       plus: true,
@@ -167,6 +179,10 @@ describe("deriveEntitlementsForTier", () => {
       statistics: true,
       cookie_consent: true,
       seo_suite: true,
+      media_protection: true,
+      response_scan: true,
+      elementor_blocks: true,
+      media_folders: true,
     });
   });
 

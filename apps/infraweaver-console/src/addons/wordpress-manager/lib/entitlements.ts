@@ -46,6 +46,7 @@ export const ENTITLEMENT_FLAGS = [
   "media_protection",
   "response_scan",
   "elementor_blocks",
+  "media_folders",
 ] as const;
 export type EntitlementFlag = (typeof ENTITLEMENT_FLAGS)[number];
 
@@ -212,6 +213,12 @@ export const ENTITLEMENT_FLAG_META: Readonly<Record<EntitlementFlag, Entitlement
     label: "Elementor blocks",
     description:
       "Adds a set of InfraWeaver widgets to the Elementor page builder — a call-to-action banner, a feature grid, a pricing table, and a notice/badge — grouped under their own \"InfraWeaver\" category. Registers nothing when Elementor is not installed.",
+  },
+  media_folders: {
+    flag: "media_folders",
+    label: "Media folders",
+    description:
+      "Organizes the WordPress Media Library into nestable folders with drag-and-drop filing, media tags, and per-folder filtering. Purely organizational — never moves or deletes the underlying files.",
   },
 };
 
