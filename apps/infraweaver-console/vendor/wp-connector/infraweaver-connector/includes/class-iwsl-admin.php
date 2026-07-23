@@ -55,6 +55,16 @@ final class IWSL_Admin {
 	const MO_BG_START_ACTION  = 'iwsl_mo_bg_start';
 	const MO_BG_CANCEL_ACTION = 'iwsl_mo_bg_cancel';
 
+	/**
+	 * Authenticated admin-ajax action powering the CDN setup wizard's automated
+	 * "Test it" step. Read-only — it fetches a sample asset from the origin and the
+	 * candidate CDN and reports whether they match; it NEVER saves settings. Carries
+	 * the same defence as the CDN save handler: manage_options, the engine's
+	 * SETTINGS_NONCE via check_ajax_referer(), and a LAYER-2 entitlement re-check.
+	 * There is deliberately NO nopriv twin.
+	 */
+	const CDN_TEST_ACTION = 'iwsl_cdn_test';
+
 	/** admin-post action + nonce for the SMTP settings save. */
 	const EMAIL_SETTINGS_ACTION = 'iwsl_email_settings';
 	const EMAIL_SETTINGS_NONCE  = 'iwsl_email_settings';
@@ -775,6 +785,7 @@ final class IWSL_Admin {
 		add_action( 'wp_ajax_' . self::MO_BATCH_ACTION, array( $this, 'handle_mo_run_batch_ajax' ) );
 		add_action( 'wp_ajax_' . self::MO_BG_START_ACTION, array( $this, 'handle_mo_bg_start_ajax' ) );
 		add_action( 'wp_ajax_' . self::MO_BG_CANCEL_ACTION, array( $this, 'handle_mo_bg_cancel_ajax' ) );
+		add_action( 'wp_ajax_' . self::CDN_TEST_ACTION, array( $this, 'handle_cdn_test_ajax' ) );
 		add_action( 'admin_post_' . self::EMAIL_SETTINGS_ACTION, array( $this, 'handle_email_settings_save' ) );
 		add_action( 'admin_post_' . self::EMAIL_LOG_CLEAR_ACTION, array( $this, 'handle_email_log_clear' ) );
 		add_action( 'admin_post_' . self::EMAIL_TEST_ACTION, array( $this, 'handle_email_test' ) );
@@ -1189,49 +1200,380 @@ final class IWSL_Admin {
 	}
 
 	/**
-	 * CDN URL Rewrite wizard — shown only when no CDN host is configured. Submits to
-	 * IWSL_CDN_Rewrite::SETTINGS_ACTION with the engine's own `host` + `enabled`
-	 * fields; the engine's full form still renders below.
+	 * CDN URL Rewrite wizard — shown only when no CDN host is configured. A genuine
+	 * four-step, self-guiding flow that reuses the shared .iwsl-wz look but drives
+	 * its own stepper so it can (A) show + copy this site's origin, (B) take the CDN
+	 * host, (C) AUTOMATICALLY test that the CDN actually serves this origin's assets
+	 * over admin-ajax, and (D) only then enable it — submitting the engine's OWN
+	 * `host` + `enabled` fields to IWSL_CDN_Rewrite::SETTINGS_ACTION. The final
+	 * "Turn on the CDN" button is gated on a passing test, with a clearly-labelled
+	 * "Save without testing" escape hatch for a blocked test. The engine's full form
+	 * still renders below, so the page works with JavaScript disabled.
 	 */
 	private function maybe_render_cdn_wizard( IWSL_CDN_Rewrite $cdn ): void {
 		$settings = $cdn->settings();
 		if ( '' !== (string) ( $settings['host'] ?? '' ) ) {
 			return; // a host is set — already configured.
 		}
-		$this->wizard_open(
-			'cdn',
-			__( 'Point your CDN at this site — guided setup', 'infraweaver-connector' ),
+
+		$origin = function_exists( 'home_url' ) ? (string) home_url() : '';
+		if ( function_exists( 'untrailingslashit' ) ) {
+			$origin = (string) untrailingslashit( $origin );
+		}
+
+		self::render_wizard_assets(); // shared .iwsl-wz CSS (idempotent).
+		$this->render_cdn_wizard_markup( $origin );
+	}
+
+	/**
+	 * Emit the CDN wizard's launcher CTA + native <dialog> stepper + scoped JS. Kept
+	 * separate from the shared wizard_open() so this one flow can own step-gating and
+	 * the automated test without changing the generic wizard used by other features.
+	 */
+	private function render_cdn_wizard_markup( string $origin ): void {
+		$dialog_id = 'iwsl-cdnwz';
+		$cfg       = array(
+			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+			'action'  => self::CDN_TEST_ACTION,
+			'nonce'   => wp_create_nonce( IWSL_CDN_Rewrite::SETTINGS_NONCE ),
+			'i18n'    => array(
+				'testing' => __( 'Testing your CDN…', 'infraweaver-connector' ),
+				'network' => __( 'Network error — could not run the test. Nothing changed; try again.', 'infraweaver-connector' ),
+				'passTag' => __( 'Test passed ✓', 'infraweaver-connector' ),
+				'failTag' => __( 'Test not passed', 'infraweaver-connector' ),
+				'copied'  => __( 'Copied ✓', 'infraweaver-connector' ),
+				'copy'    => __( 'Copy', 'infraweaver-connector' ),
+			),
+		);
+
+		// Launcher CTA (reuses the shared .iwsl-wz-cta styling).
+		echo '<div class="iwsl-wz-cta">';
+		echo '<div class="iwsl-wz-cta__text">';
+		echo '<h3>' . esc_html__( 'Serve images & files from your CDN', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'A CDN serves your static files from servers closer to each visitor, so pages load quicker. A short, guided setup points yours at this site, checks it works, and switches it on.', 'infraweaver-connector' ) . '</p>';
+		echo '</div>';
+		echo '<button type="button" class="button button-primary" data-cdnwz-open="1"><span class="dashicons dashicons-cloud" aria-hidden="true"></span>' . esc_html__( 'Set up a CDN', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+
+		echo '<dialog class="iwsl-wz" id="' . esc_attr( $dialog_id ) . '" data-cdnwz-dialog="1" aria-labelledby="' . esc_attr( $dialog_id ) . '-title">';
+		echo '<form class="iwsl-wz__inner" method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( IWSL_CDN_Rewrite::SETTINGS_NONCE );
+		echo '<input type="hidden" name="action" value="' . esc_attr( IWSL_CDN_Rewrite::SETTINGS_ACTION ) . '">';
+		echo '<input type="hidden" name="enabled" value="1">';
+
+		echo '<div class="iwsl-wz__head">';
+		echo '<span class="iwsl-wz__mark" aria-hidden="true"><span class="dashicons dashicons-cloud"></span></span>';
+		echo '<h2 class="iwsl-wz__title" id="' . esc_attr( $dialog_id ) . '-title">' . esc_html__( 'Set up your CDN', 'infraweaver-connector' ) . '</h2>';
+		echo '<button type="button" class="iwsl-wz__x" data-cdnwz-close="1" aria-label="' . esc_attr__( 'Close', 'infraweaver-connector' ) . '">&times;</button>';
+		echo '</div>';
+		echo '<p class="iwsl-wz__progress" data-cdnwz-tpl="' . esc_attr__( 'Step {n} of {t}', 'infraweaver-connector' ) . '" aria-hidden="true"></p>';
+
+		echo '<div class="iwsl-wz__steps">';
+
+		// ── Step A — point the CDN at this site (origin shown + copyable) ──────────
+		echo '<section class="iwsl-wz__step" data-cdnwz-step="0" aria-label="' . esc_attr__( 'Point your CDN at this site', 'infraweaver-connector' ) . '">';
+		echo '<h3>' . esc_html__( 'Point your CDN at this site', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'At your CDN provider, create a “pull zone” and set its origin (sometimes called the source or upstream) to this exact address:', 'infraweaver-connector' ) . '</p>';
+		echo '<div class="iwsl-cdnwz-origin">';
+		echo '<input type="text" class="iwsl-cdnwz-origin__url" readonly value="' . esc_attr( $origin ) . '" aria-label="' . esc_attr__( 'This site’s origin URL', 'infraweaver-connector' ) . '" onfocus="this.select()">';
+		echo '<button type="button" class="button" data-cdnwz-copy="1">' . esc_html__( 'Copy', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+		echo '<details class="iwsl-cdnwz-how"><summary>' . esc_html__( 'How do I set this up?', 'infraweaver-connector' ) . '</summary><div class="iwsl-cdnwz-how__body">';
+		echo '<ol>';
+		echo '<li>' . esc_html__( 'Sign in to your CDN provider and create a new pull zone (a “website”/“distribution” that fetches from an origin).', 'infraweaver-connector' ) . '</li>';
+		echo '<li>' . esc_html__( 'Set its origin / source URL to the address above.', 'infraweaver-connector' ) . '</li>';
+		echo '<li>' . esc_html__( 'The provider gives you a CDN hostname (for example cdn.example.com or something.b-cdn.net). You’ll paste that in the next step.', 'infraweaver-connector' ) . '</li>';
+		echo '</ol>';
+		echo '<p class="iwsl-wz__note">' . esc_html__( 'BunnyCDN: create a Pull Zone, Origin URL = the address above, then use the zone’s hostname. Cloudflare: this differs — you point your DNS at Cloudflare rather than using a separate CDN host, so this feature is usually not needed there.', 'infraweaver-connector' ) . '</p>';
+		echo '</div></details>';
+		echo '</section>';
+
+		// ── Step B — enter the CDN host ────────────────────────────────────────────
+		echo '<section class="iwsl-wz__step" data-cdnwz-step="1" aria-label="' . esc_attr__( 'Enter your CDN address', 'infraweaver-connector' ) . '">';
+		echo '<h3>' . esc_html__( 'Enter your CDN address', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'Paste the hostname your CDN gave you — just the host, no https:// and no trailing path.', 'infraweaver-connector' ) . '</p>';
+		echo '<div class="iwsl-wz__fields">';
+		echo '<label class="iwsl-wz__field"><span>' . esc_html__( 'CDN host', 'infraweaver-connector' ) . '</span>';
+		echo '<input type="text" name="host" id="iwsl-cdnwz-host" data-cdnwz-host="1" value="" placeholder="cdn.example.com" autocomplete="off" spellcheck="false"></label>';
+		echo '</div>';
+		echo '</section>';
+
+		// ── Step C — automated test ────────────────────────────────────────────────
+		echo '<section class="iwsl-wz__step" data-cdnwz-step="2" aria-label="' . esc_attr__( 'Test it', 'infraweaver-connector' ) . '">';
+		echo '<h3>' . esc_html__( 'Test it', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'We’ll fetch one real file from this site and from your CDN and check they match — so you know it works before switching it on.', 'infraweaver-connector' ) . '</p>';
+		echo '<button type="button" class="button button-secondary" data-cdnwz-test="1"><span class="dashicons dashicons-update" aria-hidden="true"></span>' . esc_html__( 'Run the test', 'infraweaver-connector' ) . '</button>';
+		echo '<div class="iwsl-cdnwz-result" data-cdnwz-result="1" role="status" aria-live="polite"></div>';
+		echo '</section>';
+
+		// ── Step D — turn it on (gated on a pass) + escape hatch ────────────────────
+		echo '<section class="iwsl-wz__step" data-cdnwz-step="3" aria-label="' . esc_attr__( 'Turn it on', 'infraweaver-connector' ) . '">';
+		echo '<h3>' . esc_html__( 'Turn it on', 'infraweaver-connector' ) . '</h3>';
+		echo '<p>' . esc_html__( 'This will start serving your images, CSS, JavaScript and fonts from your CDN. Your pages, admin and login always stay on this site, and you can turn it off again any time.', 'infraweaver-connector' ) . '</p>';
+		echo '<p class="iwsl-cdnwz-verdict" data-cdnwz-verdict="1" aria-hidden="true"></p>';
+		echo '<button type="submit" class="button button-primary iwsl-wz__go" data-cdnwz-go="1" disabled><span class="dashicons dashicons-yes" aria-hidden="true"></span>' . esc_html__( 'Turn on the CDN', 'infraweaver-connector' ) . '</button>';
+		echo '<details class="iwsl-cdnwz-force"><summary>' . esc_html__( 'The test won’t pass — save anyway', 'infraweaver-connector' ) . '</summary><div class="iwsl-cdnwz-force__body">';
+		echo '<p class="iwsl-wz__note">' . esc_html__( 'Only do this if you’re sure your pull zone is set up. If the CDN can’t reach this site, your images and files will 404 until you fix it or turn this off.', 'infraweaver-connector' ) . '</p>';
+		echo '<button type="submit" class="button button-link-delete">' . esc_html__( 'Save without testing', 'infraweaver-connector' ) . '</button>';
+		echo '</div></details>';
+		echo '</section>';
+
+		echo '</div>'; // .iwsl-wz__steps
+
+		echo '<div class="iwsl-wz__nav">';
+		echo '<button type="button" class="button button-secondary" data-cdnwz-back="1">' . esc_html__( 'Back', 'infraweaver-connector' ) . '</button>';
+		echo '<button type="button" class="button button-primary" data-cdnwz-next="1">' . esc_html__( 'Next', 'infraweaver-connector' ) . '</button>';
+		echo '</div>';
+
+		echo '</form>';
+		echo '</dialog>';
+
+		$this->render_cdn_wizard_styles();
+		$this->render_cdn_wizard_script( $cfg );
+	}
+
+	/** CDN-wizard-only styles layered on the shared .iwsl-wz look. Emitted once. */
+	private function render_cdn_wizard_styles(): void {
+		static $done = false;
+		if ( $done ) {
+			return;
+		}
+		$done = true;
+		echo "<style>\n";
+		echo <<<'CSS'
+.iwsl-shell .iwsl-cdnwz-origin{ display: flex; gap: 8px; align-items: center; margin: 10px 0 4px; }
+.iwsl-shell .iwsl-cdnwz-origin__url{ flex: 1 1 auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.iwsl-shell .iwsl-cdnwz-how{ margin-top: 12px; font-size: 13px; }
+.iwsl-shell .iwsl-cdnwz-how summary{ cursor: pointer; color: var(--iw-signal); }
+.iwsl-shell .iwsl-cdnwz-how__body{ margin-top: 8px; }
+.iwsl-shell .iwsl-cdnwz-how__body ol{ margin: 0 0 4px 18px; }
+.iwsl-shell .iwsl-cdnwz-how__body li{ margin: 0 0 6px; }
+.iwsl-shell .iwsl-cdnwz-result{ margin-top: 14px; }
+.iwsl-shell .iwsl-cdnwz-result:empty{ display: none; }
+.iwsl-shell .iwsl-cdnwz-note{ padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+.iwsl-shell .iwsl-cdnwz-note--ok{ background: color-mix(in oklch, var(--iw-ok, #16a34a) 14%, transparent); border: 1px solid color-mix(in oklch, var(--iw-ok, #16a34a) 40%, transparent); }
+.iwsl-shell .iwsl-cdnwz-note--bad{ background: color-mix(in oklch, var(--iw-warn) 16%, transparent); border: 1px solid color-mix(in oklch, var(--iw-warn) 44%, transparent); }
+.iwsl-shell .iwsl-cdnwz-note--busy{ background: color-mix(in oklch, var(--iw-signal) 10%, transparent); border: 1px solid color-mix(in oklch, var(--iw-signal) 30%, transparent); }
+.iwsl-shell .iwsl-cdnwz-verdict{ font-weight: 600; }
+.iwsl-shell .iwsl-cdnwz-verdict:empty{ display: none; }
+.iwsl-shell .iwsl-cdnwz-force{ margin-top: 16px; font-size: 13px; }
+.iwsl-shell .iwsl-cdnwz-force summary{ cursor: pointer; color: var(--iw-faint); }
+.iwsl-shell .iwsl-cdnwz-force__body{ margin-top: 8px; }
+CSS;
+		echo "\n</style>\n";
+	}
+
+	/** CDN-wizard stepper + copy + automated-test JS. Scoped to its own dialog; emitted once. */
+	private function render_cdn_wizard_script( array $cfg ): void {
+		static $done = false;
+		if ( $done ) {
+			return;
+		}
+		$done = true;
+		$json = wp_json_encode( $cfg );
+		if ( ! is_string( $json ) ) {
+			$json = '{}';
+		}
+		echo "<script>\n";
+		echo '(function(){ var CFG = ' . $json . ";\n";
+		echo <<<'JS'
+	var dlg = document.querySelector('[data-cdnwz-dialog]');
+	if (!dlg) { return; }
+	var steps = Array.prototype.slice.call(dlg.querySelectorAll('[data-cdnwz-step]'));
+	var nextBtn = dlg.querySelector('[data-cdnwz-next]');
+	var backBtn = dlg.querySelector('[data-cdnwz-back]');
+	var prog = dlg.querySelector('.iwsl-wz__progress');
+	var tpl = prog ? (prog.getAttribute('data-cdnwz-tpl') || 'Step {n} of {t}') : '';
+	var hostIn = dlg.querySelector('[data-cdnwz-host]');
+	var testBtn = dlg.querySelector('[data-cdnwz-test]');
+	var resultBox = dlg.querySelector('[data-cdnwz-result]');
+	var verdict = dlg.querySelector('[data-cdnwz-verdict]');
+	var goBtn = dlg.querySelector('[data-cdnwz-go]');
+	var cur = 0;
+	var tested = false;   // a test attempt has completed on this step
+	var passed = false;   // the last completed test passed
+	var testedHost = '';  // the host the last test ran against
+
+	function hostVal(){ return hostIn ? String(hostIn.value || '').trim() : ''; }
+	function stepOk(i){
+		if (i === 1) { return hostVal() !== ''; }
+		if (i === 2) { return tested; }       // may advance once a test has run (pass or fail)
+		return true;                          // steps 0 and 3
+	}
+	function render(){
+		steps.forEach(function(s, i){ s.classList.toggle('is-active', i === cur); });
+		if (backBtn) { backBtn.style.visibility = cur === 0 ? 'hidden' : 'visible'; }
+		if (nextBtn) {
+			nextBtn.hidden = (cur === steps.length - 1);
+			nextBtn.disabled = !stepOk(cur);
+		}
+		if (prog) { prog.textContent = tpl.replace('{n}', String(cur + 1)).replace('{t}', String(steps.length)); }
+		if (cur === 3) { syncGate(); }
+		if (cur !== 0) {
+			var f = steps[cur].querySelector('input:not([type=hidden]), button:not([disabled])');
+			if (f) { try { f.focus(); } catch (e) {} }
+		}
+	}
+	function go(i){ cur = Math.max(0, Math.min(steps.length - 1, i)); render(); }
+	function syncGate(){
+		if (goBtn) { goBtn.disabled = !passed; }
+		if (verdict) {
+			verdict.textContent = tested ? (passed ? CFG.i18n.passTag : CFG.i18n.failTag) : '';
+			verdict.setAttribute('aria-hidden', tested ? 'false' : 'true');
+		}
+	}
+	function note(cls, html){
+		if (!resultBox) { return; }
+		resultBox.innerHTML = '<div class="iwsl-cdnwz-note ' + cls + '">' + html + '</div>';
+	}
+	function esc(s){ var d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML; }
+
+	if (hostIn) {
+		hostIn.addEventListener('input', function(){
+			// changing the host invalidates a prior test
+			if (hostVal() !== testedHost) { tested = false; passed = false; if (resultBox) { resultBox.innerHTML = ''; } }
+			render();
+		});
+	}
+	var copyBtn = dlg.querySelector('[data-cdnwz-copy]');
+	if (copyBtn) {
+		copyBtn.addEventListener('click', function(){
+			var urlEl = dlg.querySelector('.iwsl-cdnwz-origin__url');
+			if (!urlEl) { return; }
+			var val = urlEl.value;
+			var done = function(){ var t = copyBtn.textContent; copyBtn.textContent = CFG.i18n.copied; setTimeout(function(){ copyBtn.textContent = CFG.i18n.copy; }, 1600); };
+			if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(val).then(done, function(){ urlEl.select(); try { document.execCommand('copy'); } catch (e) {} done(); }); }
+			else { urlEl.select(); try { document.execCommand('copy'); } catch (e) {} done(); }
+		});
+	}
+	if (testBtn) {
+		testBtn.addEventListener('click', function(){
+			var host = hostVal();
+			if (host === '') { return; }
+			testBtn.disabled = true;
+			note('iwsl-cdnwz-note--busy', esc(CFG.i18n.testing));
+			var body = 'action=' + encodeURIComponent(CFG.action) + '&nonce=' + encodeURIComponent(CFG.nonce) + '&host=' + encodeURIComponent(host);
+			fetch(CFG.ajaxUrl, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
+				.then(function(r){ return r.json(); })
+				.then(function(res){
+					var d = (res && res.data) ? res.data : {};
+					tested = true; testedHost = host; passed = !!d.ok;
+					note(passed ? 'iwsl-cdnwz-note--ok' : 'iwsl-cdnwz-note--bad', esc(d.message || CFG.i18n.network));
+					testBtn.disabled = false;
+					render();
+				})
+				.catch(function(){ tested = false; passed = false; note('iwsl-cdnwz-note--bad', esc(CFG.i18n.network)); testBtn.disabled = false; render(); });
+		});
+	}
+	dlg.addEventListener('keydown', function(e){
+		// Never let Enter in a field implicitly submit from a non-final step (which
+		// would fire the escape-hatch "Save without testing" and skip the flow).
+		if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT' && cur !== steps.length - 1) {
+			e.preventDefault();
+			if (stepOk(cur)) { go(cur + 1); }
+		}
+	});
+	dlg.addEventListener('click', function(e){
+		if (e.target.closest('[data-cdnwz-next]')) { if (stepOk(cur)) { go(cur + 1); } }
+		else if (e.target.closest('[data-cdnwz-back]')) { go(cur - 1); }
+		else if (e.target.closest('[data-cdnwz-close]')) { try { dlg.close(); } catch (e2) { dlg.removeAttribute('open'); } }
+		else if (e.target === dlg) { try { dlg.close(); } catch (e2) { dlg.removeAttribute('open'); } }
+	});
+	Array.prototype.slice.call(document.querySelectorAll('[data-cdnwz-open]')).forEach(function(b){
+		b.addEventListener('click', function(e){
+			e.preventDefault();
+			cur = 0; render();
+			if (typeof dlg.showModal === 'function') { try { dlg.showModal(); } catch (e2) { dlg.setAttribute('open', ''); } }
+			else { dlg.setAttribute('open', ''); }
+			render();
+		});
+	});
+	render();
+JS;
+		echo "\n})();\n</script>\n";
+	}
+
+	/**
+	 * AJAX: the CDN wizard's automated "Test it" step. Read-only — delegates to
+	 * IWSL_CDN_Rewrite::test_cdn(), which fetches a sample asset from the origin and
+	 * the candidate CDN and never saves anything. Same defence as the CDN save
+	 * handler: manage_options + the engine's SETTINGS_NONCE (check_ajax_referer) +
+	 * a LAYER-2 entitlement re-check. Emits { ok, message, detail } — always in a
+	 * success envelope so the client can render the plain-English verdict uniformly.
+	 */
+	public function handle_cdn_test_ajax(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'reason' => 'forbidden' ), 403 );
+		}
+		check_ajax_referer( IWSL_CDN_Rewrite::SETTINGS_NONCE, 'nonce' );
+
+		$ent  = $this->plugin->entitlements();
+		$gate = $ent->evaluate( IWSL_CDN_Rewrite::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			wp_send_json_error( array( 'reason' => 'entitlement-locked' ), 403 );
+		}
+
+		$host   = isset( $_POST['host'] ) ? sanitize_text_field( wp_unslash( $_POST['host'] ) ) : '';
+		$origin = function_exists( 'home_url' ) ? (string) home_url() : '';
+		if ( function_exists( 'untrailingslashit' ) ) {
+			$origin = (string) untrailingslashit( $origin );
+		}
+
+		$cdn  = new IWSL_CDN_Rewrite( $ent, new IWSL_WP_Store() );
+		$test = $cdn->test_cdn( (string) $host );
+
+		wp_send_json_success(
 			array(
-				'action' => IWSL_CDN_Rewrite::SETTINGS_ACTION,
-				'nonce'  => IWSL_CDN_Rewrite::SETTINGS_NONCE,
-				'icon'   => 'cloud',
-				'submit' => __( 'Save changes', 'infraweaver-connector' ),
-				'launch' => array(
-					'heading' => __( 'Serve images & files from your CDN', 'infraweaver-connector' ),
-					'body'    => __( 'A CDN serves your static files from servers closer to each visitor, so pages load quicker. A short walk-through connects yours.', 'infraweaver-connector' ),
-					'button'  => __( 'Connect a CDN in 2 steps', 'infraweaver-connector' ),
-				),
-				'steps'  => array(
-					array(
-						'title' => __( 'Before you start', 'infraweaver-connector' ),
-						'body'  => static function (): void {
-							echo '<p>' . esc_html__( 'This rewrites the address of your images, CSS, JavaScript and fonts to your CDN host. Your pages, admin and login always stay on this site.', 'infraweaver-connector' ) . '</p>';
-							echo '<p class="iwsl-wz__note">' . esc_html__( 'Your delivery network needs to be set up to fetch files from this site first (this is often called a “pull zone”). If it can’t reach your site, your images and files won’t show up — so set that up before turning this on.', 'infraweaver-connector' ) . '</p>';
-						},
-					),
-					array(
-						'title' => __( 'Your CDN host', 'infraweaver-connector' ),
-						'body'  => static function (): void {
-							echo '<p>' . esc_html__( 'Enter the hostname your CDN gave you — just the host, no https:// and no trailing path.', 'infraweaver-connector' ) . '</p>';
-							echo '<div class="iwsl-wz__fields">';
-							self::wizard_field( 'text', 'host', __( 'CDN host', 'infraweaver-connector' ), '', 'cdn.example.com' );
-							echo '</div>';
-							self::wizard_checkbox( 'enabled', __( 'Start serving static assets from the CDN now', 'infraweaver-connector' ), true );
-						},
-					),
+				'ok'      => ! empty( $test['ok'] ),
+				'message' => self::cdn_test_message( $test, $origin ),
+				'detail'  => array(
+					'origin_status' => (int) $test['origin_status'],
+					'cdn_status'    => (int) $test['cdn_status'],
+					'sample'        => (string) $test['sample'],
+					'cdn_url'       => (string) $test['cdn_url'],
 				),
 			)
 		);
+	}
+
+	/**
+	 * Translate a test_cdn() result into one plain-English sentence for the operator.
+	 *
+	 * @param array  $test   The engine result (ok, reason, cdn_status, …).
+	 * @param string $origin This site's origin URL, for the pull-zone hint.
+	 */
+	private static function cdn_test_message( array $test, string $origin ): string {
+		if ( ! empty( $test['ok'] ) ) {
+			return __( 'Your CDN served the test file ✓', 'infraweaver-connector' );
+		}
+		$reason = isset( $test['reason'] ) ? (string) $test['reason'] : 'unknown';
+		switch ( $reason ) {
+			case 'invalid-host':
+				return __( 'That is not a valid hostname. Enter a bare host like cdn.example.com.', 'infraweaver-connector' );
+			case 'ssrf-blocked':
+				return __( 'That address points to a private or internal network and was refused.', 'infraweaver-connector' );
+			case 'cdn-404':
+				return sprintf(
+					/* translators: %s: this site's origin URL. */
+					__( 'The CDN returned 404 — is the pull zone’s origin set to %s?', 'infraweaver-connector' ),
+					'' !== $origin ? $origin : __( 'this site', 'infraweaver-connector' )
+				);
+			case 'cdn-unreachable':
+				return __( 'Couldn’t reach that CDN address — check the hostname.', 'infraweaver-connector' );
+			case 'cdn-status':
+				return sprintf(
+					/* translators: %d: HTTP status code the CDN returned. */
+					__( 'The CDN responded with an unexpected status (%d) — check the pull zone.', 'infraweaver-connector' ),
+					(int) ( $test['cdn_status'] ?? 0 )
+				);
+			case 'mismatch':
+				return __( 'The CDN returned a different file than the origin.', 'infraweaver-connector' );
+			case 'origin-unreachable':
+			case 'no-origin':
+			case 'no-sample':
+				return __( 'Couldn’t fetch a test file from this site to compare against — try again in a moment.', 'infraweaver-connector' );
+		}
+		return __( 'Couldn’t reach that CDN address — check the hostname.', 'infraweaver-connector' );
 	}
 
 	/**

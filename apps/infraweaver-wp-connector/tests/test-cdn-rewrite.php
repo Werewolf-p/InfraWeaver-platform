@@ -258,3 +258,125 @@ $store_locked_flush = new IWSL_Memory_Store();
 $cdn_locked_flush    = new IWSL_CDN_Rewrite( iwsl_cdn_entitlements( $CDN_NOW, 'active', array( 'plus' => true ) ), $store_locked_flush, 'example.com' );
 $cdn_locked_flush->update_settings( array( 'host' => 'cdn.example.com', 'enabled' => '1' ) );
 iwsl_assert_same( 0, IWSL_Teardown::$flush_calls, 'update_settings (locked): flush_page_cache() NOT called' );
+
+// ── 7. test_cdn(): the wizard's automated connection test ──────────────────────
+//
+// Runs under the WP-less harness, so sample_asset_url() falls to its guaranteed
+// core-file path: https://<origin>/wp-includes/js/jquery/jquery.min.js. The HTTP
+// fetch is injected as a fake returning the canonical { error, status, length }
+// shape, so no network is touched. The engine NEVER saves in test_cdn().
+
+$SAMPLE = 'https://example.com/wp-includes/js/jquery/jquery.min.js';
+$CDNURL = 'https://cdn.example.com/wp-includes/js/jquery/jquery.min.js';
+
+/** A fetcher that answers the origin and the CDN differently, keyed off the host. */
+function iwsl_cdn_fetcher( array $origin_resp, array $cdn_resp ): callable {
+	return static function ( string $url ) use ( $origin_resp, $cdn_resp ): array {
+		return false !== strpos( $url, 'cdn.example.com' ) ? $cdn_resp : $origin_resp;
+	};
+}
+
+$cdn_t = new IWSL_CDN_Rewrite( iwsl_cdn_unlocked_entitlements( $CDN_NOW ), new IWSL_Memory_Store(), 'example.com' );
+
+// (a) PASS — both 200, matching Content-Length.
+$pass = $cdn_t->test_cdn( 'cdn.example.com', iwsl_cdn_fetcher(
+	array( 'error' => false, 'status' => 200, 'length' => 12345 ),
+	array( 'error' => false, 'status' => 200, 'length' => 12345 )
+) );
+iwsl_assert_same( true, $pass['ok'], 'test_cdn (pass): ok when origin+CDN both 200 with matching length' );
+iwsl_assert_same( 'ok', $pass['reason'], 'test_cdn (pass): reason ok' );
+iwsl_assert_same( 200, $pass['origin_status'], 'test_cdn (pass): origin_status 200' );
+iwsl_assert_same( 200, $pass['cdn_status'], 'test_cdn (pass): cdn_status 200' );
+
+// sample-asset URL host-swap is correct (origin sample → CDN URL, host swapped only).
+iwsl_assert_same( $SAMPLE, $pass['sample'], 'test_cdn: sample is a same-origin core asset' );
+iwsl_assert_same( $CDNURL, $pass['cdn_url'], 'test_cdn: cdn_url is the sample with only the host swapped' );
+
+// (b) tolerate a CDN that omits Content-Length (extra/absent headers) — still passes.
+$pass_nolen = $cdn_t->test_cdn( 'cdn.example.com', iwsl_cdn_fetcher(
+	array( 'error' => false, 'status' => 200, 'length' => 12345 ),
+	array( 'error' => false, 'status' => 200, 'length' => null )
+) );
+iwsl_assert_same( true, $pass_nolen['ok'], 'test_cdn (pass): tolerant when the CDN omits Content-Length' );
+
+// (c) CDN 404 — the pull zone origin is wrong / not configured.
+$r404 = $cdn_t->test_cdn( 'cdn.example.com', iwsl_cdn_fetcher(
+	array( 'error' => false, 'status' => 200, 'length' => 12345 ),
+	array( 'error' => false, 'status' => 404, 'length' => null )
+) );
+iwsl_assert_same( false, $r404['ok'], 'test_cdn (404): not ok' );
+iwsl_assert_same( 'cdn-404', $r404['reason'], 'test_cdn (404): reason cdn-404' );
+iwsl_assert_same( 404, $r404['cdn_status'], 'test_cdn (404): cdn_status 404 surfaced' );
+
+// REGRESSION — the OLD wizard blindly posted enabled=1 with NO verification, so a
+// pull zone that 404s every asset got switched on and broke the live site. The new
+// flow gates the enable on test_cdn(), which must REFUSE a 404-ing CDN.
+iwsl_assert_same( false, $r404['ok'], 'regression: a 404-ing CDN is never auto-approved for enable (old wizard bug)' );
+
+// (d) unreachable — the fetcher reports a transport error (WP_Error equivalent).
+$rerr = $cdn_t->test_cdn( 'cdn.example.com', iwsl_cdn_fetcher(
+	array( 'error' => false, 'status' => 200, 'length' => 12345 ),
+	array( 'error' => true, 'status' => 0, 'length' => null )
+) );
+iwsl_assert_same( false, $rerr['ok'], 'test_cdn (unreachable): not ok' );
+iwsl_assert_same( 'cdn-unreachable', $rerr['reason'], 'test_cdn (unreachable): reason cdn-unreachable' );
+
+// a non-array fetch return (a raw WP_Error passed straight through) is treated as unreachable.
+$rraw = $cdn_t->test_cdn( 'cdn.example.com', static function ( string $url ) {
+	return false !== strpos( $url, 'cdn.example.com' ) ? null : array( 'error' => false, 'status' => 200, 'length' => 10 );
+} );
+iwsl_assert_same( 'cdn-unreachable', $rraw['reason'], 'test_cdn (raw WP_Error): non-array CDN response → cdn-unreachable' );
+
+// (e) size mismatch — both 200 but different Content-Length (CDN served something else).
+$rmis = $cdn_t->test_cdn( 'cdn.example.com', iwsl_cdn_fetcher(
+	array( 'error' => false, 'status' => 200, 'length' => 100 ),
+	array( 'error' => false, 'status' => 200, 'length' => 999 )
+) );
+iwsl_assert_same( false, $rmis['ok'], 'test_cdn (mismatch): not ok' );
+iwsl_assert_same( 'mismatch', $rmis['reason'], 'test_cdn (mismatch): reason mismatch' );
+
+// (f) origin unreachable — cannot establish a baseline to compare against.
+$rorig = $cdn_t->test_cdn( 'cdn.example.com', iwsl_cdn_fetcher(
+	array( 'error' => false, 'status' => 500, 'length' => null ),
+	array( 'error' => false, 'status' => 200, 'length' => 10 )
+) );
+iwsl_assert_same( 'origin-unreachable', $rorig['reason'], 'test_cdn (origin bad): reason origin-unreachable' );
+
+// (g) invalid host is refused BEFORE any fetch.
+$calls    = 0;
+$counting = static function ( string $url ) use ( &$calls ): array {
+	$calls++;
+	return array( 'error' => false, 'status' => 200, 'length' => 1 );
+};
+$rbad = $cdn_t->test_cdn( 'not a host', $counting );
+iwsl_assert_same( 'invalid-host', $rbad['reason'], 'test_cdn (invalid host): reason invalid-host' );
+iwsl_assert_same( 0, $calls, 'test_cdn (invalid host): no fetch attempted' );
+
+// (h) SSRF — a private-IP CDN host is refused up front, before any fetch.
+$calls2   = 0;
+$counting2 = static function ( string $url ) use ( &$calls2 ): array {
+	$calls2++;
+	return array( 'error' => false, 'status' => 200, 'length' => 1 );
+};
+$rssrf = $cdn_t->test_cdn( '192.168.0.10', $counting2 );
+iwsl_assert_same( 'ssrf-blocked', $rssrf['reason'], 'test_cdn (SSRF): private-IP host refused' );
+iwsl_assert_same( 0, $calls2, 'test_cdn (SSRF): no fetch attempted against a private IP' );
+
+// (i) test_cdn NEVER writes settings — a fresh engine stays unconfigured after a pass.
+$store_no_write = new IWSL_Memory_Store();
+$cdn_no_write   = new IWSL_CDN_Rewrite( iwsl_cdn_unlocked_entitlements( $CDN_NOW ), $store_no_write, 'example.com' );
+$cdn_no_write->test_cdn( 'cdn.example.com', iwsl_cdn_fetcher(
+	array( 'error' => false, 'status' => 200, 'length' => 5 ),
+	array( 'error' => false, 'status' => 200, 'length' => 5 )
+) );
+iwsl_assert_same( null, $store_no_write->get( 'cdn_rewrite', null ), 'test_cdn: read-only — settings never persisted by a test' );
+
+// ── 8. is_safe_remote_host(): IP-literal SSRF guard ───────────────────────────
+
+iwsl_assert_same( true, IWSL_CDN_Rewrite::is_safe_remote_host( 'cdn.example.com' ), 'safe host: a normal FQDN passes' );
+iwsl_assert_same( true, IWSL_CDN_Rewrite::is_safe_remote_host( '8.8.8.8' ), 'safe host: a public IP literal passes' );
+iwsl_assert_same( false, IWSL_CDN_Rewrite::is_safe_remote_host( '192.168.0.10' ), 'safe host: private 192.168/16 refused' );
+iwsl_assert_same( false, IWSL_CDN_Rewrite::is_safe_remote_host( '10.1.2.3' ), 'safe host: private 10/8 refused' );
+iwsl_assert_same( false, IWSL_CDN_Rewrite::is_safe_remote_host( '127.0.0.1' ), 'safe host: loopback refused' );
+iwsl_assert_same( false, IWSL_CDN_Rewrite::is_safe_remote_host( '169.254.1.1' ), 'safe host: link-local reserved refused' );
+iwsl_assert_same( false, IWSL_CDN_Rewrite::is_safe_remote_host( '' ), 'safe host: empty refused' );

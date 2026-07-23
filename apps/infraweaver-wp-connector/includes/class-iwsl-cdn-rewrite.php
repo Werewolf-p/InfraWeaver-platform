@@ -54,6 +54,13 @@ final class IWSL_CDN_Rewrite {
 	 */
 	const HOSTNAME_RE = '/^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/i';
 
+	/** Wizard connection-test (test_cdn): fetch timeout in seconds + max redirects to follow. */
+	const TEST_TIMEOUT_S = 5;
+	const TEST_REDIRECTS = 2;
+
+	/** A core asset that exists on every WordPress install — the last-resort test sample. */
+	const CORE_SAMPLE_PATH = '/wp-includes/js/jquery/jquery.min.js';
+
 	/** @var IWSL_Entitlements */
 	private $entitlements;
 
@@ -171,6 +178,213 @@ final class IWSL_CDN_Rewrite {
 		$had = null !== $this->store->get( self::OPTION_KEY, null );
 		$this->store->delete( self::OPTION_KEY );
 		return array( 'ok' => true, 'deleted' => $had );
+	}
+
+	// ── connection test (wizard Step C — automated verification) ───────────────
+
+	/**
+	 * Verify a candidate CDN host actually serves this origin's static assets,
+	 * WITHOUT enabling anything. Picks a real same-origin asset (an existing
+	 * uploaded image, else the site icon, else a guaranteed core file), fetches it
+	 * from BOTH the origin and the CDN (same path, host swapped), and decides
+	 * success: both HTTP 200 AND — when both advertise a Content-Length — the same
+	 * byte size, so a CDN that serves an error/placeholder page is caught.
+	 *
+	 * Read-only and side-effect free: it NEVER writes settings. Fetching uses an
+	 * SSRF-safe transport (wp_safe_remote_get in production, refusing private/
+	 * reserved targets) with a short timeout and a couple of redirects. An IP-literal
+	 * host in a private/reserved range is refused up front, before any fetch.
+	 *
+	 * @param string        $host    Candidate CDN host (bare FQDN).
+	 * @param callable|null  $fetcher Optional injected fetcher for tests. Given a URL,
+	 *                                returns array{ error:bool, status:int, length:int|null }.
+	 * @return array{ ok:bool, reason:string, origin_status:int, cdn_status:int, sample:string, cdn_url:string }
+	 */
+	public function test_cdn( string $host, ?callable $fetcher = null ): array {
+		$host = strtolower( trim( $host ) );
+
+		if ( ! self::is_valid_host( $host ) ) {
+			return self::test_result( false, 'invalid-host', 0, 0, '', '' );
+		}
+		if ( ! self::is_safe_remote_host( $host ) ) {
+			return self::test_result( false, 'ssrf-blocked', 0, 0, '', '' );
+		}
+		if ( '' === $this->site_host ) {
+			return self::test_result( false, 'no-origin', 0, 0, '', '' );
+		}
+
+		$sample = $this->sample_asset_url();
+		if ( '' === $sample ) {
+			return self::test_result( false, 'no-sample', 0, 0, '', '' );
+		}
+		$cdn_url = self::rewrite_url( $sample, $this->site_host, $host, self::ASSET_EXTENSIONS );
+		if ( $cdn_url === $sample ) {
+			// The sample was not recognised as a swappable same-origin asset — cannot test.
+			return self::test_result( false, 'no-sample', 0, 0, $sample, '' );
+		}
+
+		$fetch  = null !== $fetcher ? $fetcher : self::default_fetcher();
+		$origin = self::normalize_fetch( $fetch( $sample ) );
+		if ( $origin['error'] || 200 !== $origin['status'] ) {
+			return self::test_result( false, 'origin-unreachable', $origin['status'], 0, $sample, $cdn_url );
+		}
+
+		$cdn = self::normalize_fetch( $fetch( $cdn_url ) );
+		if ( $cdn['error'] ) {
+			return self::test_result( false, 'cdn-unreachable', $origin['status'], 0, $sample, $cdn_url );
+		}
+		if ( 200 !== $cdn['status'] ) {
+			$reason = 404 === $cdn['status'] ? 'cdn-404' : 'cdn-status';
+			return self::test_result( false, $reason, $origin['status'], $cdn['status'], $sample, $cdn_url );
+		}
+
+		// Both 200. When both sides report a size, they must match (a CDN error page
+		// or a stale different object is a different length).
+		if ( null !== $origin['length'] && null !== $cdn['length'] && $origin['length'] !== $cdn['length'] ) {
+			return self::test_result( false, 'mismatch', $origin['status'], $cdn['status'], $sample, $cdn_url );
+		}
+
+		return self::test_result( true, 'ok', $origin['status'], $cdn['status'], $sample, $cdn_url );
+	}
+
+	/** Build an immutable test_cdn() result array. */
+	private static function test_result( bool $ok, string $reason, int $origin_status, int $cdn_status, string $sample, string $cdn_url ): array {
+		return array(
+			'ok'            => $ok,
+			'reason'        => $reason,
+			'origin_status' => $origin_status,
+			'cdn_status'    => $cdn_status,
+			'sample'        => $sample,
+			'cdn_url'       => $cdn_url,
+		);
+	}
+
+	/**
+	 * Coerce a fetcher return (or a normalized array) into the canonical
+	 * { error:bool, status:int, length:int|null } shape, so test_cdn()'s decision
+	 * logic never has to touch a raw transport response.
+	 *
+	 * @param mixed $resp
+	 * @return array{ error:bool, status:int, length:int|null }
+	 */
+	private static function normalize_fetch( $resp ): array {
+		if ( ! is_array( $resp ) ) {
+			return array( 'error' => true, 'status' => 0, 'length' => null );
+		}
+		$len = ( isset( $resp['length'] ) && is_int( $resp['length'] ) && $resp['length'] >= 0 ) ? $resp['length'] : null;
+		return array(
+			'error'  => ! empty( $resp['error'] ),
+			'status' => isset( $resp['status'] ) ? (int) $resp['status'] : 0,
+			'length' => $len,
+		);
+	}
+
+	/**
+	 * The production fetcher: a closure over wp_safe_remote_get() (which refuses
+	 * private/reserved targets — SSRF-safe), returning the canonical normalized
+	 * shape. Falls back to the raw body length when no Content-Length is advertised.
+	 */
+	private static function default_fetcher(): callable {
+		return static function ( string $url ): array {
+			if ( ! function_exists( 'wp_safe_remote_get' ) ) {
+				return array( 'error' => true, 'status' => 0, 'length' => null );
+			}
+			$resp = wp_safe_remote_get(
+				$url,
+				array(
+					'timeout'     => self::TEST_TIMEOUT_S,
+					'redirection' => self::TEST_REDIRECTS,
+					'sslverify'   => true,
+				)
+			);
+			if ( function_exists( 'is_wp_error' ) && is_wp_error( $resp ) ) {
+				return array( 'error' => true, 'status' => 0, 'length' => null );
+			}
+			$status = function_exists( 'wp_remote_retrieve_response_code' ) ? (int) wp_remote_retrieve_response_code( $resp ) : 0;
+			$length = null;
+			if ( function_exists( 'wp_remote_retrieve_header' ) ) {
+				$hdr = wp_remote_retrieve_header( $resp, 'content-length' );
+				if ( is_string( $hdr ) && '' !== $hdr && ctype_digit( $hdr ) ) {
+					$length = (int) $hdr;
+				}
+			}
+			if ( null === $length && function_exists( 'wp_remote_retrieve_body' ) ) {
+				$body = wp_remote_retrieve_body( $resp );
+				if ( is_string( $body ) && '' !== $body ) {
+					$length = strlen( $body );
+				}
+			}
+			return array( 'error' => false, 'status' => $status, 'length' => $length );
+		};
+	}
+
+	/**
+	 * A real same-origin static asset to test with, preferred cheapest-to-verify
+	 * first: an existing uploaded image, then the site icon, then a guaranteed core
+	 * file. Every candidate is confirmed same-origin + asset-shaped (so rewrite_url()
+	 * will swap it) before it is returned; '' when nothing usable is found.
+	 */
+	private function sample_asset_url(): string {
+		if ( function_exists( 'get_posts' ) && function_exists( 'wp_get_attachment_url' ) ) {
+			$ids = get_posts(
+				array(
+					'post_type'      => 'attachment',
+					'post_mime_type' => 'image',
+					'post_status'    => 'inherit',
+					'numberposts'    => 1,
+					'fields'         => 'ids',
+					'orderby'        => 'ID',
+					'order'          => 'ASC',
+				)
+			);
+			if ( is_array( $ids ) && isset( $ids[0] ) ) {
+				$url = wp_get_attachment_url( (int) $ids[0] );
+				if ( is_string( $url ) && $this->is_origin_asset( $url ) ) {
+					return $url;
+				}
+			}
+		}
+		if ( function_exists( 'get_site_icon_url' ) ) {
+			$icon = get_site_icon_url( 512 );
+			if ( is_string( $icon ) && $this->is_origin_asset( $icon ) ) {
+				return $icon;
+			}
+		}
+		if ( function_exists( 'includes_url' ) ) {
+			$core = includes_url( ltrim( self::CORE_SAMPLE_PATH, '/' ) );
+			if ( is_string( $core ) && $this->is_origin_asset( $core ) ) {
+				return $core;
+			}
+		}
+		// Last resort (also the WP-less test-harness path): construct from the origin host.
+		if ( '' !== $this->site_host ) {
+			return 'https://' . $this->site_host . self::CORE_SAMPLE_PATH;
+		}
+		return '';
+	}
+
+	/** Whether a URL is a same-origin asset this engine would rewrite (host swaps under a probe host). */
+	private function is_origin_asset( string $url ): bool {
+		if ( '' === $url || '' === $this->site_host ) {
+			return false;
+		}
+		return self::rewrite_url( $url, $this->site_host, 'cdn.invalid.test', self::ASSET_EXTENSIONS ) !== $url;
+	}
+
+	/**
+	 * Defence-in-depth SSRF guard for a candidate CDN host. Refuses an IP-LITERAL
+	 * host that falls in a private or reserved range (wp_safe_remote_get covers
+	 * DNS-resolved names). A normal FQDN is not an IP literal and passes here.
+	 */
+	public static function is_safe_remote_host( string $host ): bool {
+		$host = trim( $host );
+		if ( '' === $host ) {
+			return false;
+		}
+		if ( false !== filter_var( $host, FILTER_VALIDATE_IP ) ) {
+			return false !== filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE );
+		}
+		return true;
 	}
 
 	// ── the rewrite filters (STATEMENT 1 is the authoritative gate) ────────────
