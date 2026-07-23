@@ -18,7 +18,8 @@ import { AddonHttpError } from "./errors";
 import { clampRotationIntervalMs } from "./rotation-policy";
 import { normalizeEntitlements, type EntitlementMap, type SiteEntitlements } from "./entitlements";
 import { deriveEntitlementsForTier, type TierId } from "./tiers";
-import { isReleaseChannel, type ReleaseChannel } from "./channels";
+import { isReleaseChannel, resolveChannel, type ReleaseChannel } from "./channels";
+import { getChannelRegistry } from "./channel-registry";
 import { execInWpPod } from "./k8s-exec";
 import { findWpPodName } from "./provision";
 import { buildConnectorPackage } from "./connector-package";
@@ -911,8 +912,13 @@ export async function updateConnectorPlugin(
   // Default to the bundled version so the per-site op is unchanged; the sweep
   // passes a per-channel target. resolveConnectorArtifact throws when the target
   // isn't deliverable, aborting BEFORE any install touches the pod.
-  const target = targetVersion ?? (await buildConnectorPackage(channel)).version;
-  const { zipBase64 } = await resolveConnectorArtifact(target, channel);
+  // Per-site default: target the version this site's own release channel resolves
+  // to (the registry), so the per-site "Update connector" op is channel-correct
+  // exactly like the fleet sweep. An explicit targetVersion + channel (passed by
+  // the sweep) overrides this.
+  const resolvedChannel = channel ?? resolveChannel(record);
+  const target = targetVersion ?? (await getChannelRegistry())[resolvedChannel];
+  const { zipBase64 } = await resolveConnectorArtifact(target, resolvedChannel);
   await execInWpPod(pod, installConnectorScript(), {
     stdin: zipBase64,
     timeoutMs: INSTALL_TIMEOUT_MS,

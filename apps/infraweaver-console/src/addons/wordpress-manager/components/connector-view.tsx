@@ -478,6 +478,18 @@ export function ConnectorView({ site }: { site: string }) {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  // Re-send this site's plan entitlements: re-signs the CURRENT tier's full flag
+  // map (which may now include newly-added features) and pushes it, so a site whose
+  // signed map predates a feature is brought current without toggling the tier.
+  const resyncMutation = useMutation({
+    mutationFn: () => postOp<{ entitlements: unknown }>(site, "set-tier", { tier: currentTierId }),
+    onSuccess: () => {
+      toast.success("Entitlements re-synced — the site now has its full plan flag set");
+      refetchLink();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const confirmIdentityMutation = useMutation({
     // Send the exact alert timestamp the operator is looking at so the server
     // binds THIS alert, not one a concurrent sweep may have superseded it with.
@@ -671,7 +683,30 @@ export function ConnectorView({ site }: { site: string }) {
                 </div>
               )}
             </div>
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex justify-end gap-2">
+              {commandable && (
+                <button
+                  type="button"
+                  disabled={updateMutation.isPending || identitySuspended}
+                  onClick={() => updateMutation.mutate()}
+                  title={
+                    identitySuspended
+                      ? "Blocked in identity safe mode — resolve the identity alert first"
+                      : updateAvailable
+                        ? "Install the latest Connector for this site's release channel"
+                        : "Reinstall the current Connector in place (keeps keys and epochs)"
+                  }
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    updateAvailable
+                      ? "border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+                      : "border-zinc-700 text-zinc-200 hover:border-sky-500/50 hover:text-sky-300",
+                  )}
+                >
+                  {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <CircleArrowUp className="h-4 w-4" aria-hidden />}
+                  {updateMutation.isPending ? "Updating…" : updateAvailable ? "Update connector" : "Reinstall connector"}
+                </button>
+              )}
               <button
                 type="button"
                 disabled={unlinkMutation.isPending}
@@ -725,7 +760,21 @@ export function ConnectorView({ site }: { site: string }) {
               <Sparkles className="h-5 w-5 text-amber-300" aria-hidden />
               <h2 className="text-lg font-medium">Plan &amp; entitlements</h2>
             </div>
-            <TierBadge tierId={currentTierId} />
+            <div className="flex items-center gap-2">
+              <TierBadge tierId={currentTierId} />
+              {commandable && (
+                <button
+                  type="button"
+                  disabled={resyncMutation.isPending}
+                  onClick={() => resyncMutation.mutate()}
+                  title="Re-send this site's plan entitlements — re-signs the current tier's full flag set and pushes it. Use after new features are added to a plan (e.g. a site shows a feature as locked despite having the tier)."
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-sky-500/50 hover:text-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {resyncMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden />}
+                  Re-sync
+                </button>
+              )}
+            </div>
           </div>
           <p className="mt-1 max-w-prose text-sm text-zinc-400">
             This site&rsquo;s paid tier decides which Plus features unlock. Assigning a tier pushes its feature set to
