@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.18.1
+ * Version: 0.19.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.18.1' );
+define( 'IWSL_CONNECTOR_VERSION', '0.19.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -99,6 +99,8 @@ require_once __DIR__ . '/includes/class-iwsl-scheduled-db-cleanup.php';
 require_once __DIR__ . '/includes/class-iwsl-activity-log.php';
 require_once __DIR__ . '/includes/class-iwsl-auto-convert.php';
 require_once __DIR__ . '/includes/class-iwsl-media-offload.php';
+require_once __DIR__ . '/includes/class-iwsl-media-folders.php';
+require_once __DIR__ . '/includes/class-iwsl-media-folders-ui.php';
 require_once __DIR__ . '/includes/class-iwsl-speed-pack.php';
 require_once __DIR__ . '/includes/class-iwsl-stats-classifier.php';
 require_once __DIR__ . '/includes/class-iwsl-statistics.php';
@@ -344,6 +346,14 @@ if ( $iwsl_switches->is_on( IWSL_Auto_Convert::FEATURE ) ) {
 // AJAX (test/status/offload/remove/manual) + admin-post save handler are self-wired
 // inside register() (each re-checks manage_options + nonce + the gate).
 ( new IWSL_Media_Offload( $iwsl_ent, new IWSL_WP_Store() ) )->register();
+
+// Media Folders / Explorer (Pro/Ultimate, `media_folders`). Windows-Explorer-style
+// folder tree + tag filtering over the Media Library. register() self-wires AJAX +
+// taxonomies + native-library filters, each gating on the entitlement as statement 1.
+$iwsl_media_folders = new IWSL_Media_Folders( $iwsl_ent, new IWSL_WP_Store() );
+if ( $iwsl_switches->is_on( IWSL_Media_Folders::FEATURE ) ) {
+	$iwsl_media_folders->register();
+}
 
 // Background image conversion tick (gated on `image_optimization` inside the
 // callback). Registered UNCONDITIONALLY — WP-Cron fires outside admin, so the hook

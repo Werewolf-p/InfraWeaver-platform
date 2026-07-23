@@ -180,6 +180,7 @@ final class IWSL_Admin {
 			'cache'             => IWSL_Page_Cache::FEATURE,
 			'lazy-load'         => IWSL_Lazy_Load::FEATURE,
 			'media-protect'     => IWSL_Media_Protection::FEATURE,
+			'media-folders'     => IWSL_Media_Folders::FEATURE,
 			'elementor'         => IWSL_Elementor_Blocks::FEATURE,
 			'cdn'               => IWSL_CDN_Rewrite::FEATURE,
 			'duplicate'         => IWSL_Duplicate_Post::FEATURE,
@@ -348,6 +349,7 @@ final class IWSL_Admin {
 			'auto-convert'      => __( 'Automatically turns your images into a smaller, faster format for you.', 'infraweaver-connector' ),
 			'svg'               => __( 'Lets you safely upload logo and icon files that stay crisp at any size.', 'infraweaver-connector' ),
 			'media-protect'     => __( 'Makes images you mark harder to right-click-save or drag-copy. A deterrent, not a lock.', 'infraweaver-connector' ),
+			'media-folders'     => __( 'Sorts your Media Library into nestable folders with tags and per-folder views. It only organizes — it never moves or deletes your files.', 'infraweaver-connector' ),
 				'elementor'         => __( 'Adds ready-made InfraWeaver blocks — a call-to-action, feature grid, pricing table and notice — you can drop into the Elementor page builder.', 'infraweaver-connector' ),
 			'seo'               => __( 'Helps Google understand your pages so more people can find your site.', 'infraweaver-connector' ),
 			'seo-audit'         => __( 'Checks your pages for common Google mistakes and tells you what to fix.', 'infraweaver-connector' ),
@@ -507,6 +509,18 @@ final class IWSL_Admin {
 				),
 				'on_effect' => __( 'Right-click and drag-to-save get discouraged on your pictures, making casual copying harder.', 'infraweaver-connector' ),
 				'active'    => __( 'it’s making your pictures harder to right-click or drag away, as a gentle deterrent.', 'infraweaver-connector' ),
+			),
+			'media-folders' => array(
+				'what'      => __( 'Organizes your Media Library into folders you can nest inside each other, with tags and per-folder views.', 'infraweaver-connector' ),
+				'why'       => __( 'Once you have a lot of pictures, folders and tags make it quick to find the right one instead of scrolling forever.', 'infraweaver-connector' ),
+				'should'    => __( 'Great for any busy library. It’s completely safe — folders and tags only tidy how files are grouped; they never move or delete the actual files.', 'infraweaver-connector' ),
+				'steps'     => array(
+					__( 'Switch it on with the control above.', 'infraweaver-connector' ),
+					__( 'Open the Media Explorer and make a folder or two.', 'infraweaver-connector' ),
+					__( 'Drag your pictures into folders, or add tags to find them fast.', 'infraweaver-connector' ),
+				),
+				'on_effect' => __( 'A folder tree and tags appear over your Media Library, so you can group and filter your pictures — your files stay exactly where they are.', 'infraweaver-connector' ),
+				'active'    => __( 'it’s giving your Media Library a folder tree and tags, so you can group and find pictures without ever moving the real files.', 'infraweaver-connector' ),
 			),
 			'elementor' => array(
 				'what'      => __( 'Adds a handful of ready-made InfraWeaver blocks to the Elementor page builder — a call-to-action, a feature grid, a pricing table and a notice.', 'infraweaver-connector' ),
@@ -916,6 +930,22 @@ final class IWSL_Admin {
 				}
 			);
 		}
+
+		// Dedicated FULL-PAGE Media Explorer (the `media_folders` engine's flagship,
+		// two-pane folder tree + media grid). Registered as its own submenu so it has
+		// a real page hook — captured in $this->page_hooks like every other page so
+		// enqueue_assets() scopes the media library JS to it. The UI class renders its
+		// own locked/unlocked state, so no extra gate is needed at registration.
+		$this->page_hooks[] = (string) add_submenu_page(
+			'infraweaver-plus',
+			'InfraWeaver Plus — ' . __( 'Media Explorer', 'infraweaver-connector' ),
+			__( 'Media Explorer', 'infraweaver-connector' ),
+			'manage_options',
+			'infraweaver-plus-explorer',
+			function () {
+				( new IWSL_Media_Folders_UI( iwsl_plugin()->entitlements() ) )->render_explorer_page();
+			}
+		);
 	}
 
 	/**
@@ -1108,6 +1138,7 @@ final class IWSL_Admin {
 			'cdn'               => array( 'CDN URL Rewrite', function () use ( $ent ) { ( new IWSL_CDN_Rewrite( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'lazy-load'         => array( 'Lazy-Load Media', function () use ( $ent ) { ( new IWSL_Lazy_Load( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'media-protect'     => array( 'Media Protection', function () use ( $ent ) { ( new IWSL_Media_Protection( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
+			'media-folders'     => array( 'Media Folders', function () use ( $ent ) { ( new IWSL_Media_Folders_UI( $ent ) )->render_section(); } ),
 				'elementor'         => array( 'Elementor Blocks', function () use ( $ent ) { ( new IWSL_Elementor_Blocks( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'auto-convert'      => array( 'Scheduled Auto-Convert', function () use ( $ent ) { ( new IWSL_Auto_Convert( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
 			'media-offload'     => array( 'Media Offload (S3)', function () use ( $ent ) { ( new IWSL_Media_Offload( $ent, new IWSL_WP_Store() ) )->render_section(); } ),
@@ -2609,6 +2640,7 @@ JS;
 			array( 'id' => 'auto-convert', 'label' => __( 'Auto-Convert', 'infraweaver-connector' ), 'icon' => 'update', 'group' => 'Media' ),
 			array( 'id' => 'svg', 'label' => __( 'SVG', 'infraweaver-connector' ), 'icon' => 'media-code', 'group' => 'Media' ),
 			array( 'id' => 'media-protect', 'label' => __( 'Media Protection', 'infraweaver-connector' ), 'icon' => 'lock', 'group' => 'Media' ),
+			array( 'id' => 'media-folders', 'label' => __( 'Media Folders', 'infraweaver-connector' ), 'icon' => 'category', 'group' => 'Media' ),
 			array( 'id' => 'elementor', 'label' => __( 'Elementor Blocks', 'infraweaver-connector' ), 'icon' => 'layout', 'group' => 'Media' ),
 
 			// SEO & Content
@@ -2727,7 +2759,7 @@ JS;
 	 * (.widefat, .form-table, .button*, .notice*, inputs) without leaking into
 	 * the rest of wp-admin. Ships inline — no external asset, no CDN, no build.
 	 */
-	private static function render_shell_styles(): void {
+	public static function render_shell_styles(): void {
 		echo "<style id='iwsl-plus-css'>\n";
 		echo <<<'CSS'
 #wpcontent .iwsl-shell{
