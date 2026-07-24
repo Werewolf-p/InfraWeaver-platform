@@ -552,7 +552,21 @@ export function ConnectorView({ site }: { site: string }) {
 
       <header className="mt-4 flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">{site}</h1>
-        <StateBadge link={link ?? null} loadError={linkLoadFailed} />
+        <div className="flex items-center gap-2">
+          {/* The auto health-check (below) fires a multi-second signed round-trip
+              on load when the last check is stale; surface it so the tab reads as
+              "working," not blank. Also covers the manual "Health check" button. */}
+          {healthMutation.isPending && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-300"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Checking connector…
+            </span>
+          )}
+          <StateBadge link={link ?? null} loadError={linkLoadFailed} />
+        </div>
       </header>
 
       <SiteTabs site={site} active="connector" />

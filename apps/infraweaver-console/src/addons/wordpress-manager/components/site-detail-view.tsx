@@ -139,7 +139,13 @@ export function SiteDetailView({ site }: { site: string }) {
   const { data: status } = useQuery({
     queryKey: ["wordpress-site-status", site],
     queryFn: () => fetchSiteStatus(site),
-    refetchInterval: 8000,
+    // This reads the WHOLE-fleet /api/wordpress/sites list (and triggers a
+    // reconcile for every ready site) just to find this one site, so a tight 8s
+    // poll from a single open tab was continuous fleet-wide chatter. Poll at 30s
+    // and only while the tab is focused (default false, set explicitly) — the
+    // per-pod SiteRuntimeCard already covers fast-moving runtime state.
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
   });
 
   const { data: access } = useQuery({
@@ -147,31 +153,22 @@ export function SiteDetailView({ site }: { site: string }) {
     queryFn: () => fetchAccess(site),
   });
 
-  // At-a-glance payment tier for the header badge — read from the console link
-  // record (authoritative), degrading silently to Free when the site is unlinked
-  // or the read fails. Manage it on the Connector tab.
-  const { data: siteTier } = useQuery({
-    queryKey: ["wordpress-site-tier", site],
-    queryFn: async (): Promise<TierId> => {
+  // At-a-glance tier + release channel for the header badges — both read from the
+  // SAME authoritative console link record, degrading silently to Free/prod when
+  // the site is unlinked or the read fails. React Query dedupes by key, not URL,
+  // so two queries hitting /iwsl were two round trips; one shared query + two
+  // derived values does it in one. Managed on the Connector tab.
+  const { data: siteLink } = useQuery({
+    queryKey: ["wordpress-site-iwsl", site],
+    queryFn: async (): Promise<{ tier?: TierId; channel?: ReleaseChannel } | null> => {
       const res = await fetch(`/api/wordpress/sites/${site}/iwsl`);
-      if (!res.ok) return DEFAULT_TIER_ID;
-      const body = (await res.json()) as { link?: { tier?: TierId } | null };
-      return resolveTierId(body.link ?? undefined);
+      if (!res.ok) return null;
+      const body = (await res.json()) as { link?: { tier?: TierId; channel?: ReleaseChannel } | null };
+      return body.link ?? null;
     },
   });
-
-  // At-a-glance release channel for the header badge — read from the same console
-  // link record (authoritative), degrading silently to prod when unlinked or the
-  // read fails. Orthogonal to the tier; managed on the Connector tab.
-  const { data: siteChannel } = useQuery({
-    queryKey: ["wordpress-site-channel", site],
-    queryFn: async (): Promise<ReleaseChannel> => {
-      const res = await fetch(`/api/wordpress/sites/${site}/iwsl`);
-      if (!res.ok) return DEFAULT_CHANNEL;
-      const body = (await res.json()) as { link?: { channel?: ReleaseChannel } | null };
-      return resolveChannel(body.link ?? undefined);
-    },
-  });
+  const siteTier: TierId = resolveTierId(siteLink ?? undefined);
+  const siteChannel: ReleaseChannel = resolveChannel(siteLink ?? undefined);
 
   const installed = new Set(data?.installed ?? []);
   const checked = selected ?? installed;
