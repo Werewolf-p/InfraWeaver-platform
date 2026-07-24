@@ -117,17 +117,25 @@ final class IWSL_Statistics {
 	/** @var string Lowercased home host (for same-origin referrer folding), '' outside WP. */
 	private $home_host;
 
+	/** @var callable(array):array{active:bool,allows:?bool} visitor-consent context provider. */
+	private $consent_ctx;
+
 	/**
 	 * @param IWSL_Entitlements $entitlements The gate.
 	 * @param IWSL_Store|null   $store        Salt/schema/config persistence; defaults to a WP store.
 	 * @param object|null       $db           A `$wpdb`-like handle; defaults to the global $wpdb.
 	 * @param callable|null     $now_ms       Clock, mirrors IWSL_Entitlements.
+	 * @param callable|null     $consent_ctx  fn(array $server):array{active:bool,allows:?bool} — the
+	 *                                         visitor-consent decision (injectable for the harness);
+	 *                                         defaults to a reader over the site's cookie-consent
+	 *                                         settings + the request's first-party consent cookie.
 	 */
 	public function __construct(
 		IWSL_Entitlements $entitlements,
 		?IWSL_Store $store = null,
 		$db = null,
-		?callable $now_ms = null
+		?callable $now_ms = null,
+		?callable $consent_ctx = null
 	) {
 		$this->entitlements = $entitlements;
 		$this->store        = null !== $store ? $store : self::default_store();
@@ -135,7 +143,8 @@ final class IWSL_Statistics {
 		$this->now_ms       = $now_ms ?? static function (): int {
 			return (int) round( microtime( true ) * 1000 );
 		};
-		$this->home_host = self::default_home_host();
+		$this->home_host   = self::default_home_host();
+		$this->consent_ctx = null !== $consent_ctx ? $consent_ctx : $this->default_consent_ctx();
 	}
 
 	/** A WP-backed store under WordPress, else an in-memory one (keeps ctor total). */
@@ -223,11 +232,21 @@ final class IWSL_Statistics {
 		}
 
 		$ua = isset( $server['HTTP_USER_AGENT'] ) ? (string) $server['HTTP_USER_AGENT'] : '';
+		if ( IWSL_Stats_Classifier::gpc_set( $server ) ) {
+			return self::skipped( 'gpc' );
+		}
 		if ( IWSL_Stats_Classifier::dnt_set( $server ) ) {
 			return self::skipped( 'dnt' );
 		}
 		if ( IWSL_Stats_Classifier::is_bot( $ua ) ) {
 			return self::skipped( 'bot' );
+		}
+		// Visitor consent (opt-in "statistics" banner only): a visitor who declined the
+		// statistics category — or, under an opt-in banner, has not yet decided — is not
+		// recorded. The context is INACTIVE by default (the consent banner ships OFF), so
+		// this is a strict no-op for every site that never enabled it: zero behavior change.
+		if ( self::consent_declines( ( $this->consent_ctx )( $server ) ) ) {
+			return self::skipped( 'consent-declined' );
 		}
 
 		if ( ! is_object( $this->db ) ) {
@@ -271,7 +290,12 @@ final class IWSL_Statistics {
 
 		$server = $this->server();
 		$ua     = isset( $server['HTTP_USER_AGENT'] ) ? (string) $server['HTTP_USER_AGENT'] : '';
-		if ( IWSL_Stats_Classifier::dnt_set( $server ) || IWSL_Stats_Classifier::is_bot( $ua ) ) {
+		if ( IWSL_Stats_Classifier::gpc_set( $server ) || IWSL_Stats_Classifier::dnt_set( $server ) || IWSL_Stats_Classifier::is_bot( $ua ) ) {
+			return;
+		}
+		// Honor a declined/undecided statistics-consent choice for comment events too
+		// (no-op unless an opt-in banner is enabled — see maybe_record()).
+		if ( self::consent_declines( ( $this->consent_ctx )( $server ) ) ) {
 			return;
 		}
 
@@ -539,6 +563,162 @@ final class IWSL_Statistics {
 		$output = defined( 'ARRAY_A' ) ? ARRAY_A : 'ARRAY_A';
 		$rows   = $db->get_results( $sql, $output );
 		return is_array( $rows ) ? $rows : array();
+	}
+
+	// ── signed-channel projections (read-only; console-polled) ─────────────────
+
+	/**
+	 * The compact `stats.summary` projection for the signed channel. STATEMENT 1 is the
+	 * authoritative gate — a locked site answers a well-formed { locked:true, gate } (the
+	 * response is signed, so the console trusts and renders the gate reasons). Unlocked:
+	 * a BOUNDED projection of dashboard() — the ~15 KB drill island, the heatmap and every
+	 * raw hit row NEVER cross the wire — annotated with the site's live privacy posture
+	 * (DNT + GPC always honored; consent_gated=1 only under an enabled opt-in statistics
+	 * banner). Well under the §6.2 byte ceiling (SUMMARY_MAX_BYTES caps it in tests).
+	 *
+	 * @return array
+	 */
+	public function wire_summary( int $range_days ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'locked' => true, 'gate' => $gate );
+		}
+		$range             = in_array( $range_days, self::ALLOWED_RANGES, true ) ? $range_days : self::DEFAULT_RANGE;
+		$payload           = IWSL_Stats_Classifier::summary_payload( $this->dashboard( $range ) );
+		$payload['locked'] = false;
+		// consent_gated reflects the site's config, not this request → probe with an
+		// empty server (we only read the 'active' regime flag, never a visitor cookie).
+		$consent = ( $this->consent_ctx )( array() );
+		if ( is_array( $consent ) && ! empty( $consent['active'] ) ) {
+			$payload['privacy']['consent_gated'] = 1;
+		}
+		// Runtime byte-budget backstop — the §6.2 ceiling survives future field growth.
+		return IWSL_Stats_Classifier::fit_summary_to_budget( $payload );
+	}
+
+	/**
+	 * The `stats.timeseries` projection (≤ SERIES_DAYS daily views/visits, plus the hourly
+	 * + previous-day series only when days === 1). STATEMENT 1 is the gate; a locked site
+	 * answers { locked:true, gate }.
+	 *
+	 * @return array
+	 */
+	public function wire_timeseries( int $days ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'locked' => true, 'gate' => $gate );
+		}
+		$days = max( 1, min( $days, IWSL_Stats_Classifier::SERIES_DAYS ) );
+		// dashboard(1) populates the hourly arrays; for any other range the 30-day series
+		// is identical (sliced in the projection), so range only matters when days === 1.
+		$payload           = IWSL_Stats_Classifier::timeseries_payload( $this->dashboard( 1 === $days ? 1 : self::DEFAULT_RANGE ), $days );
+		$payload['locked'] = false;
+		// Runtime byte-budget backstop — the §6.2 ceiling survives future field growth.
+		return IWSL_Stats_Classifier::fit_timeseries_to_budget( $payload );
+	}
+
+	/** Validate `stats.summary` params: empty, or { range_days: 1|7|30 }. */
+	public static function validate_summary_params( $params ): bool {
+		$vars = get_object_vars( $params );
+		if ( array() === $vars ) {
+			return true;
+		}
+		if ( array() !== array_diff_key( $vars, array( 'range_days' => 1 ) ) ) {
+			return false;
+		}
+		return isset( $vars['range_days'] ) && is_int( $vars['range_days'] )
+			&& in_array( $vars['range_days'], self::ALLOWED_RANGES, true );
+	}
+
+	/** Validate `stats.timeseries` params: empty, or { days: 1..SERIES_DAYS }. */
+	public static function validate_timeseries_params( $params ): bool {
+		$vars = get_object_vars( $params );
+		if ( array() === $vars ) {
+			return true;
+		}
+		if ( array() !== array_diff_key( $vars, array( 'days' => 1 ) ) ) {
+			return false;
+		}
+		return isset( $vars['days'] ) && is_int( $vars['days'] )
+			&& $vars['days'] >= 1 && $vars['days'] <= IWSL_Stats_Classifier::SERIES_DAYS;
+	}
+
+	// ── visitor-consent context (S6; default OFF ⇒ no behavior change) ──────────
+
+	/**
+	 * Whether a consent context result means the visitor's pageview must NOT be recorded:
+	 * true only when the opt-in statistics-consent regime is ACTIVE and the visitor's
+	 * decision is not an explicit grant (declined, or — under opt-in — undecided). An
+	 * inactive context (the default) never declines, so recording is unchanged.
+	 *
+	 * @param mixed $consent The consent_ctx result.
+	 */
+	private static function consent_declines( $consent ): bool {
+		if ( ! is_array( $consent ) || empty( $consent['active'] ) ) {
+			return false;
+		}
+		return true !== ( isset( $consent['allows'] ) ? $consent['allows'] : null );
+	}
+
+	/**
+	 * The default visitor-consent context provider: a closure that, given a request
+	 * $server map, reports whether an opt-in "statistics" consent regime is in force on
+	 * this site and, if so, what the visitor's first-party consent cookie decided.
+	 *
+	 * The regime is "active" ONLY when the cookie_consent feature is UNLOCKED, ENABLED,
+	 * configured with an OPT-IN model, and declares the statistics category in use —
+	 * exactly the conditions under which a visitor is actually asked. Otherwise (the
+	 * default: the banner ships OFF) the context is inactive and changes nothing, so a
+	 * site that never enabled the banner keeps recording under the engine's cookieless,
+	 * DNT/GPC-honored basis. Side-effect free; short-circuits before building the consent
+	 * engine when the feature is locked, and no-ops entirely when the classes are absent.
+	 *
+	 * @return callable(array):array{active:bool,allows:?bool}
+	 */
+	private function default_consent_ctx(): callable {
+		$entitlements = $this->entitlements;
+		$store        = $this->store;
+		$now_ms       = $this->now_ms;
+		return static function ( array $server ) use ( $entitlements, $store, $now_ms ): array {
+			$inactive = array( 'active' => false, 'allows' => null );
+			if ( ! class_exists( 'IWSL_Cookie_Consent' ) || ! class_exists( 'IWSL_Consent_Classifier' ) ) {
+				return $inactive;
+			}
+			$gate = $entitlements->evaluate( IWSL_Cookie_Consent::FEATURE );
+			if ( empty( $gate['unlocked'] ) ) {
+				return $inactive; // no banner is shown → no statistics choice is collected.
+			}
+			$consent  = new IWSL_Cookie_Consent( $entitlements, $store, $now_ms, $server );
+			$settings = $consent->settings();
+			$active   = ! empty( $settings['enabled'] )
+				&& IWSL_Consent_Classifier::MODEL_OPT_IN === ( isset( $settings['default_model'] ) ? $settings['default_model'] : '' )
+				&& ! empty( $settings['categories']['statistics'] );
+			if ( ! $active ) {
+				return $inactive;
+			}
+			$raw    = self::read_consent_cookie( $server );
+			$allows = IWSL_Stats_Classifier::consent_allows_statistics( $raw, $consent->policy_version() );
+			return array( 'active' => true, 'allows' => $allows );
+		};
+	}
+
+	/** Read the first-party consent cookie from a request $server map's Cookie header, or null. */
+	private static function read_consent_cookie( array $server ): ?string {
+		$header = isset( $server['HTTP_COOKIE'] ) && is_string( $server['HTTP_COOKIE'] ) ? $server['HTTP_COOKIE'] : '';
+		if ( '' === $header ) {
+			return null;
+		}
+		$name = IWSL_Cookie_Consent::COOKIE_NAME;
+		foreach ( explode( ';', $header ) as $pair ) {
+			$eq = strpos( $pair, '=' );
+			if ( false === $eq ) {
+				continue;
+			}
+			if ( trim( substr( $pair, 0, $eq ) ) === $name ) {
+				return urldecode( trim( substr( $pair, $eq + 1 ) ) );
+			}
+		}
+		return null;
 	}
 
 	// ── render ─────────────────────────────────────────────────────────────────

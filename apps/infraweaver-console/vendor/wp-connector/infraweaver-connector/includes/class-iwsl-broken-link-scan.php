@@ -50,6 +50,11 @@ final class IWSL_Broken_Link_Scan {
 	/** Durable store key mirroring the last scan (survives transient expiry). */
 	const LAST_SCAN_KEY = 'broken_link_scan_last';
 
+	/** Single-flight lock key: a start timestamp (unix ms) while a scan is running. */
+	const SCAN_LOCK_KEY = 'broken_link_scan_lock';
+	/** How long a held lock is honoured before it is treated as stale and stolen. */
+	const SCAN_LOCK_TTL_MS = 30000;
+
 	/** Query flag a locked layer-2 POST redirects back with. */
 	const LOCKED_QUERY = 'iwsl_bls_locked';
 
@@ -59,6 +64,8 @@ final class IWSL_Broken_Link_Scan {
 	const MAX_LINKS = 200;
 	/** Wall-clock budget for one run; stop and report `partial` past this. */
 	const TIME_BUDGET_MS = 20000;
+	/** Lower clamp for a caller-supplied budget (the §5 HTTPS transport asks for less). */
+	const MIN_BUDGET_MS = 5000;
 	/** Per-request network timeout (seconds) — short, to stay within the budget. */
 	const REMOTE_TIMEOUT_S = 5;
 	/** Ceiling on hrefs extracted from a single post (bounds the regex work). */
@@ -146,21 +153,27 @@ final class IWSL_Broken_Link_Scan {
 	 * gate — nothing below it runs for a locked site, so no posts are read and no
 	 * network request is made. Returns a fresh immutable summary.
 	 *
+	 * @param int|null $budget_ms Optional wall-clock budget override, clamped to
+	 *                            [MIN_BUDGET_MS, TIME_BUDGET_MS]. The §5 HTTPS
+	 *                            transport asks for a lower budget than the exec one.
 	 * @return array Immutable summary { ok, scanned_posts, checked_links,
-	 *               broken_count, broken[], partial, elapsed_ms, max_posts, max_links }.
+	 *               broken_count, broken[], broken_images[], partial, elapsed_ms,
+	 *               max_posts, max_links, budget_ms }.
 	 */
-	public function scan(): array {
+	public function scan( ?int $budget_ms = null ): array {
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
 			return array(
-				'ok'           => false,
-				'reason'       => 'entitlement-locked',
-				'gate'         => $gate,
-				'broken_count' => 0,
-				'broken'       => array(),
+				'ok'            => false,
+				'reason'        => 'entitlement-locked',
+				'gate'          => $gate,
+				'broken_count'  => 0,
+				'broken'        => array(),
+				'broken_images' => array(),
 			);
 		}
 
+		$budget  = self::clamp_budget( $budget_ms );
 		$started = ( $this->now_ms )();
 		$summary = array(
 			'ok'            => true,
@@ -168,18 +181,20 @@ final class IWSL_Broken_Link_Scan {
 			'checked_links' => 0,
 			'broken_count'  => 0,
 			'broken'        => array(),
+			'broken_images' => array(),
 			'partial'       => false,
 			'elapsed_ms'    => 0,
 			'max_posts'     => self::MAX_POSTS,
 			'max_links'     => self::MAX_LINKS,
+			'budget_ms'     => $budget,
 			'generated_at'  => $this->now_seconds(),
 		);
 
 		$posts   = $this->posts();
-		$checked = array(); // url => true — dedupe across the whole run.
+		$checked = array(); // url => true — dedupe links + images across the whole run.
 
 		foreach ( $posts as $post ) {
-			if ( $this->over_budget( $started ) ) {
+			if ( $this->over_budget( $started, $budget ) ) {
 				$summary['partial'] = true;
 				break;
 			}
@@ -196,7 +211,7 @@ final class IWSL_Broken_Link_Scan {
 					$summary['partial'] = true;
 					break 2;
 				}
-				if ( $this->over_budget( $started ) ) {
+				if ( $this->over_budget( $started, $budget ) ) {
 					$summary['partial'] = true;
 					break 2;
 				}
@@ -214,11 +229,108 @@ final class IWSL_Broken_Link_Scan {
 					$summary = self::fold_broken( $summary, $post_id, $title, $url, $result['status'] );
 				}
 			}
+
+			// Images share the run's dedupe map, link budget and time budget, and the
+			// SAME SSRF-safe check path — an author-planted `<img src>` at an internal
+			// IP is refused before any request exactly like an `<a href>`. Broken
+			// images fold into broken_images[] (they feed the Media explorer's
+			// "broken" filter), NOT broken[] (which is anchors only).
+			foreach ( $this->extract_img_srcs( $content ) as $url ) {
+				if ( $summary['checked_links'] >= self::MAX_LINKS ) {
+					$summary['partial'] = true;
+					break 2;
+				}
+				if ( $this->over_budget( $started, $budget ) ) {
+					$summary['partial'] = true;
+					break 2;
+				}
+				if ( ! $this->is_checkable( $url ) ) {
+					continue;
+				}
+				if ( isset( $checked[ $url ] ) ) {
+					continue;
+				}
+				$checked[ $url ] = true;
+
+				$attachment_id = $this->resolve_attachment_id( $url );
+				$result        = ( null !== $attachment_id )
+					? array( 'broken' => false, 'status' => 200 )
+					: $this->check_link( $url );
+				$summary['checked_links']++;
+				if ( ! empty( $result['broken'] ) ) {
+					$summary = self::fold_broken_image( $summary, $post_id, $url, $attachment_id, $result['status'] );
+				}
+			}
+
 			$summary['scanned_posts']++;
 		}
 
 		$summary['elapsed_ms'] = max( 0, ( $this->now_ms )() - $started );
 		return $summary;
+	}
+
+	/**
+	 * Run one scan behind a single-flight lock, then persist it durably. A second
+	 * scan while one is in flight is refused politely (`scan-in-progress`) rather
+	 * than piling a second 20 s run onto the pod. The lock uses the store's atomic
+	 * add() and self-heals: a lock older than SCAN_LOCK_TTL_MS is treated as stale
+	 * and stolen (a crashed run never wedges scanning forever). A locked entitlement
+	 * still returns the engine's own refusal (scan() owns the authoritative gate).
+	 *
+	 * @param int|null $budget_ms Forwarded to scan() (clamped there).
+	 * @return array The scan summary, or a { ok:false, reason:'scan-in-progress' } refusal.
+	 */
+	public function scan_guarded( ?int $budget_ms = null ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return $this->scan( $budget_ms ); // Delegates the locked-gate refusal shape.
+		}
+
+		$now = ( $this->now_ms )();
+		if ( ! $this->store->add( self::SCAN_LOCK_KEY, $now ) ) {
+			$held = $this->store->get( self::SCAN_LOCK_KEY );
+			if ( is_int( $held ) && ( $now - $held ) < self::SCAN_LOCK_TTL_MS ) {
+				return array(
+					'ok'            => false,
+					'reason'        => 'scan-in-progress',
+					'broken_count'  => 0,
+					'broken'        => array(),
+					'broken_images' => array(),
+				);
+			}
+			$this->store->set( self::SCAN_LOCK_KEY, $now ); // Steal a stale lock.
+		}
+
+		try {
+			$summary = $this->scan( $budget_ms );
+			$this->store->set( self::LAST_SCAN_KEY, $summary );
+			return $summary;
+		} finally {
+			$this->store->delete( self::SCAN_LOCK_KEY );
+		}
+	}
+
+	/** Clamp a caller-supplied budget into [MIN_BUDGET_MS, TIME_BUDGET_MS]; null → default. */
+	private static function clamp_budget( ?int $budget_ms ): int {
+		if ( null === $budget_ms ) {
+			return self::TIME_BUDGET_MS;
+		}
+		return max( self::MIN_BUDGET_MS, min( self::TIME_BUDGET_MS, $budget_ms ) );
+	}
+
+	/**
+	 * Resolve an internal image URL to its attachment id via attachment_url_to_postid
+	 * (a live attachment is never broken), or null when it does not resolve — the URL
+	 * then falls through to the same SSRF-safe check_link() path as a link.
+	 */
+	private function resolve_attachment_id( string $url ): ?int {
+		if ( $this->is_internal( $url ) && function_exists( 'attachment_url_to_postid' ) ) {
+			$id = (int) attachment_url_to_postid( $url );
+			if ( $id > 0 ) {
+				return $id;
+			}
+		}
+		return null;
 	}
 
 	/** The last stored scan summary (durable store), or null. @return array|null */
@@ -439,6 +551,34 @@ final class IWSL_Broken_Link_Scan {
 		return $out;
 	}
 
+	/**
+	 * Extract unique `<img src>` URLs from post content, decoding HTML entities like
+	 * extract_hrefs so `&amp;` in a stored URL doesn't split it. Bounded to
+	 * MAX_LINKS_PER_POST. Mirrors the href extractor exactly — the only difference is
+	 * the attribute name — so images share the same bounded, entity-safe extraction.
+	 *
+	 * @return string[]
+	 */
+	private function extract_img_srcs( string $content ): array {
+		if ( ! preg_match_all( '/<img\b[^>]*\bsrc\s*=\s*(["\'])(.*?)\1/i', $content, $m ) ) {
+			return array();
+		}
+		$out  = array();
+		$seen = array();
+		foreach ( $m[2] as $raw ) {
+			$url = trim( html_entity_decode( (string) $raw, ENT_QUOTES | ENT_HTML5 ) );
+			if ( '' === $url || isset( $seen[ $url ] ) ) {
+				continue;
+			}
+			$seen[ $url ] = true;
+			$out[]        = $url;
+			if ( count( $out ) >= self::MAX_LINKS_PER_POST ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
 	// ── default WP-backed providers (all guarded) ───────────────────────────────
 
 	/**
@@ -543,9 +683,9 @@ final class IWSL_Broken_Link_Scan {
 
 	// ── helpers ─────────────────────────────────────────────────────────────────
 
-	/** Whether the wall-clock budget for the run has been exceeded. */
-	private function over_budget( int $started ): bool {
-		return ( ( $this->now_ms )() - $started ) >= self::TIME_BUDGET_MS;
+	/** Whether the (clamped) wall-clock budget for the run has been exceeded. */
+	private function over_budget( int $started, int $budget ): bool {
+		return ( ( $this->now_ms )() - $started ) >= $budget;
 	}
 
 	private function now_seconds(): int {
@@ -570,6 +710,35 @@ final class IWSL_Broken_Link_Scan {
 						'post_title' => $title,
 						'url'        => $url,
 						'status'     => is_int( $status ) ? $status : (string) $status,
+					),
+				)
+			);
+		}
+		return $next;
+	}
+
+	/**
+	 * Fold one broken image into the running summary, returning a NEW summary. Shape
+	 * (the contract the Media explorer's "broken" filter consumes):
+	 * `{ post_id:int, url:string, attachment_id:int|null, status:int|string }`.
+	 * Capped at MAX_LINKS like the broken-links list.
+	 *
+	 * @param int|string $status
+	 */
+	private static function fold_broken_image( array $summary, int $post_id, string $url, ?int $attachment_id, $status ): array {
+		$next = $summary;
+		if ( ! isset( $next['broken_images'] ) || ! is_array( $next['broken_images'] ) ) {
+			$next['broken_images'] = array();
+		}
+		if ( count( $next['broken_images'] ) < self::MAX_LINKS ) {
+			$next['broken_images'] = array_merge(
+				$next['broken_images'],
+				array(
+					array(
+						'post_id'       => $post_id,
+						'url'           => $url,
+						'attachment_id' => $attachment_id,
+						'status'        => is_int( $status ) ? $status : (string) $status,
 					),
 				)
 			);

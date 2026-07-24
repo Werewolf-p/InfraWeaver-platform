@@ -65,6 +65,17 @@ final class IWSL_Activity_Log {
 	/** The Plus admin page slug the PRG redirect returns to. */
 	const PAGE_SLUG = 'infraweaver-plus';
 
+	/** Signed `activity.log` wire caps (the console-polled newest-first tail). */
+	const WIRE_MAX_ENTRIES   = 100;
+	const WIRE_DEFAULT_LIMIT = 50;
+	/** Defensive per-field re-caps applied on the wire (tighter than storage). */
+	const WIRE_ACTOR_LEN   = 64;
+	const WIRE_ACTION_LEN  = 64;
+	const WIRE_OBJECT_LEN  = 160;
+	const WIRE_SUMMARY_LEN = 160;
+	/** Total byte budget for the JSON-encoded wire result — kept under the 16 KB snapshot cap. */
+	const WIRE_MAX_BYTES = 15000;
+
 	/** @var IWSL_Entitlements */
 	private $entitlements;
 
@@ -153,6 +164,61 @@ final class IWSL_Activity_Log {
 			}
 		}
 		return $out;
+	}
+
+	// ── signed-channel projection (read-only; console-polled) ──────────────────
+
+	/**
+	 * The read-only `activity.log` projection for the signed channel: the NEWEST entries
+	 * (up to $limit, hard-capped at WIRE_MAX_ENTRIES), each defensively re-capped, then
+	 * packed newest-first until adding the next entry would exceed a total byte budget
+	 * (WIRE_MAX_BYTES, under the 16 KB snapshot cap). The running budget means the result
+	 * can NEVER breach the §6.2 ceiling regardless of how large individual entries are —
+	 * the common case (short summaries) returns every requested entry. STATEMENT 1 is the
+	 * gate: a locked site answers a well-formed { locked:true, gate } (nothing else).
+	 *
+	 * @return array{ locked:bool, gate?:array, entries?:array<int,array{at:int,actor:string,action:string,object:string,summary:string}> }
+	 */
+	public function wire_log( int $limit ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'locked' => true, 'gate' => $gate );
+		}
+		$cap  = max( 0, min( $limit, self::WIRE_MAX_ENTRIES ) );
+		$rows = array_slice( array_reverse( $this->entries() ), 0, $cap ); // newest-first.
+
+		$entries = array();
+		$used    = 24; // {"locked":false,"entries":[]} wrapper overhead.
+		foreach ( $rows as $row ) {
+			$entry = array(
+				'at'      => (int) $row['at'],
+				'actor'   => self::clean_text( (string) $row['actor'], self::WIRE_ACTOR_LEN ),
+				'action'  => self::clean_text( (string) $row['action'], self::WIRE_ACTION_LEN ),
+				'object'  => self::clean_text( (string) $row['object'], self::WIRE_OBJECT_LEN ),
+				'summary' => self::clean_text( (string) $row['summary'], self::WIRE_SUMMARY_LEN ),
+			);
+			$encoded = function_exists( 'wp_json_encode' ) ? wp_json_encode( $entry ) : json_encode( $entry );
+			$size    = strlen( (string) $encoded ) + 1; // +1 for the joining comma.
+			if ( $used + $size > self::WIRE_MAX_BYTES ) {
+				break; // hard byte budget — never breach the ceiling.
+			}
+			$used     += $size;
+			$entries[] = $entry;
+		}
+		return array( 'locked' => false, 'entries' => $entries );
+	}
+
+	/** Validate `activity.log` params: empty, or { limit: 1..WIRE_MAX_ENTRIES }. */
+	public static function validate_log_params( $params ): bool {
+		$vars = get_object_vars( $params );
+		if ( array() === $vars ) {
+			return true;
+		}
+		if ( array() !== array_diff_key( $vars, array( 'limit' => 1 ) ) ) {
+			return false;
+		}
+		return isset( $vars['limit'] ) && is_int( $vars['limit'] )
+			&& $vars['limit'] >= 1 && $vars['limit'] <= self::WIRE_MAX_ENTRIES;
 	}
 
 	// ── event callbacks (STATEMENT 1 is the authoritative gate) ────────────────

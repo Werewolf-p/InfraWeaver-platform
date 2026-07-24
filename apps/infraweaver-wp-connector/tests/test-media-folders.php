@@ -45,6 +45,8 @@ $GLOBALS['iwsl_mf_no_edit']   = array();
 $GLOBALS['iwsl_mf_registered'] = array();
 $GLOBALS['iwsl_mf_next_term'] = 100;
 $GLOBALS['iwsl_mf_can']       = true;
+$GLOBALS['iwsl_mf_meta']      = array(); // postmeta store (fused optimizer/offload markers).
+$GLOBALS['iwsl_mf_opt']       = array(); // options store (the optimizer's background job).
 
 /** Wipe every mutable global so each section starts from a clean slate. */
 function iwsl_mf_reset(): void {
@@ -57,6 +59,8 @@ function iwsl_mf_reset(): void {
 	$GLOBALS['iwsl_mf_registered'] = array();
 	$GLOBALS['iwsl_mf_next_term']  = 100;
 	$GLOBALS['iwsl_mf_can']        = true;
+	$GLOBALS['iwsl_mf_meta']       = array();
+	$GLOBALS['iwsl_mf_opt']        = array();
 }
 
 // ── fake WP_Error + is_wp_error ───────────────────────────────────────────────
@@ -444,6 +448,68 @@ if ( ! function_exists( 'delete_term_meta' ) ) {
 	}
 }
 
+// ── postmeta store (the fused optimizer/offload markers the read-model reads) ──
+if ( ! function_exists( 'get_post_meta' ) ) {
+	function get_post_meta( $post_id, $key = '', $single = false ) {
+		$all = $GLOBALS['iwsl_mf_meta'][ (int) $post_id ] ?? array();
+		if ( '' === $key ) {
+			return $all;
+		}
+		if ( ! array_key_exists( $key, $all ) ) {
+			return $single ? '' : array();
+		}
+		return $single ? $all[ $key ] : array( $all[ $key ] );
+	}
+}
+if ( ! function_exists( 'update_post_meta' ) ) {
+	function update_post_meta( $post_id, $key, $value, $prev = '' ) {
+		$GLOBALS['iwsl_mf_meta'][ (int) $post_id ][ (string) $key ] = $value;
+		return true;
+	}
+}
+if ( ! function_exists( 'delete_post_meta' ) ) {
+	function delete_post_meta( $post_id, $key, $value = '' ) {
+		unset( $GLOBALS['iwsl_mf_meta'][ (int) $post_id ][ (string) $key ] );
+		return true;
+	}
+}
+
+// ── options + cron stubs — so the REAL optimizer/offload engines the fusion bulk
+//    verbs construct can run deterministically (all engine calls are fn-exists-guarded,
+//    but backing these makes the background-job path observable). ─────────────────
+if ( ! function_exists( 'get_option' ) ) {
+	function get_option( $key, $default = false ) {
+		return $GLOBALS['iwsl_mf_opt'][ (string) $key ] ?? $default;
+	}
+}
+if ( ! function_exists( 'update_option' ) ) {
+	function update_option( $key, $value, $autoload = null ) {
+		$GLOBALS['iwsl_mf_opt'][ (string) $key ] = $value;
+		return true;
+	}
+}
+if ( ! function_exists( 'delete_option' ) ) {
+	function delete_option( $key ) {
+		unset( $GLOBALS['iwsl_mf_opt'][ (string) $key ] );
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_next_scheduled' ) ) {
+	function wp_next_scheduled( $hook, $args = array() ) {
+		return false;
+	}
+}
+if ( ! function_exists( 'wp_schedule_single_event' ) ) {
+	function wp_schedule_single_event( $timestamp, $hook, $args = array() ) {
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_clear_scheduled_hook' ) ) {
+	function wp_clear_scheduled_hook( $hook, $args = array() ) {
+		return 0;
+	}
+}
+
 // ── attachment / capability / sanitize surface ────────────────────────────────
 
 if ( ! function_exists( 'get_post_type' ) ) {
@@ -556,6 +622,7 @@ if ( ! class_exists( 'WP_Query' ) ) {
 			$mime   = isset( $args['post_mime_type'] ) ? $args['post_mime_type'] : '';
 			$search = isset( $args['s'] ) ? (string) $args['s'] : '';
 			$tq     = isset( $args['tax_query'] ) && is_array( $args['tax_query'] ) ? $args['tax_query'] : array();
+			$mq     = isset( $args['meta_query'] ) && is_array( $args['meta_query'] ) ? $args['meta_query'] : array();
 
 			$matched = array();
 			foreach ( $GLOBALS['iwsl_mf_att'] as $id => $rec ) {
@@ -571,6 +638,9 @@ if ( ! class_exists( 'WP_Query' ) ) {
 					}
 				}
 				if ( ! self::tax_match( $id, $tq ) ) {
+					continue;
+				}
+				if ( ! self::meta_match( $id, $mq ) ) {
 					continue;
 				}
 				$matched[] = $id;
@@ -602,6 +672,40 @@ if ( ! class_exists( 'WP_Query' ) ) {
 				}
 			}
 			return false;
+		}
+
+		/**
+		 * Honor the fused optimization/offload meta_query: EXISTS / NOT EXISTS on a
+		 * postmeta key (a non-empty stored value counts as "exists"). Mirrors how the
+		 * engine composes IWSL_Media_Library-style clauses; relation defaults to AND.
+		 */
+		private static function meta_match( int $obj, array $mq ): bool {
+			$relation = 'AND';
+			$clauses  = array();
+			foreach ( $mq as $k => $clause ) {
+				if ( 'relation' === $k ) {
+					$relation = strtoupper( (string) $clause );
+					continue;
+				}
+				if ( is_array( $clause ) && isset( $clause['key'] ) ) {
+					$clauses[] = $clause;
+				}
+			}
+			if ( ! $clauses ) {
+				return true;
+			}
+			$results = array();
+			foreach ( $clauses as $c ) {
+				$key     = (string) $c['key'];
+				$op      = strtoupper( (string) ( $c['compare'] ?? 'EXISTS' ) );
+				$val     = $GLOBALS['iwsl_mf_meta'][ $obj ][ $key ] ?? null;
+				$present = ( null !== $val && '' !== $val && array() !== $val );
+				$results[] = ( 'NOT EXISTS' === $op ) ? ! $present : $present;
+			}
+			if ( 'OR' === $relation ) {
+				return in_array( true, $results, true );
+			}
+			return ! in_array( false, $results, true );
 		}
 
 		private static function tax_match( int $obj, array $tq ): bool {
@@ -1141,3 +1245,307 @@ iwsl_assert_same( $before_merge, serialize( $GLOBALS['iwsl_mf_att'] ), 'tag_merg
 iwsl_assert_same( 'merge-into-self', $eng->merge_tags( $cat, $cat )['reason'], 'tag_merge: refuses merging a tag into itself' );
 iwsl_assert_same( false, $eng->merge_tags( 999001, $cat )['ok'], 'tag_merge: unknown source id rejected' );
 iwsl_assert_same( 'entitlement-locked', iwsl_mf_engine( iwsl_mf_locked( $MF_NOW ) )->merge_tags( $cat, $cat )['reason'], 'tag_merge: locked site rejects with the gate reason' );
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 9. PHONE-FIRST UPGRADE — the 4 new AJAX handlers + folder accent (set_folder_style).
+//    The handlers echo through wp_send_json_success / _error; we stub both to THROW
+//    (like WordPress halts) so we can assert exactly which envelope each handler
+//    reaches. detail_* delegate to IWSL_Media_Detail; folder_style to set_folder_style.
+// ══════════════════════════════════════════════════════════════════════════════
+
+if ( ! class_exists( 'IWSL_MF_Ajax_Stop' ) ) {
+	final class IWSL_MF_Ajax_Stop extends Exception {}
+}
+if ( ! function_exists( 'wp_send_json_success' ) ) {
+	function wp_send_json_success( $data = null, $status_code = null ) {
+		$GLOBALS['iwsl_mf_json'] = array( 'success' => true, 'data' => $data );
+		throw new IWSL_MF_Ajax_Stop( 'ok' );
+	}
+}
+if ( ! function_exists( 'wp_send_json_error' ) ) {
+	function wp_send_json_error( $data = null, $status_code = null ) {
+		$reason = ( is_array( $data ) && isset( $data['reason'] ) ) ? (string) $data['reason'] : 'error';
+		$GLOBALS['iwsl_mf_json'] = array( 'success' => false, 'data' => $data );
+		throw new IWSL_MF_Ajax_Stop( $reason );
+	}
+}
+
+/** Run an AJAX handler, returning the JSON-stop reason ('ok' | error reason | 'NO-STOP'). */
+function iwsl_mf_run_handler( callable $fn ): string {
+	$GLOBALS['iwsl_mf_json'] = null;
+	try {
+		$fn();
+	} catch ( IWSL_MF_Ajax_Stop $e ) {
+		return $e->getMessage();
+	}
+	return 'NO-STOP';
+}
+
+iwsl_mf_reset();
+$eng    = iwsl_mf_engine( iwsl_mf_unlocked( $MF_NOW ) );
+$mf_img = 3101;
+iwsl_mf_add_attachment( $mf_img );
+$mf_fid = iwsl_mf_make( $eng, 'Accent Folder' );
+
+// ── handle_detail_get_ajax ────────────────────────────────────────────────────
+$_POST = array( 'id' => (string) $mf_img, 'nonce' => 'n' );
+iwsl_assert_same( 'ok', iwsl_mf_run_handler( array( $eng, 'handle_detail_get_ajax' ) ), 'detail_get: happy path reaches the success envelope' );
+iwsl_assert( is_array( $GLOBALS['iwsl_mf_json'] ) && true === $GLOBALS['iwsl_mf_json']['success'], 'detail_get: envelope is success:true' );
+
+$_POST = array( 'id' => '0', 'nonce' => 'n' );
+iwsl_assert_same( 'bad-id', iwsl_mf_run_handler( array( $eng, 'handle_detail_get_ajax' ) ), 'detail_get: id<=0 rejected with bad-id' );
+
+// ── handle_detail_save_ajax (foreign field keys are dropped by the allowlist) ──
+$_POST = array( 'id' => (string) $mf_img, 'expect_modified' => '', 'fields' => array( 'alt' => 'A kitten', 'bogus' => 'x' ), 'nonce' => 'n' );
+iwsl_assert_same( 'ok', iwsl_mf_run_handler( array( $eng, 'handle_detail_save_ajax' ) ), 'detail_save: happy path (one real field) reaches the success envelope' );
+
+$_POST = array( 'id' => (string) $mf_img, 'fields' => array( 'nope' => 'x' ), 'nonce' => 'n' );
+iwsl_assert_same( 'no-fields', iwsl_mf_run_handler( array( $eng, 'handle_detail_save_ajax' ) ), 'detail_save: only foreign field keys → no-fields' );
+
+// ── handle_detail_delete_ajax (confirm-fenced in the delegate) ────────────────
+$_POST = array( 'id' => (string) $mf_img, 'confirm' => '1', 'nonce' => 'n' );
+iwsl_assert_same( 'ok', iwsl_mf_run_handler( array( $eng, 'handle_detail_delete_ajax' ) ), 'detail_delete: happy path (confirm) reaches the success envelope' );
+
+$_POST = array( 'confirm' => '1', 'nonce' => 'n' );
+iwsl_assert_same( 'bad-id', iwsl_mf_run_handler( array( $eng, 'handle_detail_delete_ajax' ) ), 'detail_delete: missing id rejected with bad-id' );
+
+// ── handle_folder_style_ajax + set_folder_style (folder accent, strict allowlist) ─
+$mf_color = IWSL_Media_Folders::FOLDER_COLORS[3];
+$_POST    = array( 'id' => (string) $mf_fid, 'color' => $mf_color, 'nonce' => 'n' );
+iwsl_assert_same( 'ok', iwsl_mf_run_handler( array( $eng, 'handle_folder_style_ajax' ) ), 'folder_style: happy path reaches the success envelope' );
+iwsl_assert_same( $mf_color, $GLOBALS['iwsl_mf_json']['data']['folder']['color'] ?? '', 'folder_style: stored colour echoed back in the envelope' );
+
+// The accent is now surfaced by folder_tree() so the client can render it.
+$mf_tree_color = '';
+foreach ( $eng->folder_tree()['folders'] as $mf_f ) {
+	if ( (int) $mf_f['id'] === $mf_fid ) {
+		$mf_tree_color = $mf_f['color'];
+	}
+}
+iwsl_assert_same( $mf_color, $mf_tree_color, 'folder_style: folder_tree() surfaces the accent colour on the folder DTO' );
+
+// An allowlisted emoji is also accepted.
+iwsl_assert_same( true, $eng->set_folder_style( $mf_fid, IWSL_Media_Folders::FOLDER_EMOJI[0] )['ok'], 'folder_style: an allowlisted emoji is accepted' );
+
+// Rejected-invalid-input: anything NOT in the allowlists is refused with bad-color.
+iwsl_assert_same( 'bad-color', $eng->set_folder_style( $mf_fid, '#zzzzzz' )['reason'], 'folder_style: a non-allowlisted hex is rejected (bad-color)' );
+iwsl_assert_same( 'bad-color', $eng->set_folder_style( $mf_fid, 'red' )['reason'], 'folder_style: a bare CSS keyword is rejected (bad-color)' );
+iwsl_assert_same( 'bad-color', $eng->set_folder_style( $mf_fid, '#3fc9d4; background:url(x)' )['reason'], 'folder_style: a CSS-injection attempt is rejected (bad-color)' );
+iwsl_assert_same( 'bad-color', $eng->set_folder_style( $mf_fid, '🦄' )['reason'], 'folder_style: a non-allowlisted emoji is rejected (bad-color)' );
+
+// Empty value clears the accent (allowed); unknown folder + locked gate are refused.
+iwsl_assert_same( true, $eng->set_folder_style( $mf_fid, '' )['ok'], 'folder_style: empty value clears the accent (ok)' );
+iwsl_assert_same( 'not-found', $eng->set_folder_style( 999999, $mf_color )['reason'], 'folder_style: unknown folder id rejected (not-found)' );
+iwsl_assert_same( 'entitlement-locked', iwsl_mf_engine( iwsl_mf_locked( $MF_NOW ) )->set_folder_style( $mf_fid, $mf_color )['reason'], 'folder_style: locked site rejects with the gate reason' );
+
+// ── rejected-CAP path: STATEMENT 1 (manage_options) fails closed for every handler ─
+$GLOBALS['iwsl_mf_can'] = false;
+$_POST                  = array( 'id' => (string) $mf_fid, 'color' => $mf_color, 'nonce' => 'n' );
+iwsl_assert_same( 'forbidden', iwsl_mf_run_handler( array( $eng, 'handle_folder_style_ajax' ) ), 'folder_style AJAX: manage_options denied → forbidden (statement 1)' );
+$_POST                  = array( 'id' => (string) $mf_img, 'nonce' => 'n' );
+iwsl_assert_same( 'forbidden', iwsl_mf_run_handler( array( $eng, 'handle_detail_get_ajax' ) ), 'detail_get AJAX: manage_options denied → forbidden (statement 1)' );
+$GLOBALS['iwsl_mf_can'] = true;
+$_POST                  = array();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 10. CDN + LOSSLESS FUSION — status enrichment, opt/off filters, select-all,
+//     and the three bulk verbs (each delegating to the real optimizer / offload
+//     engines, constructed exactly as the bootstrap wires them).
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Unlocked gate granting BOTH media_folders AND the sibling image_optimization flag. */
+function iwsl_mf_unlocked_opt( int $now ): IWSL_Entitlements {
+	$store = new IWSL_Memory_Store();
+	$store->set( 'state', 'active' );
+	$store->set( 'last_verified_at', $now - 60000 );
+	$store->set( 'entitlements', array( 'plus' => true, 'media_folders' => true, 'image_optimization' => true ) );
+	return new IWSL_Entitlements( $store, static function () use ( $now ): int {
+		return $now;
+	} );
+}
+
+/** Stamp an attachment's optimizer "lossless" marker (as the optimizer would). */
+function iwsl_mf_mark_opt( int $id ): void {
+	$GLOBALS['iwsl_mf_meta'][ $id ][ IWSL_Media_Folders::OPT_META ] = array( 'converter' => 'webp_lossless', 'bytes_in' => 100, 'bytes_out' => 40 );
+}
+
+/** Stamp an attachment's offload "on CDN" marker (a non-empty bucket key, as offload would). */
+function iwsl_mf_mark_cdn( int $id ): void {
+	$GLOBALS['iwsl_mf_meta'][ $id ][ IWSL_Media_Folders::OFFLOAD_META ] = array( 'key' => 'uploads/photo' . $id . '.webp', 'url' => 'https://cdn.test/' . $id );
+}
+
+/** Extract a sorted id list from a query_media / items result. */
+function iwsl_mf_ids( array $items ): array {
+	$ids = array_map( static function ( array $it ): int {
+		return (int) $it['id'];
+	}, $items );
+	sort( $ids );
+	return $ids;
+}
+
+// ── status enrichment: lossless/cdn present when image_optimization is unlocked ──
+iwsl_mf_reset();
+$fx = iwsl_mf_engine( iwsl_mf_unlocked_opt( $MF_NOW ) );
+iwsl_mf_add_attachment( 8001 );
+iwsl_mf_add_attachment( 8002 );
+iwsl_mf_mark_opt( 8001 );
+iwsl_mf_mark_cdn( 8001 );
+$fx_items = $fx->query_media( array( 'folder_id' => -1, 'per_page' => 50 ) )['items'];
+$fx_8001  = array();
+$fx_8002  = array();
+foreach ( $fx_items as $it ) {
+	if ( 8001 === (int) $it['id'] ) {
+		$fx_8001 = $it;
+	}
+	if ( 8002 === (int) $it['id'] ) {
+		$fx_8002 = $it;
+	}
+}
+iwsl_assert_same( true, $fx_8001['lossless'] ?? null, 'enrich: optimized attachment is lossless=true' );
+iwsl_assert_same( true, $fx_8001['cdn'] ?? null, 'enrich: offloaded attachment is cdn=true' );
+iwsl_assert_same( false, $fx_8002['lossless'] ?? null, 'enrich: plain attachment is lossless=false' );
+iwsl_assert_same( false, $fx_8002['cdn'] ?? null, 'enrich: plain attachment is cdn=false' );
+
+// Locked (media_folders on, image_optimization ABSENT) → the fused keys are OMITTED.
+$fx_locked_items = iwsl_mf_engine( iwsl_mf_unlocked( $MF_NOW ) )->query_media( array( 'folder_id' => -1, 'per_page' => 50 ) )['items'];
+$fx_first        = $fx_locked_items[0] ?? array();
+iwsl_assert_same( false, array_key_exists( 'lossless', $fx_first ), 'enrich: image_optimization locked → lossless key omitted (no leak)' );
+iwsl_assert_same( false, array_key_exists( 'cdn', $fx_first ), 'enrich: image_optimization locked → cdn key omitted (no leak)' );
+
+// ── filter meta_query correctness (EXISTS / NOT EXISTS on the two markers) ───────
+iwsl_mf_reset();
+$ff = iwsl_mf_engine( iwsl_mf_unlocked_opt( $MF_NOW ) );
+iwsl_mf_add_attachment( 8101 ); // optimized, local
+iwsl_mf_add_attachment( 8102 ); // unoptimized, local
+iwsl_mf_add_attachment( 8103 ); // optimized, offloaded
+iwsl_mf_add_attachment( 8104 ); // unoptimized, offloaded
+iwsl_mf_mark_opt( 8101 );
+iwsl_mf_mark_opt( 8103 );
+iwsl_mf_mark_cdn( 8103 );
+iwsl_mf_mark_cdn( 8104 );
+
+$q_opt = $ff->query_media( array( 'folder_id' => -1, 'per_page' => 50, 'opt_filter' => 'optimized' ) );
+iwsl_assert_same( array( 8101, 8103 ), iwsl_mf_ids( $q_opt['items'] ), 'filter: opt_filter=optimized → EXISTS matches only optimized ids' );
+iwsl_assert_same( 2, $q_opt['total'], 'filter: opt_filter=optimized total=2' );
+
+$q_unopt = $ff->query_media( array( 'folder_id' => -1, 'per_page' => 50, 'opt_filter' => 'unoptimized' ) );
+iwsl_assert_same( array( 8102, 8104 ), iwsl_mf_ids( $q_unopt['items'] ), 'filter: opt_filter=unoptimized → NOT EXISTS matches only un-optimized ids' );
+
+$q_off = $ff->query_media( array( 'folder_id' => -1, 'per_page' => 50, 'off_filter' => 'offloaded' ) );
+iwsl_assert_same( array( 8103, 8104 ), iwsl_mf_ids( $q_off['items'] ), 'filter: off_filter=offloaded → EXISTS matches only offloaded ids' );
+
+$q_local = $ff->query_media( array( 'folder_id' => -1, 'per_page' => 50, 'off_filter' => 'local' ) );
+iwsl_assert_same( array( 8101, 8102 ), iwsl_mf_ids( $q_local['items'] ), 'filter: off_filter=local → NOT EXISTS matches only local ids' );
+
+$q_both = $ff->query_media( array( 'folder_id' => -1, 'per_page' => 50, 'opt_filter' => 'unoptimized', 'off_filter' => 'local' ) );
+iwsl_assert_same( array( 8102 ), iwsl_mf_ids( $q_both['items'] ), 'filter: unoptimized + local compose (AND) to the single matching id' );
+
+$q_bogus = $ff->query_media( array( 'folder_id' => -1, 'per_page' => 50, 'opt_filter' => 'bogus', 'off_filter' => 'nope' ) );
+iwsl_assert_same( 4, $q_bogus['total'], 'filter: out-of-vocabulary filter values fall back to "all" (no clause)' );
+
+// ── select-all-matching: respects the filter + is capped at SELECT_ALL_MAX ───────
+$sa = $ff->select_all_ids( array( 'folder_id' => -1, 'opt_filter' => 'unoptimized' ) );
+iwsl_assert_same( array( 8102, 8104 ), ( function ( array $ids ) {
+	sort( $ids );
+	return $ids;
+} )( $sa['ids'] ), 'select_all: returns EXACTLY the filtered ids across pages' );
+iwsl_assert_same( false, $sa['truncated'], 'select_all: not truncated when under the cap' );
+iwsl_assert_same( 2, $sa['total'], 'select_all: total reflects the filtered match count' );
+
+// Locked media_folders → an empty select-all set.
+iwsl_assert_same( array(), iwsl_mf_engine( iwsl_mf_locked( $MF_NOW ) )->select_all_ids( array( 'folder_id' => -1 ) )['ids'], 'select_all: locked media_folders returns no ids' );
+
+// Cap: more matches than SELECT_ALL_MAX → the set is capped + truncated=true.
+iwsl_mf_reset();
+$fc = iwsl_mf_engine( iwsl_mf_unlocked_opt( $MF_NOW ) );
+$fc_over = IWSL_Media_Folders::SELECT_ALL_MAX + 5;
+for ( $i = 1; $i <= $fc_over; $i++ ) {
+	iwsl_mf_add_attachment( 20000 + $i );
+}
+$fc_sa = $fc->select_all_ids( array( 'folder_id' => -1 ) );
+iwsl_assert_same( IWSL_Media_Folders::SELECT_ALL_MAX, count( $fc_sa['ids'] ), 'select_all: id set is capped at SELECT_ALL_MAX' );
+iwsl_assert_same( true, $fc_sa['truncated'], 'select_all: truncated=true when more match than the cap' );
+iwsl_assert_same( $fc_over, $fc_sa['total'], 'select_all: total reports the FULL match count even when capped' );
+
+// ── bulk verbs (model) — happy path, cap-denied, and the two gates ───────────────
+iwsl_mf_reset();
+$fb = iwsl_mf_engine( iwsl_mf_unlocked_opt( $MF_NOW ) );
+iwsl_mf_add_attachment( 11 );
+iwsl_mf_add_attachment( 12 );
+
+// bulk_optimize → schedules the background job (queued count echoed).
+$b_opt = $fb->bulk_optimize( array( 11, 12 ) );
+iwsl_assert_same( true, $b_opt['ok'], 'bulk_optimize: happy path ok=true' );
+iwsl_assert_same( 2, $b_opt['queued'] ?? 0, 'bulk_optimize: queued reports the validated id count' );
+
+// bulk_offload → loops offload_one; the tally shape is present (0 offloaded / 2 tried here).
+$b_off = $fb->bulk_offload( array( 11, 12 ) );
+iwsl_assert_same( true, $b_off['ok'], 'bulk_offload: happy path ok=true' );
+iwsl_assert_same( 2, $b_off['total'] ?? -1, 'bulk_offload: total tally == validated id count' );
+iwsl_assert_same( true, array_key_exists( 'offloaded', $b_off ), 'bulk_offload: carries an offloaded tally' );
+
+// bulk_restore → loops unoffload_one (a not-offloaded id is an ok no-op).
+$b_res = $fb->bulk_restore( array( 11, 12 ) );
+iwsl_assert_same( true, $b_res['ok'], 'bulk_restore: happy path ok=true' );
+iwsl_assert_same( 2, $b_res['restored'] ?? -1, 'bulk_restore: not-offloaded ids restore as ok no-ops' );
+
+// Cap-denied — over the engines' own caps (optimizer MAX_REQUEST / offload BULK_MAX).
+$over_opt = range( 1, 201 );
+$over_off = range( 1, 51 );
+iwsl_assert_same( 'too-many', $fb->bulk_optimize( $over_opt )['reason'], 'bulk_optimize: > optimizer MAX_REQUEST is rejected (too-many)' );
+iwsl_assert_same( 'too-many', $fb->bulk_offload( $over_off )['reason'], 'bulk_offload: > offload BULK_MAX is rejected (too-many)' );
+iwsl_assert_same( 'too-many', $fb->bulk_restore( $over_off )['reason'], 'bulk_restore: > offload BULK_MAX is rejected (too-many)' );
+
+// No ids.
+iwsl_assert_same( 'no-ids', $fb->bulk_optimize( array() )['reason'], 'bulk_optimize: empty id set rejected (no-ids)' );
+
+// image_optimization LOCKED (media_folders on, opt off) → the second gate refuses.
+$fb_optlocked = iwsl_mf_engine( iwsl_mf_unlocked( $MF_NOW ) );
+iwsl_assert_same( 'optimization-locked', $fb_optlocked->bulk_optimize( array( 11 ) )['reason'], 'bulk_optimize: image_optimization locked → optimization-locked' );
+iwsl_assert_same( 'optimization-locked', $fb_optlocked->bulk_offload( array( 11 ) )['reason'], 'bulk_offload: image_optimization locked → optimization-locked' );
+iwsl_assert_same( 'optimization-locked', $fb_optlocked->bulk_restore( array( 11 ) )['reason'], 'bulk_restore: image_optimization locked → optimization-locked' );
+
+// media_folders LOCKED → the FIRST gate refuses (statement 1).
+$fb_folderlocked = iwsl_mf_engine( iwsl_mf_locked( $MF_NOW ) );
+iwsl_assert_same( 'entitlement-locked', $fb_folderlocked->bulk_optimize( array( 11 ) )['reason'], 'bulk_optimize: media_folders locked → entitlement-locked (statement 1)' );
+
+// ── bulk verbs (AJAX handlers) — envelope, manage_options + the opt gate ─────────
+iwsl_mf_reset();
+$eh = iwsl_mf_engine( iwsl_mf_unlocked_opt( $MF_NOW ) );
+iwsl_mf_add_attachment( 11 );
+iwsl_mf_add_attachment( 12 );
+
+$_POST = array( 'ids' => array( '11', '12' ), 'nonce' => 'n' );
+iwsl_assert_same( 'ok', iwsl_mf_run_handler( array( $eh, 'handle_bulk_optimize_ajax' ) ), 'bulk_optimize AJAX: happy path reaches the success envelope' );
+iwsl_assert_same( true, $GLOBALS['iwsl_mf_json']['data']['ok'] ?? null, 'bulk_optimize AJAX: envelope carries ok=true' );
+
+$_POST = array( 'ids' => array( '11', '12' ), 'nonce' => 'n' );
+iwsl_assert_same( 'ok', iwsl_mf_run_handler( array( $eh, 'handle_bulk_offload_ajax' ) ), 'bulk_offload AJAX: happy path reaches the success envelope' );
+
+$_POST = array( 'ids' => array( '11', '12' ), 'nonce' => 'n' );
+iwsl_assert_same( 'ok', iwsl_mf_run_handler( array( $eh, 'handle_bulk_restore_ajax' ) ), 'bulk_restore AJAX: happy path reaches the success envelope' );
+
+$_POST = array( 'nonce' => 'n' );
+iwsl_assert_same( 'ok', iwsl_mf_run_handler( array( $eh, 'handle_optimize_status_ajax' ) ), 'optimize_status AJAX: happy path reaches the success envelope' );
+iwsl_assert_same( true, array_key_exists( 'status', (array) ( $GLOBALS['iwsl_mf_json']['data'] ?? array() ) ), 'optimize_status AJAX: envelope carries background_state (status key)' );
+
+$_POST = array( 'folder_id' => '-1', 'opt_filter' => 'unoptimized', 'nonce' => 'n' );
+iwsl_assert_same( 'ok', iwsl_mf_run_handler( array( $eh, 'handle_select_all_ajax' ) ), 'select_all AJAX: happy path reaches the success envelope' );
+iwsl_assert_same( true, array_key_exists( 'ids', (array) ( $GLOBALS['iwsl_mf_json']['data'] ?? array() ) ), 'select_all AJAX: envelope carries the id list' );
+
+// manage_options denied → forbidden (statement 1 of the guard, for every fusion handler).
+$GLOBALS['iwsl_mf_can'] = false;
+$_POST                  = array( 'ids' => array( '11' ), 'nonce' => 'n' );
+iwsl_assert_same( 'forbidden', iwsl_mf_run_handler( array( $eh, 'handle_bulk_optimize_ajax' ) ), 'bulk_optimize AJAX: manage_options denied → forbidden' );
+iwsl_assert_same( 'forbidden', iwsl_mf_run_handler( array( $eh, 'handle_bulk_offload_ajax' ) ), 'bulk_offload AJAX: manage_options denied → forbidden' );
+iwsl_assert_same( 'forbidden', iwsl_mf_run_handler( array( $eh, 'handle_bulk_restore_ajax' ) ), 'bulk_restore AJAX: manage_options denied → forbidden' );
+iwsl_assert_same( 'forbidden', iwsl_mf_run_handler( array( $eh, 'handle_optimize_status_ajax' ) ), 'optimize_status AJAX: manage_options denied → forbidden' );
+$GLOBALS['iwsl_mf_can'] = true;
+
+// image_optimization locked → opt_guard fires AFTER ajax_guard → optimization-locked.
+$eh_optlocked = iwsl_mf_engine( iwsl_mf_unlocked( $MF_NOW ) );
+$_POST        = array( 'ids' => array( '11' ), 'nonce' => 'n' );
+iwsl_assert_same( 'optimization-locked', iwsl_mf_run_handler( array( $eh_optlocked, 'handle_bulk_optimize_ajax' ) ), 'bulk_optimize AJAX: image_optimization locked → optimization-locked (opt gate)' );
+iwsl_assert_same( 'optimization-locked', iwsl_mf_run_handler( array( $eh_optlocked, 'handle_bulk_offload_ajax' ) ), 'bulk_offload AJAX: image_optimization locked → optimization-locked (opt gate)' );
+iwsl_assert_same( 'optimization-locked', iwsl_mf_run_handler( array( $eh_optlocked, 'handle_bulk_restore_ajax' ) ), 'bulk_restore AJAX: image_optimization locked → optimization-locked (opt gate)' );
+$_POST = array();

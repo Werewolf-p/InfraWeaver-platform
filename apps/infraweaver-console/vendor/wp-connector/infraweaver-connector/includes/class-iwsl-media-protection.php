@@ -705,6 +705,109 @@ final class IWSL_Media_Protection {
 		);
 	}
 
+	/** Per-call cap on ids for the signed `media.protect` command (bounded envelope). */
+	const PROTECT_WIRE_MAX = 50;
+
+	/**
+	 * True when $id is a real attachment — the only post type that carries the
+	 * protection mark. Fails closed for a missing id, a non-attachment type, or when
+	 * get_post is unavailable.
+	 */
+	private static function is_attachment( int $id ): bool {
+		if ( $id <= 0 || ! function_exists( 'get_post' ) ) {
+			return false;
+		}
+		$post = get_post( $id );
+		return is_object( $post ) && isset( $post->post_type ) && 'attachment' === $post->post_type;
+	}
+
+	/**
+	 * Set (or clear) the protection mark on a bounded list of attachment ids — the
+	 * shared contract behind the signed `media.protect` command AND the security /
+	 * consent domain's protection surface (ONE method, not two). STATEMENT 1 is the
+	 * entitlement gate; a locked site returns `{ locked, gate }`. Terms-free, meta-only:
+	 * touches solely `_iwsl_protected`, never the attachment file or any other meta.
+	 * Ids are re-validated here (untrusted) and capped at PROTECT_WIRE_MAX.
+	 *
+	 * @param int[] $ids
+	 * @return array{ ok:bool, locked?:bool, gate?:array, changed?:int, protected?:bool, results?:array }
+	 */
+	public function set_protected( array $ids, bool $protected ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'locked' => true, 'gate' => $gate );
+		}
+
+		$clean   = array();
+		foreach ( $ids as $raw ) {
+			$id = (int) $raw;
+			if ( $id > 0 && ! in_array( $id, $clean, true ) ) {
+				$clean[] = $id;
+				if ( count( $clean ) >= self::PROTECT_WIRE_MAX ) {
+					break;
+				}
+			}
+		}
+
+		$results = array();
+		$changed = 0;
+		foreach ( $clean as $id ) {
+			// Only real attachments carry the protection mark — skip any id that is
+			// not an attachment so `_iwsl_protected` can never be seeded on a post,
+			// page, or a since-deleted id (no orphan meta rows).
+			if ( ! self::is_attachment( $id ) ) {
+				continue;
+			}
+			if ( $protected && function_exists( 'update_post_meta' ) ) {
+				update_post_meta( $id, self::META_KEY, '1' );
+			} elseif ( ! $protected && function_exists( 'delete_post_meta' ) ) {
+				delete_post_meta( $id, self::META_KEY );
+			}
+			$results[] = array( 'id' => $id, 'protected' => $protected );
+			++$changed;
+		}
+
+		return array(
+			'ok'        => true,
+			'changed'   => $changed,
+			'protected' => $protected,
+			'results'   => $results,
+		);
+	}
+
+	/**
+	 * `media.protect` params: EXACTLY { ids:int[] (1..PROTECT_WIRE_MAX), protected:bool }.
+	 * The wire boundary — strays, an empty/over-cap id list or a non-boolean flag are
+	 * refused before the runner touches any meta.
+	 *
+	 * @param mixed $params
+	 */
+	public static function validate_protect_params( $params ): bool {
+		if ( ! $params instanceof stdClass ) {
+			return false;
+		}
+		$vars = get_object_vars( $params );
+		if ( array() !== array_diff_key( $vars, array( 'ids' => 1, 'protected' => 1 ) ) ) {
+			return false;
+		}
+		if ( ! isset( $vars['protected'] ) || ! is_bool( $vars['protected'] ) ) {
+			return false;
+		}
+		if ( ! isset( $vars['ids'] ) || ! is_array( $vars['ids'] ) ) {
+			return false;
+		}
+		$n = count( $vars['ids'] );
+		if ( $n < 1 || $n > self::PROTECT_WIRE_MAX ) {
+			return false;
+		}
+		foreach ( $vars['ids'] as $id ) {
+			if ( ! is_int( $id ) || $id <= 0 ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	/**
 	 * Render the admin section: a locked notice listing the gate reasons when the
 	 * feature is locked, otherwise the global toggle, how to mark an image, the

@@ -45,6 +45,7 @@ final class IWSL_Feature_Switches {
 			'cdn_rewrite'          => true,
 			'lazy_load'            => true,
 			'media_protection'     => true,
+			'media_folders'        => true,
 			'elementor_blocks'     => true,
 			'image_optimization'   => true,
 			'auto_convert'         => true,
@@ -62,6 +63,7 @@ final class IWSL_Feature_Switches {
 			'db_optimization'      => true,
 			'scheduled_db_cleanup' => true,
 			'email_delivery'       => true,
+			'security_headers'     => true,
 		);
 	}
 

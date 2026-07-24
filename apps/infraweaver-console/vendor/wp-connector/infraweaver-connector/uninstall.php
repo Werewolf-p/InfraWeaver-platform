@@ -81,3 +81,41 @@ if ( function_exists( 'wp_clear_scheduled_hook' ) ) {
 		wp_clear_scheduled_hook( $iwsl_cron_hook );
 	}
 }
+
+// 4. Media Folders taxonomy terms. The `media_folders` engine files attachments
+//    into two attachment taxonomies (`iwsl_media_folder`, `iwsl_media_tag`) —
+//    purely organizational metadata. Remove every term (wp_delete_term drops the
+//    term's meta for us) so no orphan folders/tags survive. Attachments are NEVER
+//    deleted: dropping a term only unfiles/untags the file. Mirrors
+//    IWSL_Media_Folders::purge(). The engine's hooks don't run during uninstall,
+//    so the taxonomies aren't registered yet — register them defensively (no UI /
+//    REST / rewrite) so the term APIs recognize them, then sweep every term.
+if ( function_exists( 'register_taxonomy' ) && function_exists( 'get_terms' ) && function_exists( 'wp_delete_term' ) ) {
+	$iwsl_mf_taxonomies = array( 'iwsl_media_folder', 'iwsl_media_tag' );
+	foreach ( $iwsl_mf_taxonomies as $iwsl_mf_taxonomy ) {
+		if ( ! taxonomy_exists( $iwsl_mf_taxonomy ) ) {
+			register_taxonomy(
+				$iwsl_mf_taxonomy,
+				'attachment',
+				array(
+					'public'       => false,
+					'show_ui'      => false,
+					'show_in_rest' => false,
+					'rewrite'      => false,
+				)
+			);
+		}
+		$iwsl_mf_term_ids = get_terms(
+			array(
+				'taxonomy'   => $iwsl_mf_taxonomy,
+				'hide_empty' => false,
+				'fields'     => 'ids',
+			)
+		);
+		if ( is_array( $iwsl_mf_term_ids ) ) {
+			foreach ( $iwsl_mf_term_ids as $iwsl_mf_term_id ) {
+				wp_delete_term( (int) $iwsl_mf_term_id, $iwsl_mf_taxonomy );
+			}
+		}
+	}
+}

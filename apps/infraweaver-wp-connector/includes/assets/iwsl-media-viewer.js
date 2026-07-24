@@ -83,6 +83,16 @@ export const ZOOM_MIN = 1;
 export const ZOOM_MAX = 8;
 export const ZOOM_STEP = 1.4;
 
+// ── touch-gesture tuning (internal; NOT part of the export contract) ─────────────
+const TOUCH_TAP_MOVE_TOL = 12;          // px of drift a tap may drift and still count.
+const TOUCH_AXIS_LOCK_TOL = 10;         // px before a swipe commits to an axis.
+const TOUCH_DOUBLE_TAP_MS = 300;        // max gap between taps for a double-tap.
+const TOUCH_DOUBLE_TAP_DIST = 30;       // px the two taps must land within.
+const TOUCH_SWIPE_NAV_RATIO = 0.22;     // fraction of stage width to commit prev/next.
+const TOUCH_SWIPE_DISMISS_RATIO = 0.18; // fraction of stage height to dismiss.
+const TOUCH_SETTLE_MS = 220;            // snap-back / fade animation window.
+const OVERLAY_BG_ALPHA = 0.92;          // matches .iwsl-mv-overlay background alpha.
+
 /** Clamp a zoom factor into [ZOOM_MIN, ZOOM_MAX]. */
 export function clampZoom(z) {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
@@ -148,7 +158,7 @@ const CORE_STYLE_ID = "iwsl-media-viewer-css";
 const CORE_CSS = [
   ".iwsl-mv-overlay{position:fixed;inset:0;z-index:100000;display:flex;background:rgba(9,9,11,.92);",
   "align-items:stretch;justify-content:center;}",
-  ".iwsl-mv-stage{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;}",
+  ".iwsl-mv-stage{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none;}",
   ".iwsl-mv-img{max-width:100%;max-height:100%;transform-origin:center center;transition:transform .05s linear;",
   "user-select:none;-webkit-user-drag:none;cursor:grab;}",
   ".iwsl-mv-img.iwsl-mv-zoomed{cursor:grab;}",
@@ -164,6 +174,25 @@ const CORE_CSS = [
   "font:14px/1.5 system-ui,sans-serif;background:linear-gradient(to top,rgba(0,0,0,.7),transparent);}",
   ".iwsl-mv-zoombar{position:absolute;bottom:14px;right:16px;display:flex;gap:6px;}",
   ".iwsl-mv-zoombar button{border:0;background:rgba(0,0,0,.5);color:#fff;width:34px;height:34px;border-radius:6px;cursor:pointer;font-size:16px;}",
+  // Detail aside (admin viewer). Desktop = fixed 360px slab beside the stage.
+  ".iwsl-mv-aside-body{padding:16px;overflow:auto;width:360px;background:#fff;color:#18181b;}",
+  ".iwsl-mv-handle{display:none;}",
+  // Narrow screens: the viewer goes full-screen and the aside becomes a bottom sheet
+  // stacked UNDER the image. The handle raises/lowers it so every panel from
+  // panelsFor() stays reachable by scrolling.
+  "@media (max-width:640px){",
+  ".iwsl-mv-overlay{flex-direction:column;}",
+  ".iwsl-mv-stage{flex:1 1 auto;min-height:0;}",
+  ".iwsl-mv-aside{display:flex;flex-direction:column;width:100%;max-width:none;flex:0 0 auto;",
+  "background:#fff;color:#18181b;max-height:42vh;border-radius:14px 14px 0 0;",
+  "box-shadow:0 -4px 24px rgba(0,0,0,.35);transition:max-height .25s ease;}",
+  ".iwsl-mv-aside.iwsl-mv-sheet-open{max-height:82vh;}",
+  ".iwsl-mv-aside-body{width:auto;flex:1 1 auto;-webkit-overflow-scrolling:touch;}",
+  ".iwsl-mv-handle{display:block;position:relative;border:0;background:transparent;color:#52525b;",
+  "font:600 12px system-ui,sans-serif;padding:14px 12px 6px;width:100%;cursor:pointer;text-align:center;}",
+  ".iwsl-mv-handle::before{content:'';position:absolute;top:6px;left:50%;transform:translateX(-50%);",
+  "width:36px;height:4px;border-radius:99px;background:#d4d4d8;}",
+  "}",
 ].join("");
 
 function ensureCoreStyle(doc) {
@@ -297,6 +326,181 @@ export function createPresentationCore(opts) {
     applyZoom(ev.deltaY < 0 ? "zoomIn" : "zoomOut");
   }, { passive: false });
 
+  // ── touch gestures (ADDITIVE; feature-gated; mouse/keyboard path untouched) ─────
+  // Only touch/pen pointers are handled — a mouse still uses the mousedown/dblclick/
+  // wheel handlers above, byte-identical. Every gesture reuses the pure primitives:
+  //   pinch  → clampZoom + clampPan (focal point held stable)
+  //   dbl-tap→ nextZoom("toggle") about the tap point + clampPan
+  //   pan    → clampPan (only while zoomed)
+  //   swipe  → neighbourIndex via go() + the onEdgeNav/onIndexChange path
+  //   drag ↓ → the same close() the close button calls
+  const win = doc.defaultView || (typeof window !== "undefined" ? window : null);
+  if (win && win.PointerEvent) {
+    const touchPts = new Map();   // pointerId -> { x, y }
+    let pinch = null;             // { prevDist, prevMid }
+    let oneFinger = null;         // { id, startX, startY, panX, panY, zoomedAtStart, axis, moved }
+    let lastTap = { t: 0, x: 0, y: 0 };
+
+    const isControl = (t) => !!(t && t.closest && t.closest("button, a, input, textarea, select, [role='button']"));
+    const stageSize = () => ({ width: stage.clientWidth, height: stage.clientHeight });
+    const relToCenter = (cx, cy) => {
+      const r = stage.getBoundingClientRect();
+      return { x: cx - (r.left + r.width / 2), y: cy - (r.top + r.height / 2) };
+    };
+    const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const midpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+    // Zoom to z1 while keeping the content under (cx,cy) pinned. Pure math on top of
+    // clampPan; a reset-to-fit re-centres (pan → 0).
+    function zoomAbout(z1, cx, cy) {
+      const z0 = zoom || ZOOM_MIN;
+      if (z1 <= ZOOM_MIN) { zoom = ZOOM_MIN; pan = { x: 0, y: 0 }; return; }
+      const f = relToCenter(cx, cy);
+      zoom = z1;
+      pan = clampPan({ x: f.x - (f.x - pan.x) * (z1 / z0), y: f.y - (f.y - pan.y) * (z1 / z0) }, zoom, stageSize());
+    }
+
+    // Restore the stage/img to the true zoom/pan transform, optionally with a short
+    // settle animation (used for swipe snap-back and the dismiss fade cancel).
+    function resetFeedback(animate) {
+      if (animate) {
+        img.style.transition = "transform .2s ease";
+        root.style.transition = "background-color .2s ease";
+        setTimeout(() => { img.style.transition = ""; root.style.transition = ""; }, TOUCH_SETTLE_MS);
+      } else {
+        img.style.transition = "";
+      }
+      root.style.backgroundColor = "";
+      applyTransform();
+    }
+
+    function beginOneFinger(ev) {
+      oneFinger = {
+        id: ev.pointerId, startX: ev.clientX, startY: ev.clientY,
+        panX: pan.x, panY: pan.y, zoomedAtStart: zoom > ZOOM_MIN, axis: null, moved: false,
+      };
+    }
+
+    function updatePinch() {
+      const pts = Array.from(touchPts.values());
+      if (pts.length < 2) return;
+      const newDist = distance(pts[0], pts[1]);
+      const newMid = midpoint(pts[0], pts[1]);
+      const z0 = zoom || ZOOM_MIN;
+      const z1 = clampZoom(z0 * (newDist / (pinch.prevDist || newDist)));
+      const fPrev = relToCenter(pinch.prevMid.x, pinch.prevMid.y);
+      const fNew = relToCenter(newMid.x, newMid.y);
+      const px = fPrev.x - (fPrev.x - pan.x) * (z1 / z0) + (fNew.x - fPrev.x);
+      const py = fPrev.y - (fPrev.y - pan.y) * (z1 / z0) + (fNew.y - fPrev.y);
+      zoom = z1;
+      pan = z1 <= ZOOM_MIN ? { x: 0, y: 0 } : clampPan({ x: px, y: py }, zoom, stageSize());
+      pinch.prevDist = newDist;
+      pinch.prevMid = newMid;
+      applyTransform();
+    }
+
+    function updateOneFinger() {
+      const cur = touchPts.get(oneFinger.id);
+      if (!cur) return;
+      const dx = cur.x - oneFinger.startX;
+      const dy = cur.y - oneFinger.startY;
+      if (Math.abs(dx) > TOUCH_TAP_MOVE_TOL || Math.abs(dy) > TOUCH_TAP_MOVE_TOL) oneFinger.moved = true;
+      if (oneFinger.zoomedAtStart) { // one-finger pan of the zoomed image.
+        pan = clampPan({ x: oneFinger.panX + dx, y: oneFinger.panY + dy }, zoom, stageSize());
+        applyTransform();
+        return;
+      }
+      if (!oneFinger.axis) { // lock to horizontal (nav) or downward (dismiss) once past the tolerance.
+        if (Math.abs(dx) > TOUCH_AXIS_LOCK_TOL && Math.abs(dx) > Math.abs(dy)) oneFinger.axis = "h";
+        else if (dy > TOUCH_AXIS_LOCK_TOL && Math.abs(dy) >= Math.abs(dx)) oneFinger.axis = "v";
+        else return;
+        img.style.transition = "none";
+      }
+      if (oneFinger.axis === "h") {
+        img.style.transform = `translate(${dx}px, 0) scale(1)`; // rubber-band follow.
+      } else {
+        const drop = Math.max(0, dy);
+        const prog = Math.min(1, drop / (stageSize().height || 1));
+        img.style.transform = `translate(0, ${drop}px) scale(1)`;
+        root.style.backgroundColor = `rgba(9,9,11,${(OVERLAY_BG_ALPHA * (1 - prog)).toFixed(3)})`;
+      }
+    }
+
+    function finishOneFinger(ev) {
+      const dx = ev.clientX - oneFinger.startX;
+      const dy = ev.clientY - oneFinger.startY;
+      const size = stageSize();
+      if (!oneFinger.moved) { // a tap — resolve double-tap toggle (works zoomed or not).
+        const now = Date.now();
+        const near = Math.abs(ev.clientX - lastTap.x) < TOUCH_DOUBLE_TAP_DIST && Math.abs(ev.clientY - lastTap.y) < TOUCH_DOUBLE_TAP_DIST;
+        if (now - lastTap.t < TOUCH_DOUBLE_TAP_MS && near) {
+          lastTap = { t: 0, x: 0, y: 0 };
+          zoomAbout(nextZoom(zoom, "toggle"), ev.clientX, ev.clientY);
+          resetFeedback(true);
+        } else {
+          lastTap = { t: now, x: ev.clientX, y: ev.clientY };
+        }
+        return;
+      }
+      if (oneFinger.zoomedAtStart) return; // pan already applied + clamped live.
+      if (oneFinger.axis === "h") {
+        const past = Math.abs(dx) >= (size.width || 1) * TOUCH_SWIPE_NAV_RATIO;
+        resetFeedback(true);
+        if (past) go(dx < 0 ? "next" : "prev");
+        return;
+      }
+      if (oneFinger.axis === "v") {
+        if (dy >= (size.height || 1) * TOUCH_SWIPE_DISMISS_RATIO) { close(); return; }
+        resetFeedback(true);
+        return;
+      }
+      resetFeedback(true);
+    }
+
+    stage.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType === "mouse") return;      // desktop mouse keeps its own handlers.
+      if (isControl(ev.target)) return;            // let buttons/links/zoombar work.
+      touchPts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      try { stage.setPointerCapture(ev.pointerId); } catch (e) { /* best effort */ }
+      if (ev.cancelable) ev.preventDefault();      // suppress compat mouse/dblclick.
+      if (touchPts.size === 2) {
+        const pts = Array.from(touchPts.values());
+        pinch = { prevDist: distance(pts[0], pts[1]), prevMid: midpoint(pts[0], pts[1]) };
+        oneFinger = null;
+        resetFeedback(false);
+      } else if (touchPts.size === 1) {
+        beginOneFinger(ev);
+      }
+    });
+    stage.addEventListener("pointermove", (ev) => {
+      if (ev.pointerType === "mouse" || !touchPts.has(ev.pointerId)) return;
+      touchPts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (ev.cancelable) ev.preventDefault();
+      if (pinch && touchPts.size >= 2) updatePinch();
+      else if (oneFinger && oneFinger.id === ev.pointerId) updateOneFinger();
+    });
+    const endPointer = (ev) => {
+      if (ev.pointerType === "mouse" || !touchPts.has(ev.pointerId)) return;
+      touchPts.delete(ev.pointerId);
+      try { stage.releasePointerCapture(ev.pointerId); } catch (e) { /* best effort */ }
+      if (pinch && touchPts.size < 2) { // pinch ended; hand a lone remaining finger a fresh pan.
+        pinch = null;
+        if (zoom <= ZOOM_MIN) { pan = { x: 0, y: 0 }; applyTransform(); }
+        if (touchPts.size === 1) {
+          const [id, pt] = Array.from(touchPts.entries())[0];
+          oneFinger = { id, startX: pt.x, startY: pt.y, panX: pan.x, panY: pan.y, zoomedAtStart: zoom > ZOOM_MIN, axis: null, moved: false };
+        }
+        return;
+      }
+      if (oneFinger && oneFinger.id === ev.pointerId) {
+        finishOneFinger(ev);
+        oneFinger = null;
+      }
+    };
+    stage.addEventListener("pointerup", endPointer);
+    stage.addEventListener("pointercancel", endPointer);
+  }
+
   prevBtn.addEventListener("click", () => go("prev"));
   nextBtn.addEventListener("click", () => go("next"));
   closeBtn.addEventListener("click", () => close());
@@ -349,14 +553,27 @@ export function createAdminViewer(opts) {
   const adapter = o.adapter || {};
   let asset = null;
 
-  const asideBody = el("div", { class: "iwsl-mv-aside-body", style: "padding:16px;overflow:auto;width:360px;background:#fff;color:#18181b;" });
+  // Styling lives in the injected .iwsl-mv-aside-body rule so a media query can turn
+  // the desktop 360px slab into a mobile bottom sheet (inline width would out-specify it).
+  const asideBody = el("div", { class: "iwsl-mv-aside-body" });
+  // Bottom-sheet affordance: hidden on desktop (CSS), a drag-handle/"Info" toggle on
+  // narrow screens that raises/lowers the sheet so every panel stays reachable.
+  const sheetHandle = el("button", {
+    class: "iwsl-mv-handle", type: "button", "aria-expanded": "false", "aria-label": "Toggle details", text: "Info",
+    onclick: () => {
+      const asideEl = sheetHandle.parentNode;
+      if (!asideEl || !asideEl.classList) return;
+      const open = asideEl.classList.toggle("iwsl-mv-sheet-open");
+      sheetHandle.setAttribute("aria-expanded", open ? "true" : "false");
+    },
+  });
   const core = createPresentationCore({
     items: [],
     document: doc,
     onClose: o.onClose,
     onIndexChange: o.onIndexChange,
     onEdgeNav: o.onEdgeNav,
-    renderAside: () => el("aside", { class: "iwsl-mv-aside", role: "region", "aria-label": "Attachment details" }, [asideBody]),
+    renderAside: () => el("aside", { class: "iwsl-mv-aside", role: "region", "aria-label": "Attachment details" }, [sheetHandle, asideBody]),
   });
 
   async function load(assetId) {

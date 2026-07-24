@@ -92,7 +92,12 @@ final class IWSL_Scheduled_DB_Cleanup {
 	) {
 		$this->entitlements = $entitlements;
 		$this->store        = null !== $store ? $store : new IWSL_WP_Store();
-		$this->optimizer    = null !== $optimizer ? $optimizer : new IWSL_DB_Optimizer( $entitlements );
+		// The default optimizer is wired with a history recorder over THIS engine's
+		// store, so scheduled runs land in the same capped ring the console and
+		// WP-admin read. An injected optimizer (tests) is used as-is.
+		$this->optimizer    = null !== $optimizer
+			? $optimizer
+			: new IWSL_DB_Optimizer( $entitlements, null, $now_ms, null, new IWSL_DB_History( $this->store, $now_ms ) );
 		$this->now_ms       = $now_ms ?? static function (): int {
 			return (int) round( microtime( true ) * 1000 );
 		};
@@ -139,7 +144,7 @@ final class IWSL_Scheduled_DB_Cleanup {
 	 * The sanitized settings map, re-validated on every read. `saved_at` is
 	 * preserved from the stored record.
 	 *
-	 * @return array{ enabled:bool, frequency:string, saved_at:int }
+	 * @return array{ enabled:bool, frequency:string, categories:string[], saved_at:int }
 	 */
 	public function settings(): array {
 		$stored = $this->store->get( self::SETTINGS_KEY, array() );
@@ -221,7 +226,7 @@ final class IWSL_Scheduled_DB_Cleanup {
 			$this->unschedule();
 			return;
 		}
-		$summary = $this->optimizer->run( 'run' );
+		$summary = $this->optimizer->run( 'run', $this->settings()['categories'], IWSL_DB_Optimizer::MAX_ROWS, 'scheduled' );
 		$this->record_last_run( $summary );
 	}
 
@@ -237,7 +242,7 @@ final class IWSL_Scheduled_DB_Cleanup {
 		if ( empty( $gate['unlocked'] ) ) {
 			return array( 'ok' => false, 'reason' => 'entitlement-locked', 'gate' => $gate );
 		}
-		$summary = $this->optimizer->run( 'run' );
+		$summary = $this->optimizer->run( 'run', $this->settings()['categories'], IWSL_DB_Optimizer::MAX_ROWS, 'manual' );
 		$this->record_last_run( $summary );
 		return $summary;
 	}
@@ -357,18 +362,45 @@ final class IWSL_Scheduled_DB_Cleanup {
 
 	/**
 	 * Normalize a raw input map into the stored shape. Immutable: builds a fresh
-	 * array. `frequency` is clamped to the allow-list (unknown → daily).
+	 * array. `frequency` is clamped to the allow-list (unknown → daily);
+	 * `categories` is filtered against the cleaner registry (unknown ids dropped,
+	 * empty = ALL categories — the engine's own default).
 	 *
 	 * @param array<string, mixed> $input
-	 * @return array{ enabled:bool, frequency:string, saved_at:int }
+	 * @return array{ enabled:bool, frequency:string, categories:string[], saved_at:int }
 	 */
 	public function sanitize_settings( array $input ): array {
 		$freq = isset( $input['frequency'] ) && is_string( $input['frequency'] ) ? $input['frequency'] : 'daily';
 		return array(
-			'enabled'   => ! empty( $input['enabled'] ),
-			'frequency' => ( 'weekly' === $freq ) ? 'weekly' : 'daily',
-			'saved_at'  => 0,
+			'enabled'    => ! empty( $input['enabled'] ),
+			'frequency'  => ( 'weekly' === $freq ) ? 'weekly' : 'daily',
+			'categories' => $this->sanitize_categories( $input['categories'] ?? array() ),
+			'saved_at'   => 0,
 		);
+	}
+
+	/**
+	 * Filter a requested category subset against the live cleaner registry: keep
+	 * only known ids (de-duplicated, order preserved), drop everything else, cap the
+	 * count. An empty or all-unknown request returns an empty list, which the
+	 * optimizer reads as "run ALL categories" — so a subset can only ever NARROW the
+	 * run, never inject an id that is not a registered cleaner.
+	 *
+	 * @param mixed $categories
+	 * @return string[]
+	 */
+	private function sanitize_categories( $categories ): array {
+		if ( ! is_array( $categories ) ) {
+			return array();
+		}
+		$known = array_keys( IWSL_DB_Optimizer::cleaners() );
+		$out   = array();
+		foreach ( $categories as $id ) {
+			if ( is_string( $id ) && in_array( $id, $known, true ) && ! in_array( $id, $out, true ) ) {
+				$out[] = $id;
+			}
+		}
+		return array_slice( $out, 0, IWSL_DB_Optimizer::MAX_CLEANERS_PER_RUN );
 	}
 
 	private function now_seconds(): int {

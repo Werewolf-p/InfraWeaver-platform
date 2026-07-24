@@ -146,9 +146,13 @@ final class IWSL_Redirects {
 	 */
 	public static function matchers(): array {
 		return array(
-			'exact' => new IWSL_Exact_Path_Matcher(),
+			'exact'  => new IWSL_Exact_Path_Matcher(),
+			'prefix' => new IWSL_Prefix_Path_Matcher(),
 		);
 	}
+
+	/** The default match strategy for a rule with no explicit `match` key. */
+	const DEFAULT_MATCH = 'exact';
 
 	/** Register the front-end hook + the auto-redirect glue. Guarded for the harness. */
 	public function register(): void {
@@ -222,9 +226,11 @@ final class IWSL_Redirects {
 	 * immutable append. The id is derived server-side from the deduped normalized
 	 * source — never from request input.
 	 *
+	 * @param string $match One of the registered matcher ids ('exact' default, or
+	 *                      'prefix'). Legacy two-/three-arg callers stay byte-exact.
 	 * @return array{ ok:bool, reason?:string, rule?:array, rules_count?:int, gate?:array }
 	 */
-	public function add_rule( string $source, string $target, int $type ): array {
+	public function add_rule( string $source, string $target, int $type, string $match = self::DEFAULT_MATCH ): array {
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
 			return array( 'ok' => false, 'reason' => 'entitlement-locked', 'gate' => $gate );
@@ -234,7 +240,11 @@ final class IWSL_Redirects {
 			return $this->refusal( 'bad-type' );
 		}
 
-		$src = $this->validate_source( $source );
+		if ( ! isset( $this->matchers[ $match ] ) ) {
+			return $this->refusal( 'bad-match' );
+		}
+
+		$src = $this->validate_source( $source, $match );
 		if ( empty( $src['ok'] ) ) {
 			return $this->refusal( (string) $src['reason'] );
 		}
@@ -268,6 +278,7 @@ final class IWSL_Redirects {
 			'source'     => $normalized_source,
 			'target'     => $location,
 			'type'       => $type,
+			'match'      => $match,
 			'hits'       => 0,
 			'external'   => $this->is_external_target( $location ),
 			'created_at' => $this->now_seconds(),
@@ -426,7 +437,7 @@ final class IWSL_Redirects {
 
 		foreach ( $this->rules() as $rule ) {
 			$rule_source = self::normalize_path( (string) $rule['source'] );
-			if ( ! $this->any_matcher_matches( $rule_source, $request_path ) ) {
+			if ( ! $this->rule_matches( $rule, $rule_source, $request_path ) ) {
 				continue;
 			}
 			$tgt = $this->validate_target( (string) $rule['target'], $rule_source );
@@ -701,11 +712,14 @@ final class IWSL_Redirects {
 	/**
 	 * Validate + normalize a source path. Refuses scheme-relative, backslash,
 	 * control/whitespace, non-rooted, query/fragment/scheme-bearing, and reserved
-	 * admin paths.
+	 * admin paths. The `/*` prefix marker is reserved for `match='prefix'` rules:
+	 * an exact source may never end in `/*`, a prefix source MUST, and a bare
+	 * whole-site `/*` is refused for prefix (it would redirect the entire site).
 	 *
+	 * @param string $match Registered matcher id ('exact' | 'prefix', …).
 	 * @return array{ ok:bool, reason:string, value:string }
 	 */
-	private function validate_source( string $source ): array {
+	private function validate_source( string $source, string $match = self::DEFAULT_MATCH ): array {
 		if ( '' === $source || strlen( $source ) > self::MAX_SOURCE_LEN ) {
 			return self::invalid( 'bad-source' );
 		}
@@ -725,6 +739,26 @@ final class IWSL_Redirects {
 			|| false !== strpos( $source, '#' )
 			|| false !== strpos( $source, '://' ) ) {
 			return self::invalid( 'bad-source' );
+		}
+
+		$ends_star = ( '/*' === substr( $source, -2 ) );
+
+		if ( 'prefix' === $match ) {
+			if ( ! $ends_star ) {
+				return self::invalid( 'bad-source' ); // A prefix source must carry the /* marker.
+			}
+			$base = self::normalize_path( substr( $source, 0, -2 ) );
+			if ( '' === $base || '/' === $base ) {
+				return self::invalid( 'bad-source' ); // No whole-site prefix.
+			}
+			if ( self::is_reserved_path( $base ) ) {
+				return self::invalid( 'reserved-path' );
+			}
+			return array( 'ok' => true, 'reason' => '', 'value' => $base . '/*' );
+		}
+
+		if ( $ends_star ) {
+			return self::invalid( 'bad-source' ); // /* is reserved for prefix rules.
 		}
 		$normalized = self::normalize_path( $source );
 		if ( self::is_reserved_path( $normalized ) ) {
@@ -829,14 +863,21 @@ final class IWSL_Redirects {
 
 	// ── internal helpers ───────────────────────────────────────────────────────
 
-	/** Whether any registered matcher matches. */
-	private function any_matcher_matches( string $rule_source, string $request_path ): bool {
-		foreach ( $this->matchers as $matcher ) {
-			if ( $matcher instanceof IWSL_Redirect_Matcher && $matcher->matches( $rule_source, $request_path ) ) {
-				return true;
-			}
+	/**
+	 * Per-rule keyed dispatch: a rule matches ONLY through the matcher named by its
+	 * own `match` key. This replaces the former "any registered matcher matches"
+	 * loop, whose semantics would silently WIDEN every exact rule the moment a
+	 * second matcher (prefix/regex) was registered — a rule must opt in to a
+	 * strategy, never inherit one. A rule whose `match` key names no registered
+	 * matcher is skipped (fail-closed). Legacy rules with no key default to 'exact'.
+	 */
+	private function rule_matches( array $rule, string $rule_source, string $request_path ): bool {
+		$match   = isset( $rule['match'] ) && is_string( $rule['match'] ) ? $rule['match'] : self::DEFAULT_MATCH;
+		$matcher = $this->matchers[ $match ] ?? null;
+		if ( ! ( $matcher instanceof IWSL_Redirect_Matcher ) ) {
+			return false; // Unknown/unregistered strategy — fail closed.
 		}
-		return false;
+		return $matcher->matches( $rule_source, $request_path );
 	}
 
 	/** Whether a validated location points off-site. Relative → internal. */
@@ -945,11 +986,16 @@ final class IWSL_Redirects {
 		if ( ! in_array( $type, self::ALLOWED_TYPES, true ) ) {
 			return null;
 		}
+		// Legacy rules predate the `match` key → default to 'exact', preserving
+		// their byte-exact behaviour. A non-string value is coerced to 'exact' too;
+		// an unknown-but-string strategy is preserved so dispatch fails it closed.
+		$match = isset( $rule['match'] ) && is_string( $rule['match'] ) ? $rule['match'] : self::DEFAULT_MATCH;
 		return array(
 			'id'         => $rule['id'],
 			'source'     => $rule['source'],
 			'target'     => $rule['target'],
 			'type'       => $type,
+			'match'      => $match,
 			'hits'       => isset( $rule['hits'] ) ? (int) $rule['hits'] : 0,
 			'external'   => ! empty( $rule['external'] ),
 			'created_at' => isset( $rule['created_at'] ) ? (int) $rule['created_at'] : 0,

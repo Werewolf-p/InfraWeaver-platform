@@ -195,24 +195,64 @@ export function renderExplorerInto(container, config, frame, wpMedia) {
     });
 }
 
-/** One grid tile: thumb + click-to-view + choose-into-selection (real Attachment). */
+/** One grid tile: thumb + view affordance + pointer-aware open/choose. */
 function makeTile(item, config, frame, wpMedia, doc) {
+  const win = doc.defaultView || (typeof window !== "undefined" ? window : null);
   const tile = doc.createElement("button");
   tile.type = "button";
   tile.className = "iwsl-native-tile";
-  tile.style.cssText = "border:1px solid #dcdcde;border-radius:6px;padding:0;overflow:hidden;background:#fff;cursor:pointer;aspect-ratio:1;";
+  tile.style.cssText = "position:relative;border:1px solid #dcdcde;border-radius:6px;padding:0;overflow:hidden;background:#fff;cursor:pointer;aspect-ratio:1;";
   const img = doc.createElement("img");
   img.src = item.thumb || item.url || "";
   img.alt = item.alt || item.title || "";
   img.loading = "lazy";
   img.style.cssText = "width:100%;height:100%;object-fit:cover;display:block;";
   tile.appendChild(img);
-  // Single click: choose the asset into the frame's own selection (insert contract).
-  tile.addEventListener("click", () => chooseIntoSelection(item.id, frame, wpMedia));
-  // Double click: open the shared viewer for the full detail panel.
+
+  // Explicit "view" affordance — the reliable way to open the viewer on ANY device,
+  // so viewing never depends on a fragile double-tap/hover. stopPropagation keeps it
+  // from also triggering the tile's choose/open handler.
+  const view = doc.createElement("span");
+  view.className = "iwsl-native-view";
+  view.setAttribute("role", "button");
+  view.setAttribute("tabindex", "0");
+  view.setAttribute("aria-label", "Open in viewer");
+  view.title = "Open in viewer";
+  view.textContent = "⤢"; // ⤢ expand glyph
+  view.style.cssText = "position:absolute;top:4px;right:4px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);color:#fff;border-radius:6px;font-size:14px;line-height:1;cursor:pointer;z-index:1;";
+  const openFromAffordance = (e) => {
+    try {
+      if (e) { e.preventDefault(); if (typeof e.stopPropagation === "function") e.stopPropagation(); }
+      openViewer(item.id, config, doc);
+    } catch (err) {
+      warnOnce("IWSL viewer open failed.");
+    }
+  };
+  view.addEventListener("click", openFromAffordance);
+  view.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") openFromAffordance(e);
+  });
+  tile.appendChild(view);
+
+  // Desktop contract preserved: single click = choose-into-selection, double click =
+  // open viewer. On coarse/touch a single TAP opens the viewer (double-click is a
+  // poor touch gesture), so the coarse dblclick is a no-op to avoid a double open.
+  tile.addEventListener("click", () => {
+    try {
+      if (isCoarsePointer(win)) openViewer(item.id, config, doc);
+      else chooseIntoSelection(item.id, frame, wpMedia);
+    } catch (err) {
+      warnOnce("IWSL tile action failed.");
+    }
+  });
   tile.addEventListener("dblclick", (e) => {
-    e.preventDefault();
-    openViewer(item.id, config, doc);
+    try {
+      if (isCoarsePointer(win)) return;
+      e.preventDefault();
+      openViewer(item.id, config, doc);
+    } catch (err) {
+      warnOnce("IWSL tile action failed.");
+    }
   });
   return tile;
 }
@@ -307,6 +347,21 @@ export function openViewer(assetId, config, doc) {
   } catch (e) {
     warnOnce("IWSL viewer failed to open.");
     return null;
+  }
+}
+
+/**
+ * True when the primary pointer is coarse (touch/pen) — the signal for treating a
+ * single tap on a tile as "open the viewer" instead of "choose into selection".
+ * Defensive: any matchMedia hiccup resolves to false, preserving the desktop contract.
+ */
+export function isCoarsePointer(win) {
+  const w = win || (typeof window !== "undefined" ? window : null);
+  if (!w || typeof w.matchMedia !== "function") return false;
+  try {
+    return !!w.matchMedia("(pointer:coarse)").matches;
+  } catch (e) {
+    return false;
   }
 }
 

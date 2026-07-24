@@ -60,6 +60,17 @@ final class IWSL_Stats_Classifier {
 	/** Days in the dashboard time-series (independent of the KPI range switch). */
 	const SERIES_DAYS = 30;
 
+	/** Compact `stats.summary` wire projection top-N caps (only aggregates cross the wire). */
+	const SUMMARY_TOP_N      = 5;  // pages / referrers / countries / searches.
+	const SUMMARY_CHANNELS_N = 4;
+	const SUMMARY_DEVICES_N  = 3;
+	/** Byte ceiling for a JSON-encoded `stats.summary` projection (guards §6.2 + the 16 KB snapshot). */
+	const SUMMARY_MAX_BYTES = 6144;
+	/** Byte ceiling for a JSON-encoded `stats.timeseries` projection. */
+	const TIMESERIES_MAX_BYTES = 4096;
+	/** Bounded read on a first-party consent cookie — a hostile/oversized cookie is never parsed. */
+	const MAX_CONSENT_COOKIE_LEN = 4096;
+
 	/**
 	 * Known social-network referrer hosts (www-stripped, lower-case). Matched by
 	 * subdomain-suffix (host === h OR host ends with ".".h) so link-shim subdomains
@@ -113,6 +124,45 @@ final class IWSL_Stats_Classifier {
 	public static function dnt_set( array $server ): bool {
 		$dnt = isset( $server['HTTP_DNT'] ) ? (string) $server['HTTP_DNT'] : '';
 		return '1' === trim( $dnt );
+	}
+
+	/** Whether the Global Privacy Control signal is set to "1" in the request headers. */
+	public static function gpc_set( array $server ): bool {
+		$gpc = isset( $server['HTTP_SEC_GPC'] ) ? (string) $server['HTTP_SEC_GPC'] : '';
+		return '1' === trim( $gpc );
+	}
+
+	/**
+	 * Whether a visitor's first-party consent cookie GRANTS the "statistics" category.
+	 * Pure + defensive over the raw cookie JSON string: bounded read, array-checked,
+	 * a stale (or mismatched) policy version treated as absent. Returns:
+	 *   null  — no cookie, unparseable, oversized, or a stale-policy cookie (undecided);
+	 *   true  — a current-policy cookie whose `c` array contains "statistics";
+	 *   false — a current-policy cookie that omits "statistics" (explicitly declined).
+	 * The engine only consults this under an ENABLED opt-in banner, where a null
+	 * (undecided) result means "not yet opted in" → the caller does not record.
+	 *
+	 * @return bool|null
+	 */
+	public static function consent_allows_statistics( ?string $cookie_json, int $policy_version ) {
+		if ( null === $cookie_json || '' === $cookie_json ) {
+			return null;
+		}
+		if ( strlen( $cookie_json ) > self::MAX_CONSENT_COOKIE_LEN ) {
+			return null; // bounded read — a hostile/oversized cookie is never parsed.
+		}
+		$payload = json_decode( $cookie_json, true );
+		if ( ! is_array( $payload ) ) {
+			return null;
+		}
+		$version = isset( $payload['v'] ) ? (int) $payload['v'] : 0;
+		if ( $version < 1 || $version !== $policy_version ) {
+			return null; // stale/mismatched policy cookie — the banner re-prompts.
+		}
+		$cats = isset( $payload['c'] ) && is_array( $payload['c'] )
+			? array_map( 'strval', $payload['c'] )
+			: array();
+		return in_array( 'statistics', $cats, true );
 	}
 
 	// ── User-Agent classification (bounded, hand-written) ──────────────────────
@@ -962,6 +1012,147 @@ final class IWSL_Stats_Classifier {
 			$out[] = array( (string) $r['label'], (int) $r['count'] );
 		}
 		return $out;
+	}
+
+	// ── signed-channel wire projections (compact; aggregates only) ─────────────
+
+	/**
+	 * A COMPACT projection of the full dashboard() model for the signed `stats.summary`
+	 * command. Pure: given the same model it always returns the same structure, so the
+	 * harness pins the exact shape and a byte-bound test guards the ceiling. Only bounded
+	 * AGGREGATES cross the wire — the ~15 KB drill island, the heatmap and every raw hit
+	 * row stay WP-side. Top lists are flattened to compact [label,count] pairs and capped.
+	 * The privacy block reports the site's always-on signals (DNT + GPC honored); the
+	 * engine overlays the live `consent_gated` flag on top of the default 0.
+	 *
+	 * @param array $model The IWSL_Stats_Classifier::aggregate() model.
+	 * @return array
+	 */
+	public static function summary_payload( array $model ): array {
+		$kpi_in     = isset( $model['kpi'] ) && is_array( $model['kpi'] ) ? $model['kpi'] : array();
+		$quality_in = isset( $model['quality'] ) && is_array( $model['quality'] ) ? $model['quality'] : array();
+		$int        = static function ( array $src, string $key ): int {
+			return isset( $src[ $key ] ) ? (int) $src[ $key ] : 0;
+		};
+		return array(
+			'range_days' => isset( $model['range_days'] ) ? (int) $model['range_days'] : 0,
+			'generated'  => isset( $model['generated'] ) ? (int) $model['generated'] : 0,
+			'kpi'        => array(
+				'views'            => $int( $kpi_in, 'views' ),
+				'visits'           => $int( $kpi_in, 'visits' ),
+				'events'           => $int( $kpi_in, 'events' ),
+				'views_today'      => $int( $kpi_in, 'views_today' ),
+				'online_now'       => $int( $kpi_in, 'online_now' ),
+				'prev_views'       => $int( $kpi_in, 'prev_views' ),
+				'prev_visits'      => $int( $kpi_in, 'prev_visits' ),
+				'views_delta_pct'  => self::nullable_float( $kpi_in, 'views_delta_pct' ),
+				'visits_delta_pct' => self::nullable_float( $kpi_in, 'visits_delta_pct' ),
+			),
+			'quality'    => array(
+				'bounce_pct'      => isset( $quality_in['bounce_pct'] ) ? (float) $quality_in['bounce_pct'] : 0.0,
+				'pages_per_visit' => isset( $quality_in['pages_per_visit'] ) ? (float) $quality_in['pages_per_visit'] : 0.0,
+			),
+			'top_pages'     => self::compact_pairs( isset( $model['top_pages'] ) ? $model['top_pages'] : array(), self::SUMMARY_TOP_N ),
+			'top_referrers' => self::compact_pairs( isset( $model['top_referrers'] ) ? $model['top_referrers'] : array(), self::SUMMARY_TOP_N ),
+			'channels'      => self::compact_pairs( isset( $model['channels'] ) ? $model['channels'] : array(), self::SUMMARY_CHANNELS_N ),
+			'devices'       => self::compact_pairs( isset( $model['devices'] ) ? $model['devices'] : array(), self::SUMMARY_DEVICES_N ),
+			'countries'     => self::compact_pairs( isset( $model['countries'] ) ? $model['countries'] : array(), self::SUMMARY_TOP_N ),
+			'searches'      => self::compact_pairs( isset( $model['searches'] ) ? $model['searches'] : array(), self::SUMMARY_TOP_N ),
+			'privacy'       => array( 'dnt' => 1, 'gpc' => 1, 'consent_gated' => 0 ),
+		);
+	}
+
+	/**
+	 * The `stats.timeseries` projection: the last $days of the daily views/visits series
+	 * (the model's series is always SERIES_DAYS long; we slice to $days), plus the 24-slot
+	 * hourly + previous-day series ONLY when $days === 1. Pure + bounded.
+	 *
+	 * @param array $model The aggregate() model.
+	 * @param int   $days  Requested day count (clamped to 1..SERIES_DAYS).
+	 * @return array
+	 */
+	public static function timeseries_payload( array $model, int $days ): array {
+		$days   = max( 1, min( $days, self::SERIES_DAYS ) );
+		$series = isset( $model['series'] ) && is_array( $model['series'] ) ? array_values( $model['series'] ) : array();
+		$out    = array(
+			'days'   => $days,
+			'series' => array_values( array_slice( $series, -$days ) ),
+		);
+		if ( 1 === $days ) {
+			$out['hourly']      = isset( $model['hourly'] ) && is_array( $model['hourly'] ) ? array_values( $model['hourly'] ) : array();
+			$out['hourly_prev'] = isset( $model['hourly_prev'] ) && is_array( $model['hourly_prev'] ) ? array_values( $model['hourly_prev'] ) : array();
+		}
+		return $out;
+	}
+
+	/**
+	 * Runtime byte-budget BACKSTOP for the `stats.summary` projection. The payload is
+	 * already bounded by construction (SUMMARY_TOP_N / SUMMARY_CHANNELS_N etc.), but
+	 * this survives future field additions or an oversized label: if the encoded
+	 * payload exceeds SUMMARY_MAX_BYTES it sheds the variable-length list rows
+	 * (least-important list first) until it fits — mirroring wire_log's running byte
+	 * budget. The fixed KPI / quality / privacy scalars are always kept.
+	 */
+	public static function fit_summary_to_budget( array $payload ): array {
+		return self::fit_to_budget(
+			$payload,
+			self::SUMMARY_MAX_BYTES,
+			array( 'searches', 'countries', 'devices', 'channels', 'top_referrers', 'top_pages' )
+		);
+	}
+
+	/** Runtime byte-budget BACKSTOP for the `stats.timeseries` projection (TIMESERIES_MAX_BYTES). */
+	public static function fit_timeseries_to_budget( array $payload ): array {
+		return self::fit_to_budget( $payload, self::TIMESERIES_MAX_BYTES, array( 'hourly_prev', 'hourly', 'series' ) );
+	}
+
+	/**
+	 * Shrink $payload under $max_bytes by popping trailing entries from each list in
+	 * $trim_keys order (each list exhausted before the next). A running json_encode
+	 * check is the authority — the projection can never breach the §6.2 byte ceiling
+	 * even if an upstream shape grows. @param string[] $trim_keys
+	 */
+	private static function fit_to_budget( array $payload, int $max_bytes, array $trim_keys ): array {
+		foreach ( $trim_keys as $key ) {
+			if ( self::encoded_len( $payload ) <= $max_bytes ) {
+				return $payload;
+			}
+			if ( ! isset( $payload[ $key ] ) || ! is_array( $payload[ $key ] ) ) {
+				continue;
+			}
+			while ( array() !== $payload[ $key ] && self::encoded_len( $payload ) > $max_bytes ) {
+				array_pop( $payload[ $key ] );
+			}
+		}
+		return $payload;
+	}
+
+	/** Encoded byte length of a payload (wp_json_encode when available). */
+	private static function encoded_len( array $payload ): int {
+		$json = function_exists( 'wp_json_encode' ) ? wp_json_encode( $payload ) : json_encode( $payload );
+		return strlen( (string) $json );
+	}
+
+	/** Flatten the first $n {label,count} rows into compact [label,count] pairs. */
+	private static function compact_pairs( $rows, int $n ): array {
+		$out = array();
+		if ( ! is_array( $rows ) ) {
+			return $out;
+		}
+		foreach ( array_slice( array_values( $rows ), 0, max( 0, $n ) ) as $r ) {
+			if ( is_array( $r ) && isset( $r['label'] ) ) {
+				$out[] = array( (string) $r['label'], isset( $r['count'] ) ? (int) $r['count'] : 0 );
+			}
+		}
+		return $out;
+	}
+
+	/** Read a nullable float KPI delta — a null (no prior baseline) passes straight through. */
+	private static function nullable_float( array $src, string $key ) {
+		if ( ! isset( $src[ $key ] ) || null === $src[ $key ] ) {
+			return null;
+		}
+		return (float) $src[ $key ];
 	}
 
 	// ── small helpers ──────────────────────────────────────────────────────────

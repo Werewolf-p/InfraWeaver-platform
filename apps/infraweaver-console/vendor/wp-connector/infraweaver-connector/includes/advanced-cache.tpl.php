@@ -1,7 +1,8 @@
 <?php
 /*
- * IWSL-PAGE-CACHE v1 — managed by InfraWeaver Connector. Do not edit.
+ * IWSL-PAGE-CACHE — managed by InfraWeaver Connector. Do not edit.
  * signature: iwsl-page-cache
+ * iwsl-pc-tpl: %%IWSL_PC_TPL%%
  */
 
 /*
@@ -30,6 +31,10 @@ $iwsl_pc_dir     = '%%IWSL_PC_CACHE_DIR%%';
 $iwsl_pc_host    = '%%IWSL_PC_HOST%%';
 $iwsl_pc_ttl     = (int) '%%IWSL_PC_TTL%%';
 $iwsl_pc_max     = (int) '%%IWSL_PC_MAX_ENTRIES%%';
+$iwsl_pc_excl    = json_decode( '%%IWSL_PC_EXCLUSIONS%%', true );
+if ( ! is_array( $iwsl_pc_excl ) ) {
+	$iwsl_pc_excl = array();
+}
 
 if ( '' === $iwsl_pc_helpers || ! is_file( $iwsl_pc_helpers ) ) {
 	return;
@@ -43,9 +48,14 @@ if ( ! function_exists( 'iwsl_pc_is_cacheable' )
 }
 
 // Host pinning — refuse any request whose Host header is not the baked home
-// host. Kills Host-header cache poisoning and unbounded key growth.
+// host. Kills Host-header cache poisoning and unbounded key growth. FAIL CLOSED:
+// if no home host was baked into the drop-in, bypass the cache entirely rather
+// than trusting the caller's Host header for the pin check OR the cache key.
+if ( '' === $iwsl_pc_host ) {
+	return;
+}
 $iwsl_pc_req_host = isset( $_SERVER['HTTP_HOST'] ) ? strtolower( (string) $_SERVER['HTTP_HOST'] ) : '';
-if ( '' !== $iwsl_pc_host && $iwsl_pc_req_host !== strtolower( $iwsl_pc_host ) ) {
+if ( $iwsl_pc_req_host !== strtolower( $iwsl_pc_host ) ) {
 	return;
 }
 
@@ -68,7 +78,17 @@ if ( ! is_string( $iwsl_pc_path ) || '' === $iwsl_pc_path ) {
 	return;
 }
 
-$iwsl_pc_key_host = '' !== $iwsl_pc_host ? $iwsl_pc_host : $iwsl_pc_req_host;
+// Operator exclusion rules (baked prefix / trailing-* patterns) — an excluded
+// path is never served-from or stored-to the cache. Skew-guarded: an old drop-in
+// paired with new helpers, or vice versa, simply skips exclusion matching.
+if ( is_array( $iwsl_pc_excl ) && array() !== $iwsl_pc_excl
+	&& function_exists( 'iwsl_pc_excluded' ) && iwsl_pc_excluded( $iwsl_pc_path, $iwsl_pc_excl ) ) {
+	return;
+}
+
+// The key host is ALWAYS the baked home host (guaranteed non-empty above) — the
+// caller's Host header never reaches the cache key.
+$iwsl_pc_key_host = $iwsl_pc_host;
 $iwsl_pc_key      = iwsl_pc_cache_key( $iwsl_pc_scheme, $iwsl_pc_key_host, $iwsl_pc_path );
 $iwsl_pc_file     = $iwsl_pc_dir . '/' . $iwsl_pc_key . '.html';
 
@@ -80,6 +100,10 @@ if ( is_file( $iwsl_pc_file ) ) {
 			header( 'X-IWSL-Cache: HIT' );
 			header( 'Content-Type: text/html; charset=UTF-8' );
 		}
+		// Lock-free HIT counter (append-one-byte). Skew-guarded.
+		if ( function_exists( 'iwsl_pc_bump' ) ) {
+			iwsl_pc_bump( $iwsl_pc_dir, 'hit' );
+		}
 		readfile( $iwsl_pc_file );
 		exit;
 	}
@@ -90,6 +114,10 @@ if ( is_file( $iwsl_pc_file ) ) {
 // never modified.
 if ( ! headers_sent() ) {
 	header( 'X-IWSL-Cache: MISS' );
+}
+// Lock-free MISS counter (append-one-byte). Skew-guarded.
+if ( function_exists( 'iwsl_pc_bump' ) ) {
+	iwsl_pc_bump( $iwsl_pc_dir, 'miss' );
 }
 $GLOBALS['iwsl_pc_ctx'] = array(
 	'dir'         => $iwsl_pc_dir,

@@ -104,12 +104,16 @@ final class IWSL_Teardown {
 				return new IWSL_Speed_Pack( $ent, $store );
 			case IWSL_Response_Scan::FEATURE:
 				return new IWSL_Response_Scan( $ent, $store );
+			case IWSL_Security_Headers::FEATURE:
+				return new IWSL_Security_Headers( $ent, $store );
 			case IWSL_CDN_Rewrite::FEATURE:
 				return new IWSL_CDN_Rewrite( $ent, $store );
 			case IWSL_Lazy_Load::FEATURE:
 				return new IWSL_Lazy_Load( $ent, $store );
 			case IWSL_Media_Protection::FEATURE:
 				return new IWSL_Media_Protection( $ent, $store );
+			case IWSL_Media_Folders::FEATURE:
+				return new IWSL_Media_Folders( $ent, $store );
 			case IWSL_Elementor_Blocks::FEATURE:
 				return new IWSL_Elementor_Blocks( $ent, $store );
 			case IWSL_Auto_Convert::FEATURE:

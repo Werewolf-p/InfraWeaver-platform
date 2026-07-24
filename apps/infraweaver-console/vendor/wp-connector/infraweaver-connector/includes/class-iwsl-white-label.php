@@ -54,6 +54,39 @@ final class IWSL_White_Label {
 	/** Byte ceiling on a longer text field (login message / admin footer). */
 	const MAX_MESSAGE_LEN = 500;
 
+	/** Strict `#rrggbb` hex-color shape for the brand accent. */
+	const COLOR_RE = '/^#[0-9a-fA-F]{6}$/';
+
+	/**
+	 * The string-valued fields the signed `branding.set` wire validator accepts —
+	 * the sanitized-settings string keys ONLY (the "second copy" of the allow-list;
+	 * the sanitizer below is the first). A wire `settings` object may carry only
+	 * these + WIRE_BOOL_FIELDS; anything else is refused before the runner is
+	 * reached, and every accepted value still runs the identical save-time gauntlet.
+	 *
+	 * @var string[]
+	 */
+	const WIRE_STRING_FIELDS = array(
+		'login_logo_url',
+		'login_header_url',
+		'login_header_text',
+		'login_message',
+		'admin_footer_text',
+		'brand_name',
+		'accent_color',
+		'email_logo_url',
+	);
+
+	/** The bool-valued fields the signed `branding.set` wire validator accepts. @var string[] */
+	const WIRE_BOOL_FIELDS = array(
+		'hide_wp_logo',
+		'apply_to_email',
+		'apply_to_maintenance',
+	);
+
+	/** Total byte ceiling on all string values in one `branding.set` wire payload (§6.3 bound). */
+	const WIRE_MAX_BYTES = 8192;
+
 	/** @var IWSL_Entitlements */
 	private $entitlements;
 
@@ -97,6 +130,7 @@ final class IWSL_White_Label {
 		return array(
 			'login' => new IWSL_Login_Brand_Surface(),
 			'admin' => new IWSL_Admin_Brand_Surface(),
+			'email' => new IWSL_Email_Brand_Surface(),
 		);
 	}
 
@@ -357,13 +391,20 @@ final class IWSL_White_Label {
 	public function sanitize_settings( array $input ): array {
 		return array(
 			// Logo URL is CSS-context bound → the stricter css_safe gauntlet.
-			'login_logo_url'    => $this->clean_url( self::pluck( $input, 'login_logo_url' ), true ),
-			'login_header_url'  => $this->clean_url( self::pluck( $input, 'login_header_url' ), false ),
-			'login_header_text' => self::clean_text( self::pluck( $input, 'login_header_text' ), self::MAX_TEXT_LEN ),
-			'login_message'     => self::clean_text( self::pluck( $input, 'login_message' ), self::MAX_MESSAGE_LEN ),
-			'admin_footer_text' => self::clean_text( self::pluck( $input, 'admin_footer_text' ), self::MAX_MESSAGE_LEN ),
-			'hide_wp_logo'      => ! empty( $input['hide_wp_logo'] ),
-			'saved_at'          => 0,
+			'login_logo_url'       => $this->clean_url( self::pluck( $input, 'login_logo_url' ), true ),
+			'login_header_url'     => $this->clean_url( self::pluck( $input, 'login_header_url' ), false ),
+			'login_header_text'    => self::clean_text( self::pluck( $input, 'login_header_text' ), self::MAX_TEXT_LEN ),
+			'login_message'        => self::clean_text( self::pluck( $input, 'login_message' ), self::MAX_MESSAGE_LEN ),
+			'admin_footer_text'    => self::clean_text( self::pluck( $input, 'admin_footer_text' ), self::MAX_MESSAGE_LEN ),
+			'hide_wp_logo'         => ! empty( $input['hide_wp_logo'] ),
+			// Brand-kit fields (ONE brand identity flowing to every surface). The email
+			// logo is CSS/attr-context safe like the login logo → css_safe gauntlet.
+			'brand_name'           => self::clean_text( self::pluck( $input, 'brand_name' ), self::MAX_TEXT_LEN ),
+			'accent_color'         => self::clean_color( self::pluck( $input, 'accent_color' ) ),
+			'email_logo_url'       => $this->clean_url( self::pluck( $input, 'email_logo_url' ), true ),
+			'apply_to_email'       => ! empty( $input['apply_to_email'] ),
+			'apply_to_maintenance' => ! empty( $input['apply_to_maintenance'] ),
+			'saved_at'             => 0,
 		);
 	}
 
@@ -459,7 +500,132 @@ final class IWSL_White_Label {
 		return $stripped;
 	}
 
+	/**
+	 * Validate an accent color: a strict `#rrggbb` hex string, or '' when it does not
+	 * match (empty simply means "no accent"). Never stored as anything but a clean
+	 * six-digit hex, so every consumer can emit it inside a style attribute safely.
+	 */
+	private static function clean_color( string $value ): string {
+		$value = trim( $value );
+		return 1 === preg_match( self::COLOR_RE, $value ) ? $value : '';
+	}
+
 	private function now_seconds(): int {
 		return (int) floor( ( $this->now_ms )() / 1000 );
+	}
+
+	// ── brand-kit consumer seams (each gated via apply(); locked ⇒ null/empty) ─────
+
+	/**
+	 * The resolved outgoing-email brand header, for IWSL_Email_Delivery to prepend to
+	 * HTML mail. Gate-checked first (via apply()): a locked/revoked site — or one with
+	 * `apply_to_email` off, or no logo/name — returns '' so stock WordPress mail is
+	 * restored instantly. Pure/read-only; safe on every request.
+	 */
+	public function email_brand_header(): string {
+		$email = $this->unlocked_surface( 'email' );
+		if ( null === $email || empty( $email['header_html'] ) ) {
+			return '';
+		}
+		return (string) $email['header_html'];
+	}
+
+	/**
+	 * The resolved brand primitives IWSL_Maintenance_Mode adopts for its holding page
+	 * when `apply_to_maintenance` is on: the (validated) logo URL, brand name and
+	 * accent hex. Gate-checked first (via apply()); returns null when locked/revoked
+	 * or when the operator has not opted the maintenance page into the brand — so the
+	 * maintenance engine keeps its own default appearance. The consumer escapes these
+	 * at render (they are primitives, not markup — the trust boundary stays there).
+	 *
+	 * @return array{ logo_url:string, name:string, accent:string }|null
+	 */
+	public function maintenance_brand(): ?array {
+		$decision = $this->apply();
+		if ( empty( $decision['applied'] ) ) {
+			return null;
+		}
+		$settings = isset( $decision['settings'] ) && is_array( $decision['settings'] ) ? $decision['settings'] : array();
+		if ( empty( $settings['apply_to_maintenance'] ) ) {
+			return null;
+		}
+		return array(
+			'logo_url' => isset( $settings['email_logo_url'] ) ? (string) $settings['email_logo_url'] : '',
+			'name'     => isset( $settings['brand_name'] ) ? (string) $settings['brand_name'] : '',
+			'accent'   => isset( $settings['accent_color'] ) ? (string) $settings['accent_color'] : '',
+		);
+	}
+
+	// ── signed `branding.set` wire validation (the second copy of the allow-list) ─
+
+	/**
+	 * Params validator for the signed `branding.set` command (§7). Shape:
+	 * `{ settings: { <allow-listed field>: string|bool } }` and nothing else. Refuses
+	 * a stray top-level key, a settings field outside WIRE_STRING_FIELDS /
+	 * WIRE_BOOL_FIELDS, a type mismatch, or a payload whose string bytes exceed
+	 * WIRE_MAX_BYTES. Static so the command registry can reference it as the verifier
+	 * allow-list validator, exactly like IWSL_Entitlements::validate_params.
+	 *
+	 * @param mixed $params The signed envelope's `params` (stdClass).
+	 */
+	public static function validate_wire_params( $params ): bool {
+		if ( ! $params instanceof stdClass ) {
+			return false;
+		}
+		$vars = get_object_vars( $params );
+		if ( array() !== array_diff_key( $vars, array( 'settings' => 1 ) ) ) {
+			return false;
+		}
+		if ( ! isset( $vars['settings'] ) || ! $vars['settings'] instanceof stdClass ) {
+			return false;
+		}
+		$fields = get_object_vars( $vars['settings'] );
+		$bytes  = 0;
+		foreach ( $fields as $key => $value ) {
+			if ( ! is_string( $key ) ) {
+				return false;
+			}
+			if ( in_array( $key, self::WIRE_STRING_FIELDS, true ) ) {
+				if ( ! is_string( $value ) ) {
+					return false;
+				}
+				$bytes += strlen( $value );
+				if ( $bytes > self::WIRE_MAX_BYTES ) {
+					return false;
+				}
+				continue;
+			}
+			if ( in_array( $key, self::WIRE_BOOL_FIELDS, true ) ) {
+				if ( ! is_bool( $value ) ) {
+					return false;
+				}
+				continue;
+			}
+			return false; // stray / unknown field.
+		}
+		return true;
+	}
+
+	/**
+	 * Project a validated `branding.set` wire `settings` object to the raw-input map
+	 * save_settings() expects. String fields pass through as strings; bool fields
+	 * pass through as bools (save_settings coerces via ! empty()). No sanitization
+	 * here — save_settings() runs the identical gauntlet as the admin form, so the
+	 * wire path has exactly one authoritative sanitizer.
+	 *
+	 * @param mixed $settings A validated stdClass of allow-listed fields.
+	 * @return array<string, string|bool>
+	 */
+	public static function wire_settings_to_input( $settings ): array {
+		$out = array();
+		if ( ! $settings instanceof stdClass ) {
+			return $out;
+		}
+		foreach ( get_object_vars( $settings ) as $key => $value ) {
+			if ( is_string( $key ) && ( is_string( $value ) || is_bool( $value ) ) ) {
+				$out[ $key ] = $value;
+			}
+		}
+		return $out;
 	}
 }

@@ -55,6 +55,12 @@ final class IWSL_Maintenance_Mode {
 	/** Seconds advertised in the Retry-After header when that flag is on. */
 	const RETRY_AFTER_SECONDS = 3600;
 
+	/** Furthest ahead an auto-off window may be scheduled (7 days). */
+	const MAX_UNTIL_AHEAD_S = 604800;
+
+	/** Cap on allow-listed literal IPs (no CIDR in v1). */
+	const MAX_ALLOW_IPS = 10;
+
 	/** HTTP status a blocked request receives. */
 	const HTTP_STATUS = 503;
 
@@ -81,12 +87,22 @@ final class IWSL_Maintenance_Mode {
 	private $is_front;
 
 	/**
+	 * @var callable():(array{logo_url:string,name:string,accent:string}|null)|null
+	 * White-label brand adoption provider — IWSL_White_Label::maintenance_brand(),
+	 * which gates on `white_label` + `apply_to_maintenance`. null (or a null return)
+	 * means "no brand adoption": the holding page keeps its own default appearance.
+	 */
+	private $brand;
+
+	/**
 	 * @param IWSL_Entitlements $entitlements The gate.
 	 * @param IWSL_Store|null   $store        Settings persistence; defaults to the WP option store.
 	 * @param callable|null     $now_ms       Clock, mirrors IWSL_Entitlements.
 	 * @param callable|null     $responder    fn(status,headers,body):void; default sends the 503 + exits.
 	 * @param callable|null     $is_admin     fn():bool; default is current_user_can('manage_options').
 	 * @param callable|null     $is_front     fn():bool; default is the front-end request probe.
+	 * @param callable|null     $brand        fn():?array — the white-label brand-adoption provider
+	 *                                        (logo/name/accent) when `apply_to_maintenance` is on; null = none.
 	 */
 	public function __construct(
 		IWSL_Entitlements $entitlements,
@@ -94,7 +110,8 @@ final class IWSL_Maintenance_Mode {
 		?callable $now_ms = null,
 		?callable $responder = null,
 		?callable $is_admin = null,
-		?callable $is_front = null
+		?callable $is_front = null,
+		?callable $brand = null
 	) {
 		$this->entitlements = $entitlements;
 		$this->store        = null !== $store ? $store : new IWSL_WP_Store();
@@ -104,6 +121,7 @@ final class IWSL_Maintenance_Mode {
 		$this->responder = $responder ?? self::default_responder();
 		$this->is_admin  = $is_admin ?? self::default_is_admin();
 		$this->is_front  = $is_front ?? self::default_is_front();
+		$this->brand     = $brand;
 	}
 
 	/**
@@ -126,7 +144,7 @@ final class IWSL_Maintenance_Mode {
 	 * DB-tampered value is normalized here, never mutated in place. `saved_at` is
 	 * preserved from the stored record.
 	 *
-	 * @return array{ enabled:bool, headline:string, message:string, retry_after:bool, saved_at:int }
+	 * @return array{ enabled:bool, headline:string, message:string, retry_after:bool, until:int, allow_ips:string[], saved_at:int }
 	 */
 	public function settings(): array {
 		$stored = $this->store->get( self::SETTINGS_KEY, array() );
@@ -209,27 +227,52 @@ final class IWSL_Maintenance_Mode {
 	 * can assert the status, the Retry-After header and the escaped body. Blank
 	 * headline/message fall back to the built-in copy.
 	 *
-	 * @param array{ headline?:string, message?:string, retry_after?:bool } $settings
+	 * BRAND ADOPTION (precedence: explicit local wins). When $brand is supplied (the
+	 * white-label engine opted this page in via `apply_to_maintenance`), its logo and
+	 * accent decorate the page, and its brand NAME fills the headline ONLY when the
+	 * operator left the local headline blank — an explicit local headline always
+	 * wins. The message is never taken from the brand. $brand primitives are escaped
+	 * at render (they are values, not markup), so the trust boundary stays here.
+	 *
+	 * @param array{ headline?:string, message?:string, retry_after?:bool }           $settings
+	 * @param array{ logo_url?:string, name?:string, accent?:string }|null            $brand
 	 * @return array{ status:int, headers:array<string,string>, body:string }
 	 */
-	public function build_response( array $settings ): array {
-		$headline = isset( $settings['headline'] ) && '' !== (string) $settings['headline']
-			? (string) $settings['headline'] : self::DEFAULT_HEADLINE;
+	public function build_response( array $settings, ?array $brand = null ): array {
+		$local_headline = isset( $settings['headline'] ) ? (string) $settings['headline'] : '';
+		$brand_name     = ( null !== $brand && isset( $brand['name'] ) ) ? (string) $brand['name'] : '';
+
+		$headline = '' !== $local_headline
+			? $local_headline
+			: ( '' !== $brand_name ? $brand_name : self::DEFAULT_HEADLINE );
 		$message = isset( $settings['message'] ) && '' !== (string) $settings['message']
 			? (string) $settings['message'] : self::DEFAULT_MESSAGE;
+
+		$logo_url = ( null !== $brand && isset( $brand['logo_url'] ) ) ? (string) $brand['logo_url'] : '';
+		$accent   = ( null !== $brand && isset( $brand['accent'] ) ) ? (string) $brand['accent'] : '';
 
 		$headers = array(
 			'Content-Type'  => 'text/html; charset=utf-8',
 			'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
 		);
 		if ( ! empty( $settings['retry_after'] ) ) {
-			$headers['Retry-After'] = (string) self::RETRY_AFTER_SECONDS;
+			// When an auto-off window is set, advertise the REAL remaining seconds so
+			// crawlers come back right after it lifts; otherwise the flat default.
+			$secs  = self::RETRY_AFTER_SECONDS;
+			$until = isset( $settings['until'] ) ? (int) $settings['until'] : 0;
+			if ( $until > 0 ) {
+				$remaining = $until - $this->now_seconds();
+				if ( $remaining > 0 ) {
+					$secs = $remaining;
+				}
+			}
+			$headers['Retry-After'] = (string) $secs;
 		}
 
 		return array(
 			'status'  => self::HTTP_STATUS,
 			'headers' => $headers,
-			'body'    => self::holding_page_html( $headline, $message ),
+			'body'    => self::holding_page_html( $headline, $message, $logo_url, $accent ),
 		);
 	}
 
@@ -245,16 +288,24 @@ final class IWSL_Maintenance_Mode {
 			return;
 		}
 
-		$settings = $this->settings();
-		$enabled  = ! empty( $settings['enabled'] );
-		$is_admin = (bool) ( $this->is_admin )();
-		$is_front = (bool) ( $this->is_front )();
+		$settings   = $this->settings();
+		// An auto-off window that has elapsed reads as "not enabled" (S8); an
+		// allow-listed REMOTE_ADDR bypasses exactly like an admin (S7). Both facts
+		// are folded into should_block's existing three so the pure decision table
+		// is untouched.
+		$enabled    = $this->is_active_now( $settings );
+		$is_admin   = (bool) ( $this->is_admin )();
+		$allowed_ip = $this->is_ip_allowed( $settings );
+		$is_front   = (bool) ( $this->is_front )();
 
-		if ( ! $this->should_block( $enabled, $is_admin, $is_front ) ) {
+		if ( ! $this->should_block( $enabled, $is_admin || $allowed_ip, $is_front ) ) {
 			return;
 		}
 
-		$response = $this->build_response( $settings );
+		// White-label brand adoption (gated inside the provider on `white_label` +
+		// `apply_to_maintenance`); null when unset/locked so the default page shows.
+		$brand    = ( null !== $this->brand ) ? ( $this->brand )() : null;
+		$response = $this->build_response( $settings, is_array( $brand ) ? $brand : null );
 		( $this->responder )( (int) $response['status'], (array) $response['headers'], (string) $response['body'] );
 	}
 
@@ -267,9 +318,24 @@ final class IWSL_Maintenance_Mode {
 	 * URL-less, markup-less design keeps the attack surface at exactly those two
 	 * escaped inserts.
 	 */
-	private static function holding_page_html( string $headline, string $message ): string {
+	private static function holding_page_html( string $headline, string $message, string $logo_url = '', string $accent = '' ): string {
 		$h = self::esc( $headline );
 		$m = nl2br( self::esc( $message ) );
+
+		// Brand adoption: a validated logo URL replaces the default badge, a validated
+		// `#rrggbb` accent recolors the badge/border. Both are escaped here (esc_url /
+		// esc_attr); the accent is already `#rrggbb`-shaped by IWSL_White_Label.
+		$badge = '<div class="dot" aria-hidden="true"></div>';
+		if ( '' !== $logo_url ) {
+			$badge = '<img class="brand-logo" src="' . self::esc_url( $logo_url ) . '" alt="' . $h . '">';
+		}
+		$dot_bg     = '' !== $accent
+			? 'background:' . self::esc_attr( $accent ) . ';'
+			: 'background:radial-gradient(120% 120% at 30% 25%,#7cc4ff,#2a6df0);';
+		$card_border = '' !== $accent
+			? 'border:1px solid ' . self::esc_attr( $accent ) . ';'
+			: 'border:1px solid rgba(255,255,255,.08);';
+
 		return '<!doctype html>'
 			. '<html lang="en"><head><meta charset="utf-8">'
 			. '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -284,17 +350,18 @@ final class IWSL_Maintenance_Mode {
 			. 'line-height:1.6;-webkit-font-smoothing:antialiased}'
 			. '.card{max-width:520px;width:100%;text-align:center;'
 			. 'background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));'
-			. 'border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:44px 36px;'
+			. $card_border . 'border-radius:16px;padding:44px 36px;'
 			. 'box-shadow:0 24px 60px -24px rgba(0,0,0,.7)}'
 			. '.dot{width:44px;height:44px;margin:0 auto 22px;border-radius:12px;'
-			. 'background:radial-gradient(120% 120% at 30% 25%,#7cc4ff,#2a6df0);'
-			. 'box-shadow:0 8px 26px -8px rgba(42,109,240,.8)}'
+			. $dot_bg
+			. 'box-shadow:0 8px 26px -8px rgba(0,0,0,.5)}'
+			. '.brand-logo{max-height:64px;height:auto;margin:0 auto 22px;display:block}'
 			. 'h1{margin:0 0 12px;font-size:26px;font-weight:700;letter-spacing:-.01em;color:#fff}'
 			. 'p{margin:0;font-size:15px;color:#a9b6c4}'
 			. '.foot{margin-top:26px;font-size:12px;color:#5f6f7e;letter-spacing:.03em}'
 			. '</style></head><body>'
 			. '<main class="card" role="main">'
-			. '<div class="dot" aria-hidden="true"></div>'
+			. $badge
 			. '<h1>' . $h . '</h1>'
 			. '<p>' . $m . '</p>'
 			. '<div class="foot">HTTP 503 &middot; Service temporarily unavailable</div>'
@@ -309,6 +376,22 @@ final class IWSL_Maintenance_Mode {
 		return htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
 	}
 
+	/** esc_attr when WordPress is present, htmlspecialchars otherwise (harness). */
+	private static function esc_attr( string $value ): string {
+		if ( function_exists( 'esc_attr' ) ) {
+			return (string) esc_attr( $value );
+		}
+		return htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
+	}
+
+	/** esc_url when WordPress is present, htmlspecialchars otherwise (harness). */
+	private static function esc_url( string $value ): string {
+		if ( function_exists( 'esc_url' ) ) {
+			return (string) esc_url( $value );
+		}
+		return htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
+	}
+
 	// ── the save-time validation gauntlet ──────────────────────────────────────
 
 	/**
@@ -317,7 +400,7 @@ final class IWSL_Maintenance_Mode {
 	 * capped; the two booleans are cast.
 	 *
 	 * @param array<string, mixed> $input
-	 * @return array{ enabled:bool, headline:string, message:string, retry_after:bool, saved_at:int }
+	 * @return array{ enabled:bool, headline:string, message:string, retry_after:bool, until:int, allow_ips:string[], saved_at:int }
 	 */
 	public function sanitize_settings( array $input ): array {
 		return array(
@@ -325,8 +408,125 @@ final class IWSL_Maintenance_Mode {
 			'headline'    => self::clean_text( self::pluck( $input, 'headline' ), self::MAX_HEADLINE_LEN ),
 			'message'     => self::clean_text( self::pluck( $input, 'message' ), self::MAX_MESSAGE_LEN ),
 			'retry_after' => ! empty( $input['retry_after'] ),
+			'until'       => $this->clean_until( $input ),
+			'allow_ips'   => self::clean_ips( $input ),
 			'saved_at'    => 0,
 		);
+	}
+
+	/**
+	 * Normalize an optional auto-off window (unix seconds). A non-positive / missing
+	 * value means "no window"; a future value is clamped to MAX_UNTIL_AHEAD_S ahead
+	 * of now so a fat-fingered timestamp can never leave the site dark for years. A
+	 * value already in the past is preserved as-is — is_active_now() treats it as
+	 * elapsed (i.e. maintenance off), which is the whole point of the window.
+	 */
+	private function clean_until( array $input ): int {
+		$until = isset( $input['until'] ) && is_numeric( $input['until'] ) ? (int) $input['until'] : 0;
+		if ( $until <= 0 ) {
+			return 0;
+		}
+		$max = $this->now_seconds() + self::MAX_UNTIL_AHEAD_S;
+		return $until > $max ? $max : $until;
+	}
+
+	/**
+	 * Normalize the IP allow-list: literal IPv4/IPv6 only (a CIDR like `10.0.0.0/8`
+	 * fails FILTER_VALIDATE_IP and is dropped), de-duped, capped at MAX_ALLOW_IPS.
+	 * Accepts either an array of strings or a whitespace/comma-separated string so a
+	 * console textarea maps cleanly. Stored verbatim; canonicalized only at compare
+	 * time (is_ip_allowed) so the surface stays human-readable.
+	 *
+	 * @param array<string, mixed> $input
+	 * @return string[]
+	 */
+	private static function clean_ips( array $input ): array {
+		$raw = isset( $input['allow_ips'] ) ? $input['allow_ips'] : array();
+		if ( is_string( $raw ) ) {
+			$raw = preg_split( '/[\s,]+/', $raw, -1, PREG_SPLIT_NO_EMPTY );
+			$raw = is_array( $raw ) ? $raw : array();
+		}
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+		$out  = array();
+		$seen = array();
+		foreach ( $raw as $ip ) {
+			if ( ! is_string( $ip ) ) {
+				continue;
+			}
+			$ip = trim( $ip );
+			if ( false === filter_var( $ip, FILTER_VALIDATE_IP ) || isset( $seen[ $ip ] ) ) {
+				continue;
+			}
+			$seen[ $ip ] = true;
+			$out[]       = $ip;
+			if ( count( $out ) >= self::MAX_ALLOW_IPS ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Whether maintenance is *effectively active right now*: enabled AND, if an
+	 * auto-off window is set, not yet elapsed. Pure — the caller supplies (or lets
+	 * it default to) the clock so the harness can assert the expiry boundary.
+	 *
+	 * @param array<string, mixed> $settings A sanitized settings map.
+	 */
+	public function is_active_now( array $settings, ?int $now_s = null ): bool {
+		if ( empty( $settings['enabled'] ) ) {
+			return false;
+		}
+		$until = isset( $settings['until'] ) ? (int) $settings['until'] : 0;
+		if ( $until > 0 ) {
+			$now = null !== $now_s ? $now_s : $this->now_seconds();
+			if ( $now >= $until ) {
+				return false; // Window elapsed → maintenance is off.
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Whether the request's client IP is allow-listed. Compares ONLY REMOTE_ADDR —
+	 * never X-Forwarded-For, which a client can spoof — canonicalizing both sides
+	 * with inet_pton so `::1` and its long form compare equal. An empty allow-list,
+	 * an unparseable client address, or a proxy that hides the real IP → not allowed
+	 * (fail-closed). The reverse-proxy caveat is surfaced in the console UI.
+	 *
+	 * @param array<string, mixed> $settings    A sanitized settings map.
+	 * @param string|null          $remote_addr Override for the harness; default $_SERVER['REMOTE_ADDR'].
+	 */
+	public function is_ip_allowed( array $settings, ?string $remote_addr = null ): bool {
+		$ips = isset( $settings['allow_ips'] ) && is_array( $settings['allow_ips'] ) ? $settings['allow_ips'] : array();
+		if ( array() === $ips ) {
+			return false;
+		}
+		$addr = null !== $remote_addr
+			? $remote_addr
+			: ( isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '' );
+		$canon = self::canon_ip( $addr );
+		if ( '' === $canon ) {
+			return false;
+		}
+		foreach ( $ips as $ip ) {
+			if ( is_string( $ip ) && self::canon_ip( $ip ) === $canon ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Canonical byte form (hex) of a literal IP, or '' when it is not a valid IP. */
+	private static function canon_ip( string $ip ): string {
+		$ip = trim( $ip );
+		if ( false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+			return '';
+		}
+		$packed = @inet_pton( $ip );
+		return false === $packed ? '' : bin2hex( $packed );
 	}
 
 	/** Read a string field defensively from a mixed input map. */
@@ -553,11 +753,18 @@ final class IWSL_Maintenance_Mode {
 			exit;
 		}
 
-		$input = array(
+		// The basic wp-admin form does not surface the auto-off window or the IP
+		// allow-list (the console `maintenance.set` path manages those); carry the
+		// currently-stored values forward so a plain admin toggle never silently
+		// clears a console-configured window or allow-list.
+		$current = $this->settings();
+		$input   = array(
 			'enabled'     => isset( $_POST['iwsl_mm_enabled'] ),
 			'headline'    => isset( $_POST['iwsl_mm_headline'] ) ? sanitize_text_field( wp_unslash( $_POST['iwsl_mm_headline'] ) ) : '',
 			'message'     => isset( $_POST['iwsl_mm_message'] ) ? sanitize_textarea_field( wp_unslash( $_POST['iwsl_mm_message'] ) ) : '',
 			'retry_after' => isset( $_POST['iwsl_mm_retry_after'] ),
+			'until'       => $current['until'],
+			'allow_ips'   => $current['allow_ips'],
 		);
 
 		$result = $this->save_settings( $input ); // LAYER 3 inside.

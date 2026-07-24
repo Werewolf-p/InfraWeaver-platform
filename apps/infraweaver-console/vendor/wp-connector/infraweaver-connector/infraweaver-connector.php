@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.18.1
+ * Version: 0.24.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.18.1' );
+define( 'IWSL_CONNECTOR_VERSION', '0.24.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -71,7 +71,9 @@ require_once __DIR__ . '/includes/class-iwsl-media-optimizer.php';
 require_once __DIR__ . '/includes/class-iwsl-s3-client.php';
 require_once __DIR__ . '/includes/class-iwsl-redirect-matcher.php';
 require_once __DIR__ . '/includes/class-iwsl-exact-path-matcher.php';
+require_once __DIR__ . '/includes/class-iwsl-prefix-path-matcher.php';
 require_once __DIR__ . '/includes/class-iwsl-redirects.php';
+require_once __DIR__ . '/includes/class-iwsl-redirect-suggestions.php';
 require_once __DIR__ . '/includes/iwsl-page-cache-helpers.php';
 require_once __DIR__ . '/includes/class-iwsl-page-cache.php';
 require_once __DIR__ . '/includes/class-iwsl-mail-transport.php';
@@ -80,10 +82,13 @@ require_once __DIR__ . '/includes/class-iwsl-email-delivery.php';
 require_once __DIR__ . '/includes/class-iwsl-brand-surface.php';
 require_once __DIR__ . '/includes/class-iwsl-login-brand-surface.php';
 require_once __DIR__ . '/includes/class-iwsl-admin-brand-surface.php';
+require_once __DIR__ . '/includes/class-iwsl-email-brand-surface.php';
 require_once __DIR__ . '/includes/class-iwsl-white-label.php';
 require_once __DIR__ . '/includes/class-iwsl-db-cleaner.php';
 require_once __DIR__ . '/includes/class-iwsl-db-cleaners.php';
+require_once __DIR__ . '/includes/class-iwsl-db-history.php';
 require_once __DIR__ . '/includes/class-iwsl-db-optimizer.php';
+require_once __DIR__ . '/includes/class-iwsl-db-analyzer.php';
 require_once __DIR__ . '/includes/class-iwsl-config-editor.php';
 // ── Plus feature engines (wave 2): each gated, self-contained, console-granted ──
 require_once __DIR__ . '/includes/class-iwsl-lazy-load.php';
@@ -95,10 +100,18 @@ require_once __DIR__ . '/includes/class-iwsl-seo-audit.php';
 require_once __DIR__ . '/includes/class-iwsl-svg-upload.php';
 require_once __DIR__ . '/includes/class-iwsl-broken-link-scan.php';
 require_once __DIR__ . '/includes/class-iwsl-maintenance-mode.php';
+require_once __DIR__ . '/includes/class-iwsl-site-health.php';
 require_once __DIR__ . '/includes/class-iwsl-scheduled-db-cleanup.php';
 require_once __DIR__ . '/includes/class-iwsl-activity-log.php';
 require_once __DIR__ . '/includes/class-iwsl-auto-convert.php';
 require_once __DIR__ . '/includes/class-iwsl-media-offload.php';
+require_once __DIR__ . '/includes/class-iwsl-media-folders.php';
+require_once __DIR__ . '/includes/class-iwsl-media-folders-ui.php';
+require_once __DIR__ . '/includes/class-iwsl-media-library.php';
+require_once __DIR__ . '/includes/class-iwsl-media-detail.php';
+require_once __DIR__ . '/includes/class-iwsl-media-editor.php';
+require_once __DIR__ . '/includes/class-iwsl-media-gallery.php';
+require_once __DIR__ . '/includes/class-iwsl-media-native.php';
 require_once __DIR__ . '/includes/class-iwsl-speed-pack.php';
 require_once __DIR__ . '/includes/class-iwsl-stats-classifier.php';
 require_once __DIR__ . '/includes/class-iwsl-statistics.php';
@@ -109,8 +122,10 @@ require_once __DIR__ . '/includes/class-iwsl-seo-head.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-sitemap.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-alt-text.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-suite.php';
+require_once __DIR__ . '/includes/class-iwsl-seo-console.php';
 require_once __DIR__ . '/includes/class-iwsl-perf-audit.php';
 require_once __DIR__ . '/includes/class-iwsl-response-scan.php';
+require_once __DIR__ . '/includes/class-iwsl-security-headers.php';
 require_once __DIR__ . '/includes/class-iwsl-teardown.php';
 require_once __DIR__ . '/includes/class-iwsl-admin.php';
 
@@ -187,8 +202,24 @@ if ( $iwsl_switches->is_on( IWSL_Page_Cache::FEATURE ) ) {
 // default WordPress login and admin chrome. Registered on every request because
 // the login hooks fire on wp-login.php (not an admin context); the engine is cheap
 // and reads only local state.
+$iwsl_white_label = null;
 if ( $iwsl_switches->is_on( IWSL_White_Label::FEATURE ) ) {
-	( new IWSL_White_Label( iwsl_plugin()->entitlements(), new IWSL_WP_Store() ) )->register();
+	$iwsl_white_label = new IWSL_White_Label( iwsl_plugin()->entitlements(), new IWSL_WP_Store() );
+	$iwsl_white_label->register();
+	// Brand kit → outgoing email (ONE brand identity, every surface). Prepend the
+	// resolved brand header to HTML mail. Gated INSIDE email_brand_header() on the
+	// `white_label` entitlement + the `apply_to_email` toggle (so revoking the flag
+	// restores stock mail instantly); email delivery's brand_mail() only touches HTML
+	// mail and never mutates the args. Deliberately wired here (white-label), not in
+	// the email-delivery block, so email branding rides `white_label` ALONE — it must
+	// not require the separate `email_delivery` (SMTP) feature to be on.
+	add_filter(
+		'wp_mail',
+		static function ( $args ) use ( $iwsl_white_label ) {
+			return iwsl_plugin()->email_delivery()->brand_mail( $args, $iwsl_white_label->email_brand_header() );
+		},
+		1001
+	);
 }
 
 // ── Plus feature engines (wave 2) ──────────────────────────────────────────────
@@ -306,8 +337,24 @@ if ( $iwsl_switches->is_on( IWSL_Broken_Link_Scan::FEATURE ) ) {
 	( new IWSL_Broken_Link_Scan( $iwsl_ent ) )->register();
 }
 
-// Maintenance Mode (Pro, `maintenance_mode`).
-$iwsl_maintenance = new IWSL_Maintenance_Mode( $iwsl_ent, new IWSL_WP_Store() );
+// Maintenance Mode (Pro, `maintenance_mode`). The last constructor arg is the
+// white-label brand-adoption provider: when the operator opted the holding page
+// into the brand (`apply_to_maintenance`, gated on `white_label`), the page adopts
+// the logo/name/accent — explicit local maintenance settings still win. null when
+// white-label is switched off, so maintenance keeps its own default appearance.
+$iwsl_maintenance = new IWSL_Maintenance_Mode(
+	$iwsl_ent,
+	new IWSL_WP_Store(),
+	null,
+	null,
+	null,
+	null,
+	( null !== $iwsl_white_label )
+		? static function () use ( $iwsl_white_label ): ?array {
+			return $iwsl_white_label->maintenance_brand();
+		}
+		: null
+);
 if ( $iwsl_switches->is_on( IWSL_Maintenance_Mode::FEATURE ) ) {
 	$iwsl_maintenance->register();
 	add_action( 'admin_post_' . IWSL_Maintenance_Mode::ACTION, array( $iwsl_maintenance, 'handle_save' ) );
@@ -345,6 +392,34 @@ if ( $iwsl_switches->is_on( IWSL_Auto_Convert::FEATURE ) ) {
 // inside register() (each re-checks manage_options + nonce + the gate).
 ( new IWSL_Media_Offload( $iwsl_ent, new IWSL_WP_Store() ) )->register();
 
+// Media Folders / Explorer (Pro/Ultimate, `media_folders`). Windows-Explorer-style
+// folder tree + tag filtering over the Media Library. register() self-wires AJAX +
+// taxonomies + native-library filters, each gating on the entitlement as statement 1.
+$iwsl_media_folders = new IWSL_Media_Folders( $iwsl_ent, new IWSL_WP_Store() );
+if ( $iwsl_switches->is_on( IWSL_Media_Folders::FEATURE ) ) {
+	$iwsl_media_folders->register();
+}
+
+// Media Gallery by tag (shares `media_folders`). ONE shared render_gallery() behind a
+// shortcode ([iwsl_media_gallery] / [iwsl_gallery]), a dynamic Gutenberg block
+// (infraweaver/media-gallery) and a lazily-loaded Elementor widget. Registered on
+// every request because shortcodes/blocks/Elementor render outside admin;
+// register()'s STATEMENT 1 is the entitlement gate, so a locked site wires nothing.
+// The public lightbox is the viewer's presentation core ONLY — no admin data reaches
+// a visitor (see the information-disclosure fence in IWSL_Media_Gallery).
+if ( $iwsl_switches->is_on( IWSL_Media_Gallery::FEATURE ) ) {
+	( new IWSL_Media_Gallery( $iwsl_ent, new IWSL_WP_Store() ) )->register();
+}
+
+// Native-media takeover (Pro/Ultimate, `media_folders` + option
+// iwsl_media_explorer.replace_native, default OFF). register() is HOOK-ABSENT
+// unless the feature is unlocked AND the operator flipped the toggle on — a default
+// install (and any locked/switched-off site) attaches NOTHING and behaves
+// byte-for-byte like stock WordPress media. Console flips it via media.config.*.
+if ( $iwsl_switches->is_on( IWSL_Media_Native::FEATURE ) ) {
+	( new IWSL_Media_Native( $iwsl_ent, new IWSL_WP_Store() ) )->register();
+}
+
 // Background image conversion tick (gated on `image_optimization` inside the
 // callback). Registered UNCONDITIONALLY — WP-Cron fires outside admin, so the hook
 // must exist on every request for a scheduled tick to resolve. The tick re-checks
@@ -375,6 +450,15 @@ if ( $iwsl_switches->is_on( IWSL_Speed_Pack::FEATURE ) ) {
 // OWN public URLs via wp_remote_get; register() self-wires its two admin-post handlers.
 if ( $iwsl_switches->is_on( IWSL_Response_Scan::FEATURE ) ) {
 	( new IWSL_Response_Scan( $iwsl_ent, new IWSL_WP_Store() ) )->register();
+}
+
+// Security Headers (Pro, `security_headers`). register() wires a single `send_headers`
+// emitter whose FIRST statement is the entitlement gate, so a locked/revoked or
+// switched-off site emits nothing and behaves like stock WordPress. The emitter never
+// duplicates a header already present (peer plugin / PHP-visible upstream). The scan
+// + closed-set harden surface reaches the site over the signed command channel only.
+if ( $iwsl_switches->is_on( IWSL_Security_Headers::FEATURE ) ) {
+	( new IWSL_Security_Headers( $iwsl_ent, new IWSL_WP_Store() ) )->register();
 }
 
 // Site Statistics (Ultimate, `statistics`) + Cookie Consent (Ultimate,
