@@ -213,3 +213,13 @@ export function resolveEntitlements(record: TierBearingRecord | undefined): Enti
 export function siteHasEntitlement(record: TierBearingRecord | undefined, flag: EntitlementFlag): boolean {
   return resolveEntitlements(record)[flag] === true;
 }
+
+/**
+ * The LOWEST-rank tier that grants a flag, or `null` when no tier does. Powers the
+ * `TierGate` upsell copy ("Included in Pro") — the cheapest plan that unlocks a
+ * locked feature. `listTiers()` is ascending by rank, so the first match is the
+ * cheapest. Pure lookup over the same `TIERS` table.
+ */
+export function lowestTierGranting(flag: EntitlementFlag): TierDefinition | null {
+  return listTiers().find((tier) => tier.grants.includes(flag)) ?? null;
+}
