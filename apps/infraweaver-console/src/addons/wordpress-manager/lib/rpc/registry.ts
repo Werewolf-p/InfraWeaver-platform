@@ -18,19 +18,37 @@
 
 import { validateEntitlementsParams } from "../entitlements";
 import {
+  mediaDeleteParamsSchema,
+  mediaEditParamsSchema,
   mediaFolderParamsSchema,
+  mediaGetParamsSchema,
   mediaListParamsSchema,
   mediaOffloadParamsSchema,
   mediaOptimizeParamsSchema,
+  mediaProtectParamsSchema,
   mediaRestoreParamsSchema,
+  mediaUpdateMetaParamsSchema,
+  mediaUsageParamsSchema,
+  type MediaDeleteParams,
+  type MediaDeleteResponse,
+  type MediaEditParams,
+  type MediaEditResponse,
   type MediaFolderParams,
+  type MediaGetParams,
+  type MediaGetResponse,
   type MediaListParams,
   type MediaListResponse,
   type MediaOffloadParams,
   type MediaOptimizeParams,
+  type MediaProtectParams,
+  type MediaProtectResponse,
   type MediaRestoreParams,
   type MediaStatusResponse,
   type MediaTreeResponse,
+  type MediaUpdateMetaParams,
+  type MediaUpdateMetaResponse,
+  type MediaUsageParams,
+  type MediaUsageResponse,
 } from "../manage/media";
 
 /** Signed-command methods the Connector allow-lists (§7). Wire strings — never rename. */
@@ -51,7 +69,14 @@ export type RpcMethod =
   | "media.optimize"
   | "media.offload"
   | "media.restore"
-  | "media.folder";
+  | "media.folder"
+  // ── media viewer (Agent A) — the click-to-open viewer read + mutations.
+  | "media.get"
+  | "media.updateMeta"
+  | "media.edit"
+  | "media.protect"
+  | "media.delete"
+  | "media.usage";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -73,6 +98,13 @@ export interface RpcParams {
   "media.offload": MediaOffloadParams;
   "media.restore": MediaRestoreParams;
   "media.folder": MediaFolderParams;
+  // ── media viewer — params mirror IWSL_Media_Detail / _Editor / _Protection validators.
+  "media.get": MediaGetParams;
+  "media.updateMeta": MediaUpdateMetaParams;
+  "media.edit": MediaEditParams;
+  "media.protect": MediaProtectParams;
+  "media.delete": MediaDeleteParams;
+  "media.usage": MediaUsageParams;
 }
 
 /**
@@ -152,6 +184,13 @@ export interface RpcResult {
   };
   /** Terms-only folder mutation echo. */
   "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  // ── media viewer — the viewer read-model + safe mutations (plugin is the source of truth).
+  "media.get": MediaGetResponse;
+  "media.updateMeta": MediaUpdateMetaResponse;
+  "media.edit": MediaEditResponse;
+  "media.protect": MediaProtectResponse;
+  "media.delete": MediaDeleteResponse;
+  "media.usage": MediaUsageResponse;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -200,6 +239,14 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
   "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
   "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
+  // Media viewer — validators reuse the isomorphic zod schemas that mirror the
+  // connector's IWSL_Media_Detail / _Editor / _Protection validators (never drift).
+  "media.get": { hasParams: true, validate: (p) => mediaGetParamsSchema.safeParse(p).success },
+  "media.updateMeta": { hasParams: true, validate: (p) => mediaUpdateMetaParamsSchema.safeParse(p).success },
+  "media.edit": { hasParams: true, validate: (p) => mediaEditParamsSchema.safeParse(p).success },
+  "media.protect": { hasParams: true, validate: (p) => mediaProtectParamsSchema.safeParse(p).success },
+  "media.delete": { hasParams: true, validate: (p) => mediaDeleteParamsSchema.safeParse(p).success },
+  "media.usage": { hasParams: true, validate: (p) => mediaUsageParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */

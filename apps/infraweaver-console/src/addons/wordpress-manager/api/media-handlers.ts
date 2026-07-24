@@ -15,22 +15,34 @@ import {
 import {
   MEDIA_READ_VERBS,
   MEDIA_WRITE_VERBS,
+  mediaDeleteParamsSchema,
+  mediaEditParamsSchema,
   mediaFolderParamsSchema,
+  mediaGetParamsSchema,
   mediaListParamsSchema,
   mediaOffloadParamsSchema,
   mediaOptimizeParamsSchema,
+  mediaProtectParamsSchema,
   mediaRestoreParamsSchema,
+  mediaUpdateMetaParamsSchema,
+  mediaUsageParamsSchema,
   type MediaReadVerb,
   type MediaWriteVerb,
 } from "../lib/manage/media";
 import {
+  deleteMediaAsset,
+  editMediaImage,
+  getMediaAsset,
+  getMediaUsage,
   listMedia,
   mediaFolderOp,
   mediaStatus,
   mediaTree,
   offloadMedia,
   optimizeMedia,
+  protectMedia,
   restoreMedia,
+  updateMediaMeta,
 } from "../lib/iwsl-managed-ops";
 
 /**
@@ -87,8 +99,17 @@ async function guard(action: () => Promise<NextResponse>): Promise<NextResponse>
 }
 
 /** Per-verb rate ceilings. Bulk verbs run as many bounded signed batches, so they are generous. */
-const READ_RATE: Record<MediaReadVerb, number> = { list: 120, tree: 60, status: 120 };
-const WRITE_RATE: Record<MediaWriteVerb, number> = { optimize: 240, offload: 240, restore: 240, folder: 60 };
+const READ_RATE: Record<MediaReadVerb, number> = { list: 120, tree: 60, status: 120, get: 120, usage: 60 };
+const WRITE_RATE: Record<MediaWriteVerb, number> = {
+  optimize: 240,
+  offload: 240,
+  restore: 240,
+  folder: 60,
+  updateMeta: 120,
+  edit: 60,
+  protect: 120,
+  delete: 30,
+};
 
 function isReadVerb(v: string): v is MediaReadVerb {
   return (MEDIA_READ_VERBS as readonly string[]).includes(v);
@@ -118,8 +139,18 @@ export async function mediaReadHandler(req: NextRequest, site: string): Promise<
       try {
         params = JSON.parse(raw);
       } catch {
-        return fail("Malformed media.list parameters", 400);
+        return fail(`Malformed media.${verb} parameters`, 400);
       }
+    }
+    if (verb === "get") {
+      const parsed = mediaGetParamsSchema.safeParse(params);
+      if (!parsed.success) return fail("Invalid media.get parameters", 400);
+      return json(await getMediaAsset(site, parsed.data));
+    }
+    if (verb === "usage") {
+      const parsed = mediaUsageParamsSchema.safeParse(params);
+      if (!parsed.success) return fail("Invalid media.usage parameters", 400);
+      return json(await getMediaUsage(site, parsed.data));
     }
     const parsed = mediaListParamsSchema.safeParse(params);
     if (!parsed.success) return fail("Invalid media.list parameters", 400);
@@ -179,6 +210,48 @@ export async function mediaWriteHandler(req: NextRequest, site: string): Promise
         if (!parsed.success) return fail("Invalid media.folder parameters", 400);
         const result = await mediaFolderOp(site, parsed.data);
         await auditLog("wordpress:media-folder", gate.username, `site ${site} folder ${parsed.data.op}`, {
+          result: "success",
+          resource: `wordpress/${site}`,
+        });
+        return json(result);
+      }
+      case "updateMeta": {
+        const parsed = mediaUpdateMetaParamsSchema.safeParse(body?.params);
+        if (!parsed.success) return fail("Invalid media.updateMeta parameters", 400);
+        const result = await updateMediaMeta(site, parsed.data);
+        await auditLog("wordpress:media-updateMeta", gate.username, `site ${site} edit meta of asset ${parsed.data.id}`, {
+          result: "success",
+          resource: `wordpress/${site}`,
+        });
+        return json(result);
+      }
+      case "edit": {
+        const parsed = mediaEditParamsSchema.safeParse(body?.params);
+        if (!parsed.success) return fail("Invalid media.edit parameters", 400);
+        const result = await editMediaImage(site, parsed.data);
+        await auditLog("wordpress:media-edit", gate.username, `site ${site} edit image ${parsed.data.id} (${parsed.data.ops.length} op(s))`, {
+          result: "success",
+          resource: `wordpress/${site}`,
+        });
+        return json(result);
+      }
+      case "protect": {
+        const parsed = mediaProtectParamsSchema.safeParse(body?.params);
+        if (!parsed.success) return fail("Invalid media.protect parameters", 400);
+        const result = await protectMedia(site, parsed.data);
+        await auditLog("wordpress:media-protect", gate.username, `site ${site} ${parsed.data.protected ? "protect" : "unprotect"} ${parsed.data.ids.length} asset(s)`, {
+          result: "success",
+          resource: `wordpress/${site}`,
+        });
+        return json(result);
+      }
+      case "delete": {
+        // A REAL attachment delete — the destructive verb. The schema fences it on the
+        // literal confirm:true; RBAC write + same-origin + audit as every write.
+        const parsed = mediaDeleteParamsSchema.safeParse(body?.params);
+        if (!parsed.success) return fail("Invalid media.delete parameters", 400);
+        const result = await deleteMediaAsset(site, parsed.data);
+        await auditLog("wordpress:media-delete", gate.username, `site ${site} DELETE attachment ${parsed.data.id}`, {
           result: "success",
           resource: `wordpress/${site}`,
         });

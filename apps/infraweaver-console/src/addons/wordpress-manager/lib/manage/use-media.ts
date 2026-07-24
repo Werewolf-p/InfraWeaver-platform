@@ -14,10 +14,12 @@ import { collectMatchingIds, type MatchingSelection } from "./media-batch";
 import {
   MATCH_IDS_MAX,
   PER_PAGE_MAX,
+  type MediaGetResponse,
   type MediaListParams,
   type MediaListResponse,
   type MediaStatusResponse,
   type MediaTreeResponse,
+  type MediaUsageResponse,
   type MediaWriteVerb,
 } from "./media";
 
@@ -50,6 +52,22 @@ export async function fetchMediaStatus(site: string): Promise<MediaStatusRespons
   return (await res.json()) as MediaStatusResponse;
 }
 
+/** GET the full viewer detail for one asset (`media.get`). */
+export async function fetchMediaAsset(site: string, id: number): Promise<MediaGetResponse> {
+  const p = encodeURIComponent(JSON.stringify({ id }));
+  const res = await fetch(`${mediaUrl(site)}?read=get&p=${p}`);
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as MediaGetResponse;
+}
+
+/** GET the bounded where-used scan for one asset (`media.usage`). */
+export async function fetchMediaUsage(site: string, id: number, page = 1): Promise<MediaUsageResponse> {
+  const p = encodeURIComponent(JSON.stringify({ id, page }));
+  const res = await fetch(`${mediaUrl(site)}?read=usage&p=${p}`);
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as MediaUsageResponse;
+}
+
 /** POST a media write verb; throws with the server's message on failure. */
 export async function postMediaWrite<T>(site: string, verb: MediaWriteVerb, params: unknown): Promise<T> {
   const res = await fetch(mediaUrl(site), {
@@ -66,6 +84,8 @@ export const mediaKeys = {
   list: (site: string, params: MediaListParams) => ["wordpress-media-list", site, params] as const,
   tree: (site: string) => ["wordpress-media-tree", site] as const,
   status: (site: string) => ["wordpress-media-status", site] as const,
+  asset: (site: string, id: number) => ["wordpress-media-asset", site, id] as const,
+  usage: (site: string, id: number, page: number) => ["wordpress-media-usage", site, id, page] as const,
 };
 
 export function useMediaList(site: string, params: MediaListParams): UseQueryResult<MediaListResponse, Error> {
@@ -84,6 +104,26 @@ export function useMediaTree(site: string): UseQueryResult<MediaTreeResponse, Er
 
 export function useMediaStatus(site: string): UseQueryResult<MediaStatusResponse, Error> {
   return useQuery({ queryKey: mediaKeys.status(site), queryFn: () => fetchMediaStatus(site), staleTime: 15_000 });
+}
+
+/** The full viewer detail for one asset; `enabled` gates it to an open viewer. */
+export function useMediaAsset(site: string, id: number | null): UseQueryResult<MediaGetResponse, Error> {
+  return useQuery({
+    queryKey: mediaKeys.asset(site, id ?? 0),
+    queryFn: () => fetchMediaAsset(site, id as number),
+    enabled: typeof id === "number" && id > 0,
+    staleTime: 10_000,
+  });
+}
+
+/** The bounded where-used list for one asset (viewer Usage panel). */
+export function useMediaUsage(site: string, id: number | null, page = 1): UseQueryResult<MediaUsageResponse, Error> {
+  return useQuery({
+    queryKey: mediaKeys.usage(site, id ?? 0, page),
+    queryFn: () => fetchMediaUsage(site, id as number, page),
+    enabled: typeof id === "number" && id > 0,
+    staleTime: 10_000,
+  });
 }
 
 /**

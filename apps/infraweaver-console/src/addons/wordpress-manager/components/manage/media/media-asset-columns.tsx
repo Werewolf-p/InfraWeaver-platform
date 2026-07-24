@@ -55,13 +55,25 @@ function ThumbTitle({ asset }: { asset: MediaAsset }): ReactNode {
  * site is entitled for `image_optimization` (the shared offload flag) — otherwise
  * the row still shows folder + basics with the paid columns blanked (never faked).
  */
-export function buildAssetColumns(features: MediaFeatures): Column<MediaAsset>[] {
+export function buildAssetColumns(features: MediaFeatures, onOpen?: (id: number) => void): Column<MediaAsset>[] {
   const columns: Column<MediaAsset>[] = [
     {
       key: "asset",
       header: "Asset",
       primary: true,
-      render: (asset) => <ThumbTitle asset={asset} />,
+      render: (asset) =>
+        onOpen ? (
+          <button
+            type="button"
+            onClick={() => onOpen(asset.id)}
+            aria-label={`Open ${asset.filename || asset.id}`}
+            className="w-full rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50"
+          >
+            <ThumbTitle asset={asset} />
+          </button>
+        ) : (
+          <ThumbTitle asset={asset} />
+        ),
     },
     {
       key: "folder",
