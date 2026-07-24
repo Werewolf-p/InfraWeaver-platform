@@ -33,6 +33,17 @@ import {
   type MediaTreeResponse,
 } from "../manage/media";
 import {
+  emailConfigSetParamsSchema,
+  emailTestParamsSchema,
+  type EmailConfigSetParams,
+  type EmailConfigSetResult,
+  type EmailConnectorConfig,
+  type EmailLogClearResult,
+  type EmailLogResponse,
+  type EmailTestParams,
+  type EmailTestResult,
+} from "../manage/email";
+import {
   linkScanParamsSchema,
   maintenanceSetParamsSchema,
   redirectCreateParamsSchema,
@@ -192,7 +203,13 @@ export type RpcMethod =
   | "redirects.delete"
   | "redirects.import"
   | "redirects.set_toggles"
-  | "maintenance.set";
+  | "maintenance.set"
+  // ── email delivery (§ email) — the console's window onto the connector's own SMTP.
+  | "email.config.get"
+  | "email.config.set"
+  | "email.test"
+  | "email.log.get"
+  | "email.log.clear";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -257,6 +274,12 @@ export interface RpcParams {
   "redirects.import": RedirectImportParams;
   "redirects.set_toggles": RedirectTogglesParams;
   "maintenance.set": MaintenanceSetParams;
+  // ── email — reads carry no params; only config.set/test carry a (write-only) body.
+  "email.config.get": Record<string, never>;
+  "email.config.set": EmailConfigSetParams;
+  "email.test": EmailTestParams;
+  "email.log.get": Record<string, never>;
+  "email.log.clear": Record<string, never>;
 }
 
 /**
@@ -387,6 +410,12 @@ export interface RpcResult {
   "redirects.import": RedirectImportResult;
   "redirects.set_toggles": RedirectTogglesResult;
   "maintenance.set": MaintenanceSetResult;
+  // ── email — a secret NEVER appears in any of these read/write results.
+  "email.config.get": EmailConnectorConfig;
+  "email.config.set": EmailConfigSetResult;
+  "email.test": EmailTestResult;
+  "email.log.get": EmailLogResponse;
+  "email.log.clear": EmailLogClearResult;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -487,6 +516,14 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "redirects.import": { hasParams: true, validate: (p) => redirectImportParamsSchema.safeParse(p).success },
   "redirects.set_toggles": { hasParams: true, validate: (p) => redirectTogglesParamsSchema.safeParse(p).success },
   "maintenance.set": { hasParams: true, validate: (p) => maintenanceSetParamsSchema.safeParse(p).success },
+  // Email — read/clear carry no params; config.set/test validators reuse the
+  // isomorphic zod schemas that mirror the plugin's wire validators, so the two
+  // sides can never drift. The write-only password never rides a read method.
+  "email.config.get": { hasParams: false, validate: noParams },
+  "email.config.set": { hasParams: true, validate: (p) => emailConfigSetParamsSchema.safeParse(p).success },
+  "email.test": { hasParams: true, validate: (p) => emailTestParamsSchema.safeParse(p).success },
+  "email.log.get": { hasParams: false, validate: noParams },
+  "email.log.clear": { hasParams: false, validate: noParams },
 };
 
 /** The allow-listed method names, in registry order. */

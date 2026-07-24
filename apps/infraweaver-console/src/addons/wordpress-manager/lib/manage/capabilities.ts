@@ -47,7 +47,11 @@ export type ManageCapabilityId =
   | "staging"
   | "seo"
   | "audience"
-  | "connector";
+  | "connector"
+  // Email delivery is available when the connector's own SMTP is reachable OR a
+  // third-party SMTP plugin is active — so a connector site (even a locked tier)
+  // opens the panel to our surface rather than a "install a competitor" wall.
+  | "email";
 
 /**
  * Candidate plugin slugs whose active presence satisfies a capability. wp.org
@@ -156,6 +160,8 @@ export function resolveCapabilities(facts: SiteCapabilityFacts): Record<ManageCa
     forms: anyActive(facts, FORM_PLUGIN_SLUGS),
     backups: anyActive(facts, BACKUP_PLUGIN_SLUGS),
     smtp: anyActive(facts, SMTP_PLUGIN_SLUGS),
+    // Our email surface opens for connector sites (built-in SMTP) OR a plugin.
+    email: facts.connectorActive || anyActive(facts, SMTP_PLUGIN_SLUGS),
     staging: anyActive(facts, STAGING_PLUGIN_SLUGS),
     // A site running our own SEO Suite (which REPLACES Yoast) has no third-party
     // SEO plugin — so the `seo`/`audience` panels must also light up on our own
@@ -355,12 +361,15 @@ export const MANAGE_PANELS: readonly ManagePanelDef[] = [
     id: "email",
     label: "Email",
     icon: "Mail",
-    summary: "SMTP delivery configuration and send health.",
+    summary: "SMTP delivery configuration, test sends and delivery log.",
     requires: {
-      capability: "smtp",
-      label: "an SMTP plugin",
-      hint: "Activate WP Mail SMTP or Post SMTP to configure and monitor transactional email.",
+      capability: "email",
+      label: "the InfraWeaver Connector or an SMTP plugin",
+      hint: "Enroll the InfraWeaver Connector (Pro plan) for built-in SMTP delivery, or activate an SMTP plugin.",
+      // Fallback offer for sites with neither the connector nor a mail plugin; a
+      // connector site never reaches this hint (the panel renders our surface).
       installSlug: "wp-mail-smtp",
+      connector: true,
     },
   },
   {
