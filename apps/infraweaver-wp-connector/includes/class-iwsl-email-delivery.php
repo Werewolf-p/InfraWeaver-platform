@@ -106,6 +106,15 @@ final class IWSL_Email_Delivery {
 	/** Allowed SMTPSecure values. */
 	const SECURE_MODES = array( '', 'ssl', 'tls' );
 
+	/** Minimum seconds between console-triggered test sends — rate-limits the signed channel so it can't be scripted into a spam cannon. */
+	const TEST_MIN_INTERVAL_S = 30;
+	/** Store key for the last test-send timestamp (unix seconds). */
+	const LAST_TEST_KEY = 'email_last_test_at';
+	/** Subject of a connector SMTP test send (console/admin share it). */
+	const TEST_SUBJECT = 'InfraWeaver SMTP test';
+	/** Body of a connector SMTP test send. */
+	const TEST_BODY = "This is a test email from the InfraWeaver Connector, sent to verify your SMTP settings.\n\nIf you received it, outgoing mail is working.";
+
 	/** @var IWSL_Entitlements */
 	private $entitlements;
 
@@ -123,6 +132,9 @@ final class IWSL_Email_Delivery {
 
 	/** @var callable():string WP secret-salt material — the encryption-key IKM; NEVER stored. */
 	private $salt;
+
+	/** @var callable(string,string,string):bool the mailer used by send_test(); defaults to a wp_mail() wrapper. Injected by tests. */
+	private $send_mail;
 
 	/**
 	 * @var array|null The optimistic "sent" entry recorded for the in-flight wp_mail()
@@ -142,6 +154,9 @@ final class IWSL_Email_Delivery {
 	 * @param callable|null                            $salt         fn(): string — WP secret-salt material
 	 *                                                                (the encryption-key IKM); defaults to a
 	 *                                                                wp_salt()/AUTH_KEY reader. Injected by tests.
+	 * @param callable|null                            $send_mail    fn(string $to, string $subject, string $body): bool
+	 *                                                                — the send_test() mailer; defaults to a
+	 *                                                                wp_mail() wrapper. Injected by tests.
 	 */
 	public function __construct(
 		IWSL_Entitlements $entitlements,
@@ -149,7 +164,8 @@ final class IWSL_Email_Delivery {
 		?callable $now_ms = null,
 		?callable $constant = null,
 		?array $transports = null,
-		?callable $salt = null
+		?callable $salt = null,
+		?callable $send_mail = null
 	) {
 		$this->entitlements = $entitlements;
 		$this->store        = $store;
@@ -177,6 +193,11 @@ final class IWSL_Email_Delivery {
 				}
 			}
 			return $ikm;
+		};
+		$this->send_mail = $send_mail ?? static function ( string $to, string $subject, string $body ): bool {
+			// Route through wp_mail so the registered phpmailer_init hook applies the
+			// configured SMTP transport; false when WordPress is absent (test/CLI).
+			return function_exists( 'wp_mail' ) ? (bool) wp_mail( $to, $subject, $body ) : false;
 		};
 	}
 
@@ -346,6 +367,48 @@ final class IWSL_Email_Delivery {
 	}
 
 	/**
+	 * Send a test email to a validated recipient (mirrors the wp-admin test-send).
+	 * STATEMENT 1 is the gate; a locked site sends NOTHING. The recipient is
+	 * validated (CRLF/parameter injection rejected) and the send is RATE-LIMITED on
+	 * this side (TEST_MIN_INTERVAL_S) — the clamp lives here, not in the caller, so
+	 * even a hostile signed-channel session cannot script a spam cannon. The mailer
+	 * is the injected wp_mail wrapper, so the real send routes through the configured
+	 * SMTP transport via the phpmailer_init hook (and is recorded by capture_mail /
+	 * capture_failure as any other send). The secret is never touched here.
+	 *
+	 * @return array{ ok:bool, sent:bool, reason:string, retry_after_s?:int, gate?:array }
+	 */
+	public function send_test( string $to ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'sent' => false, 'reason' => 'entitlement-locked', 'gate' => $gate );
+		}
+
+		$to = trim( $to );
+		if ( '' === $to || self::has_crlf( $to ) || ! self::valid_email( $to ) ) {
+			return array( 'ok' => false, 'sent' => false, 'reason' => 'invalid-recipient' );
+		}
+		$to = self::truncate( $to, self::MAX_FIELD_CHARS );
+
+		$now  = $this->now_seconds();
+		$last = (int) $this->store->get( self::LAST_TEST_KEY, 0 );
+		if ( $last > 0 && $now - $last < self::TEST_MIN_INTERVAL_S ) {
+			return array(
+				'ok'            => false,
+				'sent'          => false,
+				'reason'        => 'rate-limited',
+				'retry_after_s' => self::TEST_MIN_INTERVAL_S - ( $now - $last ),
+			);
+		}
+		// Stamp the window BEFORE the send so a failing/hammered send is throttled too.
+		// A recipient typo (rejected above) never consumes the window.
+		$this->store->set( self::LAST_TEST_KEY, $now );
+
+		$sent = (bool) ( $this->send_mail )( $to, self::TEST_SUBJECT, self::TEST_BODY );
+		return array( 'ok' => $sent, 'sent' => $sent, 'reason' => $sent ? '' : 'send-failed' );
+	}
+
+	/**
 	 * Teardown for an uninstall/unlink sweep: delete BOTH option keys this feature
 	 * owns — the SMTP settings map (SETTINGS_KEY, which holds the AES-256-GCM encrypted
 	 * SMTP password) and the email-activity log (LOG_KEY). Removing the stored
@@ -503,6 +566,37 @@ final class IWSL_Email_Delivery {
 		$stripped['has_password']    = $constant_defined || $has_stored;
 		$stripped['password_source'] = $source;
 		return $stripped;
+	}
+
+	/**
+	 * Gate-aware config read for the signed `email.config.get` channel. "Locked" is a
+	 * renderable state, so a locked site returns the gate ONLY (no settings, no
+	 * password metadata) rather than erroring — the console renders the upgrade path.
+	 * When unlocked it returns the STRIPPED settings (password removed entirely by
+	 * settings_for_render — ciphertext can never appear) plus has_password /
+	 * password_source / configured / transports. It never returns a secret.
+	 *
+	 * @return array{ gate:array, locked:bool, settings?:array, has_password?:bool, password_source?:string, configured?:bool, transports?:array }
+	 */
+	public function config_snapshot(): array {
+		$gate     = $this->entitlements->evaluate( self::FEATURE );
+		$locked   = empty( $gate['unlocked'] );
+		$snapshot = array( 'gate' => $gate, 'locked' => $locked );
+		if ( $locked ) {
+			return $snapshot;
+		}
+
+		$render       = $this->settings_for_render();
+		$has_password = ! empty( $render['has_password'] );
+		$source       = isset( $render['password_source'] ) ? (string) $render['password_source'] : 'none';
+		unset( $render['has_password'], $render['password_source'] );
+
+		$snapshot['settings']        = $render;
+		$snapshot['has_password']    = $has_password;
+		$snapshot['password_source'] = $source;
+		$snapshot['configured']      = $this->is_configured();
+		$snapshot['transports']      = $this->transport_ids();
+		return $snapshot;
 	}
 
 	/** True when host + a valid port are set — mail can actually be routed. */
@@ -852,6 +946,13 @@ final class IWSL_Email_Delivery {
 	/** True when the string carries a CR or LF. */
 	private static function has_crlf( string $text ): bool {
 		return false !== strpos( $text, "\r" ) || false !== strpos( $text, "\n" );
+	}
+
+	/** True when the string is a valid email address (same rule the From validation uses). */
+	private static function valid_email( string $email ): bool {
+		return function_exists( 'is_email' )
+			? (bool) is_email( $email )
+			: 1 === preg_match( '/^[^@\s]+@[^@\s]+\.[^@\s]+$/', $email );
 	}
 
 	/** Current time in whole unix seconds. */
