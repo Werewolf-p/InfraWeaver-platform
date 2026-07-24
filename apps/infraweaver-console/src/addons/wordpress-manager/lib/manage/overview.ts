@@ -13,6 +13,9 @@ import {
   computePanelAvailability,
   resolveCapabilities,
 } from "./capabilities";
+import { siteHasEntitlement } from "../tiers";
+import { seoStatus } from "../iwsl-managed-ops";
+import { summarizeSeoStatus, type SeoSummary } from "./seo";
 import type { ManageOverview } from "./types";
 import { withCache, overviewKey, invalidateManageCache, type Cached } from "./snapshot-cache";
 import { readSiteSnapshot, writeSiteSnapshot } from "./site-snapshot";
@@ -145,7 +148,18 @@ export async function getManageOverview(site: string): Promise<ManageOverview> {
   const pendingUpdates = pluginUpdates + themeUpdates + (coreUpdate ? 1 : 0);
 
   const connectorActive = managed?.state === "active" && managed.fingerprintConfirmed === true;
-  const capabilities = resolveCapabilities({ activePlugins: inventory.activeSlugs, connectorActive });
+  const platformSeo =
+    siteHasEntitlement(managed ?? undefined, "seo_audit") || siteHasEntitlement(managed ?? undefined, "seo_suite");
+  const capabilities = resolveCapabilities({ activePlugins: inventory.activeSlugs, connectorActive, platformSeo });
+
+  // Best-effort engine-aware SEO summary for the Overview tile + attention feed
+  // (A1/A2). Attempted only over a live signed link; ANY failure — an old connector
+  // (`unknown-method` → 501), a locked reply, a transient pod blip — degrades to a
+  // `measured:false` summary ("not measured"), never an error, so the overview's hot
+  // path never fails on SEO. Off-link sites carry no tile at all (null).
+  const seo: SeoSummary | null = connectorActive
+    ? summarizeSeoStatus(await seoStatus(site).catch(() => null))
+    : null;
 
   const phpMajor = phpVersion ? toInt(phpVersion.split(".")[0]) : null;
   const health = computeHealth({
@@ -178,6 +192,7 @@ export async function getManageOverview(site: string): Promise<ManageOverview> {
     },
     capabilities,
     panels: computePanelAvailability(capabilities),
+    seo,
   };
 }
 

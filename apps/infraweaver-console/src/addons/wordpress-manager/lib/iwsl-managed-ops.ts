@@ -55,6 +55,15 @@ import type {
   MediaStatusResponse,
   MediaTreeResponse,
 } from "./manage/media";
+import type {
+  SeoAltBackfillParams,
+  SeoAltBackfillResponse,
+  SeoAuditParams,
+  SeoAuditRunResult,
+  SeoFixApplyResponse,
+  SeoFixParams,
+  SeoStatusResponse,
+} from "./manage/seo";
 
 export type { CommandReply } from "./rpc/registry";
 
@@ -1082,4 +1091,66 @@ export async function restoreMedia(site: string, params: MediaRestoreParams): Pr
 export async function mediaFolderOp(site: string, params: MediaFolderParams): Promise<RpcResult["media.folder"]> {
   const reply = await callRpc(await mediaWriteTransport(site), "media.folder", params as RpcParams["media.folder"]);
   return unwrapMediaReply<RpcResult["media.folder"]>(reply, "media.folder");
+}
+
+// ── SEO console (§ seo) ─────────────────────────────────────────────────────────
+// The console side of the four signed `seo.*` commands behind the SEO cockpit.
+// `seo.status` is a counts-only safe READ (its per-section fields carry their own
+// locked markers, so a Basic site still gets a well-formed snapshot); `seo.audit.run`
+// / `seo.alt.backfill` / `seo.fix.apply` are gated WRITES that persist `_iwseo_*`
+// meta or a durable last-audit, so they additionally require identity NOT to be in
+// safe mode (same rule media writes follow). Every call rides the same signed exec
+// transport as media; the plugin re-checks the entitlement + feature-switch gate as
+// statement one and answers with a signed `{ locked, gate }` when unentitled — which
+// the console renders as an upsell, never a raw error. An OLD connector that predates
+// the SEO surface rejects these as `unknown-method`; `unwrapSeoReply` surfaces that
+// as an actionable 501 ("connector too old"), gracefully degrading the cockpit.
+
+/**
+ * A `seo.*` reply an OLD connector (predating the SEO command surface) rejects
+ * unsigned as `unknown-method`. Surface that as an actionable 501 so the cockpit
+ * can fall back to the engine-aware wp-cli probe and tell the operator to update
+ * the connector, rather than a generic 502.
+ */
+function unwrapSeoReply<T>(reply: CommandReply, method: string): T {
+  if (reply.rejectedReason === "unknown-method") {
+    throw new AddonHttpError(
+      "This site's connector is too old for the SEO console — update the connector to use it.",
+      501,
+    );
+  }
+  if (reply.rejectedReason) {
+    throw new AddonHttpError(`Connector rejected ${method} (${reply.rejectedReason})`, 502);
+  }
+  if (!reply.ok) {
+    // A gated runner returns ok:false with a structured { locked, gate } payload —
+    // that is a legitimate reply the caller renders as an upsell, NOT a transport
+    // failure. Pass the result through so the locked/gate markers survive.
+    return reply.result as T;
+  }
+  return reply.result as T;
+}
+
+/** Signed `seo.status` — the engine-aware, counts-only SEO snapshot (safe read). */
+export async function seoStatus(site: string): Promise<SeoStatusResponse> {
+  const reply = await callRpc(await mediaTransport(site), "seo.status", {});
+  return unwrapSeoReply<SeoStatusResponse>(reply, "seo.status");
+}
+
+/** Signed `seo.audit.run` — one bounded audit run, persisted durably (gate: seo_audit). */
+export async function runSeoAudit(site: string, params: SeoAuditParams): Promise<SeoAuditRunResult> {
+  const reply = await callRpc(await mediaWriteTransport(site), "seo.audit.run", params as RpcParams["seo.audit.run"]);
+  return unwrapSeoReply<SeoAuditRunResult>(reply, "seo.audit.run");
+}
+
+/** Signed `seo.alt.backfill` — one bounded, idempotent alt backfill batch (gate: seo_suite). */
+export async function backfillSeoAlt(site: string, params: SeoAltBackfillParams): Promise<SeoAltBackfillResponse> {
+  const reply = await callRpc(await mediaWriteTransport(site), "seo.alt.backfill", params as RpcParams["seo.alt.backfill"]);
+  return unwrapSeoReply<SeoAltBackfillResponse>(reply, "seo.alt.backfill");
+}
+
+/** Signed `seo.fix.apply` — write ONE allow-listed `_iwseo_*` field for one post (gate: seo_suite). */
+export async function applySeoFix(site: string, params: SeoFixParams): Promise<SeoFixApplyResponse> {
+  const reply = await callRpc(await mediaWriteTransport(site), "seo.fix.apply", params as RpcParams["seo.fix.apply"]);
+  return unwrapSeoReply<SeoFixApplyResponse>(reply, "seo.fix.apply");
 }

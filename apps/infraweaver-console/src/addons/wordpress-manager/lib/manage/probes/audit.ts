@@ -1,131 +1,30 @@
 /**
- * A11y & SEO Audit panel probe — real, computed findings rather than a canned
- * checklist. Accessibility here means image alt-text coverage (a core WordPress
- * concern, independent of any plugin); on-page SEO coverage is derived from Yoast
- * metadata (meta description, focus keyphrase, title/meta templates). All numbers
- * come from guarded `wp db query` aggregates against the site's real table prefix.
- * Gated on the `seo` capability; when the active SEO plugin isn't Yoast the SEO
- * findings are omitted (their meta keys wouldn't apply) rather than reported as
- * total misses, and the panel notes that. Read-only: no allow-listed mutation, so
- * the panel renders no action buttons.
+ * SEO & A11y probe — ENGINE-AWARE. Composes the pure `parseAudit` core
+ * (`audit-core.ts`) with the wp-cli exec + signed `seo.status` gather. The old
+ * probe only understood Yoast and told a site running our OWN SEO Suite to
+ * "Activate Yoast"; this MERGES the signed snapshot (which knows our suite + Pro
+ * audit engines) OVER the third-party fallback, and DEGRADES GRACEFULLY when the
+ * connector is too old for `seo.status` (`unknown-method` → 501 → `connectorTooOld`).
+ *
+ * Only ever imported server-side (via panel-data.ts); the panel imports the DATA
+ * TYPES from `audit-core.ts` with `import type`, so this server-only transport never
+ * leaks into a client bundle.
  */
-import { WP, WP_SAFE, toInt, parseJsonObject, activePluginSlugs } from "../wp-probe";
-import { SEO_PLUGIN_SLUGS } from "../capabilities";
+import { WP, WP_SAFE } from "../wp-probe";
+import { seoStatus } from "../../iwsl-managed-ops";
+import { AddonHttpError } from "../../errors";
+import type { SeoStatusResponse } from "../seo";
+import { firstSeoSlug, activeSet, parseAudit, type AuditData } from "./audit-core";
 import type { PanelProbe, PanelProbeContext } from "./contract";
 
-export type AuditCategory = "seo" | "a11y";
-export type AuditSeverity = "critical" | "serious" | "moderate" | "minor";
-
-export interface AuditFinding {
-  readonly id: string;
-  readonly category: AuditCategory;
-  readonly severity: AuditSeverity;
-  readonly label: string;
-  readonly detail: string;
-  readonly count: number;
-}
-
-export interface AuditData {
-  /** Overall audit score (0–100), blended from the category scores. */
-  readonly score: number;
-  /** SEO sub-score, or null when the active SEO plugin isn't Yoast. */
-  readonly seoScore: number | null;
-  readonly a11yScore: number;
-  readonly yoast: boolean;
-  readonly publishedPosts: number;
-  readonly imageAttachments: number;
-  readonly titlesConfigured: boolean;
-  readonly findings: readonly AuditFinding[];
-}
-
-/** covered / total as a 0–100 ratio; empty sets count as fully covered. */
-function ratio(total: number, missing: number): number {
-  if (total <= 0) return 1;
-  return Math.max(0, total - missing) / total;
-}
-
-/** Lowercased active plugin slug set from the plugin-list JSON. */
-function activeSet(activePluginsJson: string): Set<string> {
-  return activePluginSlugs(activePluginsJson);
-}
-
-export function parseAudit(input: {
-  activePlugins: string;
-  publishedPosts: string;
-  missingMetadesc: string;
-  missingFocusKw: string;
-  imageAttachments: string;
-  imagesMissingAlt: string;
-  titles: string;
-}): AuditData {
-  const active = activeSet(input.activePlugins);
-  const yoast = SEO_PLUGIN_SLUGS.some((slug) => slug === "wordpress-seo" && active.has(slug));
-
-  const publishedPosts = toInt(input.publishedPosts) ?? 0;
-  const imageAttachments = toInt(input.imageAttachments) ?? 0;
-  const imagesMissingAlt = toInt(input.imagesMissingAlt) ?? 0;
-  const missingMetadesc = toInt(input.missingMetadesc) ?? 0;
-  const missingFocusKw = toInt(input.missingFocusKw) ?? 0;
-  const titlesConfigured = parseJsonObject(input.titles) !== null;
-
-  const findings: AuditFinding[] = [
-    {
-      id: "img-alt",
-      category: "a11y",
-      severity: "serious",
-      label: "Images missing alt text",
-      detail:
-        imageAttachments === 0
-          ? "No image attachments in the media library."
-          : `${imagesMissingAlt} of ${imageAttachments} image attachments have no alt attribute.`,
-      count: imagesMissingAlt,
-    },
-  ];
-
-  if (yoast) {
-    findings.push(
-      {
-        id: "meta-desc",
-        category: "seo",
-        severity: "moderate",
-        label: "Posts missing a meta description",
-        detail: `${missingMetadesc} of ${publishedPosts} published posts have no Yoast meta description.`,
-        count: missingMetadesc,
-      },
-      {
-        id: "focus-kw",
-        category: "seo",
-        severity: "minor",
-        label: "Posts missing a focus keyphrase",
-        detail: `${missingFocusKw} of ${publishedPosts} published posts have no focus keyphrase set.`,
-        count: missingFocusKw,
-      },
-      {
-        id: "titles",
-        category: "seo",
-        severity: "minor",
-        label: "SEO title & meta templates",
-        detail: titlesConfigured
-          ? "Yoast title/meta templates are configured."
-          : "Yoast title/meta templates are not configured.",
-        count: titlesConfigured ? 0 : 1,
-      },
-    );
-  }
-
-  const a11yScore = Math.round(ratio(imageAttachments, imagesMissingAlt) * 100);
-  const seoScore = yoast
-    ? Math.round(
-        (ratio(publishedPosts, missingMetadesc) * 0.4 +
-          ratio(publishedPosts, missingFocusKw) * 0.4 +
-          (titlesConfigured ? 1 : 0) * 0.2) *
-          100,
-      )
-    : null;
-  const score = seoScore === null ? a11yScore : Math.round((seoScore + a11yScore) / 2);
-
-  return { score, seoScore, a11yScore, yoast, publishedPosts, imageAttachments, titlesConfigured, findings };
-}
+export type {
+  AuditCategory,
+  AuditData,
+  AuditEngine,
+  AuditFinding,
+  AuditSeverity,
+} from "./audit-core";
+export { parseAudit } from "./audit-core";
 
 // `\\\`` emits a literal backslash-backtick so the shell (inside the double-quoted
 // SQL) treats the backtick as a MySQL identifier quote, not a command substitution;
@@ -151,38 +50,55 @@ const IMAGE_MISSING_ALT_SQL =
   `WHERE p.post_type='attachment' AND p.post_mime_type LIKE 'image/%' AND (m.meta_value IS NULL OR m.meta_value='')" ` +
   `--skip-column-names 2>/dev/null`;
 
+/** Read the signed `seo.status`; degrade to null (+ `connectorTooOld`) on any failure. */
+async function readSeoStatus(site: string): Promise<{ status: SeoStatusResponse | null; connectorTooOld: boolean }> {
+  try {
+    return { status: await seoStatus(site), connectorTooOld: false };
+  } catch (err) {
+    // 501 = the connector predates the SEO command surface → prompt an update.
+    const tooOld = err instanceof AddonHttpError && err.status === 501;
+    return { status: null, connectorTooOld: tooOld };
+  }
+}
+
 async function fetchAudit(ctx: PanelProbeContext): Promise<AuditData> {
   const activePlugins = await ctx
     .exec(`${WP} plugin list --status=active --field=name --format=json`)
     .then((r) => r.stdout)
     .catch(() => "[]");
 
-  const yoast = SEO_PLUGIN_SLUGS.some(
-    (slug) => slug === "wordpress-seo" && activeSet(activePlugins).has(slug),
-  );
+  const yoast = firstSeoSlug(activeSet(activePlugins)) === "wordpress-seo";
 
-  const [publishedPosts, imageAttachments, imagesMissingAlt, missingMetadesc, missingFocusKw, titles] =
-    await Promise.all([
-      ctx
-        .exec(`${WP_SAFE} post list --post_type=post --post_status=publish --format=count`)
-        .then((r) => r.stdout)
-        .catch(() => ""),
-      ctx.exec(IMAGE_COUNT_SQL).then((r) => r.stdout).catch(() => ""),
-      ctx.exec(IMAGE_MISSING_ALT_SQL).then((r) => r.stdout).catch(() => ""),
-      yoast ? ctx.exec(missingMetaSql("_yoast_wpseo_metadesc")).then((r) => r.stdout).catch(() => "") : Promise.resolve(""),
-      yoast ? ctx.exec(missingMetaSql("_yoast_wpseo_focuskw")).then((r) => r.stdout).catch(() => "") : Promise.resolve(""),
-      yoast
-        ? ctx.exec(`${WP_SAFE} option get wpseo_titles --format=json 2>/dev/null`).then((r) => r.stdout).catch(() => "")
-        : Promise.resolve(""),
-    ]);
+  // Signed snapshot first — it decides which fallback SQL (if any) we still need.
+  const { status, connectorTooOld } = await readSeoStatus(ctx.site);
+  const usePlatform =
+    status?.engines.suite.unlocked === true || (status?.engines.audit.unlocked === true && status?.engines.audit.last != null);
+  const needYoastSql = yoast && !usePlatform;
+
+  const [publishedPosts, imageAttachments, imagesMissingAlt, missingMetadesc, missingFocusKw, titles] = await Promise.all([
+    ctx
+      .exec(`${WP_SAFE} post list --post_type=post --post_status=publish --format=count`)
+      .then((r) => r.stdout)
+      .catch(() => ""),
+    // Alt counts only needed when the signed snapshot didn't provide them.
+    status ? Promise.resolve("") : ctx.exec(IMAGE_COUNT_SQL).then((r) => r.stdout).catch(() => ""),
+    status ? Promise.resolve("") : ctx.exec(IMAGE_MISSING_ALT_SQL).then((r) => r.stdout).catch(() => ""),
+    needYoastSql ? ctx.exec(missingMetaSql("_yoast_wpseo_metadesc")).then((r) => r.stdout).catch(() => "") : Promise.resolve(""),
+    needYoastSql ? ctx.exec(missingMetaSql("_yoast_wpseo_focuskw")).then((r) => r.stdout).catch(() => "") : Promise.resolve(""),
+    needYoastSql
+      ? ctx.exec(`${WP_SAFE} option get wpseo_titles --format=json 2>/dev/null`).then((r) => r.stdout).catch(() => "")
+      : Promise.resolve(""),
+  ]);
 
   return parseAudit({
+    status,
+    connectorTooOld,
     activePlugins,
     publishedPosts,
-    missingMetadesc,
-    missingFocusKw,
     imageAttachments,
     imagesMissingAlt,
+    missingMetadesc,
+    missingFocusKw,
     titles,
   });
 }

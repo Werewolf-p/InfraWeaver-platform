@@ -134,6 +134,15 @@ export interface SiteCapabilityFacts {
   readonly activePlugins: ReadonlySet<string>;
   /** True when a managed InfraWeaver Connector link exists and is active (signed channel usable). */
   readonly connectorActive: boolean;
+  /**
+   * True when the site's CONSOLE-authoritative tier grants our own SEO engine
+   * (`seo_audit` or `seo_suite`). Lets the SEO panels recognise a site running the
+   * built-in SEO Suite as a first-class engine instead of telling a paying Ultimate
+   * customer to "Activate Yoast" (A3). Resolved from the link record, never a
+   * WordPress self-report — a site can't influence what the console believes it
+   * bought.
+   */
+  readonly platformSeo?: boolean;
 }
 
 function anyActive(facts: SiteCapabilityFacts, slugs: readonly string[]): boolean {
@@ -148,8 +157,11 @@ export function resolveCapabilities(facts: SiteCapabilityFacts): Record<ManageCa
     backups: anyActive(facts, BACKUP_PLUGIN_SLUGS),
     smtp: anyActive(facts, SMTP_PLUGIN_SLUGS),
     staging: anyActive(facts, STAGING_PLUGIN_SLUGS),
-    seo: anyActive(facts, SEO_PLUGIN_SLUGS),
-    audience: anyActive(facts, SEO_PLUGIN_SLUGS) || anyActive(facts, ANALYTICS_PLUGIN_SLUGS),
+    // A site running our own SEO Suite (which REPLACES Yoast) has no third-party
+    // SEO plugin — so the `seo`/`audience` panels must also light up on our own
+    // granted engine, never steering a paying customer to a competitor (A3).
+    seo: anyActive(facts, SEO_PLUGIN_SLUGS) || facts.platformSeo === true,
+    audience: anyActive(facts, SEO_PLUGIN_SLUGS) || anyActive(facts, ANALYTICS_PLUGIN_SLUGS) || facts.platformSeo === true,
     connector: facts.connectorActive,
   };
 }
@@ -277,8 +289,8 @@ export const MANAGE_PANELS: readonly ManagePanelDef[] = [
     summary: "On-page SEO coverage and accessibility findings.",
     requires: {
       capability: "seo",
-      label: "an SEO plugin",
-      hint: "Activate Yoast SEO or Rank Math to surface on-page SEO and audit coverage.",
+      label: "an SEO engine",
+      hint: "Included with the platform SEO Suite (Ultimate) or Meta Audit (Pro) — or activate Yoast SEO / Rank Math — to surface on-page SEO and audit coverage.",
       installSlug: "wordpress-seo",
     },
   },
@@ -327,8 +339,8 @@ export const MANAGE_PANELS: readonly ManagePanelDef[] = [
     summary: "Search visibility and traffic signals from your SEO/analytics plugin.",
     requires: {
       capability: "audience",
-      label: "an SEO or analytics plugin",
-      hint: "Activate Yoast SEO, Rank Math or an analytics plugin to report traffic and search data.",
+      label: "an SEO or analytics engine",
+      hint: "Included with the platform SEO Suite (Ultimate) — or activate Yoast SEO, Rank Math or an analytics plugin — to report search visibility and traffic.",
       installSlug: "wordpress-seo",
     },
   },

@@ -32,6 +32,18 @@ import {
   type MediaStatusResponse,
   type MediaTreeResponse,
 } from "../manage/media";
+import {
+  seoAltBackfillParamsSchema,
+  seoAuditParamsSchema,
+  seoFixParamsSchema,
+  type SeoAltBackfillParams,
+  type SeoAltBackfillResponse,
+  type SeoAuditParams,
+  type SeoAuditRunResult,
+  type SeoFixApplyResponse,
+  type SeoFixParams,
+  type SeoStatusResponse,
+} from "../manage/seo";
 
 /** Signed-command methods the Connector allow-lists (§7). Wire strings — never rename. */
 export type RpcMethod =
@@ -51,7 +63,12 @@ export type RpcMethod =
   | "media.optimize"
   | "media.offload"
   | "media.restore"
-  | "media.folder";
+  | "media.folder"
+  // ── SEO console (§ seo) — engine-aware score, console-run audit, one-click fixes.
+  | "seo.status"
+  | "seo.audit.run"
+  | "seo.alt.backfill"
+  | "seo.fix.apply";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -73,6 +90,12 @@ export interface RpcParams {
   "media.offload": MediaOffloadParams;
   "media.restore": MediaRestoreParams;
   "media.folder": MediaFolderParams;
+  // ── SEO console — params mirror IWSL_SEO_Console's validators exactly.
+  /** `seo.status` is a no-param safe read (counts only). */
+  "seo.status": Record<string, never>;
+  "seo.audit.run": SeoAuditParams;
+  "seo.alt.backfill": SeoAltBackfillParams;
+  "seo.fix.apply": SeoFixParams;
 }
 
 /**
@@ -152,6 +175,15 @@ export interface RpcResult {
   };
   /** Terms-only folder mutation echo. */
   "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  // ── SEO console — read-model + gated-run results (the plugin is the source of truth).
+  /** Engine-aware, counts-only SEO snapshot (safe read; per-section locked markers). */
+  "seo.status": SeoStatusResponse;
+  /** One bounded audit run (or the structured `{ locked, gate }` upsell). */
+  "seo.audit.run": SeoAuditRunResult;
+  /** One bounded alt-text backfill batch (dry-run by default; or locked). */
+  "seo.alt.backfill": SeoAltBackfillResponse;
+  /** One allow-listed meta fix echoed back (or locked / invalid-params). */
+  "seo.fix.apply": SeoFixApplyResponse;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -200,6 +232,12 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
   "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
   "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
+  // SEO console — validators reuse the isomorphic zod schemas that mirror the
+  // connector's IWSL_SEO_Console validators, so the two sides can never drift.
+  "seo.status": { hasParams: false, validate: noParams },
+  "seo.audit.run": { hasParams: true, validate: (p) => seoAuditParamsSchema.safeParse(p).success },
+  "seo.alt.backfill": { hasParams: true, validate: (p) => seoAltBackfillParamsSchema.safeParse(p).success },
+  "seo.fix.apply": { hasParams: true, validate: (p) => seoFixParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */
