@@ -627,3 +627,84 @@ iwsl_assert_same( true, $pg2['ok'], 'purge idempotent: still ok' );
 $store_clean = new IWSL_Memory_Store();
 $rd_clean    = iwsl_rd_engine( $store_clean, $RD_NOW, new IWSL_Recording_Redirector() );
 iwsl_assert_same( array(), $rd_clean->purge()['options'], 'purge cheap-when-clean: a fresh engine removes nothing' );
+
+// ── 31. Per-rule dispatch REGRESSION: a legacy rule (no `match` key) stays exact ─
+// This is the tripwire for A1: registering a prefix matcher must NOT widen any
+// existing exact rule. A stored rule with no `match` key defaults to 'exact' and
+// matches ONLY its byte-exact source — never a child path.
+
+$store = new IWSL_Memory_Store();
+$store->set( 'state', 'active' );
+$store->set( 'last_verified_at', $RD_NOW - 1000 );
+$store->set( 'entitlements', array( 'redirect_manager' => true ) );
+$store->set(
+	'redirect_rules',
+	array(
+		array( 'id' => 'r' . substr( sha1( '/legacy' ), 0, 12 ), 'source' => '/legacy', 'target' => '/new', 'type' => 301 ), // NO match key
+	)
+);
+$rec = new IWSL_Recording_Redirector();
+$ent = new IWSL_Entitlements( $store, static function () use ( $RD_NOW ): int {
+	return $RD_NOW; } );
+$rd = new IWSL_Redirects( $ent, $store, static function () use ( $RD_NOW ): int {
+	return $RD_NOW; }, null, null, $rec );
+iwsl_assert_same( true, $rd->apply( '/legacy' )['matched'], 'legacy rule: exact source still matches' );
+iwsl_assert_same( false, $rd->apply( '/legacy/child' )['matched'], 'legacy rule: a child path is NOT widened (still exact)' );
+iwsl_assert_same( 'exact', $rd->rules()[0]['match'], 'legacy rule: read-back defaults match to exact' );
+
+// ── 32. An explicit exact rule is never widened by the prefix matcher ──────────
+
+$store = new IWSL_Memory_Store();
+$rec   = new IWSL_Recording_Redirector();
+$rd    = iwsl_rd_engine( $store, $RD_NOW, $rec );
+iwsl_assert_same( true, $rd->add_rule( '/old', '/new', 301 )['ok'], 'exact: rule stored (default match)' );
+iwsl_assert_same( true, $rd->apply( '/old' )['matched'], 'exact: matches /old' );
+iwsl_assert_same( false, $rd->apply( '/old/child' )['matched'], 'exact: does NOT match /old/child' );
+
+// ── 33. Prefix rule matches segment-wise (base + descendants, not siblings) ────
+
+$store = new IWSL_Memory_Store();
+$rec   = new IWSL_Recording_Redirector();
+$rd    = iwsl_rd_engine( $store, $RD_NOW, $rec );
+$addp  = $rd->add_rule( '/old-blog/*', '/blog', 301, 'prefix' );
+iwsl_assert_same( true, $addp['ok'], 'prefix: rule stored' );
+iwsl_assert_same( '/old-blog/*', $addp['rule']['source'], 'prefix: source retains the /* marker' );
+iwsl_assert_same( 'prefix', $addp['rule']['match'], 'prefix: match=prefix recorded' );
+iwsl_assert_same( true, $rd->apply( '/old-blog' )['matched'], 'prefix: matches the base path itself' );
+iwsl_assert_same( true, $rd->apply( '/old-blog/post-1' )['matched'], 'prefix: matches a descendant' );
+iwsl_assert_same( '/blog', $rd->apply( '/old-blog/post-1' )['location'], 'prefix: descendant redirects to the single target' );
+iwsl_assert_same( false, $rd->apply( '/old-blogger' )['matched'], 'prefix: does NOT match a sibling (/old-blogger)' );
+
+// Encoding stays fail-closed: an encoded slash never satisfies the prefix.
+iwsl_assert_same( false, $rd->apply( '/old-blog%2Fx' )['matched'], 'prefix: encoded slash does not match (byte-exact, no decode)' );
+
+// ── 34. Unknown `match` strategy → rule skipped (fail-closed) ──────────────────
+
+$store = new IWSL_Memory_Store();
+$store->set( 'state', 'active' );
+$store->set( 'last_verified_at', $RD_NOW - 1000 );
+$store->set( 'entitlements', array( 'redirect_manager' => true ) );
+$store->set(
+	'redirect_rules',
+	array(
+		array( 'id' => 'r' . substr( sha1( '/ghost' ), 0, 12 ), 'source' => '/ghost', 'target' => '/new', 'type' => 301, 'match' => 'regex' ), // unregistered strategy
+	)
+);
+$rec = new IWSL_Recording_Redirector();
+$ent = new IWSL_Entitlements( $store, static function () use ( $RD_NOW ): int {
+	return $RD_NOW; } );
+$rd = new IWSL_Redirects( $ent, $store, static function () use ( $RD_NOW ): int {
+	return $RD_NOW; }, null, null, $rec );
+iwsl_assert_same( false, $rd->apply( '/ghost' )['matched'], 'unknown match: rule is skipped (fail-closed)' );
+
+// ── 35. add_rule source gauntlet vs match strategy ────────────────────────────
+
+$store = new IWSL_Memory_Store();
+$rec   = new IWSL_Recording_Redirector();
+$rd    = iwsl_rd_engine( $store, $RD_NOW, $rec );
+iwsl_assert_same( 'bad-match', $rd->add_rule( '/x', '/y', 301, 'regex' )['reason'], 'add_rule: unregistered match strategy refused (bad-match)' );
+iwsl_assert_same( 'bad-source', $rd->add_rule( '/plain', '/y', 301, 'prefix' )['reason'], 'add_rule: a prefix rule without /* refused' );
+iwsl_assert_same( 'bad-source', $rd->add_rule( '/with-star/*', '/y', 301, 'exact' )['reason'], 'add_rule: an exact source ending in /* refused' );
+iwsl_assert_same( 'bad-source', $rd->add_rule( '/*', '/y', 301, 'prefix' )['reason'], 'add_rule: a whole-site /* prefix refused' );
+iwsl_assert_same( 'reserved-path', $rd->add_rule( '/wp-admin/*', '/y', 301, 'prefix' )['reason'], 'add_rule: a reserved-path prefix refused' );
+iwsl_assert_same( true, $rd->add_rule( '/section/*', '/landing', 301, 'prefix' )['ok'], 'add_rule: a valid prefix rule stored' );

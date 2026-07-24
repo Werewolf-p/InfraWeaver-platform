@@ -110,6 +110,33 @@ final class IWSL_Plugin {
 	}
 
 	/**
+	 * Site Health engines, built on demand from the plugin's OWN entitlement gate
+	 * (correctly clocked) + store, so the signed Site Health methods (§ redirects /
+	 * links / maintenance / sitehealth) reach the exact same gate the wp-admin
+	 * surfaces use. Cheap to build per-call — each is a thin wrapper over the store.
+	 */
+	public function redirects_engine(): IWSL_Redirects {
+		return new IWSL_Redirects( $this->entitlements, $this->store );
+	}
+
+	public function maintenance_mode(): IWSL_Maintenance_Mode {
+		return new IWSL_Maintenance_Mode( $this->entitlements, $this->store );
+	}
+
+	public function broken_link_scan(): IWSL_Broken_Link_Scan {
+		return new IWSL_Broken_Link_Scan( $this->entitlements, $this->store );
+	}
+
+	public function site_health(): IWSL_Site_Health {
+		return new IWSL_Site_Health(
+			$this->entitlements,
+			$this->maintenance_mode(),
+			$this->redirects_engine(),
+			$this->broken_link_scan()
+		);
+	}
+
+	/**
 	 * The operator kill-switch surface over the plugin's own gate + store. Built
 	 * per-call (stateless) so the email runners can report `switch_on` — the skew
 	 * between "entitled" (signed) and "switched on" (local operator toggle).
@@ -347,6 +374,139 @@ final class IWSL_Plugin {
 				);
 				if ( array() !== array_diff_key( get_object_vars( $vars['speed_pack'] ), $allowed ) ) {
 					return false;
+				}
+			}
+			return true;
+		};
+
+		// ── Site Health params validators (§ redirects / links / maintenance) ──────
+		// Shape-only, mirroring the strategy note: authorization ALWAYS lives in the
+		// engine (STATEMENT-1 gates). A stray signed-but-ignored field is refused
+		// (array_diff_key), matching the rotation/aud/entitlements validators.
+
+		// Optional { budget_ms:int } — or empty params.
+		$links_scan_params = static function ( $params ): bool {
+			if ( ! $params instanceof stdClass ) {
+				return false;
+			}
+			$vars = get_object_vars( $params );
+			if ( array() !== array_diff_key( $vars, array( 'budget_ms' => 1 ) ) ) {
+				return false;
+			}
+			return ! isset( $vars['budget_ms'] ) || is_int( $vars['budget_ms'] );
+		};
+
+		// { source:string, target:string, type:int, match?:string } — shape only.
+		$redirects_create_params = static function ( $params ): bool {
+			if ( ! $params instanceof stdClass ) {
+				return false;
+			}
+			$vars = get_object_vars( $params );
+			if ( array() !== array_diff_key( $vars, array( 'source' => 1, 'target' => 1, 'type' => 1, 'match' => 1 ) ) ) {
+				return false;
+			}
+			if ( ! isset( $vars['source'] ) || ! is_string( $vars['source'] ) ) {
+				return false;
+			}
+			if ( ! isset( $vars['target'] ) || ! is_string( $vars['target'] ) ) {
+				return false;
+			}
+			if ( ! isset( $vars['type'] ) || ! is_int( $vars['type'] ) ) {
+				return false;
+			}
+			return ! isset( $vars['match'] ) || is_string( $vars['match'] );
+		};
+
+		// { id:string } matching the server-derived rule id shape.
+		$redirects_delete_params = static function ( $params ): bool {
+			if ( ! $params instanceof stdClass ) {
+				return false;
+			}
+			$vars = get_object_vars( $params );
+			if ( array() !== array_diff_key( $vars, array( 'id' => 1 ) ) ) {
+				return false;
+			}
+			return isset( $vars['id'] ) && is_string( $vars['id'] ) && 1 === preg_match( IWSL_Redirects::RULE_ID_RE, $vars['id'] );
+		};
+
+		// { rules: [ {source,target,type,match?} ] } capped at 50 rows.
+		$redirects_import_params = static function ( $params ): bool {
+			if ( ! $params instanceof stdClass ) {
+				return false;
+			}
+			$vars = get_object_vars( $params );
+			if ( array() !== array_diff_key( $vars, array( 'rules' => 1 ) ) ) {
+				return false;
+			}
+			if ( ! isset( $vars['rules'] ) || ! is_array( $vars['rules'] ) || count( $vars['rules'] ) > 50 ) {
+				return false;
+			}
+			foreach ( $vars['rules'] as $row ) {
+				if ( ! $row instanceof stdClass ) {
+					return false;
+				}
+				$rv = get_object_vars( $row );
+				if ( array() !== array_diff_key( $rv, array( 'source' => 1, 'target' => 1, 'type' => 1, 'match' => 1 ) ) ) {
+					return false;
+				}
+				if ( ! isset( $rv['source'] ) || ! is_string( $rv['source'] )
+					|| ! isset( $rv['target'] ) || ! is_string( $rv['target'] )
+					|| ! isset( $rv['type'] ) || ! is_int( $rv['type'] )
+					|| ( isset( $rv['match'] ) && ! is_string( $rv['match'] ) ) ) {
+					return false;
+				}
+			}
+			return true;
+		};
+
+		// { log_404?:bool, auto_slug?:bool } — either, both, or (a no-op) neither.
+		$redirects_toggles_params = static function ( $params ): bool {
+			if ( ! $params instanceof stdClass ) {
+				return false;
+			}
+			$vars = get_object_vars( $params );
+			if ( array() !== array_diff_key( $vars, array( 'log_404' => 1, 'auto_slug' => 1 ) ) ) {
+				return false;
+			}
+			if ( isset( $vars['log_404'] ) && ! is_bool( $vars['log_404'] ) ) {
+				return false;
+			}
+			return ! isset( $vars['auto_slug'] ) || is_bool( $vars['auto_slug'] );
+		};
+
+		// { enabled:bool, headline?:string, message?:string, retry_after?:bool, until?:int, allow_ips?:string[] }.
+		$maintenance_set_params = static function ( $params ): bool {
+			if ( ! $params instanceof stdClass ) {
+				return false;
+			}
+			$vars    = get_object_vars( $params );
+			$allowed = array( 'enabled' => 1, 'headline' => 1, 'message' => 1, 'retry_after' => 1, 'until' => 1, 'allow_ips' => 1 );
+			if ( array() !== array_diff_key( $vars, $allowed ) ) {
+				return false;
+			}
+			if ( ! isset( $vars['enabled'] ) || ! is_bool( $vars['enabled'] ) ) {
+				return false;
+			}
+			if ( isset( $vars['headline'] ) && ! is_string( $vars['headline'] ) ) {
+				return false;
+			}
+			if ( isset( $vars['message'] ) && ! is_string( $vars['message'] ) ) {
+				return false;
+			}
+			if ( isset( $vars['retry_after'] ) && ! is_bool( $vars['retry_after'] ) ) {
+				return false;
+			}
+			if ( isset( $vars['until'] ) && ! is_int( $vars['until'] ) ) {
+				return false;
+			}
+			if ( isset( $vars['allow_ips'] ) ) {
+				if ( ! is_array( $vars['allow_ips'] ) ) {
+					return false;
+				}
+				foreach ( $vars['allow_ips'] as $ip ) {
+					if ( ! is_string( $ip ) ) {
+						return false;
+					}
 				}
 			}
 			return true;
@@ -1185,6 +1345,137 @@ final class IWSL_Plugin {
 					return array( true, $plugin->perf_settings_set( $envelope->params ) );
 				},
 				$perf_settings_params
+			),
+
+			// ── Site Health signed methods (one bounded aggregate + detail reads +
+			// gated mutations). Every runner DELEGATES to an engine whose STATEMENT-1
+			// entitlement gate is authoritative: the signed channel adds a transport,
+			// never a bypass. A locked flag returns the engine's own refusal/locked
+			// marker over the wire. No new REST/AJAX/nopriv surface (signed-channel
+			// invariant). ────────────────────────────────────────────────────────────
+			new IWSL_Command_Handler(
+				'sitehealth.snapshot',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// ONE bounded aggregate read powering the whole panel. Each
+					// sub-section self-gates (locked flags emit a locked marker, no
+					// data) so a single round-trip is safe across tiers.
+					return array( true, $plugin->site_health()->snapshot() );
+				}
+			),
+			new IWSL_Command_Handler(
+				'links.scan',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$params = get_object_vars( $envelope->params );
+					$budget = isset( $params['budget_ms'] ) ? (int) $params['budget_ms'] : null;
+					// scan_guarded owns the entitlement gate (its scan() STATEMENT 1),
+					// the budget clamp, the single-flight lock, and last-scan persist.
+					return array( true, $plugin->broken_link_scan()->scan_guarded( $budget ) );
+				},
+				$links_scan_params
+			),
+			new IWSL_Command_Handler(
+				'redirects.list',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Pure reads are not engine-gated, so gate the LISTING here to keep
+					// the redirect table off a locked/lower tier (triple gate).
+					$gate = $plugin->entitlements()->evaluate( IWSL_Redirects::FEATURE );
+					if ( empty( $gate['unlocked'] ) ) {
+						return array( true, array( 'locked' => true, 'gate' => $gate ) );
+					}
+					$engine = $plugin->redirects_engine();
+					return array(
+						true,
+						array(
+							'locked'      => false,
+							'rules'       => $engine->rules(),
+							'log'         => $engine->log_entries(),
+							'log_enabled' => $engine->is_404_logging_enabled(),
+							'auto_slug'   => $engine->is_auto_redirect_enabled(),
+						),
+					);
+				}
+			),
+			new IWSL_Command_Handler(
+				'redirects.create',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$p     = get_object_vars( $envelope->params );
+					$match = isset( $p['match'] ) ? (string) $p['match'] : 'exact';
+					// add_rule() runs the FULL save-time gauntlet + gate; its refusal
+					// tokens (duplicate-source, creates-redirect-loop, …) pass through
+					// verbatim — the console never re-implements the gauntlet.
+					return array( true, $plugin->redirects_engine()->add_rule( (string) $p['source'], (string) $p['target'], (int) $p['type'], $match ) );
+				},
+				$redirects_create_params
+			),
+			new IWSL_Command_Handler(
+				'redirects.delete',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$p = get_object_vars( $envelope->params );
+					return array( true, $plugin->redirects_engine()->delete_rule( (string) $p['id'] ) );
+				},
+				$redirects_delete_params
+			),
+			new IWSL_Command_Handler(
+				'redirects.import',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$p      = get_object_vars( $envelope->params );
+					$rows   = isset( $p['rules'] ) && is_array( $p['rules'] ) ? $p['rules'] : array();
+					$engine = $plugin->redirects_engine();
+					$out    = array();
+					foreach ( $rows as $row ) {
+						$rv    = $row instanceof stdClass ? get_object_vars( $row ) : array();
+						$src   = isset( $rv['source'] ) && is_string( $rv['source'] ) ? $rv['source'] : '';
+						$tgt   = isset( $rv['target'] ) && is_string( $rv['target'] ) ? $rv['target'] : '';
+						$type  = isset( $rv['type'] ) && is_int( $rv['type'] ) ? $rv['type'] : 0;
+						$match = isset( $rv['match'] ) && is_string( $rv['match'] ) ? $rv['match'] : 'exact';
+						// Per-row through the same gated add_rule(); stop-never.
+						$r     = $engine->add_rule( $src, $tgt, $type, $match );
+						$out[] = empty( $r['ok'] )
+							? array( 'ok' => false, 'reason' => isset( $r['reason'] ) ? (string) $r['reason'] : 'error' )
+							: array( 'ok' => true );
+					}
+					return array( true, array( 'results' => $out ) );
+				},
+				$redirects_import_params
+			),
+			new IWSL_Command_Handler(
+				'redirects.set_toggles',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$p      = get_object_vars( $envelope->params );
+					$engine = $plugin->redirects_engine();
+					if ( isset( $p['log_404'] ) ) {
+						$engine->set_404_logging( (bool) $p['log_404'] ); // gated (STATEMENT 1)
+					}
+					if ( isset( $p['auto_slug'] ) ) {
+						$engine->set_auto_redirect( (bool) $p['auto_slug'] ); // gated (STATEMENT 1)
+					}
+					return array(
+						true,
+						array(
+							'log_enabled' => $engine->is_404_logging_enabled(),
+							'auto_slug'   => $engine->is_auto_redirect_enabled(),
+						),
+					);
+				},
+				$redirects_toggles_params
+			),
+			new IWSL_Command_Handler(
+				'maintenance.set',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$p     = get_object_vars( $envelope->params );
+					$input = array(
+						'enabled'     => (bool) $p['enabled'],
+						'headline'    => isset( $p['headline'] ) ? (string) $p['headline'] : '',
+						'message'     => isset( $p['message'] ) ? (string) $p['message'] : '',
+						'retry_after' => isset( $p['retry_after'] ) ? (bool) $p['retry_after'] : false,
+						'until'       => isset( $p['until'] ) ? (int) $p['until'] : 0,
+						'allow_ips'   => isset( $p['allow_ips'] ) && is_array( $p['allow_ips'] ) ? $p['allow_ips'] : array(),
+					);
+					// save_settings() gates (STATEMENT 1) + runs the sanitizer (byte
+					// caps, until clamp, IP allow-list normalization).
+					return array( true, $plugin->maintenance_mode()->save_settings( $input ) );
+				},
+				$maintenance_set_params
 			),
 		);
 

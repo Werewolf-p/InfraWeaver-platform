@@ -48,7 +48,9 @@ require __DIR__ . '/../includes/class-iwsl-s3-client.php';
 require __DIR__ . '/../includes/class-iwsl-media-offload.php';
 require __DIR__ . '/../includes/class-iwsl-redirect-matcher.php';
 require __DIR__ . '/../includes/class-iwsl-exact-path-matcher.php';
+require __DIR__ . '/../includes/class-iwsl-prefix-path-matcher.php';
 require __DIR__ . '/../includes/class-iwsl-redirects.php';
+require __DIR__ . '/../includes/class-iwsl-redirect-suggestions.php';
 require __DIR__ . '/../includes/iwsl-page-cache-helpers.php';
 require __DIR__ . '/../includes/class-iwsl-page-cache.php';
 require __DIR__ . '/../includes/class-iwsl-mail-transport.php';
@@ -79,6 +81,7 @@ require __DIR__ . '/../includes/class-iwsl-auto-convert.php';
 require __DIR__ . '/../includes/class-iwsl-speed-pack.php';
 require __DIR__ . '/../includes/class-iwsl-stats-classifier.php';
 require __DIR__ . '/../includes/class-iwsl-statistics.php';
+require __DIR__ . '/../includes/class-iwsl-site-health.php';
 require __DIR__ . '/../includes/class-iwsl-consent-classifier.php';
 require __DIR__ . '/../includes/class-iwsl-cookie-consent.php';
 require __DIR__ . '/../includes/class-iwsl-seo-analyzer.php';
@@ -168,7 +171,7 @@ $suites = array( 'jcs', 'slhdsa', 'slhdsa-192f', 'verifier', 'enrollment', 'wp-s
 	// Wave 2 feature suites. broken-link-scan runs after media-optimizer (whose
 	// global stubs it is designed around); speed-pack MUST be last (it defines
 	// remove_action/remove_filter recorder stubs).
-	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'seo-alt-text', 'seo-console', 'perf-audit', 'media-protection', 'media-folders', 'media-library', 'media-commands', 'response-scan', 'security-headers', 'elementor-blocks', 'content-branding', 'teardown', 'speed-pack' );
+	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'redirect-suggestions', 'site-health', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'seo-alt-text', 'seo-console', 'perf-audit', 'media-protection', 'media-folders', 'media-library', 'media-commands', 'response-scan', 'security-headers', 'elementor-blocks', 'content-branding', 'teardown', 'speed-pack' );
 // CHILD MODE: `php run-tests.php <suite>` runs exactly ONE suite in this process.
 // Each suite is self-contained (it defines its own guarded WP-function stubs), so
 // running it in isolation is authoritative and free of cross-suite global leakage.

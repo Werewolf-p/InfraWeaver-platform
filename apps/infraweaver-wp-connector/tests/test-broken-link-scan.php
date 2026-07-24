@@ -365,10 +365,124 @@ $r_pub     = $eng_pub->scan();
 iwsl_assert_same( 0, $r_pub['broken_count'], 'ssrf: an unresolvable public host is not pre-blocked as unsafe' );
 iwsl_assert_same( 1, $GLOBALS['iwsl_bls_fetches'], 'ssrf: the public host is fetched (guard did not block it)' );
 
+// ── 10. Images: <img src> scanned, broken ones fold into broken_images[] ──────
+//
+// broken_images has the shape the Media explorer "broken" filter consumes:
+// { post_id, url, attachment_id|null, status }. A live internal attachment is
+// resolved (never broken); a missing external image is reported.
+
+$GLOBALS['iwsl_bls_attach'] = array( '/wp-content/uploads/live.jpg' => 99 );
+if ( ! function_exists( 'attachment_url_to_postid' ) ) {
+	function attachment_url_to_postid( $url ) {
+		return isset( $GLOBALS['iwsl_bls_attach'][ (string) $url ] ) ? (int) $GLOBALS['iwsl_bls_attach'][ (string) $url ] : 0;
+	}
+}
+
+iwsl_bls_reset();
+$img_posts = array(
+	array(
+		'id'      => 7,
+		'title'   => 'Gallery',
+		'content' => '<img src="http://ext.test/missing.png">'          // external, 404 → broken
+			. '<img src="/wp-content/uploads/live.jpg">'                 // internal attachment → live
+			. '<a href="http://ext.test/page">link</a>',                 // an anchor stays in broken[] land
+	),
+);
+$img_resolver = static function ( string $host ): string {
+	return $host; // unresolvable → left to the fetcher (never pre-blocked)
+};
+$eng_img = iwsl_bls_engine(
+	$BLS_NOW,
+	$img_posts,
+	array(
+		'http://ext.test/missing.png' => array( 'code' => 404, 'error' => '' ),
+		'http://ext.test/page'        => array( 'code' => 200, 'error' => '' ),
+	),
+	null,
+	null,
+	$img_resolver
+);
+$r_img = $eng_img->scan();
+iwsl_assert( array_key_exists( 'broken_images', $r_img ), 'img: summary carries broken_images[]' );
+iwsl_assert_same( 1, count( $r_img['broken_images'] ), 'img: exactly the missing external image is broken' );
+$bi = $r_img['broken_images'][0];
+iwsl_assert_same( 'http://ext.test/missing.png', $bi['url'], 'img: broken image url carried' );
+iwsl_assert_same( 404, $bi['status'], 'img: broken image status carried' );
+iwsl_assert_same( null, $bi['attachment_id'], 'img: attachment_id null for an external image' );
+iwsl_assert_same( 7, $bi['post_id'], 'img: post_id carried' );
+iwsl_assert( null === iwsl_bls_find( $r_img, '/wp-content/uploads/live.jpg' ), 'img: the live attachment image is not in broken[]' );
+iwsl_assert_same( 0, $r_img['broken_count'], 'img: the anchor to a 200 page is not broken (broken[] separate from images)' );
+
+// ── 11. Image SSRF + IPv6 ULA literal: guard refuses pre-fetch (unchanged path) ─
+
+iwsl_bls_reset();
+$ssrf_img_posts = array(
+	array(
+		'id'      => 8,
+		'title'   => 'Planted image',
+		'content' => '<img src="http://10.9.8.7/pixel.png">'   // literal RFC1918
+			. '<img src="http://[fd00::1]/pixel.png">',        // IPv6 ULA literal
+	),
+);
+$eng_img_ssrf = iwsl_bls_engine( $BLS_NOW, $ssrf_img_posts, array(), null, null, static function ( string $h ): string {
+	return $h; } );
+$r_img_ssrf   = $eng_img_ssrf->scan();
+iwsl_assert_same( 0, $GLOBALS['iwsl_bls_fetches'], 'img ssrf: neither internal-IP image is fetched' );
+iwsl_assert_same( 2, count( $r_img_ssrf['broken_images'] ), 'img ssrf: both internal-IP images reported broken' );
+foreach ( array( 'http://10.9.8.7/pixel.png', 'http://[fd00::1]/pixel.png' ) as $blocked ) {
+	$hit = null;
+	foreach ( $r_img_ssrf['broken_images'] as $row ) {
+		if ( $row['url'] === $blocked ) {
+			$hit = $row;
+		}
+	}
+	iwsl_assert( is_array( $hit ), "img ssrf: reported {$blocked}" );
+	iwsl_assert_same( 'unsafe-host', $hit['status'], "img ssrf: {$blocked} marked unsafe-host (byte-identical guard)" );
+}
+
+// ── 12. Single-flight lock: a second scan while one is in flight is refused ────
+
+$store_lock = new IWSL_Memory_Store();
+$eng_lock   = iwsl_bls_engine( $BLS_NOW, array(), array(), null, $store_lock );
+$g1         = $eng_lock->scan_guarded();
+iwsl_assert_same( true, $g1['ok'], 'single-flight: first guarded run succeeds' );
+iwsl_assert( is_array( $eng_lock->last_scan() ), 'single-flight: the run is persisted as last_scan' );
+iwsl_assert_same( null, $store_lock->get( IWSL_Broken_Link_Scan::SCAN_LOCK_KEY, null ), 'single-flight: the lock is released after the run' );
+$store_lock->set( IWSL_Broken_Link_Scan::SCAN_LOCK_KEY, $BLS_NOW ); // a fresh in-flight lock
+$g2 = $eng_lock->scan_guarded();
+iwsl_assert_same( 'scan-in-progress', $g2['reason'], 'single-flight: a concurrent run is refused' );
+iwsl_assert( array_key_exists( 'broken_images', $g2 ), 'single-flight: the refusal still carries broken_images[]' );
+$store_lock->set( IWSL_Broken_Link_Scan::SCAN_LOCK_KEY, $BLS_NOW - IWSL_Broken_Link_Scan::SCAN_LOCK_TTL_MS - 1 ); // stale
+$g3 = $eng_lock->scan_guarded();
+iwsl_assert_same( true, $g3['ok'], 'single-flight: a stale lock is stolen (self-heal)' );
+
+// ── 13. budget_ms clamp: caller budget bounded to [MIN, TIME_BUDGET] ──────────
+
+$eng_b = iwsl_bls_engine( $BLS_NOW, array(), array() );
+iwsl_assert_same( IWSL_Broken_Link_Scan::MIN_BUDGET_MS, $eng_b->scan( 1000 )['budget_ms'], 'budget: a too-small budget is clamped up to MIN' );
+iwsl_assert_same( IWSL_Broken_Link_Scan::TIME_BUDGET_MS, $eng_b->scan( 999999 )['budget_ms'], 'budget: a too-large budget is clamped down to the max' );
+iwsl_assert_same( 8000, $eng_b->scan( 8000 )['budget_ms'], 'budget: an in-range budget is honoured' );
+iwsl_assert_same( IWSL_Broken_Link_Scan::TIME_BUDGET_MS, $eng_b->scan()['budget_ms'], 'budget: the default is the full time budget' );
+
+// ── 14. A locked scan still returns a broken_images key (stable shape) ─────────
+
+$store_lk = new IWSL_Memory_Store();
+$store_lk->set( 'state', 'active' );
+$store_lk->set( 'last_verified_at', $BLS_NOW - 60000 );
+$store_lk->set( 'entitlements', array( 'plus' => true ) ); // flag absent → locked
+$ent_lk = new IWSL_Entitlements( $store_lk, static function () use ( $BLS_NOW ): int {
+	return $BLS_NOW; } );
+$eng_lk = new IWSL_Broken_Link_Scan( $ent_lk, new IWSL_Memory_Store(), static function () use ( $BLS_NOW ): int {
+	return $BLS_NOW; }, 'site', iwsl_bls_provider( array() ), iwsl_bls_fetcher( array() ) );
+$r_lk = $eng_lk->scan();
+iwsl_assert_same( 'entitlement-locked', $r_lk['reason'], 'locked: scan refuses' );
+iwsl_assert_same( array(), $r_lk['broken_images'], 'locked: broken_images present and empty' );
+
 // Clean up the stubs' global state so nothing leaks into a later suite.
 unset(
 	$GLOBALS['iwsl_bls_fetches'],
 	$GLOBALS['iwsl_bls_provider_calls'],
 	$GLOBALS['iwsl_bls_postids'],
-	$GLOBALS['iwsl_bls_status']
+	$GLOBALS['iwsl_bls_status'],
+	$GLOBALS['iwsl_bls_attach']
 );
