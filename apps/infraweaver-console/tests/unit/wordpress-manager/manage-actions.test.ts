@@ -15,6 +15,9 @@ jest.mock("@/addons/wordpress-manager/lib/manage/snapshot-cache", () => ({ inval
 jest.mock("@/addons/wordpress-manager/lib/manage/invalidate", () => ({ invalidateManageReadsAfterMutation: jest.fn(() => Promise.resolve()) }));
 jest.mock("@/addons/wordpress-manager/lib/iwsl-managed-commands", () => ({ CONNECTOR_PLUGIN_SLUG: "infraweaver-connector" }));
 jest.mock("@/lib/mailer", () => ({ sendWpPasswordResetEmail: jest.fn(), isMailerConfigured: jest.fn(() => true) }));
+// set-maintenance-mode now routes through the orchestrator — stub it (this file tests
+// the pure command mapping, which returns null for that action anyway).
+jest.mock("@/addons/wordpress-manager/lib/maintenance-orchestrator", () => ({ setSiteMaintenance: jest.fn() }));
 
 import {
   commandFor,

@@ -386,9 +386,9 @@ export const MANAGE_PANELS: readonly ManagePanelDef[] = [
   },
   {
     id: "health",
-    label: "Health",
+    label: "Site Health",
     icon: "HeartPulse",
-    summary: "WordPress Site Health checks, versions and cron status.",
+    summary: "Health checks, broken links, 404s & redirects, and maintenance mode.",
     requires: null,
   },
 ];

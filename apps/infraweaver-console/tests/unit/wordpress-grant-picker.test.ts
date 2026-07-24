@@ -20,6 +20,9 @@ jest.mock("@kubernetes/client-node", () => ({}));
 jest.mock("@/addons/wordpress-manager/lib/provision", () => ({}));
 jest.mock("@/addons/wordpress-manager/lib/k8s-exec", () => ({}));
 jest.mock("@/addons/wordpress-manager/lib/manage/overview", () => ({}));
+// actions.ts now routes set-maintenance-mode through the orchestrator (which pulls
+// in the signed-op + provision graph) — stub it so this pure-logic test stays light.
+jest.mock("@/addons/wordpress-manager/lib/maintenance-orchestrator", () => ({ setSiteMaintenance: jest.fn() }));
 
 import { commandFor, manageActionSchema } from "@/addons/wordpress-manager/lib/manage/actions";
 import {

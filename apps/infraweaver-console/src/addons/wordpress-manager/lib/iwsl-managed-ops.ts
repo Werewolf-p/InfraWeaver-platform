@@ -55,6 +55,21 @@ import type {
   MediaStatusResponse,
   MediaTreeResponse,
 } from "./manage/media";
+import type {
+  LinkScanParams,
+  LinkScanSummary,
+  MaintenanceSetParams,
+  MaintenanceSetResult,
+  RedirectCreateParams,
+  RedirectDeleteParams,
+  RedirectImportParams,
+  RedirectImportResult,
+  RedirectMutationResult,
+  RedirectTogglesParams,
+  RedirectTogglesResult,
+  RedirectsListResult,
+  SiteHealthSnapshot,
+} from "./manage/site-health";
 
 export type { CommandReply } from "./rpc/registry";
 
@@ -1082,4 +1097,100 @@ export async function restoreMedia(site: string, params: MediaRestoreParams): Pr
 export async function mediaFolderOp(site: string, params: MediaFolderParams): Promise<RpcResult["media.folder"]> {
   const reply = await callRpc(await mediaWriteTransport(site), "media.folder", params as RpcParams["media.folder"]);
   return unwrapMediaReply<RpcResult["media.folder"]>(reply, "media.folder");
+}
+
+// ── Site Health (§ site-health) ────────────────────────────────────────────────
+// The console side of the eight signed site-health commands behind the grown
+// `health` Manage surface. Reads (`sitehealth.snapshot`, `redirects.list`) need
+// only a commandable link; mutations (scan / redirect writes / maintenance)
+// additionally require identity NOT to be in safe mode. Every runner DELEGATES to
+// an engine whose STATEMENT-1 entitlement gate is authoritative — a locked flag
+// comes back as a signed `{ locked, gate }` marker, never a bypass (signed-channel
+// invariant). Mirrors the media wiring exactly.
+
+/**
+ * A site-health reply an OLD connector (predating the site-health command
+ * surface) rejects unsigned as `unknown-method`. Surface that as an actionable
+ * 501 so the panel can tell the operator to update the connector (the wp-cli
+ * checklist keeps working meanwhile) rather than a generic 502.
+ */
+function unwrapSiteHealthReply<T>(reply: CommandReply, method: string): T {
+  if (reply.rejectedReason === "unknown-method") {
+    throw new AddonHttpError(
+      "This site's connector is too old for the Site Health surface — update the connector to use it.",
+      501,
+    );
+  }
+  if (reply.rejectedReason) {
+    throw new AddonHttpError(`Connector rejected ${method} (${reply.rejectedReason})`, 502);
+  }
+  if (!reply.ok) {
+    throw new AddonHttpError(`Connector could not complete ${method}`, 502);
+  }
+  return reply.result as T;
+}
+
+/** Bind the signed exec transport for a commandable managed link (reads). */
+async function siteHealthTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** As `siteHealthTransport`, but also refuses when the link is in identity safe mode (writes). */
+async function siteHealthWriteTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  requireIdentityConfirmed(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** Signed `sitehealth.snapshot` — the ONE bounded aggregate powering the panel (read-only). */
+export async function siteHealthSnapshot(site: string): Promise<SiteHealthSnapshot> {
+  const reply = await callRpc(await siteHealthTransport(site), "sitehealth.snapshot", {});
+  return unwrapSiteHealthReply<SiteHealthSnapshot>(reply, "sitehealth.snapshot");
+}
+
+/** Signed `links.scan` — one bounded broken-link/image scan (engine owns the gate + budget clamp). */
+export async function runLinkScan(site: string, params: LinkScanParams = {}): Promise<LinkScanSummary> {
+  const reply = await callRpc(await siteHealthWriteTransport(site), "links.scan", params as RpcParams["links.scan"]);
+  return unwrapSiteHealthReply<LinkScanSummary>(reply, "links.scan");
+}
+
+/** Signed `redirects.list` — the full redirect table + 404 ring log + toggles (read-only, gated). */
+export async function listRedirects(site: string): Promise<RedirectsListResult> {
+  const reply = await callRpc(await siteHealthTransport(site), "redirects.list", {});
+  return unwrapSiteHealthReply<RedirectsListResult>(reply, "redirects.list");
+}
+
+/** Signed `redirects.create` — `add_rule()` verbatim (full save-time gauntlet + gate). */
+export async function createRedirect(site: string, params: RedirectCreateParams): Promise<RedirectMutationResult> {
+  const reply = await callRpc(await siteHealthWriteTransport(site), "redirects.create", params as RpcParams["redirects.create"]);
+  return unwrapSiteHealthReply<RedirectMutationResult>(reply, "redirects.create");
+}
+
+/** Signed `redirects.delete` — `delete_rule()` verbatim. */
+export async function deleteRedirect(site: string, params: RedirectDeleteParams): Promise<RedirectMutationResult> {
+  const reply = await callRpc(await siteHealthWriteTransport(site), "redirects.delete", params as RpcParams["redirects.delete"]);
+  return unwrapSiteHealthReply<RedirectMutationResult>(reply, "redirects.delete");
+}
+
+/** Signed `redirects.import` — per-row through the same gated `add_rule()`, stop-never. */
+export async function importRedirects(site: string, params: RedirectImportParams): Promise<RedirectImportResult> {
+  const reply = await callRpc(await siteHealthWriteTransport(site), "redirects.import", params as RpcParams["redirects.import"]);
+  return unwrapSiteHealthReply<RedirectImportResult>(reply, "redirects.import");
+}
+
+/** Signed `redirects.set_toggles` — 404 logging / auto-slug-redirect switches (gated). */
+export async function setRedirectToggles(site: string, params: RedirectTogglesParams): Promise<RedirectTogglesResult> {
+  const reply = await callRpc(await siteHealthWriteTransport(site), "redirects.set_toggles", params as RpcParams["redirects.set_toggles"]);
+  return unwrapSiteHealthReply<RedirectTogglesResult>(reply, "redirects.set_toggles");
+}
+
+/** Signed `maintenance.set` — the connector maintenance engine (sanitizer + gate authoritative). */
+export async function setConnectorMaintenance(site: string, params: MaintenanceSetParams): Promise<MaintenanceSetResult> {
+  const reply = await callRpc(await siteHealthWriteTransport(site), "maintenance.set", params as RpcParams["maintenance.set"]);
+  return unwrapSiteHealthReply<MaintenanceSetResult>(reply, "maintenance.set");
 }

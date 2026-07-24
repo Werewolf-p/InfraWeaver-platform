@@ -32,6 +32,27 @@ import {
   type MediaStatusResponse,
   type MediaTreeResponse,
 } from "../manage/media";
+import {
+  linkScanParamsSchema,
+  maintenanceSetParamsSchema,
+  redirectCreateParamsSchema,
+  redirectDeleteParamsSchema,
+  redirectImportParamsSchema,
+  redirectTogglesParamsSchema,
+  type LinkScanParams,
+  type LinkScanSummary,
+  type MaintenanceSetParams,
+  type MaintenanceSetResult,
+  type RedirectCreateParams,
+  type RedirectDeleteParams,
+  type RedirectImportParams,
+  type RedirectImportResult,
+  type RedirectMutationResult,
+  type RedirectTogglesParams,
+  type RedirectTogglesResult,
+  type RedirectsListResult,
+  type SiteHealthSnapshot,
+} from "../manage/site-health";
 
 /** Signed-command methods the Connector allow-lists (§7). Wire strings — never rename. */
 export type RpcMethod =
@@ -51,7 +72,18 @@ export type RpcMethod =
   | "media.optimize"
   | "media.offload"
   | "media.restore"
-  | "media.folder";
+  | "media.folder"
+  // ── site-health (§ site-health) — one bounded aggregate + redirect/scan/
+  // maintenance detail reads & gated mutations. Every runner delegates to an
+  // engine whose STATEMENT-1 entitlement gate is authoritative.
+  | "sitehealth.snapshot"
+  | "links.scan"
+  | "redirects.list"
+  | "redirects.create"
+  | "redirects.delete"
+  | "redirects.import"
+  | "redirects.set_toggles"
+  | "maintenance.set";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -73,6 +105,15 @@ export interface RpcParams {
   "media.offload": MediaOffloadParams;
   "media.restore": MediaRestoreParams;
   "media.folder": MediaFolderParams;
+  // ── site-health — params mirror the plugin's shape validators exactly.
+  "sitehealth.snapshot": Record<string, never>;
+  "links.scan": LinkScanParams;
+  "redirects.list": Record<string, never>;
+  "redirects.create": RedirectCreateParams;
+  "redirects.delete": RedirectDeleteParams;
+  "redirects.import": RedirectImportParams;
+  "redirects.set_toggles": RedirectTogglesParams;
+  "maintenance.set": MaintenanceSetParams;
 }
 
 /**
@@ -152,6 +193,16 @@ export interface RpcResult {
   };
   /** Terms-only folder mutation echo. */
   "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  // ── site-health — the aggregate read + detail reads + gated mutation echoes.
+  "sitehealth.snapshot": SiteHealthSnapshot;
+  /** The immutable scan summary (now incl. `broken_images[]`), or a locked/refusal marker. */
+  "links.scan": LinkScanSummary;
+  "redirects.list": RedirectsListResult;
+  "redirects.create": RedirectMutationResult;
+  "redirects.delete": RedirectMutationResult;
+  "redirects.import": RedirectImportResult;
+  "redirects.set_toggles": RedirectTogglesResult;
+  "maintenance.set": MaintenanceSetResult;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -200,6 +251,16 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
   "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
   "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
+  // Site-health — validators reuse the isomorphic zod schemas that mirror the
+  // connector's shape validators, so the two allow-lists can never drift.
+  "sitehealth.snapshot": { hasParams: false, validate: noParams },
+  "links.scan": { hasParams: true, validate: (p) => linkScanParamsSchema.safeParse(p).success },
+  "redirects.list": { hasParams: false, validate: noParams },
+  "redirects.create": { hasParams: true, validate: (p) => redirectCreateParamsSchema.safeParse(p).success },
+  "redirects.delete": { hasParams: true, validate: (p) => redirectDeleteParamsSchema.safeParse(p).success },
+  "redirects.import": { hasParams: true, validate: (p) => redirectImportParamsSchema.safeParse(p).success },
+  "redirects.set_toggles": { hasParams: true, validate: (p) => redirectTogglesParamsSchema.safeParse(p).success },
+  "maintenance.set": { hasParams: true, validate: (p) => maintenanceSetParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */
