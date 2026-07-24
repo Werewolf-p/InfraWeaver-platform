@@ -33,6 +33,17 @@ import {
   type MediaTreeResponse,
 } from "../manage/media";
 import {
+  consentSetParamsSchema,
+  validateHardenParams,
+  type ConsentConfigResponse,
+  type ConsentSetParams,
+  type ConsentSetResult,
+  type ProtectionStatusResponse,
+  type SecurityHardenParams,
+  type SecurityHardenResult,
+  type SecurityScanResult,
+} from "../manage/security-consent";
+import {
   dbCleanupParamsSchema,
   dbScheduleParamsSchema,
   type DbAnalyzeResponse,
@@ -143,7 +154,13 @@ export type RpcMethod =
   // ── database fusion (§ database) — the fused Database cockpit's read + act methods.
   | "db.analyze"
   | "db.cleanup"
-  | "db.schedule";
+  | "db.schedule"
+  // ── Site Security / Consent / Protection (§ security) — the fused Site Security surface.
+  | "security.scan"
+  | "security.harden"
+  | "consent.getConfig"
+  | "consent.setConfig"
+  | "protection.status";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -192,6 +209,13 @@ export interface RpcParams {
   "db.analyze": Record<string, never>;
   "db.cleanup": DbCleanupParams;
   "db.schedule": DbScheduleParams;
+  // ── Site Security — params mirror IWSL_Security_Headers / IWSL_Cookie_Consent validators.
+  "security.scan": Record<string, never>;
+  /** Closed key/enum set — never a free-form header name or value. */
+  "security.harden": SecurityHardenParams;
+  "consent.getConfig": Record<string, never>;
+  "consent.setConfig": ConsentSetParams;
+  "protection.status": Record<string, never>;
 }
 
 /**
@@ -306,6 +330,12 @@ export interface RpcResult {
   "db.analyze": DbAnalyzeResponse;
   "db.cleanup": DbCleanupResponse;
   "db.schedule": DbScheduleResponse;
+  // ── Site Security — read grades/status + closed-set writes (plugin is source of truth).
+  "security.scan": SecurityScanResult;
+  "security.harden": SecurityHardenResult;
+  "consent.getConfig": ConsentConfigResponse;
+  "consent.setConfig": ConsentSetResult;
+  "protection.status": ProtectionStatusResponse;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -388,6 +418,14 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "db.analyze": { hasParams: false, validate: noParams },
   "db.cleanup": { hasParams: true, validate: (p) => dbCleanupParamsSchema.safeParse(p).success },
   "db.schedule": { hasParams: true, validate: (p) => dbScheduleParamsSchema.safeParse(p).success },
+  // Site Security — read trio takes no params; harden is the closed-key/enum validator
+  // (the load-bearing one — parity with IWSL_Security_Headers::validate_params);
+  // consent.setConfig requires exactly one `settings` object key.
+  "security.scan": { hasParams: false, validate: noParams },
+  "security.harden": { hasParams: true, validate: validateHardenParams },
+  "consent.getConfig": { hasParams: false, validate: noParams },
+  "consent.setConfig": { hasParams: true, validate: (p) => consentSetParamsSchema.safeParse(p).success },
+  "protection.status": { hasParams: false, validate: noParams },
 };
 
 /** The allow-listed method names, in registry order. */

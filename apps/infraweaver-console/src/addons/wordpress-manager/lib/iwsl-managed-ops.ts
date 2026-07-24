@@ -56,6 +56,15 @@ import type {
   MediaTreeResponse,
 } from "./manage/media";
 import type {
+  ConsentConfigResponse,
+  ConsentSetParams,
+  ConsentSetResult,
+  ProtectionStatusResponse,
+  SecurityHardenParams,
+  SecurityHardenResult,
+  SecurityScanResult,
+} from "./manage/security-consent";
+import type {
   DbAnalyzeResponse,
   DbCleanupParams,
   DbCleanupResponse,
@@ -1486,4 +1495,88 @@ export async function cleanupDatabase(site: string, params: DbCleanupParams): Pr
 export async function scheduleDatabase(site: string, params: DbScheduleParams): Promise<DbScheduleResponse> {
   const reply = await callRpc(await dbWriteTransport(site), "db.schedule", params as RpcParams["db.schedule"]);
   return unwrapDbReply<DbScheduleResponse>(reply, "db.schedule");
+}
+
+// ── Site Security / Consent / Protection (§ security) ──────────────────────────
+// The console side of the five signed methods behind the fused Site Security
+// surface. Reads (security.scan / protection.status / consent.getConfig) require
+// only a commandable link; writes (security.harden / consent.setConfig)
+// additionally require identity NOT to be in safe mode — a hardening/consent
+// change on a site that reported a changed canonical URL is exactly what safe
+// mode exists to hold, mirroring the media writes. Every call re-checks the
+// entitlement gate as STATEMENT 1 inside the plugin engine; a locked tier comes
+// back as a signed `{ locked, gate }` payload (NOT thrown), so the surface can
+// show a TierGate instead of an error.
+
+/**
+ * Unwrap a security `reply`. Unlike the media unwrap, a security `{ locked, gate }`
+ * arrives with the transport `ok` set to FALSE (the plugin's runner returns it as
+ * a refusal), so a locked payload is a VALID result to pass through — only a
+ * genuinely failed/rejected reply throws. An old connector predating the surface
+ * rejects the method unsigned as `unknown-method`; surface that as an actionable
+ * 501 (posture checks keep working meanwhile).
+ */
+function unwrapSecurityReply<T>(reply: CommandReply, method: string): T {
+  if (reply.rejectedReason === "unknown-method") {
+    throw new AddonHttpError(
+      "This site's connector is too old for Site Security — update the connector to use it.",
+      501,
+    );
+  }
+  if (reply.rejectedReason) {
+    throw new AddonHttpError(`Connector rejected ${method} (${reply.rejectedReason})`, 502);
+  }
+  const result = (reply.result ?? {}) as Record<string, unknown>;
+  // A locked refusal (ok:false + { locked:true }) is a legitimate, renderable answer.
+  if (!reply.ok && result.locked !== true) {
+    throw new AddonHttpError(`Connector could not complete ${method}`, 502);
+  }
+  return result as T;
+}
+
+/** Bind the signed exec transport for a commandable managed link (security reads). */
+async function securityTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** As `securityTransport`, but also refuses when the link is in identity safe mode (writes). */
+async function securityWriteTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  requireIdentityConfirmed(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** Signed `security.scan` — HTTP header grade + tracker detection (read-only, loopback). */
+export async function securityScan(site: string): Promise<SecurityScanResult> {
+  const reply = await callRpc(await securityTransport(site), "security.scan", {});
+  return unwrapSecurityReply<SecurityScanResult>(reply, "security.scan");
+}
+
+/** Signed `protection.status` — cross-feature status aggregate (read-only). */
+export async function protectionStatus(site: string): Promise<ProtectionStatusResponse> {
+  const reply = await callRpc(await securityTransport(site), "protection.status", {});
+  return unwrapSecurityReply<ProtectionStatusResponse>(reply, "protection.status");
+}
+
+/** Signed `consent.getConfig` — consent settings + PRIVACY-SAFE aggregates (read-only). */
+export async function consentGetConfig(site: string): Promise<ConsentConfigResponse> {
+  const reply = await callRpc(await securityTransport(site), "consent.getConfig", {});
+  return unwrapSecurityReply<ConsentConfigResponse>(reply, "consent.getConfig");
+}
+
+/** Signed `security.harden` — apply an allow-listed, closed-enum hardening config (write). */
+export async function securityHarden(site: string, params: SecurityHardenParams): Promise<SecurityHardenResult> {
+  const reply = await callRpc(await securityWriteTransport(site), "security.harden", params as RpcParams["security.harden"]);
+  return unwrapSecurityReply<SecurityHardenResult>(reply, "security.harden");
+}
+
+/** Signed `consent.setConfig` — persist consent settings through the plugin gauntlet (write). */
+export async function consentSetConfig(site: string, params: ConsentSetParams): Promise<ConsentSetResult> {
+  const reply = await callRpc(await securityWriteTransport(site), "consent.setConfig", params as RpcParams["consent.setConfig"]);
+  return unwrapSecurityReply<ConsentSetResult>(reply, "consent.setConfig");
 }

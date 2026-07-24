@@ -30,7 +30,7 @@ import { StorePanel } from "./panels-store";
 import { FormsPanel } from "./panels-forms";
 import { BackupsPanel } from "./panels-backups";
 import { StagingPanel } from "./panels-staging";
-import { SecurityPanel } from "./panels-security";
+import { SecuritySurface } from "../../manage/security/security-surface";
 import { AuditPanel } from "./panels-audit";
 import { PerformancePanel } from "../../manage/performance/performance-panel";
 import { ResourcesPanel } from "./panels-resources";
@@ -71,7 +71,7 @@ const PANEL_COMPONENTS: Record<ManagePanelId, (props: { site: string }) => React
   forms: FormsPanel,
   backups: BackupsPanel,
   staging: StagingPanel,
-  security: SecurityPanel,
+  security: SecuritySurface,
   audit: AuditPanel,
   performance: PerformancePanel,
   resources: ResourcesPanel,
