@@ -1,5 +1,14 @@
 import React from "react";
 import { render, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+// HealthPanel is now a live Site Health surface — its write hook uses React Query,
+// so it must render inside a QueryClientProvider (the checklist itself is still fed
+// canned data via the mocked useManagePanel).
+function renderWithClient(ui: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
 
 // The panels render the shared HealthGauge, whose framer-motion `useReducedMotion`
 // reads `window.matchMedia` — absent in jsdom. Polyfill a no-op before any render.
@@ -144,7 +153,7 @@ describe("SecurityPanel", () => {
 describe("HealthPanel", () => {
   test("renders the checklist, summary and a 'Critical' verdict pill when checks fail", () => {
     mockUseManagePanel.mockReturnValue(loaded(HEALTH_MIXED));
-    const { container } = render(<HealthPanel site="demo" />);
+    const { container } = renderWithClient(<HealthPanel site="demo" />);
 
     // Overall verdict pill (a critical check present).
     expect(verdictPill(container)).toHaveTextContent("Critical");
@@ -157,7 +166,7 @@ describe("HealthPanel", () => {
 
   test("shows an all-clear EmptyState and 'Healthy' pill when every check passes", () => {
     mockUseManagePanel.mockReturnValue(loaded(HEALTH_ALL_GOOD));
-    const { container } = render(<HealthPanel site="demo" />);
+    const { container } = renderWithClient(<HealthPanel site="demo" />);
 
     expect(screen.getByText("Healthy")).toBeInTheDocument();
     expect(screen.getByText("All checks passing")).toBeInTheDocument();

@@ -6,6 +6,8 @@
  * state with a plain-language detail. Read-only: no mutation is exposed here.
  */
 import { WP_SAFE, kvLine, parseKv, parseJsonArray, toInt, toNum, toStr, fieldStr } from "../wp-probe";
+import { siteHealthSnapshot } from "../../iwsl-managed-ops";
+import type { SiteHealthSnapshot } from "../site-health";
 import type { PanelProbe, PanelProbeContext } from "./contract";
 
 export type CheckState = "good" | "recommended" | "critical";
@@ -23,6 +25,14 @@ export interface HealthData {
   readonly dbSizeMb: number | null;
   readonly checks: readonly HealthCheck[];
   readonly counts: { readonly good: number; readonly recommended: number; readonly critical: number };
+  /**
+   * The connector-backed Site Health aggregate (broken links, 404s, redirects,
+   * maintenance) merged over the wp-cli checklist. Null on sites with no
+   * commandable link, an outdated connector, or a transient signed-read failure —
+   * the checklist above still renders (graceful degradation), which is why Free
+   * sites keep working with no connector at all.
+   */
+  readonly siteHealth?: SiteHealthSnapshot | null;
 }
 
 /** wp-cli `cron event list` row. `type` (not interface) to stay Record-assignable. */
@@ -118,10 +128,15 @@ export function parseHealth(input: { scalars: string; cron: string; integrity: s
       detail: debug ? "WP_DEBUG is enabled — disable it in production." : "Debugging is disabled.",
     },
     {
+      // This is the WordPress CORE-UPDATE LOCK (`.maintenance` file), distinct from
+      // operator Maintenance mode (the branded holding page in the Maintenance
+      // sub-section below). Relabelled so the two are never conflated.
       id: "maintenance",
-      label: "Maintenance mode",
+      label: "Core update lock",
       state: maintenance ? "recommended" : "good",
-      detail: maintenance ? "A .maintenance flag is present — the site may be showing a maintenance page." : "Site is live (no maintenance flag).",
+      detail: maintenance
+        ? "A .maintenance file is present — a core/plugin update may be mid-flight (the WordPress update lock, not operator maintenance mode)."
+        : "No core update lock present (.maintenance file absent).",
     },
     {
       id: "cron",
@@ -156,16 +171,29 @@ async function fetchHealth(ctx: PanelProbeContext): Promise<HealthData> {
     kvLine("MAINTENANCE", `test -f .maintenance && echo present || echo absent`),
   ].join("\n");
 
-  const [scalars, cron, integrity] = await Promise.all([
+  const [scalars, cron, integrity, siteHealth] = await Promise.all([
     ctx.exec(scalarsCmd).then((r) => r.stdout).catch(() => ""),
     ctx
       .exec(`${WP_SAFE} cron event list --fields=hook,next_run_relative --format=json`)
       .then((r) => r.stdout)
       .catch(() => "[]"),
     ctx.exec(`${WP_SAFE} core verify-checksums 2>&1`).then((r) => r.stdout).catch(() => ""),
+    // The one bounded signed aggregate — folded over the checklist. Any failure
+    // (no link, old connector, transient) degrades to null; the checklist stays.
+    fetchSiteHealthSnapshot(ctx),
   ]);
 
-  return parseHealth({ scalars, cron, integrity });
+  return { ...parseHealth({ scalars, cron, integrity }), siteHealth };
+}
+
+/**
+ * One signed `sitehealth.snapshot` read for the site, or null. Fails soft so the
+ * wp-cli checklist never depends on the connector: unlinked sites, an outdated
+ * connector (501) and transient exec/verify errors all resolve to null.
+ */
+async function fetchSiteHealthSnapshot(ctx: PanelProbeContext): Promise<SiteHealthSnapshot | null> {
+  if (!ctx.managed) return null;
+  return siteHealthSnapshot(ctx.site).catch(() => null);
 }
 
 export const healthProbe: PanelProbe<HealthData> = {

@@ -15,7 +15,9 @@ import {
 import { isValidSiteName, isValidSiteId } from "../lib/naming";
 import { PLUGIN_CATALOG } from "../lib/plugins";
 import { listDomains, internalSubdomain, isAllowedDomain } from "../lib/config";
-import { createSite, listSites, listSitePods, listInstalledPlugins, setPlugins, updateAllPlugins, getMaintenanceMode, setMaintenanceMode, enableSso, validateSiteOidc, setProtection, getSiteHealth, syncSiteWpUsers } from "../lib/provision";
+import { createSite, listSites, listSitePods, listInstalledPlugins, setPlugins, updateAllPlugins, enableSso, validateSiteOidc, setProtection, getSiteHealth, syncSiteWpUsers } from "../lib/provision";
+import { getSiteMaintenanceState, setSiteMaintenance } from "../lib/maintenance-orchestrator";
+import { HEADLINE_MAX, MESSAGE_MAX, MAX_ALLOW_IPS } from "../lib/manage/site-health";
 import { teardownSite } from "../lib/site-teardown";
 import { summarizeTeardown } from "../lib/teardown-step";
 import { auditLog } from "@/lib/audit-log";
@@ -132,8 +134,20 @@ const protectionSchema = z.object({
   authMode: z.enum(["none", "login", "admin", "full"]),
 }).strict();
 
+/**
+ * Maintenance PUT body: the simple toggle `{ enabled }` PLUS the connector
+ * engine's branded-page fields (all optional). On a linked+entitled site the
+ * orchestrator drives the signed engine with these; on the fallback path only
+ * `enabled` applies. Byte caps + `until` clamp + IP normalization stay in the
+ * connector sanitizer — these bounds are defensive only.
+ */
 const maintenanceSchema = z.object({
   enabled: z.boolean(),
+  headline: z.string().max(HEADLINE_MAX * 4).optional(),
+  message: z.string().max(MESSAGE_MAX * 4).optional(),
+  retryAfter: z.boolean().optional(),
+  until: z.number().int().min(0).optional(),
+  allowIps: z.array(z.string().min(1).max(45)).max(MAX_ALLOW_IPS).optional(),
 }).strict();
 
 export async function listSitesHandler(): Promise<NextResponse> {
@@ -279,7 +293,9 @@ export async function getMaintenanceHandler(site: string): Promise<NextResponse>
   if (!gate.ok) return gate.error;
   const limited = rateLimited("maintenance-read", gate.ctx.username, 60);
   if (limited) return limited;
-  return guard(async () => json({ site, ...(await getMaintenanceMode(site)) }));
+  // Orchestrated read: the connector snapshot when it owns the state, else the
+  // mu-plugin — so the toggle never disagrees with the live 503 layer.
+  return guard(async () => json({ site, ...(await getSiteMaintenanceState(site)) }));
 }
 
 /** PUT — turn the maintenance page on or off. */
@@ -291,7 +307,22 @@ export async function setMaintenanceHandler(req: NextRequest, site: string): Pro
   if (limited) return limited;
   const parsed = maintenanceSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return fail("Invalid maintenance request", 400);
-  return guard(async () => json({ site, ...(await setMaintenanceMode(site, parsed.data.enabled)) }));
+  // Orchestrated write with mutual exclusion (signed connector engine preferred,
+  // mu-plugin fallback) — the one place the legacy toggle turns into a mutation.
+  const d = parsed.data;
+  return guard(async () =>
+    json({
+      site,
+      ...(await setSiteMaintenance(site, {
+        enabled: d.enabled,
+        headline: d.headline,
+        message: d.message,
+        retry_after: d.retryAfter,
+        until: d.until,
+        allow_ips: d.allowIps,
+      })),
+    }),
+  );
 }
 
 export async function enableSsoHandler(req: NextRequest, site: string): Promise<NextResponse> {

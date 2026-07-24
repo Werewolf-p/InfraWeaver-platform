@@ -18,9 +18,15 @@ jest.mock("@/addons/wordpress-manager/lib/manage/snapshot-cache", () => ({ inval
 jest.mock("@/addons/wordpress-manager/lib/manage/invalidate", () => ({ invalidateManageReadsAfterMutation: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/iwsl-managed-commands", () => ({ CONNECTOR_PLUGIN_SLUG: "infraweaver-connector" }));
 jest.mock("@/lib/mailer", () => ({ sendWpPasswordResetEmail: jest.fn(), isMailerConfigured: jest.fn(() => true) }));
+// set-maintenance-mode now routes through the orchestrator (mutual exclusion) — stub
+// it and assert the runner delegates there instead of calling provision directly.
+jest.mock("@/addons/wordpress-manager/lib/maintenance-orchestrator", () => ({
+  setSiteMaintenance: jest.fn(() => Promise.resolve({ source: "mu-plugin", enabled: true })),
+}));
 
 import { runManageAction, type ManageAction } from "@/addons/wordpress-manager/lib/manage/actions";
 import { siteExists, syncSiteWpUsers, setMaintenanceMode } from "@/addons/wordpress-manager/lib/provision";
+import { setSiteMaintenance } from "@/addons/wordpress-manager/lib/maintenance-orchestrator";
 import { execInWpPod } from "@/addons/wordpress-manager/lib/k8s-exec";
 import { requireRunningWpPod } from "@/addons/wordpress-manager/lib/manage/overview";
 import { invalidateManageCache } from "@/addons/wordpress-manager/lib/manage/snapshot-cache";
@@ -30,6 +36,7 @@ import { sendWpPasswordResetEmail } from "@/lib/mailer";
 const existsMock = siteExists as jest.MockedFunction<typeof siteExists>;
 const syncMock = syncSiteWpUsers as jest.MockedFunction<typeof syncSiteWpUsers>;
 const maintMock = setMaintenanceMode as jest.MockedFunction<typeof setMaintenanceMode>;
+const orchMock = setSiteMaintenance as jest.MockedFunction<typeof setSiteMaintenance>;
 const execMock = execInWpPod as jest.MockedFunction<typeof execInWpPod>;
 const podMock = requireRunningWpPod as jest.MockedFunction<typeof requireRunningWpPod>;
 const memMock = invalidateManageCache as jest.MockedFunction<typeof invalidateManageCache>;
@@ -129,10 +136,13 @@ describe("runManageAction — non-exec routed controls hit their real backend", 
     expect(durableMock).toHaveBeenCalledWith("blog");
   });
 
-  test("set-maintenance-mode calls the real provisioning toggle + invalidates reads", async () => {
+  test("set-maintenance-mode routes through the mutual-exclusion orchestrator + invalidates reads", async () => {
     const res = await runManageAction("blog", { type: "set-maintenance-mode", enabled: true });
     expect(res.ok).toBe(true);
-    expect(maintMock).toHaveBeenCalledWith("blog", true);
+    // Routed through the orchestrator (signed engine preferred / mu-plugin fallback),
+    // NOT a direct provision.setMaintenanceMode call.
+    expect(orchMock).toHaveBeenCalledWith("blog", { enabled: true });
+    expect(maintMock).not.toHaveBeenCalled();
     expect(durableMock).toHaveBeenCalledWith("blog");
   });
 

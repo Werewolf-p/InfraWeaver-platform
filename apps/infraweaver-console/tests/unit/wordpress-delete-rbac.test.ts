@@ -45,6 +45,9 @@ jest.mock("@/addons/wordpress-manager/lib/fleet/aggregate", () => ({ getCachedFl
 jest.mock("@/addons/wordpress-manager/lib/manage/capabilities", () => ({ isManagePanelId: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/manage/actions", () => ({ actionPermission: jest.fn(), manageActionSchema: {}, runManageAction: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/plugins", () => ({ PLUGIN_CATALOG: [] }));
+// The maintenance handlers now delegate to the orchestrator (signed-op + provision
+// graph) — stubbed so the delete-handler import graph resolves without it.
+jest.mock("@/addons/wordpress-manager/lib/maintenance-orchestrator", () => ({ getSiteMaintenanceState: jest.fn(), setSiteMaintenance: jest.fn() }));
 
 import { deleteSiteHandler } from "@/addons/wordpress-manager/api/handlers";
 

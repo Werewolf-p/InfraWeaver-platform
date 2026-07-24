@@ -1,7 +1,8 @@
 import "server-only";
 import { z } from "zod";
 import { assertValidSiteId } from "../naming";
-import { siteExists, syncSiteWpUsers, setMaintenanceMode } from "../provision";
+import { siteExists, syncSiteWpUsers } from "../provision";
+import { setSiteMaintenance } from "../maintenance-orchestrator";
 import { execInWpPod } from "../k8s-exec";
 import { AddonHttpError, SiteNotFoundError } from "../errors";
 import { requireRunningWpPod } from "./overview";
@@ -440,7 +441,9 @@ export async function runManageAction(site: string, action: ManageAction): Promi
     return { ok: true, message: `Accounts reconciled — ${changed} changed, ${summary.failed.length} failed.` };
   }
   if (action.type === "set-maintenance-mode") {
-    await setMaintenanceMode(site, action.enabled);
+    // Route through the orchestrator so the signed connector engine is preferred
+    // on linked+entitled sites and the two 503 layers never fight (mutual exclusion).
+    await setSiteMaintenance(site, { enabled: action.enabled });
     await invalidateManageReadsAfterMutation(site);
     return { ok: true, message: action.enabled ? "Maintenance mode enabled." : "Maintenance mode disabled." };
   }
