@@ -64,12 +64,43 @@ final class IWSL_Duplicate_Post {
 	private $store;
 
 	/**
-	 * @param IWSL_Entitlements   $entitlements The gate.
-	 * @param IWSL_WP_Store|null  $store        Reserved persistence seam; unused today.
+	 * @var bool CONSOLE-ACTOR SEAM. When true, duplicate() skips the per-user
+	 * `edit_post` capability check — usable ONLY by the signed `content.duplicate`
+	 * runner, which executes with NO WordPress user. See duplicate() for the full
+	 * justification. The admin row-action / admin-post path NEVER sets this (it builds
+	 * the engine with the default false), so the interactive path keeps its per-user
+	 * capability check exactly as before.
 	 */
-	public function __construct( IWSL_Entitlements $entitlements, ?IWSL_WP_Store $store = null ) {
-		$this->entitlements = $entitlements;
-		$this->store        = $store;
+	private $console_actor;
+
+	/**
+	 * @param IWSL_Entitlements   $entitlements  The gate.
+	 * @param IWSL_WP_Store|null  $store         Reserved persistence seam; unused today.
+	 * @param bool                $console_actor Signed-runner-only cap-check bypass (default false).
+	 */
+	public function __construct( IWSL_Entitlements $entitlements, ?IWSL_WP_Store $store = null, bool $console_actor = false ) {
+		$this->entitlements  = $entitlements;
+		$this->store         = $store;
+		$this->console_actor = $console_actor;
+	}
+
+	/**
+	 * Params validator for the signed `content.duplicate` command (§7). Shape:
+	 * `{ post_id: positive int }` and nothing else. Refuses a stray key, a missing /
+	 * non-int / non-positive id. Static so the command registry can reference it as
+	 * the verifier allow-list validator, exactly like IWSL_Entitlements::validate_params.
+	 *
+	 * @param mixed $params The signed envelope's `params` (stdClass).
+	 */
+	public static function validate_params( $params ): bool {
+		if ( ! $params instanceof stdClass ) {
+			return false;
+		}
+		$vars = get_object_vars( $params );
+		if ( array() !== array_diff_key( $vars, array( 'post_id' => 1 ) ) ) {
+			return false;
+		}
+		return isset( $vars['post_id'] ) && is_int( $vars['post_id'] ) && $vars['post_id'] > 0;
 	}
 
 	/**
@@ -181,7 +212,19 @@ final class IWSL_Duplicate_Post {
 		}
 		$source_id = (int) $post->ID;
 
-		if ( function_exists( 'current_user_can' ) && ! current_user_can( 'edit_post', $source_id ) ) {
+		// CONSOLE-ACTOR SEAM (security-reviewed). The interactive path requires the
+		// current WordPress user to hold `edit_post` on the source. The signed
+		// `content.duplicate` runner, however, executes with NO WordPress user, so this
+		// check would ALWAYS refuse it. The narrow `console_actor` bypass — settable
+		// ONLY where the signed runner builds the engine, never from the row-action /
+		// admin-post path — skips the per-user cap because the dual-signed channel plus
+		// the console's per-site RBAC IS the authority here, exactly as
+		// `entitlements.set` mutates options with no WP user. This does NOT weaken the
+		// wp-admin path (still cap-checked) and does NOT bypass the entitlement gate:
+		// STATEMENT 1 above already refused a non-Pro site even for a signed request.
+		if ( ! $this->console_actor
+			&& function_exists( 'current_user_can' )
+			&& ! current_user_can( 'edit_post', $source_id ) ) {
 			return array( 'ok' => false, 'reason' => 'forbidden' );
 		}
 

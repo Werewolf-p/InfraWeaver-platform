@@ -257,6 +257,91 @@ final class IWSL_Config_Editor {
 		return $result;
 	}
 
+	// ── signed `config.set` wire validation (embeds the allowlist() shapes) ─────
+
+	/**
+	 * Params validator for the signed `config.set` command (§7). Shape:
+	 * `{ values: { <allowlist() key>: scalar } }` and nothing else. Refuses a stray
+	 * top-level key, a values key OUTSIDE self::allowlist(), or a value whose shape
+	 * does not match its allow-listed type (size `^\d+[KMG]?$`, int `^\d+$`, bool
+	 * `is_bool`, int_or_false). This is the "second copy" of the allow-list; apply()
+	 * enforces it again (a non-allow-listed key → `skipped`), so a bug in either still
+	 * fails closed. Static so the command registry can reference it as the verifier
+	 * allow-list validator, exactly like IWSL_Entitlements::validate_params.
+	 *
+	 * @param mixed $params The signed envelope's `params` (stdClass).
+	 */
+	public static function validate_wire_params( $params ): bool {
+		if ( ! $params instanceof stdClass ) {
+			return false;
+		}
+		$vars = get_object_vars( $params );
+		if ( array() !== array_diff_key( $vars, array( 'values' => 1 ) ) ) {
+			return false;
+		}
+		if ( ! isset( $vars['values'] ) || ! $vars['values'] instanceof stdClass ) {
+			return false;
+		}
+		$allow  = self::allowlist();
+		$values = get_object_vars( $vars['values'] );
+		if ( count( $values ) > count( $allow ) ) {
+			return false; // no key can repeat, so more than the allow-list is padding.
+		}
+		foreach ( $values as $key => $value ) {
+			if ( ! is_string( $key ) || ! isset( $allow[ $key ] ) ) {
+				return false;
+			}
+			if ( ! self::wire_value_ok( (string) $allow[ $key ]['type'], $value ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** Whether a wire value matches the shape of its allow-listed type (bounds re-checked in apply()). */
+	private static function wire_value_ok( string $type, $value ): bool {
+		switch ( $type ) {
+			case 'bool':
+				return is_bool( $value );
+			case 'size':
+				return is_string( $value ) && 1 === preg_match( '/^\d+[KMG]?$/i', trim( $value ) );
+			case 'int':
+				return ( is_int( $value ) && $value >= 0 )
+					|| ( is_string( $value ) && 1 === preg_match( '/^\d+$/', trim( $value ) ) );
+			case 'int_or_false':
+				if ( false === $value || '' === $value ) {
+					return true;
+				}
+				if ( is_string( $value ) && 'false' === strtolower( trim( $value ) ) ) {
+					return true;
+				}
+				return ( is_int( $value ) && $value >= 0 )
+					|| ( is_string( $value ) && 1 === preg_match( '/^\d+$/', trim( $value ) ) );
+		}
+		return false;
+	}
+
+	/**
+	 * Project a validated `config.set` wire `values` object to the raw-input map
+	 * apply() expects. Scalars pass through untouched; apply() runs the authoritative
+	 * per-key validator + fail-safe file writes. Static + side-effect free.
+	 *
+	 * @param mixed $values A validated stdClass of allow-listed keys.
+	 * @return array<string, scalar>
+	 */
+	public static function wire_values_to_input( $values ): array {
+		$out = array();
+		if ( ! $values instanceof stdClass ) {
+			return $out;
+		}
+		foreach ( get_object_vars( $values ) as $key => $value ) {
+			if ( is_string( $key ) && is_scalar( $value ) ) {
+				$out[ $key ] = $value;
+			}
+		}
+		return $out;
+	}
+
 	// ── validators (one per type; reject on any deviation) ──────────────────────
 
 	/**
