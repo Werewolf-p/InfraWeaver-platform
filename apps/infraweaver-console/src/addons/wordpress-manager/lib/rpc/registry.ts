@@ -45,6 +45,17 @@ import {
   type SeoStatusResponse,
 } from "../manage/seo";
 import {
+  activityLogParamsSchema,
+  statsSummaryParamsSchema,
+  statsTimeseriesParamsSchema,
+  type ActivityLogParams,
+  type ActivityLogResponse,
+  type StatsSummaryParams,
+  type StatsSummaryResponse,
+  type StatsTimeseriesParams,
+  type StatsTimeseriesResponse,
+} from "../manage/insights";
+import {
   cacheConfigureParamsSchema,
   cachePurgeParamsSchema,
   cacheWarmParamsSchema,
@@ -93,7 +104,14 @@ export type RpcMethod =
   | "seo.status"
   | "seo.audit.run"
   | "seo.alt.backfill"
-  | "seo.fix.apply";
+  | "seo.fix.apply"
+  // ── analytics/insights (§ analytics) — three READ-ONLY methods behind the
+  // console's Insights surface (traffic summary, daily/hourly series, admin
+  // activity trail). Aggregates only; every result is a signed { locked, gate }
+  // when the site isn't entitled.
+  | "stats.summary"
+  | "stats.timeseries"
+  | "activity.log";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -128,6 +146,10 @@ export interface RpcParams {
   "seo.audit.run": SeoAuditParams;
   "seo.alt.backfill": SeoAltBackfillParams;
   "seo.fix.apply": SeoFixParams;
+  // ── insights — params mirror IWSL_Statistics / IWSL_Activity_Log validators.
+  "stats.summary": StatsSummaryParams;
+  "stats.timeseries": StatsTimeseriesParams;
+  "activity.log": ActivityLogParams;
 }
 
 /**
@@ -223,6 +245,10 @@ export interface RpcResult {
   "seo.alt.backfill": SeoAltBackfillResponse;
   /** One allow-listed meta fix echoed back (or locked / invalid-params). */
   "seo.fix.apply": SeoFixApplyResponse;
+  // ── insights — compact aggregate projections (or a signed { locked, gate }).
+  "stats.summary": StatsSummaryResponse;
+  "stats.timeseries": StatsTimeseriesResponse;
+  "activity.log": ActivityLogResponse;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -285,6 +311,12 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "seo.audit.run": { hasParams: true, validate: (p) => seoAuditParamsSchema.safeParse(p).success },
   "seo.alt.backfill": { hasParams: true, validate: (p) => seoAltBackfillParamsSchema.safeParse(p).success },
   "seo.fix.apply": { hasParams: true, validate: (p) => seoFixParamsSchema.safeParse(p).success },
+  // Insights — validators reuse the isomorphic zod schemas that mirror the
+  // connector's IWSL_Statistics / IWSL_Activity_Log validators (params optional,
+  // so an empty object also passes — the plugin defaults the range/days/limit).
+  "stats.summary": { hasParams: true, validate: (p) => statsSummaryParamsSchema.safeParse(p).success },
+  "stats.timeseries": { hasParams: true, validate: (p) => statsTimeseriesParamsSchema.safeParse(p).success },
+  "activity.log": { hasParams: true, validate: (p) => activityLogParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */

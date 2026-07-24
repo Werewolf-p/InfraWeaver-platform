@@ -4,9 +4,10 @@
 // parsed into level-tagged entries. Read-only; informative empty state when
 // WP_DEBUG_LOG is off.
 import { useState } from "react";
-import { AlertTriangle, Bug, FileWarning, ScrollText } from "lucide-react";
+import { AlertTriangle, Bug, FileWarning, History, ScrollText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LogEntry, LogLevel, LogsData } from "../../../lib/manage/probes/logs";
+import { InsightsActivity } from "../../manage/insights/insights-activity";
 import { SectionCard, StatTile, healthTone } from "../widgets";
 import { PanelState } from "./panel-shell";
 import { useManagePanel } from "./use-manage";
@@ -68,7 +69,8 @@ export function LogsPanel({ site }: { site: string }) {
   const [filter, setFilter] = useState<LogLevel | "All">("All");
 
   return (
-    <PanelState state={state}>
+    <div className="space-y-5">
+      <PanelState state={state}>
       {(data) => {
         // A read failure is reported as its own state — never collapsed into
         // "logging is off", which would tell the operator to enable something
@@ -154,6 +156,18 @@ export function LogsPanel({ site }: { site: string }) {
           </div>
         );
       }}
-    </PanelState>
+      </PanelState>
+
+      {/* The admin-activity trail rides its OWN signed channel (activity.log), so it
+          renders regardless of the pod debug-log state above — a site with logging
+          off still shows who changed what, and vice-versa. */}
+      <SectionCard
+        title="Admin activity"
+        description="Who changed what on this site — publishes, logins, plugin toggles, watched settings."
+        icon={History}
+      >
+        <InsightsActivity site={site} />
+      </SectionCard>
+    </div>
   );
 }

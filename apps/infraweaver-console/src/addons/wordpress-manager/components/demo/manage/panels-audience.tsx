@@ -1,14 +1,17 @@
 "use client";
 
-// Traffic & SEO panel — on-page SEO coverage computed live from wp-cli, plus an
-// honest analytics posture. There is no fabricated visitor traffic: live figures
-// require an external analytics provider's API the read-only channel can't reach.
-// Read-only: no allow-listed mutation exists, so there are no actions.
+// Traffic & SEO panel — the site's OWN first-party traffic (over the signed
+// channel), fused with on-page SEO coverage computed live from wp-cli. Traffic is
+// no longer "unavailable": the InfraWeaver Connector's privacy-first analytics
+// engine reports real, cookieless aggregates directly (see InsightsTraffic).
+// Third-party analytics plugins are still detected and named for context. The
+// panel is read-only: no allow-listed mutation exists, so there are no actions.
 
 import type { ReactNode } from "react";
-import { BarChart3, FileText, Hash, Info, Map as MapIcon, Search } from "lucide-react";
+import { BarChart3, FileText, Hash, Info, Map as MapIcon, Search, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AudienceData } from "../../../lib/manage/probes/audience";
+import { InsightsTraffic } from "../../manage/insights/insights-traffic";
 import { HealthGauge, SectionCard } from "../widgets";
 import { PanelState } from "./panel-shell";
 import { useManagePanel } from "./use-manage";
@@ -37,15 +40,27 @@ export function AudiencePanel({ site }: { site: string }) {
   const state = useManagePanel<AudienceData>(site, "audience");
 
   return (
-    <PanelState state={state}>
-      {(data) => {
-        const { seo, analytics } = data;
-        const coverageScore =
-          seo.metadescCoverage !== null && seo.focusKwCoverage !== null
-            ? Math.round((seo.metadescCoverage + seo.focusKwCoverage) / 2)
-            : null;
-        return (
-          <div className="grid gap-5 lg:grid-cols-2">
+    <div className="space-y-5">
+      {/* First-party traffic rides its OWN signed-channel data path, so it renders
+          independently of (and above) the wp-cli SEO probe — a slow or failing SEO
+          read never hides real traffic, and vice-versa. */}
+      <SectionCard
+        title="First-party traffic"
+        description="Real, cookieless visitor aggregates from the site's own analytics engine — no third-party provider."
+        icon={TrendingUp}
+      >
+        <InsightsTraffic site={site} />
+      </SectionCard>
+
+      <PanelState state={state}>
+        {(data) => {
+          const { seo, analytics } = data;
+          const coverageScore =
+            seo.metadescCoverage !== null && seo.focusKwCoverage !== null
+              ? Math.round((seo.metadescCoverage + seo.focusKwCoverage) / 2)
+              : null;
+          return (
+            <div className="grid gap-5 lg:grid-cols-2">
             <SectionCard
               title="SEO coverage"
               description={seo.plugin ? `On-page coverage via ${seo.plugin}.` : "No SEO plugin detected."}
@@ -110,8 +125,8 @@ export function AudiencePanel({ site }: { site: string }) {
             </SectionCard>
 
             <SectionCard
-              title="Analytics"
-              description="Live traffic comes from your analytics provider."
+              title="Third-party analytics"
+              description="Any external analytics plugin active on this site, for context."
               icon={BarChart3}
             >
               <div className={cn("flex items-center justify-between gap-3", TILE)}>
@@ -126,14 +141,15 @@ export function AudiencePanel({ site }: { site: string }) {
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" aria-hidden />
                 <p>
                   {analytics.plugin
-                    ? `${analytics.plugin} is active on this site. Live visitor figures require connecting that provider's API — they aren't available over the read-only management channel, so no traffic numbers are shown here.`
-                    : "Activate an analytics plugin (Site Kit, Matomo, …) and connect its provider to report visitor traffic. The read-only management channel can't measure live visits on its own."}
+                    ? `${analytics.plugin} is active here too. First-party traffic above comes from the InfraWeaver Connector's own engine, so you don't need a third-party provider's API to see visits.`
+                    : "First-party traffic above is measured by the InfraWeaver Connector — no third-party analytics plugin is needed. Activate one only if you want a provider's own reporting as well."}
                 </p>
               </div>
             </SectionCard>
-          </div>
-        );
-      }}
-    </PanelState>
+            </div>
+          );
+        }}
+      </PanelState>
+    </div>
   );
 }

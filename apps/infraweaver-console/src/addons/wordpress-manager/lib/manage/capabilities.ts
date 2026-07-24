@@ -161,7 +161,14 @@ export function resolveCapabilities(facts: SiteCapabilityFacts): Record<ManageCa
     // SEO plugin — so the `seo`/`audience` panels must also light up on our own
     // granted engine, never steering a paying customer to a competitor (A3).
     seo: anyActive(facts, SEO_PLUGIN_SLUGS) || facts.platformSeo === true,
-    audience: anyActive(facts, SEO_PLUGIN_SLUGS) || anyActive(facts, ANALYTICS_PLUGIN_SLUGS) || facts.platformSeo === true,
+    // Traffic & SEO lights up on an SEO/analytics plugin, the platform SEO Suite,
+    // OR the signed Connector — the Connector's own first-party analytics engine
+    // powers the traffic module even on a site with no third-party plugin at all.
+    audience:
+      anyActive(facts, SEO_PLUGIN_SLUGS) ||
+      anyActive(facts, ANALYTICS_PLUGIN_SLUGS) ||
+      facts.platformSeo === true ||
+      facts.connectorActive,
     connector: facts.connectorActive,
   };
 }
@@ -336,11 +343,11 @@ export const MANAGE_PANELS: readonly ManagePanelDef[] = [
     id: "audience",
     label: "Traffic & SEO",
     icon: "TrendingUp",
-    summary: "Search visibility and traffic signals from your SEO/analytics plugin.",
+    summary: "First-party traffic from the Connector's analytics engine, fused with on-page SEO coverage.",
     requires: {
       capability: "audience",
-      label: "an SEO or analytics engine",
-      hint: "Included with the platform SEO Suite (Ultimate) — or activate Yoast SEO, Rank Math or an analytics plugin — to report search visibility and traffic.",
+      label: "the Connector or an SEO/analytics engine",
+      hint: "Enable the InfraWeaver Connector for first-party traffic — included with the platform SEO Suite (Ultimate) — or activate Yoast SEO, Rank Math or an analytics plugin for search visibility.",
       installSlug: "wordpress-seo",
     },
   },

@@ -65,6 +65,14 @@ import type {
   SeoStatusResponse,
 } from "./manage/seo";
 import type {
+  ActivityLogParams,
+  ActivityLogResponse,
+  StatsSummaryParams,
+  StatsSummaryResponse,
+  StatsTimeseriesParams,
+  StatsTimeseriesResponse,
+} from "./manage/insights";
+import type {
   CacheConfigureParams,
   CacheConfigureResponse,
   CachePurgeParams,
@@ -1255,4 +1263,66 @@ export async function backfillSeoAlt(site: string, params: SeoAltBackfillParams)
 export async function applySeoFix(site: string, params: SeoFixParams): Promise<SeoFixApplyResponse> {
   const reply = await callRpc(await mediaWriteTransport(site), "seo.fix.apply", params as RpcParams["seo.fix.apply"]);
   return unwrapSeoReply<SeoFixApplyResponse>(reply, "seo.fix.apply");
+}
+
+// ── Insights / analytics (§ analytics) ─────────────────────────────────────────
+// The console side of the three READ-ONLY signed insight commands behind the
+// Insights surface (`stats.summary`, `stats.timeseries`, `activity.log`). Every
+// call rides the same signed exec transport as `metrics.snapshot`; only bounded
+// aggregates cross the wire. The plugin re-checks the entitlement gate as
+// statement one and answers with a signed `{ locked, gate }` when unentitled —
+// which is a NORMAL result (locked:true), not an error, so the console can render
+// the honest gate reasons. All three are reads, so they never touch identity safe
+// mode (nothing state-changing crosses).
+
+/**
+ * Surface an insight read an OLD connector (predating the analytics command
+ * surface) rejects unsigned as `unknown-method` as an actionable 501, so the
+ * panel can tell the operator to update the connector (the SEO-coverage half of
+ * the Traffic & SEO panel keeps working meanwhile) rather than a generic 502. A
+ * signed `{ locked, gate }` is NOT an error — it flows through untouched.
+ */
+function unwrapInsightsReply<T>(reply: CommandReply, method: string): T {
+  if (reply.rejectedReason === "unknown-method") {
+    throw new AddonHttpError(
+      "This site's connector is too old for Insights — update the connector to use it.",
+      501,
+    );
+  }
+  if (reply.rejectedReason) {
+    throw new AddonHttpError(`Connector rejected ${method} (${reply.rejectedReason})`, 502);
+  }
+  if (!reply.ok) {
+    throw new AddonHttpError(`Connector could not complete ${method}`, 502);
+  }
+  return reply.result as T;
+}
+
+/** Bind the signed exec transport for a commandable managed link (shared by all insight reads). */
+async function insightsTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** Signed `stats.summary` — the compact traffic KPIs + top lists projection (read-only). */
+export async function statsSummary(site: string, params: StatsSummaryParams): Promise<StatsSummaryResponse> {
+  const reply = await callRpc(await insightsTransport(site), "stats.summary", params as RpcParams["stats.summary"]);
+  return unwrapInsightsReply<StatsSummaryResponse>(reply, "stats.summary");
+}
+
+/** Signed `stats.timeseries` — the daily (+ hourly when days===1) series (read-only). */
+export async function statsTimeseries(
+  site: string,
+  params: StatsTimeseriesParams,
+): Promise<StatsTimeseriesResponse> {
+  const reply = await callRpc(await insightsTransport(site), "stats.timeseries", params as RpcParams["stats.timeseries"]);
+  return unwrapInsightsReply<StatsTimeseriesResponse>(reply, "stats.timeseries");
+}
+
+/** Signed `activity.log` — the newest-first admin activity trail (read-only). */
+export async function activityLog(site: string, params: ActivityLogParams): Promise<ActivityLogResponse> {
+  const reply = await callRpc(await insightsTransport(site), "activity.log", params as RpcParams["activity.log"]);
+  return unwrapInsightsReply<ActivityLogResponse>(reply, "activity.log");
 }
