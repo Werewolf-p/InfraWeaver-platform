@@ -112,6 +112,7 @@ require_once __DIR__ . '/includes/class-iwsl-seo-head.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-sitemap.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-alt-text.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-suite.php';
+require_once __DIR__ . '/includes/class-iwsl-seo-console.php';
 require_once __DIR__ . '/includes/class-iwsl-perf-audit.php';
 require_once __DIR__ . '/includes/class-iwsl-response-scan.php';
 require_once __DIR__ . '/includes/class-iwsl-teardown.php';

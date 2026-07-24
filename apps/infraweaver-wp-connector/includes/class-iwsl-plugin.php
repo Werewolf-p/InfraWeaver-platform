@@ -30,6 +30,9 @@ final class IWSL_Plugin {
 	/** @var IWSL_Email_Delivery|null lazily built from the plugin's store + entitlements. */
 	private $email_delivery;
 
+	/** @var IWSL_SEO_Console|null lazily built SEO signed-channel surface. */
+	private $seo_console;
+
 	/** @var callable|null shared clock, threaded into lazily-built payloads. */
 	private $now_ms;
 
@@ -83,6 +86,23 @@ final class IWSL_Plugin {
 	 */
 	public function email_switches(): IWSL_Feature_Switches {
 		return new IWSL_Feature_Switches( $this->entitlements, $this->store );
+	}
+
+	/**
+	 * The signed-channel SEO surface (`seo.*` methods), built once from the plugin's
+	 * own entitlement gate + operator feature-switch layer + store. Lazy so a request
+	 * that never touches SEO forces no object graph. Reachable from the `seo.*` runner
+	 * closures (which are scoped to this class) without widening any visibility.
+	 */
+	public function seo_console(): IWSL_SEO_Console {
+		if ( null === $this->seo_console ) {
+			$this->seo_console = new IWSL_SEO_Console(
+				$this->entitlements,
+				new IWSL_Feature_Switches( $this->entitlements, $this->store ),
+				$this->store
+			);
+		}
+		return $this->seo_console;
 	}
 
 	/**
@@ -589,6 +609,39 @@ final class IWSL_Plugin {
 					}
 					return array( true, $out );
 				}
+			),
+			// ── SEO surface (wp-overhaul) — the console's only SEO↔connector channel.
+			// Read-only counts snapshot + on-demand audit + two Ultimate mutations.
+			// Each mutating/gated runner re-checks entitlement + operator switch as
+			// STATEMENT 1 inside IWSL_SEO_Console; validators refuse stray keys.
+			new IWSL_Command_Handler(
+				'seo.status',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Safe read: no method-level gate — per-section markers carry the
+					// unlocked/switched-off state. Counts only, bounded envelope.
+					return $plugin->seo_console()->status();
+				}
+			),
+			new IWSL_Command_Handler(
+				'seo.audit.run',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return $plugin->seo_console()->run_audit( $envelope->params ?? new stdClass() );
+				},
+				array( 'IWSL_SEO_Console', 'validate_audit_params' )
+			),
+			new IWSL_Command_Handler(
+				'seo.alt.backfill',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return $plugin->seo_console()->backfill_alt( $envelope->params ?? new stdClass() );
+				},
+				array( 'IWSL_SEO_Console', 'validate_backfill_params' )
+			),
+			new IWSL_Command_Handler(
+				'seo.fix.apply',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return $plugin->seo_console()->apply_fix( $envelope->params ?? new stdClass() );
+				},
+				array( 'IWSL_SEO_Console', 'validate_fix_params' )
 			),
 		);
 
