@@ -56,6 +56,15 @@ import type {
   MediaTreeResponse,
 } from "./manage/media";
 import type {
+  BrandingGetResponse,
+  BrandingSetParams,
+  BrandingSetResult,
+  ConfigApplyResult,
+  ConfigGetResponse,
+  ConfigSetParams,
+  ContentDuplicateResult,
+} from "./manage/content-branding";
+import type {
   SeoAltBackfillParams,
   SeoAltBackfillResponse,
   SeoAuditParams,
@@ -1325,4 +1334,82 @@ export async function statsTimeseries(
 export async function activityLog(site: string, params: ActivityLogParams): Promise<ActivityLogResponse> {
   const reply = await callRpc(await insightsTransport(site), "activity.log", params as RpcParams["activity.log"]);
   return unwrapInsightsReply<ActivityLogResponse>(reply, "activity.log");
+}
+
+// ── Content / Branding / Config fusion (content-branding domain) ────────────────
+// The console side of the five signed methods behind the Brand Kit card, the fused
+// Config editor, and the console Duplicate action. Reads (branding.get / config.get)
+// require only a commandable link — branding.get is deliberately SAFE WHEN LOCKED,
+// so the console can render the locked upsell. Writes (branding.set / config.set /
+// content.duplicate) additionally require identity NOT to be in safe mode, mirroring
+// set-entitlements: a state change on a site that reported a changed canonical URL is
+// exactly what safe mode holds. Every plugin engine re-checks its own gate (statement
+// one) — branding.set/content.duplicate ride the entitlement gate (white_label /
+// duplicate_post); config.* is deliberately RBAC-only, like its admin tab.
+
+/**
+ * Unwrap a content/branding reply. A transport/verifier rejection (unknown-method,
+ * stale-ts…) throws — an OLD connector predating this surface rejects `unknown-method`,
+ * surfaced as an actionable 501. A BUSINESS refusal (entitlement-locked, unknown-post)
+ * is NOT a transport failure: the plugin encodes it as `ok:false` with the reason in
+ * the RESULT payload, so it is returned for the UI to render verbatim, never thrown.
+ */
+function unwrapContentReply<T>(reply: CommandReply, method: string): T {
+  if (reply.rejectedReason === "unknown-method") {
+    throw new AddonHttpError(
+      "This site's connector is too old for this operation — update the connector to use it.",
+      501,
+    );
+  }
+  if (reply.rejectedReason) {
+    throw new AddonHttpError(`Connector rejected ${method} (${reply.rejectedReason})`, 502);
+  }
+  return reply.result as T;
+}
+
+/** Signed `branding.get` — the gate + full settings + surface metadata (read-only, safe when locked). */
+export async function getBranding(site: string): Promise<BrandingGetResponse> {
+  const reply = await callRpc(await mediaTransport(site), "branding.get", {});
+  return unwrapContentReply<BrandingGetResponse>(reply, "branding.get");
+}
+
+/**
+ * Signed `branding.set` — push a brand kit. The plugin's statement-1 gate holds
+ * (white_label/Ultimate): a mis-tiered push comes back `{ ok:false, reason:'entitlement-locked' }`
+ * in the result, which the console renders as the locked state, not an error.
+ */
+export async function setBranding(site: string, settings: BrandingSetParams["settings"]): Promise<BrandingSetResult> {
+  const reply = await callRpc(await mediaWriteTransport(site), "branding.set", {
+    settings,
+  } as RpcParams["branding.set"]);
+  return unwrapContentReply<BrandingSetResult>(reply, "branding.set");
+}
+
+/** Signed `config.get` — allow-list + effective current + last-written configured + writability (RBAC-only). */
+export async function getConfig(site: string): Promise<ConfigGetResponse> {
+  const reply = await callRpc(await mediaTransport(site), "config.get", {});
+  return unwrapContentReply<ConfigGetResponse>(reply, "config.get");
+}
+
+/**
+ * Signed `config.set` — apply an allow-listed config change. Returns the full apply()
+ * report verbatim (`applied`/`skipped`/`manual_step`/`effective`), so the console renders
+ * "configured 64M, effective still 2M (next request)" and unwritable-target guidance
+ * honestly instead of pretending success.
+ */
+export async function setConfig(site: string, values: ConfigSetParams["values"]): Promise<ConfigApplyResult> {
+  const reply = await callRpc(await mediaWriteTransport(site), "config.set", { values } as RpcParams["config.set"]);
+  return unwrapContentReply<ConfigApplyResult>(reply, "config.set");
+}
+
+/**
+ * Signed `content.duplicate` — clone a post into a draft over the console-actor seam.
+ * The engine's statement-1 entitlement gate (duplicate_post/Pro) still applies, so a
+ * non-Pro site refuses even a signed request; the refusal reason rides in the result.
+ */
+export async function duplicateContent(site: string, postId: number): Promise<ContentDuplicateResult> {
+  const reply = await callRpc(await mediaWriteTransport(site), "content.duplicate", {
+    post_id: postId,
+  } as RpcParams["content.duplicate"]);
+  return unwrapContentReply<ContentDuplicateResult>(reply, "content.duplicate");
 }

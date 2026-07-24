@@ -33,6 +33,19 @@ import {
   type MediaTreeResponse,
 } from "../manage/media";
 import {
+  brandingSetParamsSchema,
+  configSetParamsSchema,
+  contentDuplicateParamsSchema,
+  type BrandingGetResponse,
+  type BrandingSetParams,
+  type BrandingSetResult,
+  type ConfigApplyResult,
+  type ConfigGetResponse,
+  type ConfigSetParams,
+  type ContentDuplicateParams,
+  type ContentDuplicateResult,
+} from "../manage/content-branding";
+import {
   seoAltBackfillParamsSchema,
   seoAuditParamsSchema,
   seoFixParamsSchema,
@@ -111,7 +124,13 @@ export type RpcMethod =
   // when the site isn't entitled.
   | "stats.summary"
   | "stats.timeseries"
-  | "activity.log";
+  | "activity.log"
+  // ── content / branding / config fusion (content-branding domain) ──
+  | "branding.get"
+  | "branding.set"
+  | "config.get"
+  | "config.set"
+  | "content.duplicate";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -150,6 +169,12 @@ export interface RpcParams {
   "stats.summary": StatsSummaryParams;
   "stats.timeseries": StatsTimeseriesParams;
   "activity.log": ActivityLogParams;
+  // ── content / branding / config — params mirror the connector's wire validators.
+  "branding.get": Record<string, never>;
+  "branding.set": BrandingSetParams;
+  "config.get": Record<string, never>;
+  "config.set": ConfigSetParams;
+  "content.duplicate": ContentDuplicateParams;
 }
 
 /**
@@ -249,6 +274,17 @@ export interface RpcResult {
   "stats.summary": StatsSummaryResponse;
   "stats.timeseries": StatsTimeseriesResponse;
   "activity.log": ActivityLogResponse;
+  // ── content / branding / config — the plugin is the source of truth.
+  /** Read-only, safe when locked: the gate + full settings + surface metadata. */
+  "branding.get": BrandingGetResponse;
+  /** `{ ok:true, settings }` on save, or `{ ok:false, reason }` (e.g. entitlement-locked). */
+  "branding.set": BrandingSetResult;
+  /** Allow-list + effective current + last-written configured + mechanism + writability. */
+  "config.get": ConfigGetResponse;
+  /** Full apply() report — applied/skipped/manual_step/effective, rendered verbatim. */
+  "config.set": ConfigApplyResult;
+  /** New draft ids on success, or a verbatim refusal reason (entitlement-locked/unknown-post). */
+  "content.duplicate": ContentDuplicateResult;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -317,6 +353,13 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "stats.summary": { hasParams: true, validate: (p) => statsSummaryParamsSchema.safeParse(p).success },
   "stats.timeseries": { hasParams: true, validate: (p) => statsTimeseriesParamsSchema.safeParse(p).success },
   "activity.log": { hasParams: true, validate: (p) => activityLogParamsSchema.safeParse(p).success },
+  // Content / branding / config — validators reuse the isomorphic zod schemas that
+  // mirror the connector's wire validators, so verifier and console can never drift.
+  "branding.get": { hasParams: false, validate: noParams },
+  "branding.set": { hasParams: true, validate: (p) => brandingSetParamsSchema.safeParse(p).success },
+  "config.get": { hasParams: false, validate: noParams },
+  "config.set": { hasParams: true, validate: (p) => configSetParamsSchema.safeParse(p).success },
+  "content.duplicate": { hasParams: true, validate: (p) => contentDuplicateParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */

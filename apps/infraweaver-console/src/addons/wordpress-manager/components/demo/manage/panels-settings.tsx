@@ -21,6 +21,7 @@ import { SectionCard } from "../widgets";
 import { Spinner } from "./panel-shell";
 import { BTN_PRIMARY, ConfirmDialog, Field, INPUT, useActionRunner } from "./manage-ui";
 import { isValidEmail, isValidOptionValue } from "./form-validation";
+import { BrandKitCard } from "../../manage/content-branding/brand-kit-card";
 
 const DATE_FORMATS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "F j, Y", label: "July 20, 2026" },
@@ -338,6 +339,8 @@ export function SettingsPanel({
       >
         <MaintenanceToggle site={site} maintenanceOn={maintenanceOn} onChange={onMaintenanceChange} />
       </SectionCard>
+
+      <BrandKitCard site={site} />
     </div>
   );
 }
