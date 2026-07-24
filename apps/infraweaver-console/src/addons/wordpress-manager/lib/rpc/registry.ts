@@ -32,6 +32,17 @@ import {
   type MediaStatusResponse,
   type MediaTreeResponse,
 } from "../manage/media";
+import {
+  consentSetParamsSchema,
+  validateHardenParams,
+  type ConsentConfigResponse,
+  type ConsentSetParams,
+  type ConsentSetResult,
+  type ProtectionStatusResponse,
+  type SecurityHardenParams,
+  type SecurityHardenResult,
+  type SecurityScanResult,
+} from "../manage/security-consent";
 
 /** Signed-command methods the Connector allow-lists (§7). Wire strings — never rename. */
 export type RpcMethod =
@@ -51,7 +62,13 @@ export type RpcMethod =
   | "media.optimize"
   | "media.offload"
   | "media.restore"
-  | "media.folder";
+  | "media.folder"
+  // ── Site Security / Consent / Protection (§ security) — the fused Site Security surface.
+  | "security.scan"
+  | "security.harden"
+  | "consent.getConfig"
+  | "consent.setConfig"
+  | "protection.status";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -73,6 +90,13 @@ export interface RpcParams {
   "media.offload": MediaOffloadParams;
   "media.restore": MediaRestoreParams;
   "media.folder": MediaFolderParams;
+  // ── Site Security — params mirror IWSL_Security_Headers / IWSL_Cookie_Consent validators.
+  "security.scan": Record<string, never>;
+  /** Closed key/enum set — never a free-form header name or value. */
+  "security.harden": SecurityHardenParams;
+  "consent.getConfig": Record<string, never>;
+  "consent.setConfig": ConsentSetParams;
+  "protection.status": Record<string, never>;
 }
 
 /**
@@ -152,6 +176,12 @@ export interface RpcResult {
   };
   /** Terms-only folder mutation echo. */
   "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  // ── Site Security — read grades/status + closed-set writes (plugin is source of truth).
+  "security.scan": SecurityScanResult;
+  "security.harden": SecurityHardenResult;
+  "consent.getConfig": ConsentConfigResponse;
+  "consent.setConfig": ConsentSetResult;
+  "protection.status": ProtectionStatusResponse;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -200,6 +230,14 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
   "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
   "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
+  // Site Security — read trio takes no params; harden is the closed-key/enum validator
+  // (the load-bearing one — parity with IWSL_Security_Headers::validate_params);
+  // consent.setConfig requires exactly one `settings` object key.
+  "security.scan": { hasParams: false, validate: noParams },
+  "security.harden": { hasParams: true, validate: validateHardenParams },
+  "consent.getConfig": { hasParams: false, validate: noParams },
+  "consent.setConfig": { hasParams: true, validate: (p) => consentSetParamsSchema.safeParse(p).success },
+  "protection.status": { hasParams: false, validate: noParams },
 };
 
 /** The allow-listed method names, in registry order. */

@@ -47,6 +47,7 @@ export const ENTITLEMENT_FLAGS = [
   "response_scan",
   "elementor_blocks",
   "media_folders",
+  "security_headers",
 ] as const;
 export type EntitlementFlag = (typeof ENTITLEMENT_FLAGS)[number];
 
@@ -219,6 +220,12 @@ export const ENTITLEMENT_FLAG_META: Readonly<Record<EntitlementFlag, Entitlement
     label: "Media folders",
     description:
       "Organizes the WordPress Media Library into nestable folders with drag-and-drop filing, media tags, and per-folder filtering. Purely organizational — never moves or deletes the underlying files.",
+  },
+  security_headers: {
+    flag: "security_headers",
+    label: "Security headers & hardening",
+    description:
+      "Grades the site's live HTTP security headers (HSTS, CSP, X-Content-Type-Options, frame protection, Referrer-Policy, Permissions-Policy) A–F and applies an allow-listed, closed-set hardening config in one click — CSP always report-only first, with an explicit enforce and one-click revert. Never emits a header the platform already sets.",
   },
 };
 
