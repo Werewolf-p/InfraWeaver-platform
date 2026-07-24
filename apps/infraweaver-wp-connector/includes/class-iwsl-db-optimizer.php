@@ -60,6 +60,9 @@ final class IWSL_DB_Optimizer {
 	/** @var array<string, IWSL_DB_Cleaner> id-keyed cleaner registry. */
 	private $cleaners;
 
+	/** @var IWSL_DB_History|null capped ring of REAL runs; null = record nothing (harness default). */
+	private $history;
+
 	/**
 	 * @param IWSL_Entitlements                   $entitlements The gate.
 	 * @param object|null                         $db           A `$wpdb`-like handle; defaults to the
@@ -68,12 +71,17 @@ final class IWSL_DB_Optimizer {
 	 * @param callable|null                       $now_ms       Clock, mirrors IWSL_Entitlements.
 	 * @param array<string, IWSL_DB_Cleaner>|null $cleaners     Registry override (tests inject fakes);
 	 *                                                           defaults to self::cleaners().
+	 * @param IWSL_DB_History|null                $history      Optional capped run ring. When present,
+	 *                                                           every REAL (non-dry) run appends one entry;
+	 *                                                           previews never do. Null (the default) records
+	 *                                                           nothing — the pure engine the harness drives.
 	 */
 	public function __construct(
 		IWSL_Entitlements $entitlements,
 		$db = null,
 		?callable $now_ms = null,
-		?array $cleaners = null
+		?array $cleaners = null,
+		?IWSL_DB_History $history = null
 	) {
 		$this->entitlements = $entitlements;
 		$this->db           = null !== $db ? $db : self::default_db();
@@ -81,6 +89,7 @@ final class IWSL_DB_Optimizer {
 			return (int) round( microtime( true ) * 1000 );
 		};
 		$this->cleaners = null !== $cleaners ? $cleaners : self::cleaners();
+		$this->history  = $history;
 	}
 
 	/** The global $wpdb under WordPress, or null outside it (harness). @return object|null */
@@ -140,11 +149,19 @@ final class IWSL_DB_Optimizer {
 	 * and capped at MAX_CLEANERS_PER_RUN — no id ever names anything but a
 	 * pre-registered cleaner.
 	 *
+	 * The per-run row cap is `$max_rows` CLAMPED DOWN to MAX_ROWS and up from a
+	 * floor of 1 — it can only ever LOWER the default, never raise it: a caller
+	 * asking for `max_rows: 999999` still deletes at most MAX_ROWS (1000) per
+	 * category. `$source` labels a REAL run in the history ring (when one is wired);
+	 * previews are never recorded.
+	 *
 	 * @param string   $mode        'preview' | 'run'.
 	 * @param string[] $cleaner_ids Optional subset of registry ids (default: all).
+	 * @param int      $max_rows    Per-category cap, clamped to [1, MAX_ROWS].
+	 * @param string   $source      Run source for the history ring ('manual'|'scheduled'|'console').
 	 * @return array Immutable run summary.
 	 */
-	public function run( string $mode = 'preview', array $cleaner_ids = array() ): array {
+	public function run( string $mode = 'preview', array $cleaner_ids = array(), int $max_rows = self::MAX_ROWS, string $source = 'manual' ): array {
 		$gate = $this->entitlements->evaluate( self::FEATURE );
 		if ( empty( $gate['unlocked'] ) ) {
 			return self::locked_summary( $mode, $gate );
@@ -155,6 +172,11 @@ final class IWSL_DB_Optimizer {
 		if ( ! is_object( $this->db ) ) {
 			return self::refusal( $mode, 'no-database' );
 		}
+
+		// Downward-only clamp: never above MAX_ROWS, never below 1. This is the
+		// hard invariant — an oversized or hostile max_rows can only ever shrink the
+		// batch, and 0/negative floors to a single-row trickle.
+		$cap = max( 1, min( $max_rows, self::MAX_ROWS ) );
 
 		$selected = $this->select_cleaners( $cleaner_ids );
 
@@ -169,7 +191,7 @@ final class IWSL_DB_Optimizer {
 		try {
 			foreach ( $selected as $cleaner ) {
 				if ( 'run' === $mode ) {
-					$deleted = max( 0, (int) $cleaner->clean( $this->db, self::MAX_ROWS ) );
+					$deleted = max( 0, (int) $cleaner->clean( $this->db, $cap ) );
 					$rows[]  = array(
 						'id'      => $cleaner->id(),
 						'label'   => $cleaner->label(),
@@ -190,23 +212,32 @@ final class IWSL_DB_Optimizer {
 			$this->release_lock();
 		}
 
-		return array(
+		$summary = array(
 			'ok'         => true,
 			'mode'       => $mode,
 			'cleaners'   => $rows,
 			'total'      => $total,
 			'elapsed_ms' => max( 0, ( $this->now_ms )() - $started ),
 		);
+
+		// Record REAL runs only — a preview leaves no trace (side-effect-free down
+		// to the storage layer). No-op when no history ring is wired.
+		if ( 'run' === $mode && null !== $this->history ) {
+			$this->history->record( $summary, $source );
+		}
+
+		return $summary;
 	}
 
 	/**
-	 * Teardown for an uninstall/unlink sweep. This engine keeps NO settings or log
-	 * option of its own (it has no IWSL_Store — it counts/cleans the live site DB and
-	 * persists nothing), so the ONLY plugin state it can leave behind is its
-	 * single-flight run-lock transient. purge() removes that if it is held and NEVER
-	 * runs any of the destructive cleaners — teardown removes THIS feature's own
-	 * footprint, it does not clean the site database. Idempotent + cheap-when-clean: a
-	 * held lock is one guarded delete, an absent one a no-op. Every WordPress call is
+	 * Teardown for an uninstall/unlink sweep. This engine persists only ONE thing,
+	 * and only when a history recorder is wired: its capped cleanup-history ring
+	 * (via IWSL_DB_History). Otherwise it keeps no option at all — it counts/cleans
+	 * the live site DB and persists nothing — so the only other state it can leave
+	 * behind is its single-flight run-lock transient. purge() removes the history
+	 * ring (when present) and the held lock, and NEVER runs any destructive cleaner:
+	 * teardown removes THIS feature's own footprint, it does not clean the site
+	 * database. Idempotent + cheap-when-clean. Every WordPress call is
 	 * function_exists-guarded so it is harmless under the zero-dependency harness.
 	 *
 	 * @return array{ ok:bool, options:int, locks:int }
@@ -218,9 +249,12 @@ final class IWSL_DB_Optimizer {
 			delete_transient( self::LOCK_TRANSIENT );
 			$locks = 1;
 		}
-		// No settings/log option key exists for this engine — 'options' is always 0,
-		// kept in the shape for uniformity with the other system engines.
-		return array( 'ok' => true, 'options' => 0, 'locks' => $locks );
+		// The engine's only persisted option is the OPTIONAL cleanup-history ring —
+		// removed here when a recorder is wired, reported as 'options'. Without a
+		// history recorder (the harness default) the engine still owns no option, so
+		// 'options' is 0, uniform with the other system engines.
+		$options = null !== $this->history ? $this->history->purge() : 0;
+		return array( 'ok' => true, 'options' => $options, 'locks' => $locks );
 	}
 
 	/**

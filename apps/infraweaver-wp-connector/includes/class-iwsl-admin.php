@@ -997,10 +997,21 @@ final class IWSL_Admin {
 		return $this->white_label;
 	}
 
-	/** The database optimizer, built once from the plugin's entitlement gate + global $wpdb. */
+	/**
+	 * The database optimizer, built once from the plugin's entitlement gate +
+	 * global $wpdb, wired with the shared cleanup-history ring so a manual WP-admin
+	 * clean lands (source 'manual') in the SAME history the console `db.analyze`
+	 * reads — the two surfaces never disagree about what ran.
+	 */
 	private function db_optimizer(): IWSL_DB_Optimizer {
 		if ( null === $this->db_optimizer ) {
-			$this->db_optimizer = new IWSL_DB_Optimizer( $this->plugin->entitlements() );
+			$this->db_optimizer = new IWSL_DB_Optimizer(
+				$this->plugin->entitlements(),
+				null,
+				null,
+				null,
+				new IWSL_DB_History( new IWSL_WP_Store() )
+			);
 		}
 		return $this->db_optimizer;
 	}

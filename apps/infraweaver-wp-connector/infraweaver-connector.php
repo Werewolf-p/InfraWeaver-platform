@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.19.0
+ * Version: 0.20.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.19.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.20.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -83,7 +83,9 @@ require_once __DIR__ . '/includes/class-iwsl-admin-brand-surface.php';
 require_once __DIR__ . '/includes/class-iwsl-white-label.php';
 require_once __DIR__ . '/includes/class-iwsl-db-cleaner.php';
 require_once __DIR__ . '/includes/class-iwsl-db-cleaners.php';
+require_once __DIR__ . '/includes/class-iwsl-db-history.php';
 require_once __DIR__ . '/includes/class-iwsl-db-optimizer.php';
+require_once __DIR__ . '/includes/class-iwsl-db-analyzer.php';
 require_once __DIR__ . '/includes/class-iwsl-config-editor.php';
 // ── Plus feature engines (wave 2): each gated, self-contained, console-granted ──
 require_once __DIR__ . '/includes/class-iwsl-lazy-load.php';
