@@ -33,6 +33,12 @@ final class IWSL_Plugin {
 	/** @var IWSL_SEO_Console|null lazily built SEO signed-channel surface. */
 	private $seo_console;
 
+	/** @var IWSL_Statistics|null lazily built from the plugin's store + entitlements. */
+	private $statistics;
+
+	/** @var IWSL_Activity_Log|null lazily built from the plugin's store + entitlements. */
+	private $activity_log;
+
 	/** @var callable|null shared clock, threaded into lazily-built payloads. */
 	private $now_ms;
 
@@ -73,6 +79,30 @@ final class IWSL_Plugin {
 			$this->email_delivery = new IWSL_Email_Delivery( $this->entitlements, $this->store, $this->now_ms );
 		}
 		return $this->email_delivery;
+	}
+
+	/**
+	 * The first-party statistics engine (gate flag `statistics`), built once from the
+	 * plugin's own entitlement gate + store + shared clock. Lazy so a request that never
+	 * reads traffic forces no object graph. The $wpdb handle defaults to the global one
+	 * (null under the harness → the engine degrades to bounded empty reads).
+	 */
+	public function statistics(): IWSL_Statistics {
+		if ( null === $this->statistics ) {
+			$this->statistics = new IWSL_Statistics( $this->entitlements, $this->store, null, $this->now_ms );
+		}
+		return $this->statistics;
+	}
+
+	/**
+	 * The admin activity-log engine (gate flag `activity_log`), built once from the
+	 * plugin's entitlement gate + store + shared clock. Lazy, mirroring email_delivery().
+	 */
+	public function activity_log(): IWSL_Activity_Log {
+		if ( null === $this->activity_log ) {
+			$this->activity_log = new IWSL_Activity_Log( $this->entitlements, $this->store, $this->now_ms );
+		}
+		return $this->activity_log;
 	}
 
 	public function rotation(): IWSL_Rotation {
@@ -244,6 +274,41 @@ final class IWSL_Plugin {
 					// no state change (never signs-with-current, never wipes).
 					return array( true, $plugin->metrics_snapshot() );
 				}
+			),
+			// ── analytics/insights (§ analytics) ──────────────────────────────────
+			// Three READ-ONLY methods behind the console's Insights surface, over the
+			// same signed channel as metrics.snapshot. STATEMENT 1 of each engine
+			// projection is the entitlement gate; a locked site answers a signed
+			// { locked, gate } so the console renders the real reasons (never fake
+			// numbers). Only bounded AGGREGATES cross the wire — the drill island,
+			// heatmap and raw hit rows stay WP-side; byte budgets guard the §6.2
+			// ceiling. No params mutate state (never signs-with-current, never wipes).
+			new IWSL_Command_Handler(
+				'stats.summary',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$params = get_object_vars( $envelope->params );
+					$range  = isset( $params['range_days'] ) ? (int) $params['range_days'] : IWSL_Statistics::DEFAULT_RANGE;
+					return array( true, $plugin->statistics()->wire_summary( $range ) );
+				},
+				array( 'IWSL_Statistics', 'validate_summary_params' )
+			),
+			new IWSL_Command_Handler(
+				'stats.timeseries',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$params = get_object_vars( $envelope->params );
+					$days   = isset( $params['days'] ) ? (int) $params['days'] : IWSL_Stats_Classifier::SERIES_DAYS;
+					return array( true, $plugin->statistics()->wire_timeseries( $days ) );
+				},
+				array( 'IWSL_Statistics', 'validate_timeseries_params' )
+			),
+			new IWSL_Command_Handler(
+				'activity.log',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$params = get_object_vars( $envelope->params );
+					$limit  = isset( $params['limit'] ) ? (int) $params['limit'] : IWSL_Activity_Log::WIRE_DEFAULT_LIMIT;
+					return array( true, $plugin->activity_log()->wire_log( $limit ) );
+				},
+				array( 'IWSL_Activity_Log', 'validate_log_params' )
 			),
 			new IWSL_Command_Handler(
 				'key.rotate.self',

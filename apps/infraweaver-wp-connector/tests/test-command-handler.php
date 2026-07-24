@@ -290,3 +290,54 @@ iwsl_assert_same( 0, $llg['count'], 'locked email.log.get: no entries' );
 
 list( , $llc ) = $registry['email.log.clear']->run( $locked_plugin, $empty_env );
 iwsl_assert_same( false, $llc['ok'], 'locked email.log.clear: ok=false' );
+
+// ── analytics/insights signed methods (§ analytics) ───────────────────────────
+
+// (e) all three read-only methods are registered AND on the verifier allow-list
+//     with their param validators — one source of truth (IWSL_Plugin::allowed_methods).
+$allow = IWSL_Plugin::allowed_methods();
+foreach ( array( 'stats.summary', 'stats.timeseries', 'activity.log' ) as $m ) {
+	iwsl_assert( isset( $registry[ $m ] ), "(e) {$m} registered in the command registry" );
+	iwsl_assert( array_key_exists( $m, $allow ), "(e) {$m} on the verifier allow-list" );
+	iwsl_assert( null !== $allow[ $m ], "(e) {$m} carries a param validator" );
+}
+
+// (f) a LOCKED site (statistics/activity_log absent) answers a SIGNED { locked:true,
+//     gate } — never fake numbers — over the same run() contract as metrics.snapshot.
+list( $store_e, $plugin_e ) = $fresh_plugin();
+$plugin_e->handle_command( iwsl_clone( $f->commands->valid ) ); // activate + stamp heartbeat
+$env_e         = new stdClass();
+$env_e->params = new stdClass();
+list( $ok_sum_locked, $sum_locked ) = $registry['stats.summary']->run( $plugin_e, $env_e );
+iwsl_assert_same( true, $ok_sum_locked, '(f) stats.summary answers ok=true even when locked (signed locked-state)' );
+iwsl_assert_same( true, $sum_locked['locked'], '(f) stats.summary locked → locked:true' );
+iwsl_assert( isset( $sum_locked['gate'] ) && ! isset( $sum_locked['kpi'] ), '(f) locked stats.summary carries the gate, leaks no numbers' );
+list( $ok_al_locked, $al_locked ) = $registry['activity.log']->run( $plugin_e, $env_e );
+iwsl_assert_same( true, $al_locked['locked'], '(f) activity.log locked → locked:true' );
+
+// (g) grant statistics + activity_log through the signed entitlements.set runner (the
+//     only path that writes the console-authoritative map); the same methods unlock.
+$grant_env                       = new stdClass();
+$grant_env->params               = new stdClass();
+$grant_env->params->entitlements = (object) array( 'plus' => true, 'statistics' => true, 'activity_log' => true );
+$registry['entitlements.set']->run( $plugin_e, $grant_env );
+
+list( $ok_sum, $sum ) = $registry['stats.summary']->run( $plugin_e, $env_e );
+iwsl_assert_same( true, $ok_sum, '(g) stats.summary runs' );
+iwsl_assert_same( false, $sum['locked'], '(g) stats.summary unlocked → locked:false' );
+iwsl_assert( isset( $sum['kpi'], $sum['privacy'], $sum['top_pages'] ), '(g) stats.summary returns a summary-shaped projection' );
+
+$ts_env         = new stdClass();
+$ts_env->params = (object) array( 'days' => 1 );
+list( $ok_ts, $ts ) = $registry['stats.timeseries']->run( $plugin_e, $ts_env );
+iwsl_assert_same( false, $ts['locked'], '(g) stats.timeseries unlocked → locked:false' );
+iwsl_assert( isset( $ts['hourly'] ), '(g) stats.timeseries days=1 → hourly present' );
+
+list( $ok_al, $al ) = $registry['activity.log']->run( $plugin_e, $env_e );
+iwsl_assert_same( false, $al['locked'], '(g) activity.log unlocked → locked:false' );
+iwsl_assert( isset( $al['entries'] ) && is_array( $al['entries'] ), '(g) activity.log returns an entries array' );
+
+// (h) the param validators reject malformed params at the verifier boundary.
+iwsl_assert_same( false, call_user_func( $allow['stats.summary'], (object) array( 'range_days' => 5 ) ), '(h) stats.summary validator rejects range_days=5' );
+iwsl_assert_same( true, call_user_func( $allow['stats.summary'], (object) array( 'range_days' => 30 ) ), '(h) stats.summary validator accepts range_days=30' );
+iwsl_assert_same( false, call_user_func( $allow['activity.log'], (object) array( 'limit' => 999 ) ), '(h) activity.log validator rejects limit=999' );

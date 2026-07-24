@@ -241,3 +241,60 @@ $actions11 = array_map(
 iwsl_assert( in_array( 'concurrent_action', $actions11, true ), 'record re-read: the concurrently-written entry survives' );
 iwsl_assert( in_array( 'second_action', $actions11, true ), 'record re-read: the new entry is stored' );
 iwsl_assert_same( 3, count( $actions11 ), 'record re-read: all three entries present (audit trail intact)' );
+
+// ── 12. wire_log(): the signed `activity.log` projection ──────────────────────
+
+// locked → { locked:true, gate } and nothing else.
+$store12l = new IWSL_Memory_Store();
+$al12l    = new IWSL_Activity_Log( iwsl_al_entitlements( $AL_NOW, 'active', 60000, array() ), $store12l, $al_clock );
+$w12l     = $al12l->wire_log( 50 );
+iwsl_assert_same( true, $w12l['locked'], 'wire_log(locked): locked=true' );
+iwsl_assert( isset( $w12l['gate']['reasons'] ), 'wire_log(locked): carries signed gate reasons' );
+iwsl_assert( ! isset( $w12l['entries'] ), 'wire_log(locked): no entries leak' );
+
+// unlocked → newest-first entries with the exact metadata shape.
+$store12 = new IWSL_Memory_Store();
+$al12    = new IWSL_Activity_Log( iwsl_al_unlocked( $AL_NOW ), $store12, $al_clock );
+$al12->record( 'first_action', 'o1', 's1' );
+$al12->record( 'second_action', 'o2', 's2' );
+$w12 = $al12->wire_log( 50 );
+iwsl_assert_same( false, $w12['locked'], 'wire_log(unlocked): locked=false' );
+iwsl_assert_same( 2, count( $w12['entries'] ), 'wire_log: both recorded entries returned' );
+iwsl_assert_same( 'second_action', $w12['entries'][0]['action'], 'wire_log: newest-first ordering' );
+iwsl_assert_same( array( 'at', 'actor', 'action', 'object', 'summary' ), array_keys( $w12['entries'][0] ), 'wire_log: exact entry shape (metadata only)' );
+
+// limit cap: WIRE_MAX_ENTRIES honored even for an over-limit request.
+$store12c = new IWSL_Memory_Store();
+$al12c    = new IWSL_Activity_Log( iwsl_al_unlocked( $AL_NOW ), $store12c, $al_clock );
+for ( $i = 0; $i < 130; $i++ ) {
+	$al12c->record( 'a' . $i, 'o', 's' );
+}
+iwsl_assert( count( $al12c->wire_log( 1000 )['entries'] ) <= IWSL_Activity_Log::WIRE_MAX_ENTRIES, 'wire_log: entries capped at WIRE_MAX_ENTRIES' );
+
+// byte-bound: 100 maxed-out entries stay under the 16 KB snapshot cap AND the budget.
+$store12b = new IWSL_Memory_Store();
+$al12b    = new IWSL_Activity_Log( iwsl_al_unlocked( $AL_NOW ), $store12b, $al_clock );
+for ( $i = 0; $i < 120; $i++ ) {
+	$al12b->record( str_repeat( 'A', 64 ), str_repeat( 'O', 300 ), str_repeat( 'S', 300 ) );
+}
+$w12b = $al12b->wire_log( 100 );
+$b12  = strlen( json_encode( $w12b ) );
+iwsl_assert( $b12 <= 16384, 'wire_log: worst-case ' . $b12 . ' bytes under the 16 KB snapshot cap' );
+iwsl_assert( $b12 <= IWSL_Activity_Log::WIRE_MAX_BYTES + 256, 'wire_log: worst-case honors the WIRE_MAX_BYTES budget' );
+iwsl_assert( count( $w12b['entries'] ) < 100, 'wire_log: the byte budget truncated some maxed entries (fewer than requested)' );
+iwsl_assert_same( IWSL_Activity_Log::WIRE_OBJECT_LEN, strlen( $w12b['entries'][0]['object'] ), 'wire_log: object defensively re-capped to WIRE_OBJECT_LEN on the wire' );
+
+// param validators.
+$al_mkp = static function ( array $a ): stdClass {
+	$o = new stdClass();
+	foreach ( $a as $k => $v ) {
+		$o->$k = $v;
+	}
+	return $o;
+};
+iwsl_assert_same( true, IWSL_Activity_Log::validate_log_params( $al_mkp( array() ) ), 'validate activity.log: empty params ok (default limit)' );
+iwsl_assert_same( true, IWSL_Activity_Log::validate_log_params( $al_mkp( array( 'limit' => 50 ) ) ), 'validate activity.log: limit 50 ok' );
+iwsl_assert_same( false, IWSL_Activity_Log::validate_log_params( $al_mkp( array( 'limit' => 0 ) ) ), 'validate activity.log: limit 0 rejected' );
+iwsl_assert_same( false, IWSL_Activity_Log::validate_log_params( $al_mkp( array( 'limit' => 101 ) ) ), 'validate activity.log: limit 101 rejected' );
+iwsl_assert_same( false, IWSL_Activity_Log::validate_log_params( $al_mkp( array( 'limit' => '50' ) ) ), 'validate activity.log: string limit rejected' );
+iwsl_assert_same( false, IWSL_Activity_Log::validate_log_params( $al_mkp( array( 'limit' => 50, 'x' => 1 ) ) ), 'validate activity.log: unexpected extra key rejected' );
