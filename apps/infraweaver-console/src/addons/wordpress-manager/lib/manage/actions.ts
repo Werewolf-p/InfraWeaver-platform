@@ -87,6 +87,10 @@ export const manageActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("sync-users") }),
   // Users
   z.object({ type: z.literal("add-user"), login: loginSchema, email: emailSchema, role: roleSchema, password: passwordSchema.optional() }),
+  // Idempotent pre-create used by the "grant existing user" flow: create the WordPress
+  // account only when no user with that login OR email already exists, so first SSO
+  // login links by email (identity_key="email") with no duplicate. A no-op otherwise.
+  z.object({ type: z.literal("ensure-user"), login: loginSchema, email: emailSchema, role: roleSchema }),
   z.object({ type: z.literal("update-user-email"), userId: idSchema, email: emailSchema }),
   z.object({ type: z.literal("update-user-role"), userId: idSchema, role: roleSchema }),
   z.object({ type: z.literal("set-user-password"), userId: idSchema, password: passwordSchema }),
@@ -118,6 +122,7 @@ export interface ManageActionResult {
 const ADMIN_ACTIONS: ReadonlySet<ManageAction["type"]> = new Set([
   "sync-users",
   "add-user",
+  "ensure-user",
   "update-user-email",
   "update-user-role",
   "set-user-password",
@@ -230,6 +235,20 @@ export function commandFor(action: ManageAction): BuiltCommand | null {
         command: `${WP_SAFE} user create ${login} ${email} --role=${role} --user_pass="$(head -c 32 /dev/urandom | base64)" --porcelain`,
       };
     }
+    case "ensure-user": {
+      const login = safeLogin(action.login);
+      const email = safeEmail(action.email);
+      const role = safeRole(action.role);
+      // Create only when NO user matches this login or email — `wp user get` accepts
+      // a login, email or id, so both checks reuse it. Idempotent: an existing
+      // account (by either key) is left untouched and the OIDC email link handles it.
+      return {
+        command:
+          `if ${WP_SAFE} user get ${login} --field=ID >/dev/null 2>&1 || ${WP_SAFE} user get ${email} --field=ID >/dev/null 2>&1; then ` +
+          `echo "iwsl-ensure-user-exists"; else ` +
+          `${WP_SAFE} user create ${login} ${email} --role=${role} --user_pass="$(head -c 32 /dev/urandom | base64)" --porcelain; fi`,
+      };
+    }
     case "update-user-email":
       return { command: `${WP_SAFE} user update ${String(action.userId)} --user_email=${safeEmail(action.email)} --skip-email` };
     case "update-user-role":
@@ -288,6 +307,7 @@ const SUCCESS_MESSAGE: Record<ManageAction["type"], string> = {
   "flush-rewrites": "Permalinks flushed.",
   "sync-users": "WordPress accounts reconciled.",
   "add-user": "User created.",
+  "ensure-user": "WordPress account ensured.",
   "update-user-email": "User email updated.",
   "update-user-role": "User role updated.",
   "set-user-password": "User password set.",

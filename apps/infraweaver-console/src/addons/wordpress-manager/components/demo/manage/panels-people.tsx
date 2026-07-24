@@ -16,7 +16,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { KeyRound, Mail, RefreshCw, Search, Trash2, UserCog, UserPlus, Users } from "lucide-react";
+import { KeyRound, Mail, RefreshCw, Search, Trash2, UserCheck, UserCog, UserPlus, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import type { PeopleData, WpUserRow } from "../../../lib/manage/probes/people";
@@ -37,6 +37,7 @@ import {
   useActionRunner,
 } from "./manage-ui";
 import { isValidEmail, isValidLogin, isValidPassword } from "./form-validation";
+import { GrantUserDialog } from "./grant-user-dialog";
 import { DangerZone, DataTable, EmptyState, FilterTabs, Pill } from "./kit";
 import type { Column, FilterTabOption, PillTone } from "./kit";
 
@@ -332,6 +333,7 @@ export function PeoplePanel({ site }: { site: string }) {
   const { run, pending } = useManageAction(site);
 
   const [addOpen, setAddOpen] = useState(false);
+  const [grantOpen, setGrantOpen] = useState(false);
   const [manageId, setManageId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>(ROLE_FILTER_ALL);
@@ -532,9 +534,14 @@ export function PeoplePanel({ site }: { site: string }) {
                 title="No accounts on this site yet."
                 body="Add a WordPress account or reconcile members from the directory."
                 action={
-                  <button type="button" className={BTN_PRIMARY} onClick={() => setAddOpen(true)}>
-                    <UserPlus className="h-4 w-4" aria-hidden /> Add user
-                  </button>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <button type="button" className={BTN} onClick={() => setGrantOpen(true)}>
+                      <UserCheck className="h-4 w-4" aria-hidden /> Grant existing user
+                    </button>
+                    <button type="button" className={BTN_PRIMARY} onClick={() => setAddOpen(true)}>
+                      <UserPlus className="h-4 w-4" aria-hidden /> Add user
+                    </button>
+                  </div>
                 }
               />
             );
@@ -561,9 +568,12 @@ export function PeoplePanel({ site }: { site: string }) {
                 description={description}
                 icon={Users}
                 action={
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button type="button" className={BTN} disabled={pending || bulkRunning} onClick={reconcile}>
                       {pending ? <Spinner /> : <RefreshCw className="h-4 w-4" aria-hidden />} Reconcile
+                    </button>
+                    <button type="button" className={BTN} onClick={() => setGrantOpen(true)}>
+                      <UserCheck className="h-4 w-4" aria-hidden /> Grant existing user
                     </button>
                     <button type="button" className={BTN_PRIMARY} onClick={() => setAddOpen(true)}>
                       <UserPlus className="h-4 w-4" aria-hidden /> Add user
@@ -703,6 +713,9 @@ export function PeoplePanel({ site }: { site: string }) {
 
       {addOpen ? (
         <AddUserDialog site={site} open={addOpen} onClose={() => setAddOpen(false)} onChanged={state.reload} />
+      ) : null}
+      {grantOpen ? (
+        <GrantUserDialog site={site} open={grantOpen} onClose={() => setGrantOpen(false)} onChanged={state.reload} />
       ) : null}
       {managed ? (
         <ManageUserDialog

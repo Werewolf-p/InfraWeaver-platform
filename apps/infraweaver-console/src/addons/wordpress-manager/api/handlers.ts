@@ -28,6 +28,11 @@ import { getCachedFleet } from "../lib/fleet/aggregate";
 import { isManagePanelId } from "../lib/manage/capabilities";
 import { isForceRefresh } from "../lib/manage/refresh";
 import { actionPermission, manageActionSchema, runManageAction } from "../lib/manage/actions";
+import { getSessionRBACContext, getSessionEffectivePermissions, hasSessionPermission } from "@/lib/session-rbac";
+import { sessionActor } from "@/lib/user-guards";
+import { listAuthentikUsers, resolveAuthentikUser } from "../lib/authentik-users";
+import { grantWordpressSiteAccess } from "../lib/grant-authentik-user";
+import { WORDPRESS_ROLES } from "../lib/manage/capabilities";
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
@@ -487,4 +492,83 @@ export async function setProtectionHandler(req: NextRequest, site: string): Prom
   const parsed = protectionSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return fail("authMode must be one of: none, login, admin, full", 400);
   return guard(async () => json({ site: await setProtection(site, parsed.data.authMode) }));
+}
+
+const grantUserSchema = z
+  .object({
+    username: z.string().min(1).max(150),
+    role: z.enum(WORDPRESS_ROLES),
+  })
+  .strict();
+
+/**
+ * GET — search the Authentik directory for the "grant existing user" picker.
+ * `?q=` is passed to Authentik's server-side search (username/email/name). Site
+ * admin only: the picker exists solely to grant site access, so it uses the same
+ * gate as the grant itself rather than exposing the directory to every reader.
+ */
+export async function listAuthentikUsersHandler(req: NextRequest, site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const gate = await authorize("wordpress:admin", site);
+  if (!gate.ok) return gate.error;
+  const limited = rateLimited("authentik-users", gate.ctx.username, 60);
+  if (limited) return limited;
+  const q = req.nextUrl.searchParams.get("q") ?? "";
+  return guard(async () => json({ users: await listAuthentikUsers(q) }));
+}
+
+/**
+ * POST — grant an existing Authentik user access to THIS site with a chosen
+ * WordPress role, pre-creating their WordPress account (by email) so their first
+ * SSO login links to it with no duplicate. Two coordinated writes (RBAC assignment
+ * + signed pre-create) live in `grantWordpressSiteAccess`.
+ *
+ * Authorization: `wordpress:admin` on the site (it changes who can authenticate to
+ * it). Two privilege ceilings on top: granting administrator-tier access requires
+ * `rbac:admin` (mirrors the invite route), and the RBAC role itself is bounded by
+ * the granter's own effective permissions inside `grantRoleAssignment`.
+ */
+export async function grantAuthentikUserHandler(req: NextRequest, site: string): Promise<NextResponse> {
+  if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  const session = await auth();
+  if (!session) return fail("Unauthorized", 401);
+
+  const wpCtx = await getWordpressAccessContext(session);
+  if (!hasWordpressPermission(wpCtx.groups, wpCtx.username, wpCtx.roleAssignments, "wordpress:admin", site)) {
+    return fail("Forbidden", 403);
+  }
+  const limited = rateLimited("grant-user", wpCtx.username, 20);
+  if (limited) return limited;
+
+  const parsed = grantUserSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Invalid request", 400);
+  const wpRole = parsed.data.role;
+
+  const access = await getSessionRBACContext(session, 60);
+  const callerHasRbacAdmin = hasSessionPermission(access, "rbac:admin");
+
+  // Resolve the chosen user server-side so the email is authoritative (never trust
+  // a client-supplied email for the pre-create).
+  const authUser = await resolveAuthentikUser(parsed.data.username);
+  if (!authUser) return fail("Authentik user not found", 404);
+
+  // Two privilege ceilings enforced inside grantWordpressSiteAccess: admin-tier
+  // access requires rbac:admin (callerHasRbacAdmin), and the RBAC role is bounded by
+  // the granter's own permissions at the site scope (granterPermsAt).
+  const granterPermsAt = (scope: string) => getSessionEffectivePermissions(access, scope);
+  return guard(async () => {
+    const result = await grantWordpressSiteAccess(
+      { site, username: authUser.username, email: authUser.email, name: authUser.name, wpRole },
+      { granterPermsAt, actor: sessionActor(session) },
+      { callerHasRbacAdmin },
+    );
+    if (!result.ok) return fail(result.error, result.status);
+    await auditLog(
+      "wordpress:grant-user",
+      sessionActor(session),
+      `Granted ${authUser.username} '${wpRole}' access to site ${site} (rbac ${result.rbac}, account ${result.wpAccount})`,
+      { result: "success", resource: `wordpress/${site}` },
+    );
+    return json(result);
+  });
 }
