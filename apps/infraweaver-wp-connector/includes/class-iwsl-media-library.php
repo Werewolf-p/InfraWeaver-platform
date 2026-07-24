@@ -293,6 +293,23 @@ final class IWSL_Media_Library {
 		);
 	}
 
+	/**
+	 * The single fused row for ONE asset — the base of `media.get`, gated exactly
+	 * like list_assets (folder/tags blank without media_folders; optimization/offload
+	 * blank without image_optimization). Returns null when the id is invalid or when
+	 * NEITHER feature is unlocked, so the detail runner answers a locked envelope.
+	 * This keeps the fused-row shape single-source: the viewer detail never re-derives
+	 * folder/optimization/offload classification, it reuses the read-model's row().
+	 */
+	public function asset_row( int $id ): ?array {
+		$folders_on = $this->unlocked( self::FEATURE_FOLDERS );
+		$opt_on     = $this->unlocked( self::FEATURE_OPT );
+		if ( $id <= 0 || ( ! $folders_on && ! $opt_on ) ) {
+			return null;
+		}
+		return $this->row( $id, $folders_on, $opt_on );
+	}
+
 	/** {id,name} of the attachment's single folder term, or null (unfiled/locked). */
 	private function folder_of( int $id ): ?array {
 		foreach ( $this->object_terms( $id, self::tax_folder() ) as $t ) {

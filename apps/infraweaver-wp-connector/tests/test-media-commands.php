@@ -29,6 +29,9 @@ require_once __DIR__ . '/../includes/class-iwsl-s3-client.php';
 require_once __DIR__ . '/../includes/class-iwsl-media-offload.php';
 require_once __DIR__ . '/../includes/class-iwsl-media-folders.php';
 require_once __DIR__ . '/../includes/class-iwsl-media-library.php';
+require_once __DIR__ . '/../includes/class-iwsl-media-protection.php';
+require_once __DIR__ . '/../includes/class-iwsl-media-detail.php';
+require_once __DIR__ . '/../includes/class-iwsl-media-editor.php';
 
 $MC_NOW = 1900000000000;
 
@@ -276,3 +279,52 @@ iwsl_assert_same( false, (bool) ( $rres['locked'] ?? true ), 'restore: not locke
 iwsl_assert_same( 2, (int) $rres['summary']['total'], 'restore: both ids processed' );
 iwsl_assert_same( 0, (int) $rres['summary']['ok'], 'restore: nothing restored (nothing was offloaded)' );
 iwsl_assert_same( 'not-offloaded', (string) $rres['results'][0]['reason'], 'INVARIANT: a never-offloaded asset is a safe no-op, not a deletion' );
+
+// ── 7. media VIEWER surface (Agent A) — registry + gate + confirm fence ────────
+// The six click-to-open viewer methods are on the signed allow-list, bound to their
+// strict validators, and — like every media runner — answer a signed { locked, gate }
+// on a tier that does not grant them. media.delete's confirm fence lives at the
+// command layer too (the registry binds it to a validator that refuses anything but
+// a literal confirm:true), so a destructive command can never dispatch unconfirmed.
+
+$viewer_methods = array( 'media.get', 'media.updateMeta', 'media.edit', 'media.protect', 'media.delete', 'media.usage' );
+$allowed_v      = IWSL_Plugin::allowed_methods();
+foreach ( $viewer_methods as $m ) {
+	iwsl_assert( array_key_exists( $m, $allowed_v ), "registry: {$m} is on the verifier allow-list" );
+}
+$vh = mc_handlers();
+iwsl_assert_same( array( 'IWSL_Media_Detail', 'validate_get_params' ), $vh['media.get']->validator, 'registry: media.get bound to its validator' );
+iwsl_assert_same( array( 'IWSL_Media_Detail', 'validate_update_params' ), $vh['media.updateMeta']->validator, 'registry: media.updateMeta bound to its validator' );
+iwsl_assert_same( array( 'IWSL_Media_Editor', 'validate_params' ), $vh['media.edit']->validator, 'registry: media.edit bound to the editor validator' );
+iwsl_assert_same( array( 'IWSL_Media_Protection', 'validate_protect_params' ), $vh['media.protect']->validator, 'registry: media.protect bound to the protection validator' );
+iwsl_assert_same( array( 'IWSL_Media_Detail', 'validate_delete_params' ), $vh['media.delete']->validator, 'registry: media.delete bound to the CONFIRM-fenced validator' );
+iwsl_assert_same( array( 'IWSL_Media_Detail', 'validate_usage_params' ), $vh['media.usage']->validator, 'registry: media.usage bound to its validator' );
+foreach ( $viewer_methods as $m ) {
+	iwsl_assert( ! $vh[ $m ]->signs_with_current_kid && ! $vh[ $m ]->wipes_after, "registry: {$m} neither signs-with-current nor wipes" );
+}
+
+// The confirm fence AT THE COMMAND LAYER: the validator the registry bound refuses
+// an unconfirmed delete before any runner (or attachment) is ever reached.
+$del_validator = $vh['media.delete']->validator;
+iwsl_assert( is_callable( $del_validator ), 'confirm-fence: media.delete carries a callable validator' );
+iwsl_assert( true === call_user_func( $del_validator, (object) array( 'id' => 9, 'confirm' => true ) ), 'confirm-fence: media.delete validator accepts confirm:true' );
+iwsl_assert( false === call_user_func( $del_validator, (object) array( 'id' => 9 ) ), 'confirm-fence: media.delete validator REFUSES a confirm-less delete' );
+iwsl_assert( false === call_user_func( $del_validator, (object) array( 'id' => 9, 'confirm' => false ) ), 'confirm-fence: media.delete validator REFUSES confirm:false' );
+
+// STATEMENT-1 gate — a no-media-flag site answers a signed lock for every viewer method.
+$viewer_locked_cases = array(
+	'media.get'        => array( 'id' => 5 ),
+	'media.updateMeta' => array( 'id' => 5, 'expect_modified' => 't', 'alt' => 'x' ),
+	'media.edit'       => array( 'id' => 5, 'ops' => array( (object) array( 'type' => 'rotate', 'angle' => 90 ) ) ),
+	'media.protect'    => array( 'ids' => array( 5 ), 'protected' => true ),
+	'media.delete'     => array( 'id' => 5, 'confirm' => true ),
+	'media.usage'      => array( 'id' => 5 ),
+);
+$vlp = mc_plugin( $MC_NOW, array() ); // linked + fresh heartbeat, NO media flags.
+$vlh = mc_handlers();
+foreach ( $viewer_locked_cases as $method => $params ) {
+	list( $vok, $vres ) = $vlh[ $method ]->run( $vlp, mc_env( $method, $params ) );
+	iwsl_assert_same( true, $vok, "gate: {$method} answers ok (a lock is a valid signed answer)" );
+	iwsl_assert_same( true, ! empty( $vres['locked'] ), "gate: {$method} reports locked on a no-tier site" );
+	iwsl_assert( isset( $vres['gate'] ) && is_array( $vres['gate'] ), "gate: {$method} carries the gate reason for the console" );
+}

@@ -45,6 +45,7 @@ import {
   useMediaTree,
 } from "../../../lib/manage/use-media";
 import { buildAssetColumns } from "./media-asset-columns";
+import { MediaViewer } from "./viewer/media-viewer";
 import { MediaFolderTree } from "./media-folder-tree";
 import { MediaFilterBar, type AttentionFilter } from "./media-filter-bar";
 import {
@@ -95,6 +96,9 @@ export function MediaExplorer({ site }: { site: string }): ReactNode {
   const [filters, setFilters] = useState<ExplorerFilters>(INITIAL_FILTERS);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [selecting, setSelecting] = useState(false);
+  // The click-to-open viewer: which asset is open (null = closed). Deep-linkable via
+  // `?asset=<id>`, so a viewer URL is shareable and survives a reload.
+  const [viewerId, setViewerId] = useState<number | null>(null);
 
   const predicates = predicatesFor(filters.attention);
   const listParams: MediaListParams = useMemo(
@@ -125,6 +129,30 @@ export function MediaExplorer({ site }: { site: string }): ReactNode {
     void queryClient.invalidateQueries({ queryKey: mediaKeys.status(site) });
     void queryClient.invalidateQueries({ queryKey: mediaKeys.tree(site) });
   }, [queryClient, site]);
+
+  // ── viewer open/close, kept in sync with `?asset=<id>` (deep-linkable) ─────────
+  const syncAssetParam = useCallback((id: number | null) => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("asset", String(id));
+    else url.searchParams.delete("asset");
+    window.history.replaceState(null, "", url.toString());
+  }, []);
+  const openViewer = useCallback((id: number) => { setViewerId(id); syncAssetParam(id); }, [syncAssetParam]);
+  const closeViewer = useCallback(() => { setViewerId(null); syncAssetParam(null); }, [syncAssetParam]);
+  const navigateViewer = useCallback((id: number) => { setViewerId(id); syncAssetParam(id); }, [syncAssetParam]);
+
+  // Deep link: honour `?asset=<id>` on first mount (a shared viewer URL).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = new URL(window.location.href).searchParams.get("asset");
+    const id = raw ? Number(raw) : NaN;
+    if (Number.isInteger(id) && id > 0) setViewerId(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The ordered id set beneath the viewer — the live filtered page — for prev/next.
+  const orderedIds = useMemo(() => (list.data?.items ?? []).map((asset) => asset.id), [list.data]);
 
   // ── select-all-matching (the honest "select the query, not the page") ─────────
   const onSelectAllMatching = useCallback(async () => {
@@ -197,7 +225,7 @@ export function MediaExplorer({ site }: { site: string }): ReactNode {
 
   const data = list.data;
   const features = data?.features ?? { media_folders: false, image_optimization: false, cdn_rewrite: false };
-  const columns = useMemo(() => buildAssetColumns(features), [features]);
+  const columns = useMemo(() => buildAssetColumns(features, openViewer), [features, openViewer]);
   const bulkActions = features.image_optimization ? MEDIA_BULK_ACTIONS : [];
 
   useEffect(() => {
@@ -318,6 +346,17 @@ export function MediaExplorer({ site }: { site: string }): ReactNode {
           />
         </div>
       </div>
+
+      {viewerId !== null ? (
+        <MediaViewer
+          site={site}
+          assetId={viewerId}
+          orderedIds={orderedIds}
+          onClose={closeViewer}
+          onNavigate={navigateViewer}
+          onChanged={invalidateMedia}
+        />
+      ) : null}
     </div>
   );
 }

@@ -31,6 +31,24 @@ import {
   type MediaRestoreParams,
   type MediaStatusResponse,
   type MediaTreeResponse,
+  mediaDeleteParamsSchema,
+  mediaEditParamsSchema,
+  mediaGetParamsSchema,
+  mediaProtectParamsSchema,
+  mediaUpdateMetaParamsSchema,
+  mediaUsageParamsSchema,
+  type MediaDeleteParams,
+  type MediaDeleteResponse,
+  type MediaEditParams,
+  type MediaEditResponse,
+  type MediaGetParams,
+  type MediaGetResponse,
+  type MediaProtectParams,
+  type MediaProtectResponse,
+  type MediaUpdateMetaParams,
+  type MediaUpdateMetaResponse,
+  type MediaUsageParams,
+  type MediaUsageResponse,
 } from "../manage/media";
 import {
   emailConfigSetParamsSchema,
@@ -158,6 +176,13 @@ export type RpcMethod =
   | "media.offload"
   | "media.restore"
   | "media.folder"
+  // ── media viewer (Agent A) — the click-to-open viewer read + mutations.
+  | "media.get"
+  | "media.updateMeta"
+  | "media.edit"
+  | "media.protect"
+  | "media.delete"
+  | "media.usage"
   // ── performance & cache fusion (§ perf) — one composite read + audit + cache/optimization writes.
   | "perf.status"
   | "perf.audit"
@@ -231,6 +256,13 @@ export interface RpcParams {
   "media.offload": MediaOffloadParams;
   "media.restore": MediaRestoreParams;
   "media.folder": MediaFolderParams;
+  // ── media viewer — params mirror IWSL_Media_Detail / _Editor / _Protection validators.
+  "media.get": MediaGetParams;
+  "media.updateMeta": MediaUpdateMetaParams;
+  "media.edit": MediaEditParams;
+  "media.protect": MediaProtectParams;
+  "media.delete": MediaDeleteParams;
+  "media.usage": MediaUsageParams;
   // ── performance & cache — params mirror the connector's validator closures exactly.
   "perf.status": Record<string, never>;
   "perf.audit": PerfAuditParams;
@@ -359,6 +391,13 @@ export interface RpcResult {
   };
   /** Terms-only folder mutation echo. */
   "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  // ── media viewer — the viewer read-model + safe mutations (plugin is the source of truth).
+  "media.get": MediaGetResponse;
+  "media.updateMeta": MediaUpdateMetaResponse;
+  "media.edit": MediaEditResponse;
+  "media.protect": MediaProtectResponse;
+  "media.delete": MediaDeleteResponse;
+  "media.usage": MediaUsageResponse;
   // ── performance & cache — the plugin is the source of truth for every shape.
   "perf.status": PerfStatusResponse;
   "perf.audit": PerfAuditResponse;
@@ -464,6 +503,14 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
   "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
   "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
+  // Media viewer — validators reuse the isomorphic zod schemas that mirror the
+  // connector's IWSL_Media_Detail / _Editor / _Protection validators (never drift).
+  "media.get": { hasParams: true, validate: (p) => mediaGetParamsSchema.safeParse(p).success },
+  "media.updateMeta": { hasParams: true, validate: (p) => mediaUpdateMetaParamsSchema.safeParse(p).success },
+  "media.edit": { hasParams: true, validate: (p) => mediaEditParamsSchema.safeParse(p).success },
+  "media.protect": { hasParams: true, validate: (p) => mediaProtectParamsSchema.safeParse(p).success },
+  "media.delete": { hasParams: true, validate: (p) => mediaDeleteParamsSchema.safeParse(p).success },
+  "media.usage": { hasParams: true, validate: (p) => mediaUsageParamsSchema.safeParse(p).success },
   // Performance & cache — validators reuse the isomorphic zod schemas that mirror
   // the connector's param closures, so the two sides can never drift.
   "perf.status": { hasParams: false, validate: noParams },

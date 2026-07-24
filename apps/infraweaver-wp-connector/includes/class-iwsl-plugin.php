@@ -849,6 +849,97 @@ final class IWSL_Plugin {
 				},
 				array( 'IWSL_Media_Library', 'validate_folder_params' )
 			),
+				// ---- media viewer (Agent A): six signed methods behind the click-to-open
+				// image viewer. Every runner re-checks the surface entitlement gate as
+				// STATEMENT 1 (returning a renderable { locked, gate }); reads never
+				// sign-with-current, never wipe. media.get/updateMeta/usage/delete route
+				// through IWSL_Media_Detail (viewer read-model + safe mutations); media.edit
+				// through IWSL_Media_Editor (WP_Image_Editor, path-contained BY ID, never a
+				// caller path); media.protect through IWSL_Media_Protection::set_protected
+				// (the SHARED contract with the security-consent protection surface, one
+				// method). media.delete is the one deliberate attachment-destroying method:
+				// its validator hard-requires confirm:true, byte-for-byte separate from the
+				// terms-only folder/tag delete.
+				new IWSL_Command_Handler(
+					'media.get',
+					static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+						$detail = new IWSL_Media_Detail( $plugin->entitlements() );
+						return array( true, $detail->get_asset( (int) $envelope->params->id ) );
+					},
+					array( 'IWSL_Media_Detail', 'validate_get_params' )
+				),
+				new IWSL_Command_Handler(
+					'media.updateMeta',
+					static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+						// Only the fields the caller sent cross into the engine; the
+						// optimistic-concurrency refusal + sanitizer matrix live there. A
+						// conflict is a VALID signed answer (outer ok=true), so the viewer
+						// reads result.conflict and offers re-apply, never a 502.
+						$p      = $envelope->params;
+						$fields = array();
+						foreach ( array( 'alt', 'title', 'caption', 'description' ) as $key ) {
+							if ( isset( $p->$key ) ) {
+								$fields[ $key ] = (string) $p->$key;
+							}
+						}
+						$detail = new IWSL_Media_Detail( $plugin->entitlements() );
+						return array( true, $detail->update_meta( (int) $p->id, (string) $p->expect_modified, $fields ) );
+					},
+					array( 'IWSL_Media_Detail', 'validate_update_params' )
+				),
+				new IWSL_Command_Handler(
+					'media.edit',
+					static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+						// WP_Image_Editor only; the engine resolves the file from the id and
+						// runs the realpath containment gauntlet, no path ever comes from the
+						// wire. Ops arrive validated; decode to plain arrays for the pipe.
+						$p   = $envelope->params;
+						$ops = array();
+						foreach ( (array) $p->ops as $op ) {
+							$ops[] = $op instanceof stdClass ? get_object_vars( $op ) : array();
+						}
+						$target     = isset( $p->target ) ? (string) $p->target : 'all';
+						$regenerate = ! isset( $p->regenerate ) || (bool) $p->regenerate;
+						$editor     = new IWSL_Media_Editor( $plugin->entitlements() );
+						return array( true, $editor->edit( (int) $p->id, $ops, $target, $regenerate ) );
+					},
+					array( 'IWSL_Media_Editor', 'validate_params' )
+				),
+				new IWSL_Command_Handler(
+					'media.protect',
+					static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+						// Shared protection contract (media_protection/Pro). set_protected()
+						// re-checks the gate as STATEMENT 1 and re-validates the ids.
+						$p   = $envelope->params;
+						$mp  = new IWSL_Media_Protection( $plugin->entitlements(), $plugin->store() );
+						$ids = IWSL_Media_Library::int_list( $p->ids, IWSL_Media_Protection::PROTECT_WIRE_MAX );
+						return array( true, $mp->set_protected( $ids, (bool) $p->protected ) );
+					},
+					array( 'IWSL_Media_Protection', 'validate_protect_params' )
+				),
+				new IWSL_Command_Handler(
+					'media.delete',
+					static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+						// A REAL attachment delete (file + thumbnails). The validator already
+						// hard-required confirm:true; the engine fences it again. NEVER a
+						// folder/tag path.
+						$p      = $envelope->params;
+						$detail = new IWSL_Media_Detail( $plugin->entitlements() );
+						return array( true, $detail->delete( (int) $p->id, isset( $p->confirm ) && true === $p->confirm ) );
+					},
+					array( 'IWSL_Media_Detail', 'validate_delete_params' )
+				),
+				new IWSL_Command_Handler(
+					'media.usage',
+					static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+						// Read-only bounded where-used scan (posts/meta/options), paginated.
+						$p      = $envelope->params;
+						$page   = isset( $p->page ) ? (int) $p->page : 1;
+						$detail = new IWSL_Media_Detail( $plugin->entitlements() );
+						return array( true, $detail->usage( (int) $p->id, $page ) );
+					},
+					array( 'IWSL_Media_Detail', 'validate_usage_params' )
+				),
 			// ── email delivery (gate flag `email_delivery`, Pro/Ultimate) ─────────────
 			// Five thin shims over IWSL_Email_Delivery — the console's signed window
 			// onto the connector's own SMTP feature. Every runner inherits STATEMENT 1

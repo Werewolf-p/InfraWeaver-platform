@@ -54,6 +54,14 @@ import type {
   MediaRestoreParams,
   MediaStatusResponse,
   MediaTreeResponse,
+  MediaDeleteParams,
+  MediaEditParams,
+  MediaGetParams,
+  MediaGetResponse,
+  MediaProtectParams,
+  MediaUpdateMetaParams,
+  MediaUsageParams,
+  MediaUsageResponse,
 } from "./manage/media";
 import type {
   EmailConfigSetParams,
@@ -1161,6 +1169,48 @@ export async function restoreMedia(site: string, params: MediaRestoreParams): Pr
 export async function mediaFolderOp(site: string, params: MediaFolderParams): Promise<RpcResult["media.folder"]> {
   const reply = await callRpc(await mediaWriteTransport(site), "media.folder", params as RpcParams["media.folder"]);
   return unwrapMediaReply<RpcResult["media.folder"]>(reply, "media.folder");
+}
+
+// ── media viewer (Agent A) — click-to-open detail read-model + safe mutations ──
+// Reads (get/usage) need only a commandable link; writes (updateMeta/edit/protect/
+// delete) additionally require identity NOT in safe mode, like every media write.
+// A conflict / locked / not-found is a VALID signed reply (reply.ok === true) whose
+// app-level state rides inside `result` — the caller narrows it, never a 502.
+
+/** Signed `media.get` — the full viewer detail (fused row + native panel fields). */
+export async function getMediaAsset(site: string, params: MediaGetParams): Promise<MediaGetResponse> {
+  const reply = await callRpc(await mediaTransport(site), "media.get", params as RpcParams["media.get"]);
+  return unwrapMediaReply<MediaGetResponse>(reply, "media.get");
+}
+
+/** Signed `media.usage` — bounded where-used scan (read-only). */
+export async function getMediaUsage(site: string, params: MediaUsageParams): Promise<MediaUsageResponse> {
+  const reply = await callRpc(await mediaTransport(site), "media.usage", params as RpcParams["media.usage"]);
+  return unwrapMediaReply<MediaUsageResponse>(reply, "media.usage");
+}
+
+/** Signed `media.updateMeta` — alt/title/caption/description with optimistic concurrency. */
+export async function updateMediaMeta(site: string, params: MediaUpdateMetaParams): Promise<RpcResult["media.updateMeta"]> {
+  const reply = await callRpc(await mediaWriteTransport(site), "media.updateMeta", params as RpcParams["media.updateMeta"]);
+  return unwrapMediaReply<RpcResult["media.updateMeta"]>(reply, "media.updateMeta");
+}
+
+/** Signed `media.edit` — WP_Image_Editor crop/rotate/flip/scale (path-contained by id). */
+export async function editMediaImage(site: string, params: MediaEditParams): Promise<RpcResult["media.edit"]> {
+  const reply = await callRpc(await mediaWriteTransport(site), "media.edit", params as RpcParams["media.edit"]);
+  return unwrapMediaReply<RpcResult["media.edit"]>(reply, "media.edit");
+}
+
+/** Signed `media.protect` — toggle the per-asset protection mark (shared contract). */
+export async function protectMedia(site: string, params: MediaProtectParams): Promise<RpcResult["media.protect"]> {
+  const reply = await callRpc(await mediaWriteTransport(site), "media.protect", params as RpcParams["media.protect"]);
+  return unwrapMediaReply<RpcResult["media.protect"]>(reply, "media.protect");
+}
+
+/** Signed `media.delete` — a REAL attachment delete (confirm-fenced by the validator). */
+export async function deleteMediaAsset(site: string, params: MediaDeleteParams): Promise<RpcResult["media.delete"]> {
+  const reply = await callRpc(await mediaWriteTransport(site), "media.delete", params as RpcParams["media.delete"]);
+  return unwrapMediaReply<RpcResult["media.delete"]>(reply, "media.delete");
 }
 
 // ── Performance & cache surface (perf.* / cache.*) ─────────────────────────────

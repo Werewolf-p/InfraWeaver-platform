@@ -225,9 +225,169 @@ export const mediaFolderParamsSchema = z.discriminatedUnion("op", [
 export type MediaFolderParams = z.infer<typeof mediaFolderParamsSchema>;
 
 /** The write verbs the dedicated media route dispatches (signed method per verb). */
-export const MEDIA_WRITE_VERBS = ["optimize", "offload", "restore", "folder"] as const;
+export const MEDIA_WRITE_VERBS = ["optimize", "offload", "restore", "folder", "updateMeta", "edit", "protect", "delete"] as const;
 export type MediaWriteVerb = (typeof MEDIA_WRITE_VERBS)[number];
 
 /** The read verbs (GET) the media route serves. */
-export const MEDIA_READ_VERBS = ["list", "tree", "status"] as const;
+export const MEDIA_READ_VERBS = ["list", "tree", "status", "get", "usage"] as const;
 export type MediaReadVerb = (typeof MEDIA_READ_VERBS)[number];
+
+// ── viewer detail (Agent A) — the click-to-open viewer read-model + mutations ──
+// Every shape MIRRORS the connector's IWSL_Media_Detail / IWSL_Media_Editor /
+// IWSL_Media_Protection validators so the two sides can never drift.
+
+export interface MediaSize {
+  readonly name: string;
+  readonly width: number;
+  readonly height: number;
+  readonly url: string;
+}
+
+export interface MediaUploader {
+  readonly id: number;
+  readonly name: string;
+}
+
+/** The full viewer detail = the fused list row + the native attachment-panel fields. */
+export interface MediaAssetDetail extends MediaAsset {
+  readonly alt: string;
+  readonly caption: string;
+  readonly description: string;
+  readonly uploader: MediaUploader;
+  /** `post_modified_gmt` — the optimistic-concurrency token (echo it as expect_modified). */
+  readonly modified: string;
+  readonly sizes: readonly MediaSize[];
+  readonly exif: Record<string, string | number> | null;
+  readonly protected: boolean;
+  readonly usage_count: number;
+  readonly edit: { readonly editable: boolean; readonly editor_available: boolean };
+}
+
+export interface MediaGetResponse {
+  readonly locked: boolean;
+  readonly found?: boolean;
+  readonly features?: MediaFeatures;
+  readonly asset?: MediaAssetDetail | null;
+  readonly gate?: MediaGate;
+}
+
+export interface MediaUpdateMetaResponse {
+  readonly ok: boolean;
+  readonly updated?: boolean;
+  readonly conflict?: boolean;
+  readonly locked?: boolean;
+  readonly reason?: string;
+  readonly asset?: { alt: string; title: string; caption: string; description: string; modified: string };
+  readonly current?: { alt: string; title: string; caption: string; description: string; modified: string };
+  readonly gate?: MediaGate;
+}
+
+export interface MediaEditResponse {
+  readonly ok: boolean;
+  readonly edited?: boolean;
+  readonly id?: number;
+  readonly reason?: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly filesize?: number;
+  readonly optimizer_cleared?: boolean;
+  readonly locked?: boolean;
+  readonly gate?: MediaGate;
+}
+
+export interface MediaProtectResponse {
+  readonly ok: boolean;
+  readonly locked?: boolean;
+  readonly changed?: number;
+  readonly protected?: boolean;
+  readonly results?: ReadonlyArray<{ id: number; protected: boolean }>;
+  readonly gate?: MediaGate;
+}
+
+export interface MediaDeleteResponse {
+  readonly ok: boolean;
+  readonly deleted?: boolean;
+  readonly id?: number;
+  readonly bucket_removed?: boolean;
+  readonly locked?: boolean;
+  readonly reason?: string;
+  readonly gate?: MediaGate;
+}
+
+export interface MediaUsageItem {
+  readonly id: number;
+  readonly title: string;
+  readonly type: string;
+  readonly status: string;
+  readonly link: string;
+}
+
+export interface MediaUsageResponse {
+  readonly locked: boolean;
+  readonly items?: readonly MediaUsageItem[];
+  readonly total?: number;
+  readonly page?: number;
+  readonly pages?: number;
+  readonly capped?: boolean;
+  readonly gate?: MediaGate;
+}
+
+// ── viewer request validators (parity with the connector's validate_* methods) ─
+
+/** `media.get` — EXACTLY { id }. */
+export const mediaGetParamsSchema = z.object({ id: z.number().int().positive() }).strict();
+export type MediaGetParams = z.infer<typeof mediaGetParamsSchema>;
+
+/** `media.usage` — { id, page? }. */
+export const mediaUsageParamsSchema = z
+  .object({ id: z.number().int().positive(), page: z.number().int().min(1).optional() })
+  .strict();
+export type MediaUsageParams = z.infer<typeof mediaUsageParamsSchema>;
+
+/** `media.updateMeta` — id + expect_modified + at least one editable field. */
+export const mediaUpdateMetaParamsSchema = z
+  .object({
+    id: z.number().int().positive(),
+    expect_modified: z.string().max(64),
+    alt: z.string().max(500).optional(),
+    title: z.string().max(300).optional(),
+    caption: z.string().max(20000).optional(),
+    description: z.string().max(20000).optional(),
+  })
+  .strict()
+  .refine(
+    (p) => p.alt !== undefined || p.title !== undefined || p.caption !== undefined || p.description !== undefined,
+    { message: "at least one editable field is required" },
+  );
+export type MediaUpdateMetaParams = z.infer<typeof mediaUpdateMetaParamsSchema>;
+
+/** `media.edit` op shapes (discriminated by type) — mirror IWSL_Media_Editor::valid_op. */
+export const EDIT_OPS_MAX = 10;
+const rotateOp = z
+  .object({ type: z.literal("rotate"), angle: z.number().int().refine((a) => a !== 0 && a % 90 === 0 && a >= -360 && a <= 360, "angle must be a non-zero multiple of 90") })
+  .strict();
+const flipOp = z.object({ type: z.literal("flip"), axis: z.enum(["horizontal", "vertical"]) }).strict();
+const cropOp = z
+  .object({ type: z.literal("crop"), x: z.number().int().min(0), y: z.number().int().min(0), width: z.number().int().positive(), height: z.number().int().positive() })
+  .strict();
+const scaleOp = z.object({ type: z.literal("scale"), width: z.number().int().positive(), height: z.number().int().positive() }).strict();
+
+export const mediaEditParamsSchema = z
+  .object({
+    id: z.number().int().positive(),
+    ops: z.array(z.discriminatedUnion("type", [rotateOp, flipOp, cropOp, scaleOp])).min(1).max(EDIT_OPS_MAX),
+    target: z.enum(["all", "thumbnail"]).optional(),
+    regenerate: z.boolean().optional(),
+  })
+  .strict();
+export type MediaEditParams = z.infer<typeof mediaEditParamsSchema>;
+
+/** `media.protect` — { ids (1..BULK_MAX), protected }. */
+export const mediaProtectParamsSchema = z
+  .object({ ids: idListSchema(BULK_MAX), protected: z.boolean() })
+  .strict();
+export type MediaProtectParams = z.infer<typeof mediaProtectParamsSchema>;
+
+/** `media.delete` — { id, confirm } where confirm is the LITERAL true (a destructive fence). */
+export const mediaDeleteParamsSchema = z.object({ id: z.number().int().positive(), confirm: z.literal(true) }).strict();
+export type MediaDeleteParams = z.infer<typeof mediaDeleteParamsSchema>;
