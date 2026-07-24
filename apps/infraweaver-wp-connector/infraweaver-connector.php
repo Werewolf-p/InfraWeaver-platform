@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.22.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.23.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -110,6 +110,7 @@ require_once __DIR__ . '/includes/class-iwsl-media-folders-ui.php';
 require_once __DIR__ . '/includes/class-iwsl-media-library.php';
 require_once __DIR__ . '/includes/class-iwsl-media-detail.php';
 require_once __DIR__ . '/includes/class-iwsl-media-editor.php';
+require_once __DIR__ . '/includes/class-iwsl-media-gallery.php';
 require_once __DIR__ . '/includes/class-iwsl-speed-pack.php';
 require_once __DIR__ . '/includes/class-iwsl-stats-classifier.php';
 require_once __DIR__ . '/includes/class-iwsl-statistics.php';
@@ -396,6 +397,17 @@ if ( $iwsl_switches->is_on( IWSL_Auto_Convert::FEATURE ) ) {
 $iwsl_media_folders = new IWSL_Media_Folders( $iwsl_ent, new IWSL_WP_Store() );
 if ( $iwsl_switches->is_on( IWSL_Media_Folders::FEATURE ) ) {
 	$iwsl_media_folders->register();
+}
+
+// Media Gallery by tag (shares `media_folders`). ONE shared render_gallery() behind a
+// shortcode ([iwsl_media_gallery] / [iwsl_gallery]), a dynamic Gutenberg block
+// (infraweaver/media-gallery) and a lazily-loaded Elementor widget. Registered on
+// every request because shortcodes/blocks/Elementor render outside admin;
+// register()'s STATEMENT 1 is the entitlement gate, so a locked site wires nothing.
+// The public lightbox is the viewer's presentation core ONLY — no admin data reaches
+// a visitor (see the information-disclosure fence in IWSL_Media_Gallery).
+if ( $iwsl_switches->is_on( IWSL_Media_Gallery::FEATURE ) ) {
+	( new IWSL_Media_Gallery( $iwsl_ent, new IWSL_WP_Store() ) )->register();
 }
 
 // Background image conversion tick (gated on `image_optimization` inside the

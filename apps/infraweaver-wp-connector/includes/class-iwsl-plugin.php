@@ -842,6 +842,18 @@ final class IWSL_Plugin {
 								IWSL_Media_Library::int_list( isset( $p->remove ) ? $p->remove : array(), IWSL_Media_Library::FOLDER_IDS_MAX )
 							);
 							break;
+						case 'tag_rename':
+							// Terms-only: renames the tag term; every tagged file is byte-identical.
+							$r = $folders->rename_tag( (int) $p->id, (string) $p->name );
+							break;
+						case 'tag_delete':
+							// Terms-only: drops the tag term + its relationships; NO file deleted.
+							$r = $folders->delete_tag( (int) $p->id );
+							break;
+						case 'tag_merge':
+							// Terms-only: files carrying `from` gain `into`, then `from` is removed.
+							$r = $folders->merge_tags( (int) $p->from, (int) $p->into );
+							break;
 						default:
 							$r = array( 'ok' => false, 'reason' => 'bad-op' );
 					}

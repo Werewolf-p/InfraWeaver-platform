@@ -1070,3 +1070,74 @@ iwsl_assert_same( 0, wp_count_terms( array( 'taxonomy' => IWSL_Media_Folders::TA
 iwsl_assert_same( $before_purge, serialize( $GLOBALS['iwsl_mf_att'] ), 'purge: DATA-SAFETY — attachment records BYTE-IDENTICAL' );
 iwsl_assert_same( 'attachment', get_post_type( 1101 ), 'purge: attachment 1101 still present' );
 iwsl_assert_same( 'attachment', get_post_type( 1102 ), 'purge: attachment 1102 still present' );
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 10. TAG CRUD — rename / delete / merge the tag VOCABULARY (TERMS ONLY).
+// ══════════════════════════════════════════════════════════════════════════════
+
+// rename_tag — renames the term; attachments keep it; rejects a foreign / unknown id.
+iwsl_mf_reset();
+$eng = iwsl_mf_engine( iwsl_mf_unlocked( $MF_NOW ) );
+iwsl_mf_add_attachment( 1201 );
+$eng->tag( array( 1201 ), array( 'Landscpe' ), array() ); // deliberate typo to fix
+$tag_id = iwsl_mf_find_by_name( 'Landscpe', IWSL_Media_Folders::TAX_TAG, 0 );
+$before_rename = serialize( $GLOBALS['iwsl_mf_att'] );
+
+$tr = $eng->rename_tag( $tag_id, 'Landscape' );
+iwsl_assert_same( true, $tr['ok'], 'tag_rename: ok=true' );
+iwsl_assert_same( 'Landscape', get_term( $tag_id, IWSL_Media_Folders::TAX_TAG )->name, 'tag_rename: term name updated' );
+iwsl_assert( in_array( $tag_id, array_map( 'intval', $GLOBALS['iwsl_mf_rel'][1201][ IWSL_Media_Folders::TAX_TAG ] ?? array() ), true ), 'tag_rename: file KEEPS the (renamed) tag' );
+iwsl_assert_same( $before_rename, serialize( $GLOBALS['iwsl_mf_att'] ), 'tag_rename: DATA-SAFETY — attachment records BYTE-IDENTICAL' );
+
+// A folder term id is not a tag → rejected; unknown id → rejected.
+$folder_term = iwsl_mf_make( $eng, 'RealFolder' );
+iwsl_assert_same( false, $eng->rename_tag( $folder_term, 'Nope' )['ok'], 'tag_rename: a folder term id is rejected (not a tag)' );
+iwsl_assert_same( false, $eng->rename_tag( 777333, 'Nope' )['ok'], 'tag_rename: an unknown term id is rejected' );
+// Locked gate.
+$locked_tag = iwsl_mf_engine( iwsl_mf_locked( $MF_NOW ) );
+iwsl_assert_same( 'entitlement-locked', $locked_tag->rename_tag( $tag_id, 'X' )['reason'], 'tag_rename: locked site rejects with the gate reason' );
+
+// delete_tag — removes the term + relationships; NO attachment touched.
+iwsl_mf_reset();
+$eng = iwsl_mf_engine( iwsl_mf_unlocked( $MF_NOW ) );
+iwsl_mf_add_attachment( 1301 );
+iwsl_mf_add_attachment( 1302 );
+iwsl_mf_add_attachment( 1303 );
+$eng->tag( array( 1301, 1302 ), array( 'Draft' ), array() ); // two files carry it; 1303 does not
+$draft = iwsl_mf_find_by_name( 'Draft', IWSL_Media_Folders::TAX_TAG, 0 );
+$before_deltag = serialize( $GLOBALS['iwsl_mf_att'] );
+
+$dt = $eng->delete_tag( $draft );
+iwsl_assert_same( true, $dt['ok'], 'tag_delete: ok=true' );
+iwsl_assert_same( 2, (int) $dt['files_untagged'], 'tag_delete: reports the 2 files that carried the tag' );
+iwsl_assert_same( null, get_term( $draft, IWSL_Media_Folders::TAX_TAG ), 'tag_delete: the tag term is gone' );
+iwsl_assert_same( array(), $GLOBALS['iwsl_mf_rel'][1301][ IWSL_Media_Folders::TAX_TAG ] ?? array(), 'tag_delete: file 1301 no longer carries the tag' );
+iwsl_assert_same( $before_deltag, serialize( $GLOBALS['iwsl_mf_att'] ), 'tag_delete: DATA-SAFETY — attachment records BYTE-IDENTICAL' );
+iwsl_assert_same( 'attachment', get_post_type( 1301 ), 'tag_delete: attachment 1301 still exists' );
+// Reject a folder term / unknown id.
+$folder_term2 = iwsl_mf_make( $eng, 'FolderNotTag' );
+iwsl_assert_same( false, $eng->delete_tag( $folder_term2 )['ok'], 'tag_delete: a folder term id is rejected' );
+
+// merge_tags — files carrying `from` gain `into`; `from` removed; NO attachment touched.
+iwsl_mf_reset();
+$eng = iwsl_mf_engine( iwsl_mf_unlocked( $MF_NOW ) );
+iwsl_mf_add_attachment( 1401 );
+iwsl_mf_add_attachment( 1402 );
+iwsl_mf_add_attachment( 1403 );
+$eng->tag( array( 1401, 1402 ), array( 'Kitten' ), array() ); // synonym to fold in
+$eng->tag( array( 1403 ), array( 'Cat' ), array() );          // canonical
+$kitten = iwsl_mf_find_by_name( 'Kitten', IWSL_Media_Folders::TAX_TAG, 0 );
+$cat    = iwsl_mf_find_by_name( 'Cat', IWSL_Media_Folders::TAX_TAG, 0 );
+$before_merge = serialize( $GLOBALS['iwsl_mf_att'] );
+
+$mg = $eng->merge_tags( $kitten, $cat );
+iwsl_assert_same( true, $mg['ok'], 'tag_merge: ok=true' );
+iwsl_assert_same( 2, (int) $mg['moved'], 'tag_merge: both files carrying the source tag are moved' );
+iwsl_assert_same( null, get_term( $kitten, IWSL_Media_Folders::TAX_TAG ), 'tag_merge: the source tag term is deleted' );
+iwsl_assert( in_array( $cat, array_map( 'intval', $GLOBALS['iwsl_mf_rel'][1401][ IWSL_Media_Folders::TAX_TAG ] ?? array() ), true ), 'tag_merge: file 1401 now carries the destination tag' );
+iwsl_assert( in_array( $cat, array_map( 'intval', $GLOBALS['iwsl_mf_rel'][1402][ IWSL_Media_Folders::TAX_TAG ] ?? array() ), true ), 'tag_merge: file 1402 now carries the destination tag' );
+iwsl_assert_same( $before_merge, serialize( $GLOBALS['iwsl_mf_att'] ), 'tag_merge: DATA-SAFETY — attachment records BYTE-IDENTICAL' );
+// Refusals: merge-into-self, unknown ids, locked gate.
+iwsl_assert_same( 'merge-into-self', $eng->merge_tags( $cat, $cat )['reason'], 'tag_merge: refuses merging a tag into itself' );
+iwsl_assert_same( false, $eng->merge_tags( 999001, $cat )['ok'], 'tag_merge: unknown source id rejected' );
+iwsl_assert_same( 'entitlement-locked', iwsl_mf_engine( iwsl_mf_locked( $MF_NOW ) )->merge_tags( $cat, $cat )['reason'], 'tag_merge: locked site rejects with the gate reason' );

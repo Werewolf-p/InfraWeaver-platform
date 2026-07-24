@@ -627,6 +627,122 @@ final class IWSL_Media_Folders {
 		return array( 'ok' => true, 'updated' => $updated, 'skipped' => $skipped, 'added' => $add, 'removed' => $remove );
 	}
 
+	// ── tag vocabulary CRUD (TERMS ONLY — attachments are never touched) ──────────────
+
+	/**
+	 * Rename a tag term (validated to be ours). Attachments keep the term — only the
+	 * term row's name changes — so every file tagged with it is byte-identical after.
+	 *
+	 * @return array{ ok:bool, reason?:string, tag?:array<string,mixed> }
+	 */
+	public function rename_tag( int $id, string $name ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'reason' => 'entitlement-locked' );
+		}
+		if ( $id <= 0 || null === $this->our_term( $id, self::TAX_TAG ) ) {
+			return array( 'ok' => false, 'reason' => 'not-found' );
+		}
+		$name   = self::sanitize_name( $name );
+		$reason = self::validate_name( $name );
+		if ( '' !== $reason ) {
+			return array( 'ok' => false, 'reason' => $reason );
+		}
+		if ( ! function_exists( 'wp_update_term' ) ) {
+			return array( 'ok' => false, 'reason' => 'no-wp' );
+		}
+		$res = wp_update_term( $id, self::TAX_TAG, array( 'name' => $name ) );
+		if ( self::is_error( $res ) ) {
+			return array( 'ok' => false, 'reason' => 'update-failed' );
+		}
+		return array( 'ok' => true, 'tag' => $this->tag_dto_by_id( $id ) );
+	}
+
+	/**
+	 * Delete a tag term. `wp_delete_term` removes the term row + its object
+	 * relationships (the affected files simply lose the tag); NO attachment or file is
+	 * ever deleted. `files_untagged` reports how many files carried it.
+	 *
+	 * @return array{ ok:bool, reason?:string, files_untagged?:int }
+	 */
+	public function delete_tag( int $id ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'reason' => 'entitlement-locked' );
+		}
+		if ( $id <= 0 || null === $this->our_term( $id, self::TAX_TAG ) ) {
+			return array( 'ok' => false, 'reason' => 'not-found' );
+		}
+		$count = count( $this->objects_in_tag( $id ) );
+		if ( ! function_exists( 'wp_delete_term' ) ) {
+			return array( 'ok' => false, 'reason' => 'no-wp' );
+		}
+		$res = wp_delete_term( $id, self::TAX_TAG );
+		if ( self::is_error( $res ) || false === $res ) {
+			return array( 'ok' => false, 'reason' => 'delete-failed' );
+		}
+		return array( 'ok' => true, 'files_untagged' => $count );
+	}
+
+	/**
+	 * Merge tag $from into tag $into: every file carrying $from gains $into, then $from
+	 * is deleted. TERMS ONLY — only term relationships change; attachment records stay
+	 * byte-identical. Refuses a merge into itself (a no-op that would delete the term).
+	 *
+	 * @return array{ ok:bool, reason?:string, moved?:int, into?:array<string,mixed> }
+	 */
+	public function merge_tags( int $from, int $into ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'ok' => false, 'reason' => 'entitlement-locked' );
+		}
+		if ( $from <= 0 || $into <= 0 ) {
+			return array( 'ok' => false, 'reason' => 'bad-id' );
+		}
+		if ( $from === $into ) {
+			return array( 'ok' => false, 'reason' => 'merge-into-self' );
+		}
+		if ( null === $this->our_term( $from, self::TAX_TAG ) || null === $this->our_term( $into, self::TAX_TAG ) ) {
+			return array( 'ok' => false, 'reason' => 'not-found' );
+		}
+
+		$moved = 0;
+		if ( function_exists( 'wp_set_object_terms' ) ) {
+			foreach ( $this->objects_in_tag( $from ) as $aid ) {
+				$res = wp_set_object_terms( (int) $aid, array( $into ), self::TAX_TAG, true );
+				if ( ! self::is_error( $res ) ) {
+					++$moved;
+				}
+			}
+		}
+		if ( function_exists( 'wp_delete_term' ) ) {
+			wp_delete_term( $from, self::TAX_TAG );
+		}
+		return array( 'ok' => true, 'moved' => $moved, 'into' => $this->tag_dto_by_id( $into ) );
+	}
+
+	/** Object ids currently carrying a tag term (empty under the harness / on error). */
+	private function objects_in_tag( int $id ): array {
+		if ( $id <= 0 || ! function_exists( 'get_objects_in_term' ) ) {
+			return array();
+		}
+		$objs = get_objects_in_term( $id, self::TAX_TAG );
+		if ( self::is_error( $objs ) || ! is_array( $objs ) ) {
+			return array();
+		}
+		return array_map( 'intval', $objs );
+	}
+
+	/** A tag DTO { id, name, count } re-read fresh after a mutation. */
+	private function tag_dto_by_id( int $id ): array {
+		$term = $this->our_term( $id, self::TAX_TAG );
+		return array(
+			'id'    => $id,
+			'name'  => ( is_object( $term ) && isset( $term->name ) ) ? (string) $term->name : '',
+			'count' => ( is_object( $term ) && isset( $term->count ) ) ? (int) $term->count : 0,
+		);
+	}
+
 	// ── teardown ────────────────────────────────────────────────────────────────────
 
 	/**
