@@ -111,6 +111,7 @@ require_once __DIR__ . '/includes/class-iwsl-media-library.php';
 require_once __DIR__ . '/includes/class-iwsl-media-detail.php';
 require_once __DIR__ . '/includes/class-iwsl-media-editor.php';
 require_once __DIR__ . '/includes/class-iwsl-media-gallery.php';
+require_once __DIR__ . '/includes/class-iwsl-media-native.php';
 require_once __DIR__ . '/includes/class-iwsl-speed-pack.php';
 require_once __DIR__ . '/includes/class-iwsl-stats-classifier.php';
 require_once __DIR__ . '/includes/class-iwsl-statistics.php';
@@ -408,6 +409,15 @@ if ( $iwsl_switches->is_on( IWSL_Media_Folders::FEATURE ) ) {
 // a visitor (see the information-disclosure fence in IWSL_Media_Gallery).
 if ( $iwsl_switches->is_on( IWSL_Media_Gallery::FEATURE ) ) {
 	( new IWSL_Media_Gallery( $iwsl_ent, new IWSL_WP_Store() ) )->register();
+}
+
+// Native-media takeover (Pro/Ultimate, `media_folders` + option
+// iwsl_media_explorer.replace_native, default OFF). register() is HOOK-ABSENT
+// unless the feature is unlocked AND the operator flipped the toggle on — a default
+// install (and any locked/switched-off site) attaches NOTHING and behaves
+// byte-for-byte like stock WordPress media. Console flips it via media.config.*.
+if ( $iwsl_switches->is_on( IWSL_Media_Native::FEATURE ) ) {
+	( new IWSL_Media_Native( $iwsl_ent, new IWSL_WP_Store() ) )->register();
 }
 
 // Background image conversion tick (gated on `image_optimization` inside the

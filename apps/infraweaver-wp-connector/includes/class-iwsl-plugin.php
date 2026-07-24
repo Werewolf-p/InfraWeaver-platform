@@ -70,6 +70,16 @@ final class IWSL_Plugin {
 	}
 
 	/**
+	 * The native-media takeover engine (gate flag `media_folders`), built fresh from
+	 * the plugin's OWN entitlement gate + store — cheap, and the store is the shared
+	 * one so `media.config.set` and `media.config.get` see the same option. Mirrors
+	 * redirects_engine(): a thin wrapper over the store, no lazy field needed.
+	 */
+	public function media_native(): IWSL_Media_Native {
+		return new IWSL_Media_Native( $this->entitlements, $this->store );
+	}
+
+	/**
 	 * The SMTP delivery & email-log engine (gate flag `email_delivery`), built once
 	 * from the plugin's own entitlement gate + store and the shared clock. Lazy so a
 	 * request that never sends mail forces no object graph.
@@ -1579,6 +1589,41 @@ final class IWSL_Plugin {
 					return array( true, $plugin->maintenance_mode()->save_settings( $input ) );
 				},
 				$maintenance_set_params
+			),
+			// ── native-media takeover (gate flag `media_folders`, Pro/Ultimate) ───────
+			// Two thin shims over IWSL_Media_Native — the console's only channel onto the
+			// `iwsl_media_explorer.replace_native` toggle. Mirrors the email.config.* shim
+			// style: the read reports the gate as a renderable `locked` state (never an
+			// error); the write is gate-first (a locked site cannot enable the takeover)
+			// and echoes the resulting flag. No REST/AJAX surface — signed channel only.
+			new IWSL_Command_Handler(
+				'media.config.get',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return array( true, $plugin->media_native()->config_snapshot() );
+				}
+			),
+			new IWSL_Command_Handler(
+				'media.config.set',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// STATEMENT 1 (the entitlement gate) lives inside set_replace_native():
+					// it refuses to enable a locked site and writes nothing, returning the
+					// gate. A conflict-free, idempotent boolean flip otherwise.
+					$on = isset( $envelope->params->replace_native ) && true === $envelope->params->replace_native;
+					return array( true, $plugin->media_native()->set_replace_native( $on ) );
+				},
+				// Strict validator: EXACTLY { replace_native: bool }. No stray keys, no
+				// missing key, no non-bool — the signed envelope shape is pinned before
+				// dispatch (the engine re-checks the gate regardless).
+				static function ( $params ): bool {
+					if ( ! $params instanceof stdClass ) {
+						return false;
+					}
+					$vars = get_object_vars( $params );
+					if ( array() !== array_diff_key( $vars, array( 'replace_native' => 1 ) ) ) {
+						return false; // unknown top-level key.
+					}
+					return isset( $vars['replace_native'] ) && is_bool( $vars['replace_native'] );
+				}
 			),
 		);
 

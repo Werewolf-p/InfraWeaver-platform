@@ -90,7 +90,7 @@ require __DIR__ . '/../includes/class-iwsl-seo-sitemap.php';
 require __DIR__ . '/../includes/class-iwsl-seo-suite.php';
 require __DIR__ . '/../includes/class-iwsl-perf-audit.php';
 // New Wave engines. Guarded so an in-progress file never fatals sibling suites.
-foreach ( array( 'class-iwsl-response-scan.php', 'class-iwsl-media-protection.php', 'class-iwsl-seo-alt-text.php', 'class-iwsl-seo-console.php', 'class-iwsl-elementor-blocks.php', 'class-iwsl-media-folders.php', 'class-iwsl-media-folders-ui.php', 'class-iwsl-media-library.php', 'class-iwsl-media-detail.php', 'class-iwsl-media-editor.php', 'class-iwsl-media-gallery.php', 'class-iwsl-security-headers.php' ) as $iwsl_new_inc ) {
+foreach ( array( 'class-iwsl-response-scan.php', 'class-iwsl-media-protection.php', 'class-iwsl-seo-alt-text.php', 'class-iwsl-seo-console.php', 'class-iwsl-elementor-blocks.php', 'class-iwsl-media-folders.php', 'class-iwsl-media-folders-ui.php', 'class-iwsl-media-library.php', 'class-iwsl-media-detail.php', 'class-iwsl-media-editor.php', 'class-iwsl-media-gallery.php', 'class-iwsl-media-native.php', 'class-iwsl-security-headers.php' ) as $iwsl_new_inc ) {
 	$iwsl_new_path = __DIR__ . '/../includes/' . $iwsl_new_inc;
 	if ( file_exists( $iwsl_new_path ) ) {
 		require_once $iwsl_new_path;
@@ -171,7 +171,7 @@ $suites = array( 'jcs', 'slhdsa', 'slhdsa-192f', 'verifier', 'enrollment', 'wp-s
 	// Wave 2 feature suites. broken-link-scan runs after media-optimizer (whose
 	// global stubs it is designed around); speed-pack MUST be last (it defines
 	// remove_action/remove_filter recorder stubs).
-	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'redirect-suggestions', 'site-health', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'seo-alt-text', 'seo-console', 'perf-audit', 'media-protection', 'media-folders', 'media-library', 'media-detail', 'media-editor', 'media-gallery', 'media-commands', 'response-scan', 'security-headers', 'elementor-blocks', 'content-branding', 'teardown', 'speed-pack' );
+	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'redirect-suggestions', 'site-health', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'seo-alt-text', 'seo-console', 'perf-audit', 'media-protection', 'media-folders', 'media-library', 'media-detail', 'media-editor', 'media-gallery', 'media-native', 'media-commands', 'response-scan', 'security-headers', 'elementor-blocks', 'content-branding', 'teardown', 'speed-pack' );
 // CHILD MODE: `php run-tests.php <suite>` runs exactly ONE suite in this process.
 // Each suite is self-contained (it defines its own guarded WP-function stubs), so
 // running it in isolation is authoritative and free of cross-suite global leakage.
