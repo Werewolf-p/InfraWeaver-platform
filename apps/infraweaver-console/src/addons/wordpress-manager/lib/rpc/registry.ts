@@ -32,6 +32,19 @@ import {
   type MediaStatusResponse,
   type MediaTreeResponse,
 } from "../manage/media";
+import {
+  brandingSetParamsSchema,
+  configSetParamsSchema,
+  contentDuplicateParamsSchema,
+  type BrandingGetResponse,
+  type BrandingSetParams,
+  type BrandingSetResult,
+  type ConfigApplyResult,
+  type ConfigGetResponse,
+  type ConfigSetParams,
+  type ContentDuplicateParams,
+  type ContentDuplicateResult,
+} from "../manage/content-branding";
 
 /** Signed-command methods the Connector allow-lists (§7). Wire strings — never rename. */
 export type RpcMethod =
@@ -51,7 +64,13 @@ export type RpcMethod =
   | "media.optimize"
   | "media.offload"
   | "media.restore"
-  | "media.folder";
+  | "media.folder"
+  // ── content / branding / config fusion (content-branding domain) ──
+  | "branding.get"
+  | "branding.set"
+  | "config.get"
+  | "config.set"
+  | "content.duplicate";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -73,6 +92,12 @@ export interface RpcParams {
   "media.offload": MediaOffloadParams;
   "media.restore": MediaRestoreParams;
   "media.folder": MediaFolderParams;
+  // ── content / branding / config — params mirror the connector's wire validators.
+  "branding.get": Record<string, never>;
+  "branding.set": BrandingSetParams;
+  "config.get": Record<string, never>;
+  "config.set": ConfigSetParams;
+  "content.duplicate": ContentDuplicateParams;
 }
 
 /**
@@ -152,6 +177,17 @@ export interface RpcResult {
   };
   /** Terms-only folder mutation echo. */
   "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  // ── content / branding / config — the plugin is the source of truth.
+  /** Read-only, safe when locked: the gate + full settings + surface metadata. */
+  "branding.get": BrandingGetResponse;
+  /** `{ ok:true, settings }` on save, or `{ ok:false, reason }` (e.g. entitlement-locked). */
+  "branding.set": BrandingSetResult;
+  /** Allow-list + effective current + last-written configured + mechanism + writability. */
+  "config.get": ConfigGetResponse;
+  /** Full apply() report — applied/skipped/manual_step/effective, rendered verbatim. */
+  "config.set": ConfigApplyResult;
+  /** New draft ids on success, or a verbatim refusal reason (entitlement-locked/unknown-post). */
+  "content.duplicate": ContentDuplicateResult;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -200,6 +236,13 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
   "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
   "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
+  // Content / branding / config — validators reuse the isomorphic zod schemas that
+  // mirror the connector's wire validators, so verifier and console can never drift.
+  "branding.get": { hasParams: false, validate: noParams },
+  "branding.set": { hasParams: true, validate: (p) => brandingSetParamsSchema.safeParse(p).success },
+  "config.get": { hasParams: false, validate: noParams },
+  "config.set": { hasParams: true, validate: (p) => configSetParamsSchema.safeParse(p).success },
+  "content.duplicate": { hasParams: true, validate: (p) => contentDuplicateParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */

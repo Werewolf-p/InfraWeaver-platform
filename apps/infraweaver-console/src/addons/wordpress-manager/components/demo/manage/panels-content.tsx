@@ -15,6 +15,7 @@ import { useManagePanel } from "./use-manage";
 import { ActionError, BTN, BTN_SM, BTN_DANGER_GHOST, ConfirmDialog, Field, INPUT, useActionRunner } from "./manage-ui";
 import { parseId } from "./form-validation";
 import { DataTable, EmptyState, Pill, type Column, type PillTone } from "./kit";
+import { DuplicatePostCard } from "../../manage/content-branding/duplicate-post-card";
 
 type StatusKey = "published" | "draft" | "scheduled" | "pending" | "other";
 const TILE = "rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950/40";
@@ -239,6 +240,8 @@ export function ContentPanel({ site }: { site: string }) {
             </SectionCard>
 
             <PostByIdCard site={site} onChanged={state.reload} />
+
+            <DuplicatePostCard site={site} onChanged={state.reload} />
 
             <SectionCard title="Editorial" description="Drafts and stored revisions." icon={CalendarClock} className="lg:col-span-2">
               <div className="grid gap-3 sm:grid-cols-2">

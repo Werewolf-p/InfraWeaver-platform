@@ -9,6 +9,7 @@ import type { SitePod } from "../../../lib/site-pods";
 import { SectionCard, StatTile, healthTone } from "../widgets";
 import { PanelState } from "./panel-shell";
 import { useManagePanel } from "./use-manage";
+import { ConfigEditorCard } from "../../manage/content-branding/config-editor-card";
 
 const PILL = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium";
 const TONE_GOOD = "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
@@ -155,6 +156,8 @@ export function ResourcesPanel({ site }: { site: string }) {
                 </table>
               </div>
             </SectionCard>
+
+            <ConfigEditorCard site={site} />
           </div>
         );
       }}

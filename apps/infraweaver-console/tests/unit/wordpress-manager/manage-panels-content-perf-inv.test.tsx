@@ -51,6 +51,25 @@ jest.mock("@/addons/wordpress-manager/components/demo/manage/use-manage", () => 
   useManageAction: () => ({ run: jest.fn().mockResolvedValue({ ok: true, message: "Done." }), pending: false }),
 }));
 
+// ContentPanel now fuses in a `duplicate_post` TierGate (Duplicate-a-post card).
+// TierGate reads the site's entitlements via react-query; stub it to a NOT-granted
+// view so the card renders its (query-free) locked upsell — no QueryClientProvider
+// needed and the panel's own assertions are unaffected.
+jest.mock("@/addons/wordpress-manager/lib/manage/use-site-entitlements", () => ({
+  useSiteEntitlements: () => ({
+    tier: "free",
+    flags: {},
+    switches: {},
+    connectorActive: false,
+    identitySuspended: false,
+    loading: false,
+    error: null,
+    has: () => false,
+    isSwitchedOff: () => false,
+  }),
+  siteEntitlementsKey: (site: string) => ["wordpress-iwsl-link", site],
+}));
+
 import { ContentPanel } from "@/addons/wordpress-manager/components/demo/manage/panels-content";
 import { PerformancePanel } from "@/addons/wordpress-manager/components/demo/manage/panels-performance";
 import { InventoryPanel } from "@/addons/wordpress-manager/components/demo/manage/panels-inventory";
