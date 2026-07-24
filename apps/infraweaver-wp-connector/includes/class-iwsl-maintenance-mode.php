@@ -81,12 +81,22 @@ final class IWSL_Maintenance_Mode {
 	private $is_front;
 
 	/**
+	 * @var callable():(array{logo_url:string,name:string,accent:string}|null)|null
+	 * White-label brand adoption provider — IWSL_White_Label::maintenance_brand(),
+	 * which gates on `white_label` + `apply_to_maintenance`. null (or a null return)
+	 * means "no brand adoption": the holding page keeps its own default appearance.
+	 */
+	private $brand;
+
+	/**
 	 * @param IWSL_Entitlements $entitlements The gate.
 	 * @param IWSL_Store|null   $store        Settings persistence; defaults to the WP option store.
 	 * @param callable|null     $now_ms       Clock, mirrors IWSL_Entitlements.
 	 * @param callable|null     $responder    fn(status,headers,body):void; default sends the 503 + exits.
 	 * @param callable|null     $is_admin     fn():bool; default is current_user_can('manage_options').
 	 * @param callable|null     $is_front     fn():bool; default is the front-end request probe.
+	 * @param callable|null     $brand        fn():?array — the white-label brand-adoption provider
+	 *                                        (logo/name/accent) when `apply_to_maintenance` is on; null = none.
 	 */
 	public function __construct(
 		IWSL_Entitlements $entitlements,
@@ -94,7 +104,8 @@ final class IWSL_Maintenance_Mode {
 		?callable $now_ms = null,
 		?callable $responder = null,
 		?callable $is_admin = null,
-		?callable $is_front = null
+		?callable $is_front = null,
+		?callable $brand = null
 	) {
 		$this->entitlements = $entitlements;
 		$this->store        = null !== $store ? $store : new IWSL_WP_Store();
@@ -104,6 +115,7 @@ final class IWSL_Maintenance_Mode {
 		$this->responder = $responder ?? self::default_responder();
 		$this->is_admin  = $is_admin ?? self::default_is_admin();
 		$this->is_front  = $is_front ?? self::default_is_front();
+		$this->brand     = $brand;
 	}
 
 	/**
@@ -209,14 +221,29 @@ final class IWSL_Maintenance_Mode {
 	 * can assert the status, the Retry-After header and the escaped body. Blank
 	 * headline/message fall back to the built-in copy.
 	 *
-	 * @param array{ headline?:string, message?:string, retry_after?:bool } $settings
+	 * BRAND ADOPTION (precedence: explicit local wins). When $brand is supplied (the
+	 * white-label engine opted this page in via `apply_to_maintenance`), its logo and
+	 * accent decorate the page, and its brand NAME fills the headline ONLY when the
+	 * operator left the local headline blank — an explicit local headline always
+	 * wins. The message is never taken from the brand. $brand primitives are escaped
+	 * at render (they are values, not markup), so the trust boundary stays here.
+	 *
+	 * @param array{ headline?:string, message?:string, retry_after?:bool }           $settings
+	 * @param array{ logo_url?:string, name?:string, accent?:string }|null            $brand
 	 * @return array{ status:int, headers:array<string,string>, body:string }
 	 */
-	public function build_response( array $settings ): array {
-		$headline = isset( $settings['headline'] ) && '' !== (string) $settings['headline']
-			? (string) $settings['headline'] : self::DEFAULT_HEADLINE;
+	public function build_response( array $settings, ?array $brand = null ): array {
+		$local_headline = isset( $settings['headline'] ) ? (string) $settings['headline'] : '';
+		$brand_name     = ( null !== $brand && isset( $brand['name'] ) ) ? (string) $brand['name'] : '';
+
+		$headline = '' !== $local_headline
+			? $local_headline
+			: ( '' !== $brand_name ? $brand_name : self::DEFAULT_HEADLINE );
 		$message = isset( $settings['message'] ) && '' !== (string) $settings['message']
 			? (string) $settings['message'] : self::DEFAULT_MESSAGE;
+
+		$logo_url = ( null !== $brand && isset( $brand['logo_url'] ) ) ? (string) $brand['logo_url'] : '';
+		$accent   = ( null !== $brand && isset( $brand['accent'] ) ) ? (string) $brand['accent'] : '';
 
 		$headers = array(
 			'Content-Type'  => 'text/html; charset=utf-8',
@@ -229,7 +256,7 @@ final class IWSL_Maintenance_Mode {
 		return array(
 			'status'  => self::HTTP_STATUS,
 			'headers' => $headers,
-			'body'    => self::holding_page_html( $headline, $message ),
+			'body'    => self::holding_page_html( $headline, $message, $logo_url, $accent ),
 		);
 	}
 
@@ -254,7 +281,10 @@ final class IWSL_Maintenance_Mode {
 			return;
 		}
 
-		$response = $this->build_response( $settings );
+		// White-label brand adoption (gated inside the provider on `white_label` +
+		// `apply_to_maintenance`); null when unset/locked so the default page shows.
+		$brand    = ( null !== $this->brand ) ? ( $this->brand )() : null;
+		$response = $this->build_response( $settings, is_array( $brand ) ? $brand : null );
 		( $this->responder )( (int) $response['status'], (array) $response['headers'], (string) $response['body'] );
 	}
 
@@ -267,9 +297,24 @@ final class IWSL_Maintenance_Mode {
 	 * URL-less, markup-less design keeps the attack surface at exactly those two
 	 * escaped inserts.
 	 */
-	private static function holding_page_html( string $headline, string $message ): string {
+	private static function holding_page_html( string $headline, string $message, string $logo_url = '', string $accent = '' ): string {
 		$h = self::esc( $headline );
 		$m = nl2br( self::esc( $message ) );
+
+		// Brand adoption: a validated logo URL replaces the default badge, a validated
+		// `#rrggbb` accent recolors the badge/border. Both are escaped here (esc_url /
+		// esc_attr); the accent is already `#rrggbb`-shaped by IWSL_White_Label.
+		$badge = '<div class="dot" aria-hidden="true"></div>';
+		if ( '' !== $logo_url ) {
+			$badge = '<img class="brand-logo" src="' . self::esc_url( $logo_url ) . '" alt="' . $h . '">';
+		}
+		$dot_bg     = '' !== $accent
+			? 'background:' . self::esc_attr( $accent ) . ';'
+			: 'background:radial-gradient(120% 120% at 30% 25%,#7cc4ff,#2a6df0);';
+		$card_border = '' !== $accent
+			? 'border:1px solid ' . self::esc_attr( $accent ) . ';'
+			: 'border:1px solid rgba(255,255,255,.08);';
+
 		return '<!doctype html>'
 			. '<html lang="en"><head><meta charset="utf-8">'
 			. '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -284,17 +329,18 @@ final class IWSL_Maintenance_Mode {
 			. 'line-height:1.6;-webkit-font-smoothing:antialiased}'
 			. '.card{max-width:520px;width:100%;text-align:center;'
 			. 'background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));'
-			. 'border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:44px 36px;'
+			. $card_border . 'border-radius:16px;padding:44px 36px;'
 			. 'box-shadow:0 24px 60px -24px rgba(0,0,0,.7)}'
 			. '.dot{width:44px;height:44px;margin:0 auto 22px;border-radius:12px;'
-			. 'background:radial-gradient(120% 120% at 30% 25%,#7cc4ff,#2a6df0);'
-			. 'box-shadow:0 8px 26px -8px rgba(42,109,240,.8)}'
+			. $dot_bg
+			. 'box-shadow:0 8px 26px -8px rgba(0,0,0,.5)}'
+			. '.brand-logo{max-height:64px;height:auto;margin:0 auto 22px;display:block}'
 			. 'h1{margin:0 0 12px;font-size:26px;font-weight:700;letter-spacing:-.01em;color:#fff}'
 			. 'p{margin:0;font-size:15px;color:#a9b6c4}'
 			. '.foot{margin-top:26px;font-size:12px;color:#5f6f7e;letter-spacing:.03em}'
 			. '</style></head><body>'
 			. '<main class="card" role="main">'
-			. '<div class="dot" aria-hidden="true"></div>'
+			. $badge
 			. '<h1>' . $h . '</h1>'
 			. '<p>' . $m . '</p>'
 			. '<div class="foot">HTTP 503 &middot; Service temporarily unavailable</div>'
@@ -305,6 +351,22 @@ final class IWSL_Maintenance_Mode {
 	private static function esc( string $value ): string {
 		if ( function_exists( 'esc_html' ) ) {
 			return (string) esc_html( $value );
+		}
+		return htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
+	}
+
+	/** esc_attr when WordPress is present, htmlspecialchars otherwise (harness). */
+	private static function esc_attr( string $value ): string {
+		if ( function_exists( 'esc_attr' ) ) {
+			return (string) esc_attr( $value );
+		}
+		return htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
+	}
+
+	/** esc_url when WordPress is present, htmlspecialchars otherwise (harness). */
+	private static function esc_url( string $value ): string {
+		if ( function_exists( 'esc_url' ) ) {
+			return (string) esc_url( $value );
 		}
 		return htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
 	}

@@ -226,6 +226,106 @@ final class IWSL_Plugin {
 				},
 				array( 'IWSL_Entitlements', 'validate_params' )
 			),
+			// ── Content / Branding / Config fleet methods (content-branding domain) ──
+			// One contiguous block; each runner builds its engine from the plugin's own
+			// store + entitlement gate. No public/REST/AJAX surface — the signed channel
+			// (dual-sig + JCS + per-site RBAC) is the only console→connector path.
+			new IWSL_Command_Handler(
+				'branding.get',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Read-only, SAFE WHEN LOCKED: settings() re-validates on read and
+					// capabilities() is side-effect free, so the console can render the
+					// locked state (gate.reasons) without the plugin doing anything.
+					$wl = new IWSL_White_Label( $plugin->entitlements, $plugin->store, $plugin->now_ms );
+					return array(
+						true,
+						array(
+							'gate'     => $plugin->entitlements->evaluate( IWSL_White_Label::FEATURE ),
+							'settings' => $wl->settings(),
+							'surfaces' => $wl->capabilities(),
+						),
+					);
+				}
+			),
+			new IWSL_Command_Handler(
+				'branding.set',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// STATEMENT-1 gate holds inside save_settings() (white_label/Ultimate):
+					// a mis-tiered push fails closed with `entitlement-locked`. The wire
+					// values run the IDENTICAL save-time gauntlet as the admin form — no
+					// second sanitizer.
+					$wl    = new IWSL_White_Label( $plugin->entitlements, $plugin->store, $plugin->now_ms );
+					$input = IWSL_White_Label::wire_settings_to_input( $envelope->params->settings );
+					$res   = $wl->save_settings( $input );
+					if ( empty( $res['ok'] ) ) {
+						return array( false, array( 'ok' => false, 'reason' => (string) ( $res['reason'] ?? 'error' ) ) );
+					}
+					return array( true, array( 'ok' => true, 'settings' => $res['settings'] ) );
+				},
+				array( 'IWSL_White_Label', 'validate_wire_params' )
+			),
+			new IWSL_Command_Handler(
+				'config.get',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// RBAC-only (no entitlement gate), like the admin Config tab. Read-only:
+					// reports the allow-list, live effective values, the last-written
+					// configured PHP limits, the SAPI mechanism, and target writability so
+					// the console can render configured-vs-effective honestly.
+					$ce = new IWSL_Config_Editor();
+					return array(
+						true,
+						array(
+							'allowlist'  => IWSL_Config_Editor::allowlist(),
+							'current'    => $ce->current(),
+							'configured' => $ce->configured_php_limits(),
+							'mechanism'  => $ce->php_limits_mechanism(),
+							'writable'   => array(
+								'wp_config'  => $ce->wp_config_writable(),
+								'php_limits' => $ce->php_limits_writable(),
+							),
+						),
+					);
+				}
+			),
+			new IWSL_Command_Handler(
+				'config.set',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// RBAC-only. apply() enforces the allow-list AGAIN (a stray key →
+					// `skipped`), writes fail-safe, and returns applied/skipped/manual_step/
+					// effective verbatim so the console never pretends success.
+					$ce     = new IWSL_Config_Editor();
+					$values = IWSL_Config_Editor::wire_values_to_input( $envelope->params->values );
+					return array( true, $ce->apply( $values ) );
+				},
+				array( 'IWSL_Config_Editor', 'validate_wire_params' )
+			),
+			new IWSL_Command_Handler(
+				'content.duplicate',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// CONSOLE-ACTOR SEAM (security-reviewed, see IWSL_Duplicate_Post::duplicate):
+					// build the engine with console_actor=true so it skips the per-user
+					// `edit_post` cap — the signed runner has no WP user, and the dual-signed
+					// channel + per-site RBAC IS the authority (mirrors entitlements.set).
+					// The engine's STATEMENT-1 entitlement gate (duplicate_post/Pro) STILL
+					// applies, so a non-Pro site refuses even a signed request.
+					$dp  = new IWSL_Duplicate_Post( $plugin->entitlements, null, true );
+					$res = $dp->duplicate( (int) $envelope->params->post_id );
+					if ( empty( $res['ok'] ) ) {
+						return array( false, array( 'ok' => false, 'reason' => (string) ( $res['reason'] ?? 'error' ) ) );
+					}
+					return array(
+						true,
+						array(
+							'ok'           => true,
+							'source_id'    => (int) $res['source_id'],
+							'new_id'       => (int) $res['new_id'],
+							'terms_copied' => (int) $res['terms_copied'],
+							'meta_copied'  => (int) $res['meta_copied'],
+						),
+					);
+				},
+				array( 'IWSL_Duplicate_Post', 'validate_params' )
+			),
 		);
 
 		$by_method = array();

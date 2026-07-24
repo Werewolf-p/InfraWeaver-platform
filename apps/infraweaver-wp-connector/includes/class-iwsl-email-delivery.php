@@ -505,6 +505,56 @@ final class IWSL_Email_Delivery {
 		return $stripped;
 	}
 
+	/**
+	 * `wp_mail` filter callback that PREPENDS the white-label email brand header
+	 * (logo + brand name) to HTML mail. The header is supplied by the caller — it is
+	 * the resolved output of IWSL_White_Label::email_brand_header(), which gates on
+	 * the `white_label` entitlement and the `apply_to_email` toggle — so a locked or
+	 * opted-out site passes '' and this returns the mail untouched. Deliberately does
+	 * NOT consult the `email_delivery` gate: email branding is a white-label concern
+	 * and must apply on white-label ALONE (Ultimate), regardless of whether SMTP
+	 * delivery is configured. Only HTML mail is touched — never inject markup into a
+	 * plain-text message. Immutable: builds a fresh args map, never mutates the input,
+	 * and always returns a valid $args so a branding hiccup can never break wp_mail().
+	 *
+	 * @param mixed  $args   The wp_mail argument array.
+	 * @param string $header The already-escaped brand header ('' = nothing to add).
+	 * @return mixed The (possibly header-prepended) $args.
+	 */
+	public function brand_mail( $args, string $header ) {
+		if ( '' === $header || ! is_array( $args ) || ! self::is_html_mail( $args ) ) {
+			return $args;
+		}
+		$copy            = $args;
+		$body            = isset( $copy['message'] ) ? (string) $copy['message'] : '';
+		$copy['message'] = $header . $body;
+		return $copy;
+	}
+
+	/**
+	 * Whether a wp_mail() arg array is HTML mail, judged from an explicit
+	 * `Content-Type: text/html` header (the only reliable signal available inside the
+	 * `wp_mail` filter). Headers may arrive as a string or an array of strings. Fails
+	 * closed to "not HTML" so plain-text mail is never corrupted with markup.
+	 */
+	private static function is_html_mail( array $args ): bool {
+		$headers = $args['headers'] ?? array();
+		if ( is_string( $headers ) ) {
+			$headers = array( $headers );
+		}
+		if ( ! is_array( $headers ) ) {
+			return false;
+		}
+		foreach ( $headers as $header ) {
+			if ( is_string( $header )
+				&& false !== stripos( $header, 'content-type' )
+				&& false !== stripos( $header, 'text/html' ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** True when host + a valid port are set — mail can actually be routed. */
 	public function is_configured( ?array $settings = null ): bool {
 		$settings = null === $settings ? $this->settings() : $settings;

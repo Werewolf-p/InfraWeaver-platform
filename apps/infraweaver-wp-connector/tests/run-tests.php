@@ -57,6 +57,7 @@ require __DIR__ . '/../includes/class-iwsl-email-delivery.php';
 require __DIR__ . '/../includes/class-iwsl-brand-surface.php';
 require __DIR__ . '/../includes/class-iwsl-login-brand-surface.php';
 require __DIR__ . '/../includes/class-iwsl-admin-brand-surface.php';
+require __DIR__ . '/../includes/class-iwsl-email-brand-surface.php';
 require __DIR__ . '/../includes/class-iwsl-white-label.php';
 require __DIR__ . '/../includes/class-iwsl-db-cleaner.php';
 require __DIR__ . '/../includes/class-iwsl-db-cleaners.php';
@@ -165,7 +166,7 @@ $suites = array( 'jcs', 'slhdsa', 'slhdsa-192f', 'verifier', 'enrollment', 'wp-s
 	// Wave 2 feature suites. broken-link-scan runs after media-optimizer (whose
 	// global stubs it is designed around); speed-pack MUST be last (it defines
 	// remove_action/remove_filter recorder stubs).
-	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'seo-alt-text', 'perf-audit', 'media-protection', 'media-folders', 'response-scan', 'elementor-blocks', 'teardown', 'speed-pack' );
+	'lazy-load', 'cdn-rewrite', 'duplicate-post', 'seo-audit', 'svg-upload', 'broken-link-scan', 'maintenance-mode', 'scheduled-db-cleanup', 'activity-log', 'auto-convert', 'statistics', 'cookie-consent', 'seo-suite', 'seo-alt-text', 'perf-audit', 'media-protection', 'media-folders', 'response-scan', 'elementor-blocks', 'content-branding', 'teardown', 'speed-pack' );
 // CHILD MODE: `php run-tests.php <suite>` runs exactly ONE suite in this process.
 // Each suite is self-contained (it defines its own guarded WP-function stubs), so
 // running it in isolation is authoritative and free of cross-suite global leakage.

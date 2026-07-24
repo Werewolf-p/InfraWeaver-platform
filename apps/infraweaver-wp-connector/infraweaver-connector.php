@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.19.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.20.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -80,6 +80,7 @@ require_once __DIR__ . '/includes/class-iwsl-email-delivery.php';
 require_once __DIR__ . '/includes/class-iwsl-brand-surface.php';
 require_once __DIR__ . '/includes/class-iwsl-login-brand-surface.php';
 require_once __DIR__ . '/includes/class-iwsl-admin-brand-surface.php';
+require_once __DIR__ . '/includes/class-iwsl-email-brand-surface.php';
 require_once __DIR__ . '/includes/class-iwsl-white-label.php';
 require_once __DIR__ . '/includes/class-iwsl-db-cleaner.php';
 require_once __DIR__ . '/includes/class-iwsl-db-cleaners.php';
@@ -189,8 +190,24 @@ if ( $iwsl_switches->is_on( IWSL_Page_Cache::FEATURE ) ) {
 // default WordPress login and admin chrome. Registered on every request because
 // the login hooks fire on wp-login.php (not an admin context); the engine is cheap
 // and reads only local state.
+$iwsl_white_label = null;
 if ( $iwsl_switches->is_on( IWSL_White_Label::FEATURE ) ) {
-	( new IWSL_White_Label( iwsl_plugin()->entitlements(), new IWSL_WP_Store() ) )->register();
+	$iwsl_white_label = new IWSL_White_Label( iwsl_plugin()->entitlements(), new IWSL_WP_Store() );
+	$iwsl_white_label->register();
+	// Brand kit → outgoing email (ONE brand identity, every surface). Prepend the
+	// resolved brand header to HTML mail. Gated INSIDE email_brand_header() on the
+	// `white_label` entitlement + the `apply_to_email` toggle (so revoking the flag
+	// restores stock mail instantly); email delivery's brand_mail() only touches HTML
+	// mail and never mutates the args. Deliberately wired here (white-label), not in
+	// the email-delivery block, so email branding rides `white_label` ALONE — it must
+	// not require the separate `email_delivery` (SMTP) feature to be on.
+	add_filter(
+		'wp_mail',
+		static function ( $args ) use ( $iwsl_white_label ) {
+			return iwsl_plugin()->email_delivery()->brand_mail( $args, $iwsl_white_label->email_brand_header() );
+		},
+		1001
+	);
 }
 
 // ── Plus feature engines (wave 2) ──────────────────────────────────────────────
@@ -308,8 +325,24 @@ if ( $iwsl_switches->is_on( IWSL_Broken_Link_Scan::FEATURE ) ) {
 	( new IWSL_Broken_Link_Scan( $iwsl_ent ) )->register();
 }
 
-// Maintenance Mode (Pro, `maintenance_mode`).
-$iwsl_maintenance = new IWSL_Maintenance_Mode( $iwsl_ent, new IWSL_WP_Store() );
+// Maintenance Mode (Pro, `maintenance_mode`). The last constructor arg is the
+// white-label brand-adoption provider: when the operator opted the holding page
+// into the brand (`apply_to_maintenance`, gated on `white_label`), the page adopts
+// the logo/name/accent — explicit local maintenance settings still win. null when
+// white-label is switched off, so maintenance keeps its own default appearance.
+$iwsl_maintenance = new IWSL_Maintenance_Mode(
+	$iwsl_ent,
+	new IWSL_WP_Store(),
+	null,
+	null,
+	null,
+	null,
+	( null !== $iwsl_white_label )
+		? static function () use ( $iwsl_white_label ): ?array {
+			return $iwsl_white_label->maintenance_brand();
+		}
+		: null
+);
 if ( $iwsl_switches->is_on( IWSL_Maintenance_Mode::FEATURE ) ) {
 	$iwsl_maintenance->register();
 	add_action( 'admin_post_' . IWSL_Maintenance_Mode::ACTION, array( $iwsl_maintenance, 'handle_save' ) );
