@@ -25,7 +25,7 @@ import { useManageOverview } from "./use-manage";
 import { UpdatesPanel } from "./panels-updates";
 import { InventoryPanel } from "./panels-inventory";
 import { ContentPanel } from "./panels-content";
-import { MediaPanel } from "./panels-media";
+import { MediaExplorer } from "../../manage/media/media-explorer";
 import { StorePanel } from "./panels-store";
 import { FormsPanel } from "./panels-forms";
 import { BackupsPanel } from "./panels-backups";
@@ -66,7 +66,7 @@ const PANEL_COMPONENTS: Record<ManagePanelId, (props: { site: string }) => React
   updates: UpdatesPanel,
   inventory: InventoryPanel,
   content: ContentPanel,
-  media: MediaPanel,
+  media: MediaExplorer,
   store: StorePanel,
   forms: FormsPanel,
   backups: BackupsPanel,
