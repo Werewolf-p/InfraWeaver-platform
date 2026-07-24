@@ -17,6 +17,21 @@
  */
 
 import { validateEntitlementsParams } from "../entitlements";
+import {
+  mediaFolderParamsSchema,
+  mediaListParamsSchema,
+  mediaOffloadParamsSchema,
+  mediaOptimizeParamsSchema,
+  mediaRestoreParamsSchema,
+  type MediaFolderParams,
+  type MediaListParams,
+  type MediaListResponse,
+  type MediaOffloadParams,
+  type MediaOptimizeParams,
+  type MediaRestoreParams,
+  type MediaStatusResponse,
+  type MediaTreeResponse,
+} from "../manage/media";
 
 /** Signed-command methods the Connector allow-lists (§7). Wire strings — never rename. */
 export type RpcMethod =
@@ -28,7 +43,15 @@ export type RpcMethod =
   | "key.rotate.abort"
   | "site.deactivate"
   | "link.purge"
-  | "entitlements.set";
+  | "entitlements.set"
+  // ── media fusion (§ media) — the flagship fused Media Explorer's read + act methods.
+  | "media.list"
+  | "media.tree"
+  | "media.status"
+  | "media.optimize"
+  | "media.offload"
+  | "media.restore"
+  | "media.folder";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -42,6 +65,14 @@ export interface RpcParams {
   "link.purge": Record<string, never>;
   /** Paid-feature entitlements — a console-authoritative boolean flag map. */
   "entitlements.set": { entitlements: Record<string, boolean> };
+  // ── media fusion — params mirror IWSL_Media_Library's validators exactly.
+  "media.list": MediaListParams;
+  "media.tree": Record<string, never>;
+  "media.status": Record<string, never>;
+  "media.optimize": MediaOptimizeParams;
+  "media.offload": MediaOffloadParams;
+  "media.restore": MediaRestoreParams;
+  "media.folder": MediaFolderParams;
 }
 
 /**
@@ -103,6 +134,24 @@ export interface RpcResult {
   "link.purge": { purged: true };
   /** The plugin echoes back the stored flag map it applied. */
   "entitlements.set": { entitlements: Record<string, boolean> };
+  // ── media fusion — read-model + bulk-run results (the plugin is the source of truth).
+  "media.list": MediaListResponse;
+  "media.tree": MediaTreeResponse;
+  "media.status": MediaStatusResponse;
+  /** One bounded optimize batch; `result` carries the optimizer run report (`partial` etc.). */
+  "media.optimize": { locked: boolean; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  /** One bounded offload/un-offload batch. */
+  "media.offload": { locked: boolean; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  /** Restore/bring-back — per-id results + a summary roll-up. */
+  "media.restore": {
+    locked: boolean;
+    op?: "restore";
+    results?: ReadonlyArray<{ id: number; ok: boolean; reason?: string }>;
+    summary?: { total: number; ok: number; failed: number };
+    gate?: Record<string, unknown>;
+  };
+  /** Terms-only folder mutation echo. */
+  "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -142,6 +191,15 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "link.purge": { hasParams: false, validate: noParams },
   // Paid-feature entitlements — validator mirrors the plugin's allow-list check.
   "entitlements.set": { hasParams: true, validate: validateEntitlementsParams },
+  // Media fusion — validators reuse the isomorphic zod schemas that mirror the
+  // connector's IWSL_Media_Library validators, so the two sides can never drift.
+  "media.list": { hasParams: true, validate: (p) => mediaListParamsSchema.safeParse(p).success },
+  "media.tree": { hasParams: false, validate: noParams },
+  "media.status": { hasParams: false, validate: noParams },
+  "media.optimize": { hasParams: true, validate: (p) => mediaOptimizeParamsSchema.safeParse(p).success },
+  "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
+  "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
+  "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */

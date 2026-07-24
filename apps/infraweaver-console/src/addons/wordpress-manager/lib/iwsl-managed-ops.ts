@@ -41,8 +41,20 @@ import {
   type CommandReply,
   type DispatchOptions,
   type RpcMethod,
+  type RpcParams,
+  type RpcResult,
   type RpcTransport,
 } from "./rpc/registry";
+import type {
+  MediaFolderParams,
+  MediaListParams,
+  MediaListResponse,
+  MediaOffloadParams,
+  MediaOptimizeParams,
+  MediaRestoreParams,
+  MediaStatusResponse,
+  MediaTreeResponse,
+} from "./manage/media";
 
 export type { CommandReply } from "./rpc/registry";
 
@@ -980,4 +992,94 @@ export async function updateConnectorPlugin(
     }
   }
   return { version };
+}
+
+// ── Media fusion (§ media) ─────────────────────────────────────────────────────
+// The console side of the seven signed `media.*` commands behind the flagship
+// fused Media Explorer. Reads (list/tree/status) require only a commandable link;
+// writes (optimize/offload/restore/folder) additionally require identity NOT to be
+// in safe mode — a state change on a site that reported a changed canonical URL is
+// exactly what safe mode exists to hold, mirroring set-entitlements. Every call
+// rides the same signed exec transport; the plugin re-checks the entitlement gate
+// as statement one and answers with a signed `{ locked, gate }` when unentitled.
+
+/**
+ * A read `media.*` reply an OLD connector (predating the media command surface)
+ * rejects unsigned as `unknown-method`. Surface that as an actionable 501 so the
+ * Explorer can tell the operator to update the connector (the Storage sub-tab,
+ * which rides wp-cli, keeps working meanwhile) rather than a generic 502.
+ */
+function unwrapMediaReply<T>(reply: CommandReply, method: string): T {
+  if (reply.rejectedReason === "unknown-method") {
+    throw new AddonHttpError(
+      "This site's connector is too old for the Media Explorer — update the connector to use it.",
+      501,
+    );
+  }
+  if (reply.rejectedReason) {
+    throw new AddonHttpError(`Connector rejected ${method} (${reply.rejectedReason})`, 502);
+  }
+  if (!reply.ok) {
+    throw new AddonHttpError(`Connector could not complete ${method}`, 502);
+  }
+  return reply.result as T;
+}
+
+/** Bind the signed exec transport for a commandable managed link (shared by all media ops). */
+async function mediaTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** As `mediaTransport`, but also refuses when the link is in identity safe mode (writes). */
+async function mediaWriteTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  requireIdentityConfirmed(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** Signed `media.list` — the fused, filtered, paginated read-model page (read-only). */
+export async function listMedia(site: string, params: MediaListParams): Promise<MediaListResponse> {
+  const reply = await callRpc(await mediaTransport(site), "media.list", params as RpcParams["media.list"]);
+  return unwrapMediaReply<MediaListResponse>(reply, "media.list");
+}
+
+/** Signed `media.tree` — folder tree + counts + tags (read-only, folders-gated). */
+export async function mediaTree(site: string): Promise<MediaTreeResponse> {
+  const reply = await callRpc(await mediaTransport(site), "media.tree", {});
+  return unwrapMediaReply<MediaTreeResponse>(reply, "media.tree");
+}
+
+/** Signed `media.status` — the lightweight progress snapshot for the counters (read-only). */
+export async function mediaStatus(site: string): Promise<MediaStatusResponse> {
+  const reply = await callRpc(await mediaTransport(site), "media.status", {});
+  return unwrapMediaReply<MediaStatusResponse>(reply, "media.status");
+}
+
+/** Signed `media.optimize` — one bounded optimize batch (the console loops chunks). */
+export async function optimizeMedia(site: string, params: MediaOptimizeParams): Promise<RpcResult["media.optimize"]> {
+  const reply = await callRpc(await mediaWriteTransport(site), "media.optimize", params as RpcParams["media.optimize"]);
+  return unwrapMediaReply<RpcResult["media.optimize"]>(reply, "media.optimize");
+}
+
+/** Signed `media.offload` — offload / un-offload a bounded batch (≤ BULK_MAX). */
+export async function offloadMedia(site: string, params: MediaOffloadParams): Promise<RpcResult["media.offload"]> {
+  const reply = await callRpc(await mediaWriteTransport(site), "media.offload", params as RpcParams["media.offload"]);
+  return unwrapMediaReply<RpcResult["media.offload"]>(reply, "media.offload");
+}
+
+/** Signed `media.restore` — bring back originals / un-offload (download-verify-then-drop). */
+export async function restoreMedia(site: string, params: MediaRestoreParams): Promise<RpcResult["media.restore"]> {
+  const reply = await callRpc(await mediaWriteTransport(site), "media.restore", params as RpcParams["media.restore"]);
+  return unwrapMediaReply<RpcResult["media.restore"]>(reply, "media.restore");
+}
+
+/** Signed `media.folder` — terms-only folder mutation (create/rename/move/delete/assign/tag). */
+export async function mediaFolderOp(site: string, params: MediaFolderParams): Promise<RpcResult["media.folder"]> {
+  const reply = await callRpc(await mediaWriteTransport(site), "media.folder", params as RpcParams["media.folder"]);
+  return unwrapMediaReply<RpcResult["media.folder"]>(reply, "media.folder");
 }
