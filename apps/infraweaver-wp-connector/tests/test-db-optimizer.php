@@ -401,3 +401,82 @@ if ( function_exists( 'set_transient' ) && function_exists( 'get_transient' ) &&
 	echo "  [skip] purge run-lock removal — no transient stub in this run\n";
 	iwsl_assert_same( 0, $p10['locks'], 'purge: no transient API → locks=0 (cheap no-op)' );
 }
+
+// ── 11. max_rows clamps DOWN only (never above MAX_ROWS, floor of 1) ───────────
+
+/** A single-cleaner optimizer (spam_comments) whose one DELETE we can inspect. */
+function iwsl_db_cap_optimizer( IWSL_DB_Fake_WPDB $fake, int $now ): IWSL_DB_Optimizer {
+	return new IWSL_DB_Optimizer(
+		iwsl_db_unlocked_entitlements( $now ),
+		$fake,
+		iwsl_db_clock( $now ),
+		array( 'spam_comments' => new IWSL_DB_Spam_Comments_Cleaner() )
+	);
+}
+
+// Oversize: 999999 must still LIMIT to MAX_ROWS (1000) — the cap only lowers.
+$capA = new IWSL_DB_Fake_WPDB( 5, 4 );
+iwsl_db_cap_optimizer( $capA, $DB_NOW )->run( 'run', array(), 999999 );
+iwsl_assert(
+	false !== strpos( $capA->writes[0], 'LIMIT ' . IWSL_DB_Optimizer::MAX_ROWS ) && false === strpos( $capA->writes[0], '999999' ),
+	'cap: max_rows 999999 still issues LIMIT 1000 (clamped DOWN, never up)'
+);
+
+// Zero floors to a single-row trickle (LIMIT 1).
+$capB = new IWSL_DB_Fake_WPDB( 5, 4 );
+iwsl_db_cap_optimizer( $capB, $DB_NOW )->run( 'run', array(), 0 );
+iwsl_assert( (bool) preg_match( '/LIMIT 1$/', $capB->writes[0] ), 'cap: max_rows 0 floors to LIMIT 1' );
+
+// Negative also floors to 1.
+$capC = new IWSL_DB_Fake_WPDB( 5, 4 );
+iwsl_db_cap_optimizer( $capC, $DB_NOW )->run( 'run', array(), -50 );
+iwsl_assert( (bool) preg_match( '/LIMIT 1$/', $capC->writes[0] ), 'cap: negative max_rows floors to LIMIT 1' );
+
+// A cap between 1 and MAX_ROWS is honoured verbatim.
+$capD = new IWSL_DB_Fake_WPDB( 5, 4 );
+iwsl_db_cap_optimizer( $capD, $DB_NOW )->run( 'run', array(), 250 );
+iwsl_assert( (bool) preg_match( '/LIMIT 250$/', $capD->writes[0] ), 'cap: an in-range max_rows (250) is used verbatim' );
+
+// Absent → the default MAX_ROWS.
+$capE = new IWSL_DB_Fake_WPDB( 5, 4 );
+iwsl_db_cap_optimizer( $capE, $DB_NOW )->run( 'run' );
+iwsl_assert( (bool) preg_match( '/LIMIT 1000$/', $capE->writes[0] ), 'cap: absent max_rows falls back to MAX_ROWS (1000)' );
+
+// ── 12. History ring: real runs record (with source); previews never do ────────
+
+$histStore = new IWSL_Memory_Store();
+$hist      = new IWSL_DB_History( $histStore, iwsl_db_clock( $DB_NOW ) );
+$hOpt      = new IWSL_DB_Optimizer(
+	iwsl_db_unlocked_entitlements( $DB_NOW ),
+	new IWSL_DB_Fake_WPDB( 5, 4 ),
+	iwsl_db_clock( $DB_NOW ),
+	array( 'spam_comments' => new IWSL_DB_Spam_Comments_Cleaner() ),
+	$hist
+);
+
+$hOpt->run( 'preview' );
+iwsl_assert_same( 0, count( $hist->all() ), 'history: a PREVIEW records nothing (side-effect-free at the storage layer)' );
+
+$hOpt->run( 'run', array(), IWSL_DB_Optimizer::MAX_ROWS, 'console' );
+$entries = $hist->all();
+iwsl_assert_same( 1, count( $entries ), 'history: a REAL run records exactly one entry' );
+iwsl_assert_same( 'console', $entries[0]['source'], 'history: the entry carries the run source' );
+iwsl_assert_same( 4, $entries[0]['total'], 'history: the entry carries the run total' );
+iwsl_assert_same( 'spam_comments', $entries[0]['cleaners'][0]['id'], 'history: the entry carries per-cleaner ids' );
+
+// A LOCKED run records nothing — the gate is STATEMENT 1, before any recording.
+$lockHist = new IWSL_DB_History( new IWSL_Memory_Store(), iwsl_db_clock( $DB_NOW ) );
+$lockOpt  = new IWSL_DB_Optimizer(
+	iwsl_db_entitlements( 'active', $DB_NOW - 60000, false, $DB_NOW ),
+	new IWSL_DB_Fake_WPDB( 5, 4 ),
+	iwsl_db_clock( $DB_NOW ),
+	array( 'spam_comments' => new IWSL_DB_Spam_Comments_Cleaner() ),
+	$lockHist
+);
+$lockOpt->run( 'run' );
+iwsl_assert_same( 0, count( $lockHist->all() ), 'history: a LOCKED run records nothing' );
+
+// purge() with a history recorder removes the ring and reports it in `options`.
+$pHist = $hOpt->purge();
+iwsl_assert_same( 1, $pHist['options'], 'purge: with a history ring present, the key is removed (options=1)' );
+iwsl_assert_same( 0, count( $hist->all() ), 'purge: the history ring is empty afterward' );

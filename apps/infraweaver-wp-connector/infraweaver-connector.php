@@ -84,7 +84,9 @@ require_once __DIR__ . '/includes/class-iwsl-email-brand-surface.php';
 require_once __DIR__ . '/includes/class-iwsl-white-label.php';
 require_once __DIR__ . '/includes/class-iwsl-db-cleaner.php';
 require_once __DIR__ . '/includes/class-iwsl-db-cleaners.php';
+require_once __DIR__ . '/includes/class-iwsl-db-history.php';
 require_once __DIR__ . '/includes/class-iwsl-db-optimizer.php';
+require_once __DIR__ . '/includes/class-iwsl-db-analyzer.php';
 require_once __DIR__ . '/includes/class-iwsl-config-editor.php';
 // ── Plus feature engines (wave 2): each gated, self-contained, console-granted ──
 require_once __DIR__ . '/includes/class-iwsl-lazy-load.php';

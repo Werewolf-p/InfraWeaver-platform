@@ -301,6 +301,35 @@ iwsl_assert_same( false, $pF['settings_deleted'], 'purge (never configured): no 
 iwsl_assert_same( false, $pF['last_run_deleted'], 'purge (never configured): no last-run existed' );
 iwsl_assert_same( false, $pF['cron_cleared'], 'purge (never configured): nothing scheduled to clear' );
 
+// ── 12. Category subset: save sanitizes ids; run drives ONLY the saved subset ──
+
+iwsl_sdc_reset_cron();
+$store  = new IWSL_Memory_Store();
+$fake12 = new IWSL_SDC_Fake_WPDB( 5, 4 );
+$ent12  = iwsl_sdc_unlocked_entitlements( $SDC_NOW );
+$sdc12  = new IWSL_Scheduled_DB_Cleanup( $ent12, $store, new IWSL_DB_Optimizer( $ent12, $fake12, iwsl_sdc_clock( $SDC_NOW ) ), iwsl_sdc_clock( $SDC_NOW ) );
+$sdc12->save_settings(
+	array(
+		'enabled'    => true,
+		'frequency'  => 'daily',
+		'categories' => array( 'spam_comments', 'trashed_posts', 'evil_id; DROP TABLE wp_posts' ),
+	)
+);
+$saved12 = $sdc12->settings();
+iwsl_assert_same( array( 'spam_comments', 'trashed_posts' ), $saved12['categories'], 'subset: unknown/hostile category ids are dropped on save' );
+$sdc12->run_scheduled();
+iwsl_assert_same( 2, count( $fake12->writes ), 'subset: run_scheduled drives ONLY the saved categories (2 DELETEs, not all 9)' );
+
+// An empty saved subset means ALL categories (the engine default).
+iwsl_sdc_reset_cron();
+$store13 = new IWSL_Memory_Store();
+$fake13  = new IWSL_SDC_Fake_WPDB( 5, 4 );
+$ent13   = iwsl_sdc_unlocked_entitlements( $SDC_NOW );
+$sdc13   = new IWSL_Scheduled_DB_Cleanup( $ent13, $store13, new IWSL_DB_Optimizer( $ent13, $fake13, iwsl_sdc_clock( $SDC_NOW ) ), iwsl_sdc_clock( $SDC_NOW ) );
+$sdc13->save_settings( array( 'enabled' => true, 'frequency' => 'daily', 'categories' => array() ) );
+$sdc13->run_scheduled();
+iwsl_assert_same( 9, count( $fake13->writes ), 'subset: an empty saved subset runs ALL categories (9 writes)' );
+
 // ── clean up the recording globals so no suite that follows inherits them ─────
 
 unset( $GLOBALS['iwsl_sdc_scheduled'], $GLOBALS['iwsl_sdc_cleared'], $GLOBALS['iwsl_sdc_next'], $GLOBALS['iwsl_sdc_sched_name'] );

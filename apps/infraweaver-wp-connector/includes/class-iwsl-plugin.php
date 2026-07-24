@@ -928,6 +928,90 @@ final class IWSL_Plugin {
 					);
 				}
 			),
+
+			// ── database health / cleanup / automation (§ database) ────────────────
+			// Three signed methods behind the console's fused "Database" cockpit,
+			// routed through the EXISTING gated engines (IWSL_DB_Optimizer + its
+			// cleaners, IWSL_Scheduled_DB_Cleanup) — the console never gets a raw
+			// `wp db optimize` / purge-all-transients path. Each runner delegates to a
+			// private method that re-checks the entitlement gate as STATEMENT 1 and
+			// the local feature switch, returning a signed `{ locked, gate }` payload
+			// when the tier does not grant it (never a public/REST endpoint). db.analyze
+			// is read-only (no params); db.cleanup deletes only through the bounded,
+			// preview-by-default engine (MAX_ROWS clamps DOWN only, never DROP); the
+			// deletion only fires on a literal `dry_run: false`.
+			new IWSL_Command_Handler(
+				'db.analyze',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return array( true, $plugin->db_analyze() );
+				}
+			),
+			new IWSL_Command_Handler(
+				'db.cleanup',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$out = $plugin->db_cleanup( $envelope->params );
+					return array( ! empty( $out['ok'] ), $out );
+				},
+				static function ( $params ): bool {
+					if ( ! $params instanceof stdClass ) {
+						return false;
+					}
+					$vars = get_object_vars( $params );
+					if ( array() !== array_diff_key( $vars, array( 'categories' => 1, 'dry_run' => 1, 'max_rows' => 1 ) ) ) {
+						return false;
+					}
+					if ( ! isset( $vars['categories'] ) || ! is_array( $vars['categories'] ) || count( $vars['categories'] ) > IWSL_DB_Optimizer::MAX_CLEANERS_PER_RUN ) {
+						return false;
+					}
+					foreach ( $vars['categories'] as $id ) {
+						if ( ! is_string( $id ) || ! preg_match( '/^[a-z0-9_]{1,32}$/', $id ) ) {
+							return false;
+						}
+					}
+					// dry_run MUST be a real boolean — the preview-by-default invariant
+					// depends on deletion firing only on a literal `false`.
+					if ( ! isset( $vars['dry_run'] ) || ! is_bool( $vars['dry_run'] ) ) {
+						return false;
+					}
+					if ( isset( $vars['max_rows'] ) && ! is_int( $vars['max_rows'] ) ) {
+						return false;
+					}
+					return true;
+				}
+			),
+			new IWSL_Command_Handler(
+				'db.schedule',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$out = $plugin->db_schedule( $envelope->params );
+					return array( ! empty( $out['ok'] ), $out );
+				},
+				static function ( $params ): bool {
+					if ( ! $params instanceof stdClass ) {
+						return false;
+					}
+					$vars = get_object_vars( $params );
+					if ( array() !== array_diff_key( $vars, array( 'enabled' => 1, 'frequency' => 1, 'categories' => 1 ) ) ) {
+						return false;
+					}
+					if ( ! isset( $vars['enabled'] ) || ! is_bool( $vars['enabled'] ) ) {
+						return false;
+					}
+					if ( ! isset( $vars['frequency'] ) || ! in_array( $vars['frequency'], array( 'daily', 'weekly' ), true ) ) {
+						return false;
+					}
+					if ( isset( $vars['categories'] ) ) {
+						if ( ! is_array( $vars['categories'] ) || count( $vars['categories'] ) > IWSL_DB_Optimizer::MAX_CLEANERS_PER_RUN ) {
+							return false;
+						}
+						foreach ( $vars['categories'] as $id ) {
+							if ( ! is_string( $id ) || ! preg_match( '/^[a-z0-9_]{1,32}$/', $id ) ) {
+								return false;
+							}
+						}
+					}
+					return true;
+				}
+			),
 		);
 
 		$by_method = array();
@@ -1104,6 +1188,139 @@ final class IWSL_Plugin {
 			'last_reroll_at'   => is_array( $reroll ) ? (int) $reroll['at'] : 0,
 			'last_reroll_ok'   => is_array( $reroll ) && ! empty( $reroll['ok'] ) ? 1 : 0,
 		);
+	}
+
+	/**
+	 * Read-only assembly behind the signed `db.analyze` command — the whole
+	 * "Database" cockpit in one verified response: the entitlement + local-switch
+	 * gate, the engine caps, and (only when unlocked) sizes/overhead, autoload
+	 * weight, live cleanup-category counts, the automation schedule, and the
+	 * cleanup history. The gate is STATEMENT 1: a locked or switched-off site gets
+	 * `{ locked, gate, caps }` and performs ZERO database queries. Sizes come from
+	 * IWSL_DB_Analyzer (information_schema, SELECT-only); category counts reuse the
+	 * optimizer's side-effect-free preview; schedule + history read their stores.
+	 *
+	 * @return array
+	 */
+	private function db_analyze(): array {
+		$switches  = new IWSL_Feature_Switches( $this->entitlements, $this->store );
+		$switch_on = $switches->is_on( IWSL_DB_Optimizer::FEATURE );
+		$gate      = $this->entitlements->evaluate( IWSL_DB_Optimizer::FEATURE ) + array( 'switched_off' => ! $switch_on );
+		$caps      = array(
+			'max_rows'   => IWSL_DB_Optimizer::MAX_ROWS,
+			'categories' => array_keys( IWSL_DB_Optimizer::cleaners() ),
+		);
+
+		if ( empty( $gate['unlocked'] ) || ! $switch_on ) {
+			return array( 'locked' => true, 'gate' => $gate, 'caps' => $caps );
+		}
+
+		$sizing  = ( new IWSL_DB_Analyzer( $this->entitlements, null, $this->now_ms ) )->analyze();
+		$preview = ( new IWSL_DB_Optimizer( $this->entitlements, null, $this->now_ms ) )->run( 'preview' );
+
+		return array(
+			'locked'           => false,
+			'gate'             => $gate,
+			'caps'             => $caps,
+			'totals'           => $sizing['totals'],
+			'tables'           => $sizing['tables'],
+			'autoload'         => $sizing['autoload'],
+			'schema_available' => $sizing['schema_available'],
+			'categories'       => ! empty( $preview['ok'] ) ? $preview['cleaners'] : array(),
+			'schedule'         => $this->db_schedule_snapshot( $switches ),
+			'history'          => ( new IWSL_DB_History( $this->store, $this->now_ms ) )->all(),
+		);
+	}
+
+	/**
+	 * The automation card's read-model for `db.analyze`: the scheduler's stored
+	 * state (enabled, cadence, category subset, next/last run) plus whether the
+	 * scheduling feature is unlocked (entitlement AND local switch). Reads only.
+	 */
+	private function db_schedule_snapshot( IWSL_Feature_Switches $switches ): array {
+		$scheduler  = new IWSL_Scheduled_DB_Cleanup( $this->entitlements, $this->store, null, $this->now_ms );
+		$sched_gate = $this->entitlements->evaluate( IWSL_Scheduled_DB_Cleanup::FEATURE );
+		$settings   = $scheduler->settings();
+		return array(
+			'unlocked'   => ! empty( $sched_gate['unlocked'] ) && $switches->is_on( IWSL_Scheduled_DB_Cleanup::FEATURE ),
+			'enabled'    => ! empty( $settings['enabled'] ),
+			'frequency'  => (string) $settings['frequency'],
+			'categories' => isset( $settings['categories'] ) && is_array( $settings['categories'] ) ? $settings['categories'] : array(),
+			'next_run'   => $scheduler->next_run(),
+			'last_run'   => $scheduler->last_run(),
+		);
+	}
+
+	/**
+	 * The signed `db.cleanup` runner (private). Triple-gated: the verifier already
+	 * proved console authority; here the LOCAL feature switch is checked, then the
+	 * work is delegated to the bounded IWSL_DB_Optimizer whose own entitlement gate
+	 * is STATEMENT 1. Deletion fires ONLY on a literal `dry_run: false`; anything
+	 * else stays a preview. `max_rows` can only ever LOWER the per-category cap
+	 * (the engine clamps it down, never up). Real runs append a `console`-sourced
+	 * history entry; previews never do.
+	 *
+	 * @param stdClass $params Validated { categories, dry_run, max_rows? }.
+	 * @return array
+	 */
+	private function db_cleanup( stdClass $params ): array {
+		$switches = new IWSL_Feature_Switches( $this->entitlements, $this->store );
+		if ( ! $switches->is_on( IWSL_DB_Optimizer::FEATURE ) ) {
+			$gate = $this->entitlements->evaluate( IWSL_DB_Optimizer::FEATURE ) + array( 'switched_off' => true );
+			return array( 'ok' => false, 'locked' => true, 'reason' => 'switched-off', 'gate' => $gate );
+		}
+
+		$vars       = get_object_vars( $params );
+		$categories = isset( $vars['categories'] ) && is_array( $vars['categories'] ) ? array_values( $vars['categories'] ) : array();
+		$dry_run    = $vars['dry_run'] ?? true; // preview-by-default if somehow absent.
+		$cap        = isset( $vars['max_rows'] ) && is_int( $vars['max_rows'] ) ? $vars['max_rows'] : IWSL_DB_Optimizer::MAX_ROWS;
+		$mode       = ( false === $dry_run ) ? 'run' : 'preview';
+
+		$history   = new IWSL_DB_History( $this->store, $this->now_ms );
+		$optimizer = new IWSL_DB_Optimizer( $this->entitlements, null, $this->now_ms, null, $history );
+		$summary   = $optimizer->run( $mode, $categories, $cap, 'console' );
+
+		if ( empty( $summary['ok'] ) && 'entitlement-locked' === ( $summary['reason'] ?? '' ) ) {
+			$summary['locked'] = true;
+		}
+		$summary['cap'] = max( 1, min( $cap, IWSL_DB_Optimizer::MAX_ROWS ) );
+		return $summary;
+	}
+
+	/**
+	 * The signed `db.schedule` runner (private). Gated on `scheduled_db_cleanup`
+	 * (verifier authority + local switch + the scheduler's own STATEMENT-1 gate).
+	 * Delegates to IWSL_Scheduled_DB_Cleanup::save_settings() — the SAME store and
+	 * WP-Cron reconciliation WP-admin uses, so the two surfaces never drift — with
+	 * a category subset sanitized against the cleaner registry. Echoes the stored
+	 * settings + the next run.
+	 *
+	 * @param stdClass $params Validated { enabled, frequency, categories? }.
+	 * @return array
+	 */
+	private function db_schedule( stdClass $params ): array {
+		$switches = new IWSL_Feature_Switches( $this->entitlements, $this->store );
+		if ( ! $switches->is_on( IWSL_Scheduled_DB_Cleanup::FEATURE ) ) {
+			$gate = $this->entitlements->evaluate( IWSL_Scheduled_DB_Cleanup::FEATURE ) + array( 'switched_off' => true );
+			return array( 'ok' => false, 'locked' => true, 'reason' => 'switched-off', 'gate' => $gate );
+		}
+
+		$vars      = get_object_vars( $params );
+		$scheduler = new IWSL_Scheduled_DB_Cleanup( $this->entitlements, $this->store, null, $this->now_ms );
+		$result    = $scheduler->save_settings(
+			array(
+				'enabled'    => ! empty( $vars['enabled'] ),
+				'frequency'  => isset( $vars['frequency'] ) ? (string) $vars['frequency'] : 'daily',
+				'categories' => isset( $vars['categories'] ) && is_array( $vars['categories'] ) ? array_values( $vars['categories'] ) : array(),
+			)
+		);
+
+		if ( empty( $result['ok'] ) ) {
+			$result['locked'] = true;
+			return $result;
+		}
+		$result['next_run'] = $scheduler->next_run();
+		return $result;
 	}
 
 	/**
