@@ -297,3 +297,80 @@ iwsl_assert_same( 0, $apg3['transients'], 'audit purge (no $wpdb): nothing remov
 
 // This suite installs only $GLOBALS['wpdb'] (above); ensure it never leaks.
 unset( $GLOBALS['wpdb'] );
+
+// ── 10. REGRESSION (bug #1): the audit recognizes its OWN suite's _iwseo_desc ──
+// Before the fix, META_DESC_KEYS held only Yoast + AIOSEO keys, so an Ultimate site
+// using the built-in SEO Suite (which writes `_iwseo_desc`) was falsely flagged
+// "missing meta description" by our own Pro audit.
+
+iwsl_assert( in_array( '_iwseo_desc', IWSL_SEO_Audit::META_DESC_KEYS, true ), 'B3: _iwseo_desc is a recognized meta-description key' );
+iwsl_assert_same( '_iwseo_desc', IWSL_SEO_Audit::META_DESC_KEYS[0], 'B3: _iwseo_desc is checked first (cheapest)' );
+
+// Behavioral: a post with NO meta_description property but a suite `_iwseo_desc` in
+// post meta must NOT be flagged. A local get_post_meta stub returns the suite key for
+// this one fixture (subprocess-isolated, and only reached for property-less posts).
+if ( ! function_exists( 'get_post_meta' ) ) {
+	function get_post_meta( $id, $key, $single = false ) {
+		return ( '_iwseo_desc' === $key && 777 === (int) $id ) ? 'A suite-written meta description.' : '';
+	}
+}
+$suite_post = (object) array(
+	'ID'           => 777,
+	'post_title'   => str_repeat( 'a', 30 ),
+	'post_content' => iwsl_seo_words( 400, true ),
+	'has_featured' => true,
+	// deliberately NO meta_description / post_excerpt property → forces the meta-key loop.
+);
+$audit_desc = new IWSL_SEO_Audit( iwsl_seo_unlocked_entitlements( $SEO_NOW ) );
+$sum_desc   = $audit_desc->run_audit( array( $suite_post ) );
+iwsl_assert( ! in_array( 'missing-meta-description', $sum_desc['items'][0]['issues'], true ), 'B3: a suite-described post is NOT flagged missing-meta-description' );
+
+// ── 11. REGRESSION (bug #4): durable last-audit survives past the 60s transient ─
+// The result used to live only in a 60s per-user transient, so no other surface
+// (the signed seo.status snapshot, another admin) could read it. It now persists a
+// compact durable copy in the store.
+
+$dstore  = new IWSL_Memory_Store();
+$audit_d = new IWSL_SEO_Audit( iwsl_seo_unlocked_entitlements( $SEO_NOW ), $dstore );
+iwsl_assert_same( null, $audit_d->last_summary(), 'durable: null before any run' );
+$sum_d   = $audit_d->run_audit( array( iwsl_seo_post( 1 ), iwsl_seo_post( 2, array( 'post_title' => '', 'has_featured' => false ) ) ) );
+$compact = $audit_d->persist_summary( $sum_d );
+iwsl_assert_same( $sum_d['scanned'], $compact['scanned'], 'durable: compact keeps the scanned count' );
+$last = $audit_d->last_summary();
+iwsl_assert( is_array( $last ), 'durable: last_summary retrievable after persist (survives the transient)' );
+iwsl_assert_same( 2, $last['scanned'], 'durable: retrieved last-audit scanned=2' );
+
+// RESULT_TTL was bumped off the old 60s so the on-page flash also survives a reload.
+iwsl_assert( IWSL_SEO_Audit::RESULT_TTL > 60, 'cache-tuning: transient TTL bumped above the old 60s' );
+
+// compact_summary caps items at LAST_AUDIT_MAX_ITEMS while preserving the counts.
+$big = array( 'ok' => true, 'scanned' => 60, 'with_issues' => 3, 'items' => array() );
+for ( $i = 0; $i < 60; $i++ ) {
+	$big['items'][] = array( 'id' => $i, 'title' => 't', 'issues' => array() );
+}
+$capped = IWSL_SEO_Audit::compact_summary( $big );
+iwsl_assert_same( IWSL_SEO_Audit::LAST_AUDIT_MAX_ITEMS, count( $capped['items'] ), 'durable: compact caps items at LAST_AUDIT_MAX_ITEMS' );
+iwsl_assert_same( true, $capped['item_capped'], 'durable: item_capped flag set when truncated' );
+iwsl_assert_same( 60, $capped['scanned'], 'durable: aggregate counts preserved through compaction' );
+
+// A locked/failed summary is NEVER persisted.
+$lstore  = new IWSL_Memory_Store();
+$lstore->set( 'state', 'active' );
+$lstore->set( 'last_verified_at', $SEO_NOW - 60000 );
+$lstore->set( 'entitlements', array( 'plus' => true ) ); // seo_audit absent → locked
+$audit_l = new IWSL_SEO_Audit( new IWSL_Entitlements( $lstore, static function () use ( $SEO_NOW ): int {
+	return $SEO_NOW; } ), $lstore );
+$audit_l->persist_summary( $audit_l->run_audit( array( iwsl_seo_post( 1 ) ) ) );
+iwsl_assert_same( null, $audit_l->last_summary(), 'durable: a locked/failed summary is never persisted' );
+
+// purge() scrubs the durable option (and reports it) when a store is wired.
+$pstore  = new IWSL_Memory_Store();
+$audit_p2 = new IWSL_SEO_Audit( iwsl_seo_unlocked_entitlements( $SEO_NOW ), $pstore );
+$audit_p2->persist_summary( $audit_p2->run_audit( array( iwsl_seo_post( 1 ) ) ) );
+iwsl_assert( is_array( $audit_p2->last_summary() ), 'durable purge: last-audit present before purge' );
+unset( $GLOBALS['wpdb'] ); // transient DELETE is a no-op; the durable store scrub still runs.
+$purge_d = $audit_p2->purge();
+iwsl_assert( in_array( IWSL_SEO_Audit::LAST_AUDIT_OPTION, $purge_d['options'], true ), 'durable purge: reports the durable option removed' );
+iwsl_assert_same( null, $audit_p2->last_summary(), 'durable purge: last-audit gone after purge' );
+
+unset( $GLOBALS['wpdb'] );

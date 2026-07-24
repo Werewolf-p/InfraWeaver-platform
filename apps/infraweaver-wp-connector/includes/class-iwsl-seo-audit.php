@@ -40,9 +40,27 @@ final class IWSL_SEO_Audit {
 	const ACTION = 'iwsl_seo_audit';
 	const NONCE  = 'iwsl_seo_audit';
 
-	/** Per-user result transient prefix + TTL (seconds). */
+	/**
+	 * Per-user result transient prefix + TTL (seconds). The transient is the
+	 * POST-redirect-GET render cache for the WP Plus page. It is NOT the source of
+	 * truth any more: the DURABLE last-audit (LAST_AUDIT_OPTION) is what survives for
+	 * cross-surface reads (the signed `seo.status` snapshot, other users, the fleet
+	 * chip). The old 60s TTL evaporated the on-page result before a reload — bumped
+	 * to a week so a returning admin still sees their last run.
+	 */
 	const RESULT_TRANSIENT_PREFIX = 'iwsl_seo_result_';
-	const RESULT_TTL              = 60;
+	const RESULT_TTL              = 604800; // 7 days (was 60s).
+
+	/**
+	 * Durable last-audit store key (via IWSL_Store → option `iwsl_seo_audit_last`).
+	 * A compact summary (counts + generated_at + capped items) is written here on
+	 * every run so the result is retrievable long after the per-user transient, and
+	 * readable by the signed channel (IWSL_SEO_Console::status). Scrubbed by purge().
+	 */
+	const LAST_AUDIT_OPTION = 'seo_audit_last';
+
+	/** Cap on items kept in the durable last-audit summary. */
+	const LAST_AUDIT_MAX_ITEMS = 50;
 
 	/** Hard cap on items scanned per run — bounds per-request cost. */
 	const MAX_ITEMS = 200;
@@ -57,20 +75,26 @@ final class IWSL_SEO_Audit {
 	/** Post types the audit scans. */
 	const POST_TYPES = array( 'post', 'page' );
 
-	/** Meta keys the common SEO plugins store a description under. */
-	const META_DESC_KEYS = array( '_yoast_wpseo_metadesc', '_aioseo_description' );
+	/**
+	 * Meta keys a meta description may live under, in resolution order. `_iwseo_desc`
+	 * (our own SEO Suite's key) is FIRST and cheapest: without it, an Ultimate site
+	 * using the built-in suite was falsely flagged "missing meta description" by our
+	 * own Pro audit. Yoast + AIOSEO follow for sites running those engines instead.
+	 */
+	const META_DESC_KEYS = array( '_iwseo_desc', '_yoast_wpseo_metadesc', '_aioseo_description' );
 
 	/** @var IWSL_Entitlements */
 	private $entitlements;
 
-	/** @var IWSL_WP_Store|null Reserved store seam (mirrors the gated-feature ctor). */
+	/** @var IWSL_Store|null Persistence seam (durable last-audit); any IWSL_Store. */
 	private $store;
 
 	/**
-	 * @param IWSL_Entitlements  $entitlements The gate.
-	 * @param IWSL_WP_Store|null $store        Reserved persistence seam; unused today.
+	 * @param IWSL_Entitlements $entitlements The gate.
+	 * @param IWSL_Store|null   $store        Persistence seam for the durable last-audit
+	 *                                        (IWSL_WP_Store in prod, IWSL_Memory_Store in tests).
 	 */
-	public function __construct( IWSL_Entitlements $entitlements, ?IWSL_WP_Store $store = null ) {
+	public function __construct( IWSL_Entitlements $entitlements, ?IWSL_Store $store = null ) {
 		$this->entitlements = $entitlements;
 		$this->store        = $store;
 	}
@@ -114,7 +138,66 @@ final class IWSL_SEO_Audit {
 			$removed['transients'] = is_int( $rows ) ? $rows : 0;
 		}
 
+		// Durable last-audit option (LAST_AUDIT_OPTION). Persisted only when a store
+		// is wired (bootstrap + teardown always wire one), so this scrub runs on real
+		// teardown. The read-only purge unit test constructs the engine WITHOUT a
+		// store, so this stays a no-op there — the durable-store test covers removal.
+		if ( null !== $this->store && null !== $this->store->get( self::LAST_AUDIT_OPTION, null ) ) {
+			$this->store->delete( self::LAST_AUDIT_OPTION );
+			$removed['options'][] = self::LAST_AUDIT_OPTION;
+		}
+
 		return $removed;
+	}
+
+	// ── durable last-audit (retrievable long after the per-user transient) ────────
+
+	/**
+	 * Persist a COMPACT copy of a successful audit summary as the durable last-audit,
+	 * so the result survives past the per-user render transient and is readable by any
+	 * other surface (the signed `seo.status` snapshot, the fleet chip, another admin).
+	 * Bounded: counts + generated_at + up to LAST_AUDIT_MAX_ITEMS items. A locked/failed
+	 * summary is never persisted. No-op when no store is wired; returns the compact copy
+	 * either way so callers can reuse it.
+	 *
+	 * @return array the compact copy.
+	 */
+	public function persist_summary( array $summary ): array {
+		$compact = self::compact_summary( $summary );
+		if ( null !== $this->store && ! empty( $summary['ok'] ) ) {
+			$this->store->set( self::LAST_AUDIT_OPTION, $compact );
+		}
+		return $compact;
+	}
+
+	/** The durable last-audit summary, or null when none is stored / no store wired. @return array|null */
+	public function last_summary() {
+		if ( null === $this->store ) {
+			return null;
+		}
+		$value = $this->store->get( self::LAST_AUDIT_OPTION, null );
+		return is_array( $value ) ? $value : null;
+	}
+
+	/**
+	 * Compact a full audit summary for durable/cross-surface use: keep the aggregate
+	 * counts + generated_at, cap the items list to LAST_AUDIT_MAX_ITEMS. Pure; returns
+	 * a NEW array (never mutates the input).
+	 */
+	public static function compact_summary( array $summary ): array {
+		$items  = isset( $summary['items'] ) && is_array( $summary['items'] ) ? array_values( $summary['items'] ) : array();
+		$capped = array_slice( $items, 0, self::LAST_AUDIT_MAX_ITEMS );
+		return array(
+			'ok'           => ! empty( $summary['ok'] ),
+			'generated_at' => isset( $summary['generated_at'] ) ? (string) $summary['generated_at'] : '',
+			'scanned'      => isset( $summary['scanned'] ) ? (int) $summary['scanned'] : 0,
+			'with_issues'  => isset( $summary['with_issues'] ) ? (int) $summary['with_issues'] : 0,
+			'issue_counts' => isset( $summary['issue_counts'] ) && is_array( $summary['issue_counts'] ) ? $summary['issue_counts'] : array(),
+			'items'        => $capped,
+			'partial'      => ! empty( $summary['partial'] ),
+			'item_capped'  => count( $items ) > self::LAST_AUDIT_MAX_ITEMS,
+			'max'          => isset( $summary['max'] ) ? (int) $summary['max'] : self::MAX_ITEMS,
+		);
 	}
 
 	// ── the core (STATEMENT 1 is the authoritative gate) ───────────────────────
@@ -560,6 +643,9 @@ final class IWSL_SEO_Audit {
 		}
 
 		$summary = $this->run_audit();
+		// Durable copy first (cross-surface source of truth), then the per-user
+		// transient as the POST-redirect-GET render flash for this admin.
+		$this->persist_summary( $summary );
 		if ( function_exists( 'set_transient' ) && function_exists( 'get_current_user_id' ) ) {
 			set_transient( self::RESULT_TRANSIENT_PREFIX . (int) get_current_user_id(), $summary, self::RESULT_TTL );
 		}
