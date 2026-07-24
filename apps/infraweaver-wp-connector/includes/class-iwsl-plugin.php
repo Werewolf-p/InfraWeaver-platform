@@ -77,6 +77,15 @@ final class IWSL_Plugin {
 	}
 
 	/**
+	 * The operator kill-switch surface over the plugin's own gate + store. Built
+	 * per-call (stateless) so the email runners can report `switch_on` — the skew
+	 * between "entitled" (signed) and "switched on" (local operator toggle).
+	 */
+	public function email_switches(): IWSL_Feature_Switches {
+		return new IWSL_Feature_Switches( $this->entitlements, $this->store );
+	}
+
+	/**
 	 * Verifier allow-list (§7), derived from the command registry so the method
 	 * set has one definition point. Shape unchanged: method => validator|null.
 	 *
@@ -101,6 +110,71 @@ final class IWSL_Plugin {
 				&& '' !== $vars['rotation_id']
 				&& ( ! isset( $vars['new_kid'] ) || is_int( $vars['new_kid'] ) )
 				&& array() === array_diff_key( $vars, array( 'rotation_id' => 1, 'new_kid' => 1 ) );
+		};
+
+		// A CR/LF guard for the email validators — every string that reaches the SMTP
+		// engine must be single-line (header-injection defence, mirrored pre-engine).
+		$no_crlf = static function ( $value ): bool {
+			return is_string( $value ) && 1 !== preg_match( '/[\r\n]/', $value );
+		};
+
+		// Strict `email.config.set` validator (§7). Top-level keys are EXACTLY
+		// { settings, password?, clear_password? }; `settings` carries EXACTLY the
+		// eight known fields with the right types; `password` (write-only) and
+		// `clear_password` are optional. The engine's save_settings() remains the
+		// authoritative validator (host/port/secure/from format, opt-in, AES-256-GCM
+		// fail-closed) — this only rejects a malformed wire shape before dispatch.
+		$email_settings_keys      = array(
+			'host'                  => 1,
+			'port'                  => 1,
+			'auth'                  => 1,
+			'username'              => 1,
+			'from_email'            => 1,
+			'from_name'             => 1,
+			'secure'                => 1,
+			'allow_option_password' => 1,
+		);
+		$email_config_set_params  = static function ( $params ) use ( $email_settings_keys, $no_crlf ): bool {
+			if ( ! $params instanceof stdClass ) {
+				return false;
+			}
+			$vars = get_object_vars( $params );
+			if ( array() !== array_diff_key( $vars, array( 'settings' => 1, 'password' => 1, 'clear_password' => 1 ) ) ) {
+				return false; // unknown top-level key.
+			}
+			if ( ! isset( $vars['settings'] ) || ! $vars['settings'] instanceof stdClass ) {
+				return false;
+			}
+			$s = get_object_vars( $vars['settings'] );
+			// Exact key set — no unknown fields, none missing.
+			if ( array() !== array_diff_key( $s, $email_settings_keys ) || array() !== array_diff_key( $email_settings_keys, $s ) ) {
+				return false;
+			}
+			if ( ! $no_crlf( $s['host'] ) || ! $no_crlf( $s['username'] ) || ! $no_crlf( $s['from_email'] ) || ! $no_crlf( $s['from_name'] ) || ! is_string( $s['secure'] ) ) {
+				return false;
+			}
+			if ( ! is_int( $s['port'] ) || ! is_bool( $s['auth'] ) || ! is_bool( $s['allow_option_password'] ) ) {
+				return false;
+			}
+			if ( isset( $vars['password'] ) && ! $no_crlf( $vars['password'] ) ) {
+				return false; // write-only secret: must be a single-line string.
+			}
+			if ( isset( $vars['clear_password'] ) && ! is_bool( $vars['clear_password'] ) ) {
+				return false;
+			}
+			return true;
+		};
+
+		// Strict `email.test` validator: EXACTLY { to: non-empty single-line string }.
+		$email_test_params = static function ( $params ) use ( $no_crlf ): bool {
+			if ( ! $params instanceof stdClass ) {
+				return false;
+			}
+			$vars = get_object_vars( $params );
+			if ( array() !== array_diff_key( $vars, array( 'to' => 1 ) ) ) {
+				return false;
+			}
+			return isset( $vars['to'] ) && $no_crlf( $vars['to'] ) && '' !== trim( $vars['to'] );
 		};
 
 		$handlers = array(
@@ -404,6 +478,117 @@ final class IWSL_Plugin {
 					return array( true, array( 'locked' => false, 'op' => $op, 'result' => $r ) );
 				},
 				array( 'IWSL_Media_Library', 'validate_folder_params' )
+			),
+			// ── email delivery (gate flag `email_delivery`, Pro/Ultimate) ─────────────
+			// Five thin shims over IWSL_Email_Delivery — the console's signed window
+			// onto the connector's own SMTP feature. Every runner inherits STATEMENT 1
+			// (the entitlement gate) from the engine methods it delegates to; the read
+			// methods additionally REPORT the gate ("locked" is a renderable state, not
+			// an error). The SMTP secret crosses the wire at most once (write-only, on
+			// email.config.set, inside this signed envelope) and is NEVER returned:
+			// save_settings() strips it and config_snapshot() reads settings_for_render()
+			// which drops it wholesale. `switch_on` surfaces the operator kill-switch so
+			// the console never claims delivery the (unregistered) hooks won't actually
+			// perform. No REST/AJAX surface — signed channel only.
+			new IWSL_Command_Handler(
+				'email.config.get',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$snapshot              = $plugin->email_delivery()->config_snapshot();
+					$snapshot['switch_on'] = $plugin->email_switches()->is_on( IWSL_Email_Delivery::FEATURE );
+					return array( true, $snapshot );
+				}
+			),
+			new IWSL_Command_Handler(
+				'email.config.set',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$params   = $envelope->params;
+					$settings = isset( $params->settings ) && $params->settings instanceof stdClass
+						? get_object_vars( $params->settings )
+						: array();
+					// Write-only secret. clear_password wins: it drops any stored secret
+					// by turning the DB-storage opt-in off with a blank submit (the engine's
+					// existing "not opted in + blank = drop" path — no save internals touched).
+					if ( ! empty( $params->clear_password ) ) {
+						$settings['password']              = '';
+						$settings['allow_option_password'] = false;
+					} elseif ( isset( $params->password ) ) {
+						$settings['password'] = (string) $params->password;
+					}
+					$res = $plugin->email_delivery()->save_settings( $settings );
+
+					// Never echo the secret. save_settings() already returns STRIPPED
+					// settings; carry only ok/reason/settings(+gate when locked).
+					$out = array(
+						'ok'     => ! empty( $res['ok'] ),
+						'reason' => isset( $res['reason'] ) ? (string) $res['reason'] : '',
+					);
+					if ( isset( $res['settings'] ) ) {
+						$out['settings'] = $res['settings'];
+					}
+					if ( isset( $res['gate'] ) ) {
+						$out['locked'] = true;
+						$out['gate']   = $res['gate'];
+					}
+					return array( true, $out );
+				},
+				$email_config_set_params
+			),
+			new IWSL_Command_Handler(
+				'email.test',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$switch_on = $plugin->email_switches()->is_on( IWSL_Email_Delivery::FEATURE );
+					$gate      = $plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
+					if ( empty( $gate['unlocked'] ) ) {
+						return array( true, array( 'sent' => false, 'reason' => 'entitlement-locked', 'switch_on' => $switch_on, 'locked' => true, 'gate' => $gate ) );
+					}
+					// Kill-switch off ⇒ phpmailer_init is NOT hooked ⇒ a real send would
+					// silently fall back to PHP mail(). Report that instead of a misleading
+					// result rather than firing a send whose transport isn't wired.
+					if ( ! $switch_on ) {
+						return array( true, array( 'sent' => false, 'reason' => 'delivery-switch-off', 'switch_on' => false ) );
+					}
+					$to  = isset( $envelope->params->to ) ? (string) $envelope->params->to : '';
+					$res = $plugin->email_delivery()->send_test( $to );
+					return array(
+						true,
+						array(
+							'sent'          => ! empty( $res['sent'] ),
+							'reason'        => isset( $res['reason'] ) ? (string) $res['reason'] : '',
+							'switch_on'     => true,
+						) + ( isset( $res['retry_after_s'] ) ? array( 'retry_after_s' => (int) $res['retry_after_s'] ) : array() ),
+					);
+				},
+				$email_test_params
+			),
+			new IWSL_Command_Handler(
+				'email.log.get',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Gate the read too: a locked site returns the gate, not its activity.
+					$gate = $plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
+					if ( empty( $gate['unlocked'] ) ) {
+						return array( true, array( 'entries' => array(), 'count' => 0, 'locked' => true, 'gate' => $gate ) );
+					}
+					$entries = $plugin->email_delivery()->log(); // bounded, whitelisted, redacted at write time.
+					return array( true, array( 'entries' => $entries, 'count' => count( $entries ) ) );
+				}
+			),
+			new IWSL_Command_Handler(
+				'email.log.clear',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$res = $plugin->email_delivery()->clear_log(); // STATEMENT 1 gate inside.
+					$out = array(
+						'ok'      => ! empty( $res['ok'] ),
+						'cleared' => ! empty( $res['cleared'] ),
+					);
+					if ( isset( $res['reason'] ) && '' !== (string) $res['reason'] ) {
+						$out['reason'] = (string) $res['reason'];
+					}
+					if ( isset( $res['gate'] ) ) {
+						$out['locked'] = true;
+						$out['gate']   = $res['gate'];
+					}
+					return array( true, $out );
+				}
 			),
 		);
 

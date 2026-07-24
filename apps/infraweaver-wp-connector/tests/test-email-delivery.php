@@ -90,8 +90,8 @@ function iwsl_ed_salt(): callable {
  * salt provider. Pass $salt to exercise the fail-closed path (e.g. an empty-string
  * provider → no derivable key); defaults to the fixed harness salt.
  */
-function iwsl_ed_engine( IWSL_Entitlements $ent, IWSL_Store $store, callable $clock, callable $constant, ?callable $salt = null ): IWSL_Email_Delivery {
-	return new IWSL_Email_Delivery( $ent, $store, $clock, $constant, array( 'smtp' => new IWSL_SMTP_Transport() ), $salt ?? iwsl_ed_salt() );
+function iwsl_ed_engine( IWSL_Entitlements $ent, IWSL_Store $store, callable $clock, callable $constant, ?callable $salt = null, ?callable $send_mail = null ): IWSL_Email_Delivery {
+	return new IWSL_Email_Delivery( $ent, $store, $clock, $constant, array( 'smtp' => new IWSL_SMTP_Transport() ), $salt ?? iwsl_ed_salt(), $send_mail );
 }
 
 /** A complete, valid stored-settings array (optionally with an opted-in password). */
@@ -536,3 +536,96 @@ $p17c      = $engine17c->purge();
 iwsl_assert_same( true, $p17c['settings_deleted'], 'purge (locked/revoked): settings still removed on teardown' );
 iwsl_assert_same( true, $p17c['log_deleted'], 'purge (locked/revoked): log still removed on teardown' );
 iwsl_assert_same( null, $store17c->get( 'email_smtp_settings' ), 'purge (locked/revoked): secret-bearing settings gone' );
+
+// ── 18. config_snapshot(): gate-aware read; locked = gate only; never a secret ──
+
+// (a) LOCKED (flag not granted) → gate + locked only; NO settings/password metadata.
+$store18a  = new IWSL_Memory_Store();
+$store18a->set( 'email_smtp_settings', iwsl_ed_valid_settings( true, 'x' ) ); // configured — only the gate can hide it.
+$engine18a = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, false, $ed_clock ), $store18a, $ed_clock, $ed_const_none );
+$snap18a   = $engine18a->config_snapshot();
+iwsl_assert_same( true, $snap18a['locked'], 'config_snapshot (locked): locked=true' );
+iwsl_assert( isset( $snap18a['gate'] ) && empty( $snap18a['gate']['unlocked'] ), 'config_snapshot (locked): gate present and not unlocked' );
+iwsl_assert( ! array_key_exists( 'settings', $snap18a ), 'config_snapshot (locked): NO settings leaked' );
+iwsl_assert( ! array_key_exists( 'has_password', $snap18a ), 'config_snapshot (locked): NO password metadata leaked' );
+
+// (b) UNLOCKED + configured with an opted-in DB secret → stripped settings + metadata; ciphertext/plaintext absent.
+$secret18  = 'snapshot-db-secret-!@#';
+$store18b  = new IWSL_Memory_Store();
+$engine18b = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store18b, $ed_clock, $ed_const_none );
+$engine18b->save_settings( iwsl_ed_valid_settings( true, '' ) + array( 'password' => $secret18 ) );
+$snap18b   = $engine18b->config_snapshot();
+iwsl_assert_same( false, $snap18b['locked'], 'config_snapshot (unlocked): locked=false' );
+iwsl_assert_same( true, $snap18b['has_password'], 'config_snapshot (unlocked): has_password reported' );
+iwsl_assert_same( 'option', $snap18b['password_source'], 'config_snapshot (unlocked): password_source=option' );
+iwsl_assert_same( true, $snap18b['configured'], 'config_snapshot (unlocked): configured=true' );
+iwsl_assert( in_array( 'smtp', $snap18b['transports'], true ), 'config_snapshot (unlocked): transports lists smtp' );
+iwsl_assert( is_array( $snap18b['settings'] ) && ! array_key_exists( 'password', $snap18b['settings'] ), 'config_snapshot (unlocked): settings carry NO password key' );
+$json18b = (string) json_encode( $snap18b );
+iwsl_assert( false === strpos( $json18b, $secret18 ), 'config_snapshot (unlocked): plaintext secret NEVER in snapshot' );
+iwsl_assert( false === strpos( $json18b, IWSL_Email_Delivery::ENC_MARKER ), 'config_snapshot (unlocked): ciphertext (marker) NEVER in snapshot' );
+
+// (c) UNLOCKED + wp-config constant → password_source=constant.
+$store18c  = new IWSL_Memory_Store();
+$store18c->set( 'email_smtp_settings', iwsl_ed_valid_settings() );
+$engine18c = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store18c, $ed_clock, iwsl_ed_const( 'const-secret' ) );
+$snap18c   = $engine18c->config_snapshot();
+iwsl_assert_same( 'constant', $snap18c['password_source'], 'config_snapshot (constant): password_source=constant' );
+iwsl_assert_same( true, $snap18c['has_password'], 'config_snapshot (constant): has_password=true' );
+
+// ── 19. send_test(): gate stmt-1, recipient validation, rate-limit, mailer result ─
+
+/** A recording mailer returning $ret; captures every (to, subject) it is handed. */
+function iwsl_ed_recording_mailer( bool $ret, array &$sink ): callable {
+	return static function ( string $to, string $subject, string $body ) use ( $ret, &$sink ): bool {
+		$sink[] = array( 'to' => $to, 'subject' => $subject );
+		return $ret;
+	};
+}
+
+// (a) LOCKED → refuses, mailer NEVER invoked.
+$sent19a   = array();
+$store19a  = new IWSL_Memory_Store();
+$store19a->set( 'email_smtp_settings', iwsl_ed_valid_settings() );
+$engine19a = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_stale, true, $ed_clock ), $store19a, $ed_clock, $ed_const_none, null, iwsl_ed_recording_mailer( true, $sent19a ) );
+$res19a    = $engine19a->send_test( 'ops@example.test' );
+iwsl_assert_same( 'entitlement-locked', $res19a['reason'], 'send_test (locked): entitlement-locked' );
+iwsl_assert_same( false, $res19a['sent'], 'send_test (locked): sent=false' );
+iwsl_assert_same( 0, count( $sent19a ), 'send_test (locked): mailer NEVER invoked' );
+
+// (b) UNLOCKED, invalid recipients → invalid-recipient, mailer never invoked, no rate-window consumed.
+$sent19b   = array();
+$store19b  = new IWSL_Memory_Store();
+$engine19b = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store19b, $ed_clock, $ed_const_none, null, iwsl_ed_recording_mailer( true, $sent19b ) );
+iwsl_assert_same( 'invalid-recipient', $engine19b->send_test( '' )['reason'], 'send_test (empty): invalid-recipient' );
+iwsl_assert_same( 'invalid-recipient', $engine19b->send_test( 'not-an-email' )['reason'], 'send_test (bad): invalid-recipient' );
+iwsl_assert_same( 'invalid-recipient', $engine19b->send_test( "a@b.test\r\nBCC: evil@x.test" )['reason'], 'send_test (CRLF): invalid-recipient' );
+iwsl_assert_same( 0, count( $sent19b ), 'send_test (invalid): mailer NEVER invoked' );
+iwsl_assert_same( 0, (int) $store19b->get( IWSL_Email_Delivery::LAST_TEST_KEY, 0 ), 'send_test (invalid): rate-limit window NOT consumed by a typo' );
+
+// (c) UNLOCKED, valid recipient, mailer OK → sent=true; window stamped; SAME send recorded.
+$sent19c   = array();
+$store19c  = new IWSL_Memory_Store();
+$engine19c = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store19c, $ed_clock, $ed_const_none, null, iwsl_ed_recording_mailer( true, $sent19c ) );
+$res19c    = $engine19c->send_test( 'ops@example.test' );
+iwsl_assert_same( true, $res19c['sent'], 'send_test (ok): sent=true' );
+iwsl_assert_same( '', $res19c['reason'], 'send_test (ok): no reason' );
+iwsl_assert_same( 1, count( $sent19c ), 'send_test (ok): mailer invoked exactly once' );
+iwsl_assert_same( 'ops@example.test', $sent19c[0]['to'], 'send_test (ok): recipient passed to the mailer' );
+iwsl_assert_same( IWSL_Email_Delivery::TEST_SUBJECT, $sent19c[0]['subject'], 'send_test (ok): fixed test subject' );
+iwsl_assert_same( $ED_NOW_SECONDS, (int) $store19c->get( IWSL_Email_Delivery::LAST_TEST_KEY, 0 ), 'send_test (ok): rate-limit window stamped' );
+
+// (d) RATE LIMIT: an immediate second send is refused and the mailer is NOT re-invoked.
+$res19d = $engine19c->send_test( 'ops@example.test' );
+iwsl_assert_same( 'rate-limited', $res19d['reason'], 'send_test (rate): second immediate call rate-limited' );
+iwsl_assert_same( false, $res19d['sent'], 'send_test (rate): sent=false while throttled' );
+iwsl_assert( isset( $res19d['retry_after_s'] ) && $res19d['retry_after_s'] > 0, 'send_test (rate): retry_after_s reported' );
+iwsl_assert_same( 1, count( $sent19c ), 'send_test (rate): mailer NOT invoked a second time' );
+
+// (e) Mailer reports failure → sent=false, reason=send-failed.
+$sent19e   = array();
+$store19e  = new IWSL_Memory_Store();
+$engine19e = iwsl_ed_engine( iwsl_ed_entitlements( 'active', $ed_fresh, true, $ed_clock ), $store19e, $ed_clock, $ed_const_none, null, iwsl_ed_recording_mailer( false, $sent19e ) );
+$res19e    = $engine19e->send_test( 'ops@example.test' );
+iwsl_assert_same( false, $res19e['sent'], 'send_test (fail): sent=false' );
+iwsl_assert_same( 'send-failed', $res19e['reason'], 'send_test (fail): reason=send-failed' );
