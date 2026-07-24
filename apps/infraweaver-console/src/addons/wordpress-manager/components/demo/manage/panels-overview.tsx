@@ -31,6 +31,7 @@ import {
   Plug,
   Puzzle,
   RefreshCw,
+  Search,
   ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -188,6 +189,22 @@ function computeAttention(overview: ManageOverview): AttentionItem[] {
       target: "performance",
       cta: "Improve speed",
     });
+  }
+
+  // SEO triage joins the same feed (A2) — the worst 1–2 fixes from the engine-aware
+  // `seo.status` snapshot, so SEO is triaged with everything else, not siloed. A
+  // zero-issue / unmeasured site contributes nothing (no noise).
+  if (overview.seo?.measured) {
+    for (const fix of overview.seo.topFixes.slice(0, 2)) {
+      items.push({
+        key: `seo-${fix.key}`,
+        severity: fix.severity === "critical" ? "critical" : "warn",
+        title: fix.label,
+        detail: "Open the SEO cockpit to review and fix it.",
+        target: "audit",
+        cta: "Fix SEO",
+      });
+    }
   }
 
   return items.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
@@ -393,6 +410,35 @@ export function OverviewLanding({
             tone={overview.coreUpdate ? TONE_WARN : TONE_GOOD}
             target="health"
             navigable={has("health")}
+            onNavigate={onNavigate}
+          />
+          {/* SEO — an engine-aware score (our SEO Suite / Meta Audit), sourced from the
+              signed seo.status snapshot; "Not measured" (neutral) when no engine is
+              active, never a fabricated green (A1). */}
+          <StatusCard
+            icon={Search}
+            label="SEO"
+            value={overview.seo?.measured ? String(overview.seo.score ?? "—") : "Not measured"}
+            sub={
+              overview.seo?.measured
+                ? overview.seo.engine === "suite"
+                  ? "SEO Suite"
+                  : overview.seo.engine === "audit"
+                    ? "Meta Audit"
+                    : "Measured"
+                : "Enable an SEO engine to measure"
+            }
+            tone={
+              !overview.seo?.measured
+                ? TONE_NEUTRAL
+                : overview.seo.rating === "good"
+                  ? TONE_GOOD
+                  : overview.seo.rating === "critical"
+                    ? TONE_CRIT
+                    : TONE_WARN
+            }
+            target="audit"
+            navigable={has("audit")}
             onNavigate={onNavigate}
           />
         </div>

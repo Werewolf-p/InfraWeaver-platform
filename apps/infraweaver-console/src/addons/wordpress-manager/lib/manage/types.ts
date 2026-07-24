@@ -5,6 +5,7 @@
  */
 import type { ManageCapabilityId, ManagePanelId } from "./capabilities";
 import type { ConnectorMetricsResult } from "../rpc/registry";
+import type { SeoSummary } from "./seo";
 
 /** One point in a Prometheus-sourced history series: unix seconds + value. */
 export interface MetricsHistoryPoint {
@@ -86,6 +87,13 @@ export interface ManageOverview {
   readonly connector: OverviewConnector;
   readonly capabilities: Record<ManageCapabilityId, boolean>;
   readonly panels: readonly PanelAvailability[];
+  /**
+   * Engine-aware SEO summary for the Overview tile + attention feed (A1/A2). Present
+   * only on a live signed link; `measured:false` means "not measured" (no engine /
+   * connector too old). Optional so a snapshot written before this field existed
+   * still parses.
+   */
+  readonly seo?: SeoSummary | null;
   /** Epoch ms the snapshot was gathered (present on cached API responses). */
   readonly cachedAt?: number;
   /** True when served from a stale snapshot while a background refresh runs. */

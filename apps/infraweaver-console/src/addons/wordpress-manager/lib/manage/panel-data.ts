@@ -12,6 +12,7 @@ import {
   type ManagePanelId,
 } from "./capabilities";
 import { requireRunningWpPod } from "./overview";
+import { siteHasEntitlement } from "../tiers";
 import { WP, activePluginSlugs } from "./wp-probe";
 import { withCache, panelKey, invalidateManageCache, type Cached } from "./snapshot-cache";
 import { readSitePanelSnapshot, writeSitePanelSnapshot } from "./panel-snapshot";
@@ -97,7 +98,12 @@ export async function getManagePanel(site: string, panelId: string): Promise<unk
     getManagedLink(site).catch(() => null),
   ]);
   const connectorActive = managed?.state === "active" && managed.fingerprintConfirmed === true;
-  const capabilities = resolveCapabilities({ activePlugins, connectorActive: !!connectorActive });
+  // Our own SEO engine grants (console-authoritative) light up the SEO panels even
+  // when no third-party SEO plugin is active (A3) — never steer a paying customer
+  // to a competitor of our own SEO Suite.
+  const platformSeo =
+    siteHasEntitlement(managed ?? undefined, "seo_audit") || siteHasEntitlement(managed ?? undefined, "seo_suite");
+  const capabilities = resolveCapabilities({ activePlugins, connectorActive: !!connectorActive, platformSeo });
 
   // Enforce the panel's capability gate — mirrors the client's tab gating so a
   // hand-crafted request can't reach a probe for an uninstalled plugin.
