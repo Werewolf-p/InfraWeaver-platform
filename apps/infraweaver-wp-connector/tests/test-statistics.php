@@ -791,3 +791,202 @@ iwsl_assert_same( null, $store11l->get( IWSL_Statistics::SALT_KEY ), 'purge (loc
 // No global $wpdb was ever installed by this suite; keep the harness clean for later
 // suites regardless.
 unset( $GLOBALS['wpdb'] );
+
+// ── 12. GPC signal + consent classifier (S6, pure) ─────────────────────────────
+
+iwsl_assert_same( true, IWSL_Stats_Classifier::gpc_set( array( 'HTTP_SEC_GPC' => '1' ) ), 'gpc: Sec-GPC 1 → set' );
+iwsl_assert_same( false, IWSL_Stats_Classifier::gpc_set( array( 'HTTP_SEC_GPC' => '0' ) ), 'gpc: Sec-GPC 0 → not set' );
+iwsl_assert_same( false, IWSL_Stats_Classifier::gpc_set( array() ), 'gpc: header absent → not set' );
+
+iwsl_assert_same( null, IWSL_Stats_Classifier::consent_allows_statistics( null, 1 ), 'consent: no cookie → null (undecided)' );
+iwsl_assert_same( null, IWSL_Stats_Classifier::consent_allows_statistics( 'not json', 1 ), 'consent: unparseable cookie → null' );
+iwsl_assert_same( null, IWSL_Stats_Classifier::consent_allows_statistics( '{"v":1,"c":["statistics"]}', 2 ), 'consent: stale policy version → null' );
+iwsl_assert_same( true, IWSL_Stats_Classifier::consent_allows_statistics( '{"v":1,"c":["necessary","statistics"]}', 1 ), 'consent: statistics granted → true' );
+iwsl_assert_same( false, IWSL_Stats_Classifier::consent_allows_statistics( '{"v":1,"c":["necessary"]}', 1 ), 'consent: statistics omitted → false (declined)' );
+iwsl_assert_same( null, IWSL_Stats_Classifier::consent_allows_statistics( str_repeat( 'a', IWSL_Stats_Classifier::MAX_CONSENT_COOKIE_LEN + 1 ), 1 ), 'consent: oversized cookie → null (bounded read)' );
+
+// ── 13. summary_payload projection: shape, caps, byte-bound, no drill/heatmap ───
+
+$sx_agg = IWSL_Stats_Classifier::aggregate(
+	array(
+		iwsl_st_row( $ST_NOW - 100, 'v1', 'view', '/a', array( 'referer_host' => 'google.com', 'search_engine' => 'Google', 'device' => 'desktop', 'country' => 'NL' ) ),
+		iwsl_st_row( $ST_NOW - 200, 'v2', 'view', '/a', array( 'referer_host' => 'google.com', 'search_engine' => 'Google', 'device' => 'mobile', 'country' => 'NL' ) ),
+		iwsl_st_row( $ST_NOW - 300, 'v3', 'search', '/', array( 'event_label' => 'widgets' ) ),
+	),
+	$ST_NOW,
+	7
+);
+$sx_sp = IWSL_Stats_Classifier::summary_payload( $sx_agg );
+iwsl_assert( isset( $sx_sp['kpi'], $sx_sp['quality'], $sx_sp['top_pages'], $sx_sp['channels'], $sx_sp['devices'], $sx_sp['countries'], $sx_sp['searches'], $sx_sp['privacy'] ), 'summary_payload: full compact shape present' );
+iwsl_assert_same( array( 'dnt' => 1, 'gpc' => 1, 'consent_gated' => 0 ), $sx_sp['privacy'], 'summary_payload: privacy signals default {dnt,gpc,consent_gated:0}' );
+iwsl_assert_same( array( '/a', 2 ), $sx_sp['top_pages'][0], 'summary_payload: top page flattened to [label,count]' );
+iwsl_assert( ! isset( $sx_sp['drill'] ) && ! isset( $sx_sp['heatmap'] ) && ! isset( $sx_sp['series'] ) && ! isset( $sx_sp['recent_events'] ) && ! isset( $sx_sp['hourly'] ), 'summary_payload: drill/heatmap/series/recent_events/hourly NEVER cross the wire' );
+
+// nullable delta passthrough (no prior baseline → null survives the projection).
+$sx_null_model = array( 'range_days' => 7, 'generated' => 1, 'kpi' => array( 'views' => 3, 'views_delta_pct' => null ), 'quality' => array() );
+iwsl_assert_same( null, IWSL_Stats_Classifier::summary_payload( $sx_null_model )['kpi']['views_delta_pct'], 'summary_payload: null delta (no baseline) passes through' );
+
+// worst-case byte bound: 10 maxed entries per top list (projection slices to the caps).
+$sx_pairs = static function ( int $n, int $len ): array {
+	$out = array();
+	for ( $i = 0; $i < $n; $i++ ) {
+		$out[] = array( 'label' => str_repeat( 'p', $len ) . $i, 'count' => 999999 );
+	}
+	return $out;
+};
+$sx_worst = array(
+	'range_days'    => 30,
+	'generated'     => 1893456000,
+	'kpi'           => array( 'views' => 999999, 'visits' => 999999, 'events' => 999999, 'views_today' => 999999, 'online_now' => 9999, 'prev_views' => 999999, 'prev_visits' => 999999, 'views_delta_pct' => 1234.5, 'visits_delta_pct' => -99.9 ),
+	'quality'       => array( 'bounce_pct' => 99.9, 'pages_per_visit' => 12.34 ),
+	'top_pages'     => $sx_pairs( 10, 190 ),
+	'top_referrers' => $sx_pairs( 10, 190 ),
+	'channels'      => $sx_pairs( 10, 12 ),
+	'devices'       => $sx_pairs( 10, 10 ),
+	'countries'     => $sx_pairs( 10, 16 ),
+	'searches'      => $sx_pairs( 10, 190 ),
+	// Heavy source-model islands that MUST be dropped by the projection:
+	'drill'         => array_fill( 0, 40, str_repeat( 'x', 300 ) ),
+	'heatmap'       => array_fill( 0, 7, array_fill( 0, 24, 5 ) ),
+	'series'        => array_fill( 0, 30, array( 'day' => '2024-01-01', 'views' => 5, 'visits' => 3 ) ),
+	'recent_events' => array_fill( 0, 25, array( 'at' => 1, 'type' => 'x', 'label' => 'y', 'path' => '/z' ) ),
+);
+$sx_wsp = IWSL_Stats_Classifier::summary_payload( $sx_worst );
+iwsl_assert_same( IWSL_Stats_Classifier::SUMMARY_TOP_N, count( $sx_wsp['top_pages'] ), 'summary_payload: top_pages capped at SUMMARY_TOP_N' );
+iwsl_assert_same( IWSL_Stats_Classifier::SUMMARY_CHANNELS_N, count( $sx_wsp['channels'] ), 'summary_payload: channels capped at SUMMARY_CHANNELS_N' );
+iwsl_assert_same( IWSL_Stats_Classifier::SUMMARY_DEVICES_N, count( $sx_wsp['devices'] ), 'summary_payload: devices capped at SUMMARY_DEVICES_N' );
+iwsl_assert( ! isset( $sx_wsp['drill'], $sx_wsp['heatmap'], $sx_wsp['series'] ), 'summary_payload: worst-case still drops drill/heatmap/series' );
+$sx_wbytes = strlen( json_encode( $sx_wsp ) );
+iwsl_assert( $sx_wbytes <= IWSL_Stats_Classifier::SUMMARY_MAX_BYTES, 'summary_payload: worst-case ' . $sx_wbytes . ' bytes under SUMMARY_MAX_BYTES (' . IWSL_Stats_Classifier::SUMMARY_MAX_BYTES . ')' );
+
+// ── 14. timeseries_payload projection ──────────────────────────────────────────
+
+$sx_ts_model = array( 'series' => array(), 'hourly' => array(), 'hourly_prev' => array() );
+for ( $sx_i = 0; $sx_i < 30; $sx_i++ ) {
+	$sx_ts_model['series'][] = array( 'day' => sprintf( '2024-%02d-%02d', 1, ( $sx_i % 28 ) + 1 ), 'views' => $sx_i, 'visits' => $sx_i );
+}
+for ( $sx_h = 0; $sx_h < 24; $sx_h++ ) {
+	$sx_ts_model['hourly'][]      = array( 'hour' => $sx_h, 'views' => $sx_h, 'visits' => $sx_h );
+	$sx_ts_model['hourly_prev'][] = array( 'hour' => $sx_h, 'views' => 0, 'visits' => 0 );
+}
+$sx_ts30 = IWSL_Stats_Classifier::timeseries_payload( $sx_ts_model, 30 );
+iwsl_assert_same( 30, count( $sx_ts30['series'] ), 'timeseries: days=30 → 30 series entries' );
+iwsl_assert( ! isset( $sx_ts30['hourly'] ), 'timeseries: days=30 → no hourly arrays' );
+$sx_ts1 = IWSL_Stats_Classifier::timeseries_payload( $sx_ts_model, 1 );
+iwsl_assert_same( 1, count( $sx_ts1['series'] ), 'timeseries: days=1 → last series day only' );
+iwsl_assert_same( 24, count( $sx_ts1['hourly'] ), 'timeseries: days=1 → 24 hourly slots' );
+iwsl_assert_same( 24, count( $sx_ts1['hourly_prev'] ), 'timeseries: days=1 → 24 previous-day slots' );
+iwsl_assert_same( 30, IWSL_Stats_Classifier::timeseries_payload( $sx_ts_model, 99 )['days'], 'timeseries: days clamped down to SERIES_DAYS' );
+iwsl_assert_same( 1, IWSL_Stats_Classifier::timeseries_payload( $sx_ts_model, 0 )['days'], 'timeseries: days clamped up to 1' );
+iwsl_assert( strlen( json_encode( $sx_ts30 ) ) <= IWSL_Stats_Classifier::TIMESERIES_MAX_BYTES, 'timeseries: days=30 under TIMESERIES_MAX_BYTES' );
+iwsl_assert( strlen( json_encode( $sx_ts1 ) ) <= IWSL_Stats_Classifier::TIMESERIES_MAX_BYTES, 'timeseries: days=1 under TIMESERIES_MAX_BYTES' );
+
+// ── 15. maybe_record: GPC + consent skips (S6); default OFF = zero change ───────
+
+unset( $GLOBALS['wpdb'] ); // engines below pass an explicit fake; guard default_db().
+
+// A directly-built unlocked engine over a fresh store + fake $wpdb + injected consent ctx.
+$sx_eng = static function ( $ctx ) use ( $ST_NOW ): array {
+	$store = iwsl_st_store( 'active', $ST_NOW - 60, true, $ST_NOW );
+	$fake  = new IWSL_Stats_Fake_WPDB();
+	$ent   = new IWSL_Entitlements( $store, iwsl_st_clock( $ST_NOW ) );
+	$eng   = new IWSL_Statistics( $ent, $store, $fake, iwsl_st_clock( $ST_NOW ), $ctx );
+	return array( $eng, $fake );
+};
+
+// (a) Sec-GPC: 1 short-circuits before the DB is touched (default provider inactive).
+$sx_gpc_store = iwsl_st_store( 'active', $ST_NOW - 60, true, $ST_NOW );
+$sx_gpc_fake  = new IWSL_Stats_Fake_WPDB();
+$sx_gpc_eng   = iwsl_st_engine( $sx_gpc_store, $sx_gpc_fake, $ST_NOW );
+$sx_gpc_r     = $sx_gpc_eng->maybe_record( array_merge( iwsl_st_server(), array( 'HTTP_SEC_GPC' => '1' ) ), iwsl_st_view_ctx() );
+iwsl_assert_same( 'gpc', $sx_gpc_r['reason'], 'maybe_record: Sec-GPC declines recording (reason gpc)' );
+iwsl_assert_same( 0, count( $sx_gpc_fake->writes ), 'maybe_record: gpc → no INSERT' );
+
+// (b) DEFAULT provider, banner OFF (cookie_consent locked) → records: ZERO change.
+$sx_off_store = iwsl_st_store( 'active', $ST_NOW - 60, true, $ST_NOW );
+$sx_off_fake  = new IWSL_Stats_Fake_WPDB();
+$sx_off_eng   = iwsl_st_engine( $sx_off_store, $sx_off_fake, $ST_NOW );
+$sx_off_r     = $sx_off_eng->maybe_record( iwsl_st_server(), iwsl_st_view_ctx() );
+iwsl_assert_same( true, $sx_off_r['recorded'], 'maybe_record: default banner-OFF path still records (zero behavior change)' );
+
+// (c) injected active opt-in banner, statistics DECLINED → not recorded.
+list( $sx_dec_eng, $sx_dec_fake ) = $sx_eng( static function ( array $s ): array {
+	return array( 'active' => true, 'allows' => false );
+} );
+$sx_dec_r = $sx_dec_eng->maybe_record( iwsl_st_server(), iwsl_st_view_ctx() );
+iwsl_assert_same( 'consent-declined', $sx_dec_r['reason'], 'maybe_record: declined statistics consent → consent-declined' );
+iwsl_assert_same( 0, count( $sx_dec_fake->writes ), 'maybe_record: consent-declined → no INSERT' );
+
+// (d) injected active opt-in banner, UNDECIDED (no cookie) → not recorded (opt-in).
+list( $sx_und_eng, $sx_und_fake ) = $sx_eng( static function ( array $s ): array {
+	return array( 'active' => true, 'allows' => null );
+} );
+$sx_und_r = $sx_und_eng->maybe_record( iwsl_st_server(), iwsl_st_view_ctx() );
+iwsl_assert_same( 'consent-declined', $sx_und_r['reason'], 'maybe_record: undecided under opt-in banner → not recorded' );
+
+// (e) injected active opt-in banner, statistics GRANTED → recorded.
+list( $sx_grt_eng, $sx_grt_fake ) = $sx_eng( static function ( array $s ): array {
+	return array( 'active' => true, 'allows' => true );
+} );
+$sx_grt_r = $sx_grt_eng->maybe_record( iwsl_st_server(), iwsl_st_view_ctx() );
+iwsl_assert_same( true, $sx_grt_r['recorded'], 'maybe_record: granted statistics consent → recorded' );
+
+// (f) injected INACTIVE context (banner off / not opt-in) → records unchanged.
+list( $sx_ina_eng, $sx_ina_fake ) = $sx_eng( static function ( array $s ): array {
+	return array( 'active' => false, 'allows' => null );
+} );
+$sx_ina_r = $sx_ina_eng->maybe_record( iwsl_st_server(), iwsl_st_view_ctx() );
+iwsl_assert_same( true, $sx_ina_r['recorded'], 'maybe_record: inactive consent context records (no gate)' );
+
+// ── 16. wire_summary / wire_timeseries (signed projections) ────────────────────
+
+// locked → { locked:true, gate } and NO numbers leak.
+$sx_wl = iwsl_st_engine( iwsl_st_store( 'active', $ST_NOW - 60, false, $ST_NOW ), null, $ST_NOW )->wire_summary( 7 );
+iwsl_assert_same( true, $sx_wl['locked'], 'wire_summary(locked): locked=true' );
+iwsl_assert( isset( $sx_wl['gate']['reasons'] ), 'wire_summary(locked): carries signed gate reasons' );
+iwsl_assert( ! isset( $sx_wl['kpi'] ), 'wire_summary(locked): no traffic numbers leak' );
+
+// unlocked (no $wpdb → bounded empty reads) → well-formed zero projection.
+$sx_wu = iwsl_st_engine( iwsl_st_store( 'active', $ST_NOW - 60, true, $ST_NOW ), null, $ST_NOW )->wire_summary( 7 );
+iwsl_assert_same( false, $sx_wu['locked'], 'wire_summary(unlocked): locked=false' );
+iwsl_assert( isset( $sx_wu['kpi'], $sx_wu['top_pages'], $sx_wu['privacy'] ), 'wire_summary(unlocked): summary-shaped' );
+iwsl_assert_same( 0, $sx_wu['privacy']['consent_gated'], 'wire_summary: consent_gated=0 with no opt-in banner' );
+iwsl_assert( strlen( json_encode( $sx_wu ) ) <= IWSL_Stats_Classifier::SUMMARY_MAX_BYTES, 'wire_summary: result under SUMMARY_MAX_BYTES' );
+
+// consent_gated overlay: an active opt-in banner flips the privacy flag to 1.
+$sx_wc_store = iwsl_st_store( 'active', $ST_NOW - 60, true, $ST_NOW );
+$sx_wc_eng   = new IWSL_Statistics( new IWSL_Entitlements( $sx_wc_store, iwsl_st_clock( $ST_NOW ) ), $sx_wc_store, null, iwsl_st_clock( $ST_NOW ), static function ( array $s ): array {
+	return array( 'active' => true, 'allows' => null );
+} );
+iwsl_assert_same( 1, $sx_wc_eng->wire_summary( 7 )['privacy']['consent_gated'], 'wire_summary: consent_gated=1 under an active opt-in banner' );
+
+// wire_timeseries: locked, days=1 (hourly present), days=30 (series only).
+iwsl_assert_same( true, iwsl_st_engine( iwsl_st_store( 'active', $ST_NOW - 60, false, $ST_NOW ), null, $ST_NOW )->wire_timeseries( 7 )['locked'], 'wire_timeseries(locked): locked=true' );
+$sx_ts_eng = iwsl_st_engine( iwsl_st_store( 'active', $ST_NOW - 60, true, $ST_NOW ), null, $ST_NOW );
+$sx_wts1   = $sx_ts_eng->wire_timeseries( 1 );
+iwsl_assert_same( false, $sx_wts1['locked'], 'wire_timeseries(1): unlocked' );
+iwsl_assert_same( 24, count( $sx_wts1['hourly'] ), 'wire_timeseries(1): hourly present (24 slots)' );
+$sx_wts30 = $sx_ts_eng->wire_timeseries( 30 );
+iwsl_assert( isset( $sx_wts30['series'] ) && ! isset( $sx_wts30['hourly'] ), 'wire_timeseries(30): series only, no hourly' );
+
+// ── 17. param validators ───────────────────────────────────────────────────────
+
+$sx_mkp = static function ( array $a ): stdClass {
+	$o = new stdClass();
+	foreach ( $a as $k => $v ) {
+		$o->$k = $v;
+	}
+	return $o;
+};
+iwsl_assert_same( true, IWSL_Statistics::validate_summary_params( $sx_mkp( array() ) ), 'validate summary: empty params ok (default range)' );
+iwsl_assert_same( true, IWSL_Statistics::validate_summary_params( $sx_mkp( array( 'range_days' => 7 ) ) ), 'validate summary: range_days 7 ok' );
+iwsl_assert_same( false, IWSL_Statistics::validate_summary_params( $sx_mkp( array( 'range_days' => 5 ) ) ), 'validate summary: range_days 5 rejected (not in ALLOWED_RANGES)' );
+iwsl_assert_same( false, IWSL_Statistics::validate_summary_params( $sx_mkp( array( 'range_days' => '7' ) ) ), 'validate summary: string range_days rejected' );
+iwsl_assert_same( false, IWSL_Statistics::validate_summary_params( $sx_mkp( array( 'range_days' => 7, 'x' => 1 ) ) ), 'validate summary: unexpected extra key rejected' );
+iwsl_assert_same( true, IWSL_Statistics::validate_timeseries_params( $sx_mkp( array() ) ), 'validate timeseries: empty params ok' );
+iwsl_assert_same( true, IWSL_Statistics::validate_timeseries_params( $sx_mkp( array( 'days' => 30 ) ) ), 'validate timeseries: days 30 ok' );
+iwsl_assert_same( false, IWSL_Statistics::validate_timeseries_params( $sx_mkp( array( 'days' => 31 ) ) ), 'validate timeseries: days 31 rejected' );
+iwsl_assert_same( false, IWSL_Statistics::validate_timeseries_params( $sx_mkp( array( 'days' => 0 ) ) ), 'validate timeseries: days 0 rejected' );
+iwsl_assert_same( false, IWSL_Statistics::validate_timeseries_params( $sx_mkp( array( 'days' => '7' ) ) ), 'validate timeseries: string days rejected' );
+
+unset( $GLOBALS['wpdb'] );
