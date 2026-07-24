@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.19.0
+ * Version: 0.20.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.19.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.20.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -101,6 +101,7 @@ require_once __DIR__ . '/includes/class-iwsl-auto-convert.php';
 require_once __DIR__ . '/includes/class-iwsl-media-offload.php';
 require_once __DIR__ . '/includes/class-iwsl-media-folders.php';
 require_once __DIR__ . '/includes/class-iwsl-media-folders-ui.php';
+require_once __DIR__ . '/includes/class-iwsl-media-library.php';
 require_once __DIR__ . '/includes/class-iwsl-speed-pack.php';
 require_once __DIR__ . '/includes/class-iwsl-stats-classifier.php';
 require_once __DIR__ . '/includes/class-iwsl-statistics.php';
