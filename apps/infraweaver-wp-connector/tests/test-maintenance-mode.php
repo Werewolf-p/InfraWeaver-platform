@@ -277,4 +277,93 @@ $locked14  = $mm14l->save_settings( array( 'enabled' => true ) );
 iwsl_assert_same( false, $locked14['ok'], 'cache-flush: locked save refused' );
 iwsl_assert_same( $before14l, IWSL_Teardown::$flush_calls, 'cache-flush: a locked/refused save does not flush' );
 
+// ── 15. Auto-off window (S8): is_active_now expiry boundary ───────────────────
+
+$MM_NOW_S = (int) floor( $MM_NOW / 1000 ); // the engine's now_seconds()
+$store    = new IWSL_Memory_Store();
+$ent      = iwsl_mm_unlocked_entitlements( $store, $MM_NOW );
+$mm       = new IWSL_Maintenance_Mode( $ent, $store, iwsl_mm_clock( $MM_NOW ) );
+iwsl_assert_same( true, $mm->is_active_now( array( 'enabled' => true, 'until' => 0 ) ), 'until: enabled with no window → active' );
+iwsl_assert_same( true, $mm->is_active_now( array( 'enabled' => true, 'until' => $MM_NOW_S + 10 ) ), 'until: a future window → active' );
+iwsl_assert_same( false, $mm->is_active_now( array( 'enabled' => true, 'until' => $MM_NOW_S ) ), 'until: window == now → elapsed (boundary, not active)' );
+iwsl_assert_same( false, $mm->is_active_now( array( 'enabled' => true, 'until' => $MM_NOW_S - 1 ) ), 'until: a past window → not active' );
+iwsl_assert_same( false, $mm->is_active_now( array( 'enabled' => false, 'until' => $MM_NOW_S + 100 ) ), 'until: disabled → never active' );
+
+// ── 16. maybe_block honours the window ────────────────────────────────────────
+
+$store = new IWSL_Memory_Store();
+$ent   = iwsl_mm_unlocked_entitlements( $store, $MM_NOW );
+$store->set( 'maintenance_mode', array( 'enabled' => true, 'until' => $MM_NOW_S - 1, 'saved_at' => 1 ) );
+$rec = new IWSL_MM_Recording_Responder();
+$mm  = iwsl_mm_engine( $store, $ent, $MM_NOW, $rec, false, true );
+$mm->maybe_block();
+iwsl_assert_same( 0, count( $rec->calls ), 'maybe_block: an elapsed window serves the site (no 503)' );
+$store->set( 'maintenance_mode', array( 'enabled' => true, 'until' => $MM_NOW_S + 100, 'saved_at' => 1 ) );
+$rec2 = new IWSL_MM_Recording_Responder();
+$mm2  = iwsl_mm_engine( $store, $ent, $MM_NOW, $rec2, false, true );
+$mm2->maybe_block();
+iwsl_assert_same( 1, count( $rec2->calls ), 'maybe_block: a future window still blocks' );
+
+// ── 17. IP allow-list (S7): REMOTE_ADDR only, canonicalized ───────────────────
+
+$store = new IWSL_Memory_Store();
+$ent   = iwsl_mm_unlocked_entitlements( $store, $MM_NOW );
+$store->set( 'maintenance_mode', array( 'enabled' => true, 'allow_ips' => array( '203.0.113.7', '::1' ), 'saved_at' => 1 ) );
+$mm = new IWSL_Maintenance_Mode( $ent, $store, iwsl_mm_clock( $MM_NOW ) );
+iwsl_assert_same( true, $mm->is_ip_allowed( $mm->settings(), '203.0.113.7' ), 'allowlist: an exact listed IP is allowed' );
+iwsl_assert_same( true, $mm->is_ip_allowed( $mm->settings(), '0:0:0:0:0:0:0:1' ), 'allowlist: IPv6 canonicalized (::1 == its long form)' );
+iwsl_assert_same( false, $mm->is_ip_allowed( $mm->settings(), '203.0.113.8' ), 'allowlist: a non-listed IP is not allowed' );
+iwsl_assert_same( false, $mm->is_ip_allowed( array( 'enabled' => true, 'allow_ips' => array() ), '203.0.113.7' ), 'allowlist: an empty list allows nobody' );
+iwsl_assert_same( false, $mm->is_ip_allowed( $mm->settings(), 'not-an-ip' ), 'allowlist: an unparseable client address is refused (fail-closed)' );
+
+// ── 18. maybe_block: allow-listed REMOTE_ADDR bypasses; XFF is NEVER consulted ─
+
+$store = new IWSL_Memory_Store();
+$ent   = iwsl_mm_unlocked_entitlements( $store, $MM_NOW );
+$store->set( 'maintenance_mode', array( 'enabled' => true, 'allow_ips' => array( '203.0.113.7' ), 'saved_at' => 1 ) );
+$rec = new IWSL_MM_Recording_Responder();
+$mm  = iwsl_mm_engine( $store, $ent, $MM_NOW, $rec, false, true );
+$_SERVER['REMOTE_ADDR']          = '203.0.113.7';
+$_SERVER['HTTP_X_FORWARDED_FOR'] = '198.51.100.9';
+$mm->maybe_block();
+iwsl_assert_same( 0, count( $rec->calls ), 'allowlist: an allow-listed REMOTE_ADDR bypasses the holding page' );
+
+$rec2 = new IWSL_MM_Recording_Responder();
+$mm2  = iwsl_mm_engine( $store, $ent, $MM_NOW, $rec2, false, true );
+$_SERVER['REMOTE_ADDR']          = '198.51.100.5'; // NOT listed
+$_SERVER['HTTP_X_FORWARDED_FOR'] = '203.0.113.7';  // spoofed to a listed IP — must not help
+$mm2->maybe_block();
+iwsl_assert_same( 1, count( $rec2->calls ), 'allowlist: XFF is ignored — a spoofed forwarded IP does not bypass' );
+unset( $_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_X_FORWARDED_FOR'] );
+
+// ── 19. sanitize_settings: allow_ips cap/drop/dedupe + until clamp ─────────────
+
+$store = new IWSL_Memory_Store();
+$ent   = iwsl_mm_unlocked_entitlements( $store, $MM_NOW );
+$mm    = new IWSL_Maintenance_Mode( $ent, $store, iwsl_mm_clock( $MM_NOW ) );
+$ips   = array();
+for ( $i = 0; $i < 15; $i++ ) {
+	$ips[] = '10.0.0.' . $i;
+}
+$ips[]  = '10.0.0.1';   // duplicate
+$ips[]  = '10.0.0.0/8'; // CIDR — refused by FILTER_VALIDATE_IP
+$ips[]  = 'garbage';    // not an IP
+$clean  = $mm->sanitize_settings( array( 'enabled' => true, 'allow_ips' => $ips, 'until' => $MM_NOW_S + 999999999 ) );
+iwsl_assert_same( IWSL_Maintenance_Mode::MAX_ALLOW_IPS, count( $clean['allow_ips'] ), 'sanitize: allow_ips capped at 10' );
+iwsl_assert( ! in_array( '10.0.0.0/8', $clean['allow_ips'], true ), 'sanitize: a CIDR entry is dropped (no CIDR in v1)' );
+iwsl_assert( ! in_array( 'garbage', $clean['allow_ips'], true ), 'sanitize: a non-IP entry is dropped' );
+iwsl_assert_same( $MM_NOW_S + IWSL_Maintenance_Mode::MAX_UNTIL_AHEAD_S, $clean['until'], 'sanitize: a far-future window is clamped to 7 days ahead' );
+$clean2 = $mm->sanitize_settings( array( 'enabled' => true, 'allow_ips' => "1.1.1.1, 2.2.2.2\n3.3.3.3" ) );
+iwsl_assert_same( array( '1.1.1.1', '2.2.2.2', '3.3.3.3' ), $clean2['allow_ips'], 'sanitize: a comma/space/newline IP string is parsed' );
+iwsl_assert_same( 0, $clean2['until'], 'sanitize: a missing until is 0 (no window)' );
+
+// ── 20. Retry-After uses the real remaining window seconds (S8) ───────────────
+
+$resp = $mm->build_response( array( 'retry_after' => true, 'until' => $MM_NOW_S + 120 ) );
+iwsl_assert_same( '120', $resp['headers']['Retry-After'], 'retry-after: advertises the real remaining window seconds' );
+$resp2 = $mm->build_response( array( 'retry_after' => true ) );
+iwsl_assert_same( (string) IWSL_Maintenance_Mode::RETRY_AFTER_SECONDS, $resp2['headers']['Retry-After'], 'retry-after: no window → the flat default' );
+$resp3 = $mm->build_response( array( 'retry_after' => true, 'until' => $MM_NOW_S - 5 ) );
+iwsl_assert_same( (string) IWSL_Maintenance_Mode::RETRY_AFTER_SECONDS, $resp3['headers']['Retry-After'], 'retry-after: a past window → the flat default' );
+
 // no globals installed by this suite — nothing to unset.

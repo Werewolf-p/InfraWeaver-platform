@@ -55,6 +55,12 @@ final class IWSL_Maintenance_Mode {
 	/** Seconds advertised in the Retry-After header when that flag is on. */
 	const RETRY_AFTER_SECONDS = 3600;
 
+	/** Furthest ahead an auto-off window may be scheduled (7 days). */
+	const MAX_UNTIL_AHEAD_S = 604800;
+
+	/** Cap on allow-listed literal IPs (no CIDR in v1). */
+	const MAX_ALLOW_IPS = 10;
+
 	/** HTTP status a blocked request receives. */
 	const HTTP_STATUS = 503;
 
@@ -126,7 +132,7 @@ final class IWSL_Maintenance_Mode {
 	 * DB-tampered value is normalized here, never mutated in place. `saved_at` is
 	 * preserved from the stored record.
 	 *
-	 * @return array{ enabled:bool, headline:string, message:string, retry_after:bool, saved_at:int }
+	 * @return array{ enabled:bool, headline:string, message:string, retry_after:bool, until:int, allow_ips:string[], saved_at:int }
 	 */
 	public function settings(): array {
 		$stored = $this->store->get( self::SETTINGS_KEY, array() );
@@ -223,7 +229,17 @@ final class IWSL_Maintenance_Mode {
 			'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
 		);
 		if ( ! empty( $settings['retry_after'] ) ) {
-			$headers['Retry-After'] = (string) self::RETRY_AFTER_SECONDS;
+			// When an auto-off window is set, advertise the REAL remaining seconds so
+			// crawlers come back right after it lifts; otherwise the flat default.
+			$secs  = self::RETRY_AFTER_SECONDS;
+			$until = isset( $settings['until'] ) ? (int) $settings['until'] : 0;
+			if ( $until > 0 ) {
+				$remaining = $until - $this->now_seconds();
+				if ( $remaining > 0 ) {
+					$secs = $remaining;
+				}
+			}
+			$headers['Retry-After'] = (string) $secs;
 		}
 
 		return array(
@@ -245,12 +261,17 @@ final class IWSL_Maintenance_Mode {
 			return;
 		}
 
-		$settings = $this->settings();
-		$enabled  = ! empty( $settings['enabled'] );
-		$is_admin = (bool) ( $this->is_admin )();
-		$is_front = (bool) ( $this->is_front )();
+		$settings   = $this->settings();
+		// An auto-off window that has elapsed reads as "not enabled" (S8); an
+		// allow-listed REMOTE_ADDR bypasses exactly like an admin (S7). Both facts
+		// are folded into should_block's existing three so the pure decision table
+		// is untouched.
+		$enabled    = $this->is_active_now( $settings );
+		$is_admin   = (bool) ( $this->is_admin )();
+		$allowed_ip = $this->is_ip_allowed( $settings );
+		$is_front   = (bool) ( $this->is_front )();
 
-		if ( ! $this->should_block( $enabled, $is_admin, $is_front ) ) {
+		if ( ! $this->should_block( $enabled, $is_admin || $allowed_ip, $is_front ) ) {
 			return;
 		}
 
@@ -317,7 +338,7 @@ final class IWSL_Maintenance_Mode {
 	 * capped; the two booleans are cast.
 	 *
 	 * @param array<string, mixed> $input
-	 * @return array{ enabled:bool, headline:string, message:string, retry_after:bool, saved_at:int }
+	 * @return array{ enabled:bool, headline:string, message:string, retry_after:bool, until:int, allow_ips:string[], saved_at:int }
 	 */
 	public function sanitize_settings( array $input ): array {
 		return array(
@@ -325,8 +346,125 @@ final class IWSL_Maintenance_Mode {
 			'headline'    => self::clean_text( self::pluck( $input, 'headline' ), self::MAX_HEADLINE_LEN ),
 			'message'     => self::clean_text( self::pluck( $input, 'message' ), self::MAX_MESSAGE_LEN ),
 			'retry_after' => ! empty( $input['retry_after'] ),
+			'until'       => $this->clean_until( $input ),
+			'allow_ips'   => self::clean_ips( $input ),
 			'saved_at'    => 0,
 		);
+	}
+
+	/**
+	 * Normalize an optional auto-off window (unix seconds). A non-positive / missing
+	 * value means "no window"; a future value is clamped to MAX_UNTIL_AHEAD_S ahead
+	 * of now so a fat-fingered timestamp can never leave the site dark for years. A
+	 * value already in the past is preserved as-is — is_active_now() treats it as
+	 * elapsed (i.e. maintenance off), which is the whole point of the window.
+	 */
+	private function clean_until( array $input ): int {
+		$until = isset( $input['until'] ) && is_numeric( $input['until'] ) ? (int) $input['until'] : 0;
+		if ( $until <= 0 ) {
+			return 0;
+		}
+		$max = $this->now_seconds() + self::MAX_UNTIL_AHEAD_S;
+		return $until > $max ? $max : $until;
+	}
+
+	/**
+	 * Normalize the IP allow-list: literal IPv4/IPv6 only (a CIDR like `10.0.0.0/8`
+	 * fails FILTER_VALIDATE_IP and is dropped), de-duped, capped at MAX_ALLOW_IPS.
+	 * Accepts either an array of strings or a whitespace/comma-separated string so a
+	 * console textarea maps cleanly. Stored verbatim; canonicalized only at compare
+	 * time (is_ip_allowed) so the surface stays human-readable.
+	 *
+	 * @param array<string, mixed> $input
+	 * @return string[]
+	 */
+	private static function clean_ips( array $input ): array {
+		$raw = isset( $input['allow_ips'] ) ? $input['allow_ips'] : array();
+		if ( is_string( $raw ) ) {
+			$raw = preg_split( '/[\s,]+/', $raw, -1, PREG_SPLIT_NO_EMPTY );
+			$raw = is_array( $raw ) ? $raw : array();
+		}
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+		$out  = array();
+		$seen = array();
+		foreach ( $raw as $ip ) {
+			if ( ! is_string( $ip ) ) {
+				continue;
+			}
+			$ip = trim( $ip );
+			if ( false === filter_var( $ip, FILTER_VALIDATE_IP ) || isset( $seen[ $ip ] ) ) {
+				continue;
+			}
+			$seen[ $ip ] = true;
+			$out[]       = $ip;
+			if ( count( $out ) >= self::MAX_ALLOW_IPS ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Whether maintenance is *effectively active right now*: enabled AND, if an
+	 * auto-off window is set, not yet elapsed. Pure — the caller supplies (or lets
+	 * it default to) the clock so the harness can assert the expiry boundary.
+	 *
+	 * @param array<string, mixed> $settings A sanitized settings map.
+	 */
+	public function is_active_now( array $settings, ?int $now_s = null ): bool {
+		if ( empty( $settings['enabled'] ) ) {
+			return false;
+		}
+		$until = isset( $settings['until'] ) ? (int) $settings['until'] : 0;
+		if ( $until > 0 ) {
+			$now = null !== $now_s ? $now_s : $this->now_seconds();
+			if ( $now >= $until ) {
+				return false; // Window elapsed → maintenance is off.
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Whether the request's client IP is allow-listed. Compares ONLY REMOTE_ADDR —
+	 * never X-Forwarded-For, which a client can spoof — canonicalizing both sides
+	 * with inet_pton so `::1` and its long form compare equal. An empty allow-list,
+	 * an unparseable client address, or a proxy that hides the real IP → not allowed
+	 * (fail-closed). The reverse-proxy caveat is surfaced in the console UI.
+	 *
+	 * @param array<string, mixed> $settings    A sanitized settings map.
+	 * @param string|null          $remote_addr Override for the harness; default $_SERVER['REMOTE_ADDR'].
+	 */
+	public function is_ip_allowed( array $settings, ?string $remote_addr = null ): bool {
+		$ips = isset( $settings['allow_ips'] ) && is_array( $settings['allow_ips'] ) ? $settings['allow_ips'] : array();
+		if ( array() === $ips ) {
+			return false;
+		}
+		$addr = null !== $remote_addr
+			? $remote_addr
+			: ( isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '' );
+		$canon = self::canon_ip( $addr );
+		if ( '' === $canon ) {
+			return false;
+		}
+		foreach ( $ips as $ip ) {
+			if ( is_string( $ip ) && self::canon_ip( $ip ) === $canon ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Canonical byte form (hex) of a literal IP, or '' when it is not a valid IP. */
+	private static function canon_ip( string $ip ): string {
+		$ip = trim( $ip );
+		if ( false === filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+			return '';
+		}
+		$packed = @inet_pton( $ip );
+		return false === $packed ? '' : bin2hex( $packed );
 	}
 
 	/** Read a string field defensively from a mixed input map. */
@@ -553,11 +691,18 @@ final class IWSL_Maintenance_Mode {
 			exit;
 		}
 
-		$input = array(
+		// The basic wp-admin form does not surface the auto-off window or the IP
+		// allow-list (the console `maintenance.set` path manages those); carry the
+		// currently-stored values forward so a plain admin toggle never silently
+		// clears a console-configured window or allow-list.
+		$current = $this->settings();
+		$input   = array(
 			'enabled'     => isset( $_POST['iwsl_mm_enabled'] ),
 			'headline'    => isset( $_POST['iwsl_mm_headline'] ) ? sanitize_text_field( wp_unslash( $_POST['iwsl_mm_headline'] ) ) : '',
 			'message'     => isset( $_POST['iwsl_mm_message'] ) ? sanitize_textarea_field( wp_unslash( $_POST['iwsl_mm_message'] ) ) : '',
 			'retry_after' => isset( $_POST['iwsl_mm_retry_after'] ),
+			'until'       => $current['until'],
+			'allow_ips'   => $current['allow_ips'],
 		);
 
 		$result = $this->save_settings( $input ); // LAYER 3 inside.

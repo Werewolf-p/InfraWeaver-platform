@@ -2,7 +2,7 @@
 /**
  * Plugin Name: InfraWeaver Connector
  * Description: Signed, IW-initiated management link (IWSL v1) — Ed25519 + SLH-DSA-192s dual-verified commands, zero standing WP→IW path.
- * Version: 0.19.0
+ * Version: 0.20.0
  * Author: InfraWeaver
  * Requires at least: 5.9
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'IWSL_CONNECTOR_VERSION', '0.19.0' );
+define( 'IWSL_CONNECTOR_VERSION', '0.20.0' );
 
 /**
  * Hard ceiling on request bodies for the public REST surface. A dual-signed
@@ -71,7 +71,9 @@ require_once __DIR__ . '/includes/class-iwsl-media-optimizer.php';
 require_once __DIR__ . '/includes/class-iwsl-s3-client.php';
 require_once __DIR__ . '/includes/class-iwsl-redirect-matcher.php';
 require_once __DIR__ . '/includes/class-iwsl-exact-path-matcher.php';
+require_once __DIR__ . '/includes/class-iwsl-prefix-path-matcher.php';
 require_once __DIR__ . '/includes/class-iwsl-redirects.php';
+require_once __DIR__ . '/includes/class-iwsl-redirect-suggestions.php';
 require_once __DIR__ . '/includes/iwsl-page-cache-helpers.php';
 require_once __DIR__ . '/includes/class-iwsl-page-cache.php';
 require_once __DIR__ . '/includes/class-iwsl-mail-transport.php';
@@ -95,6 +97,7 @@ require_once __DIR__ . '/includes/class-iwsl-seo-audit.php';
 require_once __DIR__ . '/includes/class-iwsl-svg-upload.php';
 require_once __DIR__ . '/includes/class-iwsl-broken-link-scan.php';
 require_once __DIR__ . '/includes/class-iwsl-maintenance-mode.php';
+require_once __DIR__ . '/includes/class-iwsl-site-health.php';
 require_once __DIR__ . '/includes/class-iwsl-scheduled-db-cleanup.php';
 require_once __DIR__ . '/includes/class-iwsl-activity-log.php';
 require_once __DIR__ . '/includes/class-iwsl-auto-convert.php';
