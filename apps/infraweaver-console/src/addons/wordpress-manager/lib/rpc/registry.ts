@@ -33,6 +33,15 @@ import {
   type MediaTreeResponse,
 } from "../manage/media";
 import {
+  dbCleanupParamsSchema,
+  dbScheduleParamsSchema,
+  type DbAnalyzeResponse,
+  type DbCleanupParams,
+  type DbCleanupResponse,
+  type DbScheduleParams,
+  type DbScheduleResponse,
+} from "../manage/database";
+import {
   brandingSetParamsSchema,
   configSetParamsSchema,
   contentDuplicateParamsSchema,
@@ -130,7 +139,11 @@ export type RpcMethod =
   | "branding.set"
   | "config.get"
   | "config.set"
-  | "content.duplicate";
+  | "content.duplicate"
+  // ── database fusion (§ database) — the fused Database cockpit's read + act methods.
+  | "db.analyze"
+  | "db.cleanup"
+  | "db.schedule";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -175,6 +188,10 @@ export interface RpcParams {
   "config.get": Record<string, never>;
   "config.set": ConfigSetParams;
   "content.duplicate": ContentDuplicateParams;
+  // ── database fusion — params mirror the plugin's db.* validators exactly.
+  "db.analyze": Record<string, never>;
+  "db.cleanup": DbCleanupParams;
+  "db.schedule": DbScheduleParams;
 }
 
 /**
@@ -285,6 +302,10 @@ export interface RpcResult {
   "config.set": ConfigApplyResult;
   /** New draft ids on success, or a verbatim refusal reason (entitlement-locked/unknown-post). */
   "content.duplicate": ContentDuplicateResult;
+  // ── database fusion — the read-model + bounded run summaries (plugin is source of truth).
+  "db.analyze": DbAnalyzeResponse;
+  "db.cleanup": DbCleanupResponse;
+  "db.schedule": DbScheduleResponse;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -360,6 +381,13 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "config.get": { hasParams: false, validate: noParams },
   "config.set": { hasParams: true, validate: (p) => configSetParamsSchema.safeParse(p).success },
   "content.duplicate": { hasParams: true, validate: (p) => contentDuplicateParamsSchema.safeParse(p).success },
+  // Database fusion — db.analyze is paramless; the two write validators reuse the
+  // isomorphic zod schemas that mirror the plugin's db.cleanup / db.schedule
+  // validators (dry_run must be a real boolean; frequency clamped), so the two
+  // sides can never drift.
+  "db.analyze": { hasParams: false, validate: noParams },
+  "db.cleanup": { hasParams: true, validate: (p) => dbCleanupParamsSchema.safeParse(p).success },
+  "db.schedule": { hasParams: true, validate: (p) => dbScheduleParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */

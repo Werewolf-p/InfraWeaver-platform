@@ -162,36 +162,18 @@ describe("DataPanel", () => {
     expect(screen.queryByText("Slow-load weight is high")).toBeNull();
   });
 
-  test("Optimize routes through a confirm dialog before POSTing optimize-db", async () => {
+  // Mutations retired from the read-only base panel: the raw `optimize-db` (whole-DB
+  // `wp db optimize`) and purge-ALL-transients buttons that bypassed the connector's
+  // capped, gated, preview-first engine are gone. The read-only base panel now POSTs
+  // nothing — all database mutation lives in the fused Database cockpit's signed
+  // db.cleanup path (covered by database-cockpit.test.tsx).
+  test("read-only base panel exposes no raw mutation buttons and POSTs nothing", () => {
     panelData[MANAGE_KEY] = DATA;
     render(<DataPanel site={SITE} />);
 
-    // No POST yet — Optimize only opens the confirm dialog.
-    fireEvent.click(screen.getByRole("button", { name: /optimize tables/i }));
-    const dialog = await screen.findByRole("dialog");
+    expect(screen.queryByRole("button", { name: /optimize tables/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /purge temporary data/i })).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
-
-    fireEvent.click(within(dialog).getByRole("button", { name: /optimize tables/i }));
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/wordpress/sites/${SITE}/manage`,
-        expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "optimize-db" }) }),
-      ),
-    );
-    await waitFor(() => expect(refetch).toHaveBeenCalled());
-  });
-
-  test("Purge acts directly (no dialog) and POSTs purge-transients", async () => {
-    panelData[MANAGE_KEY] = DATA;
-    render(<DataPanel site={SITE} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /purge temporary data/i }));
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/wordpress/sites/${SITE}/manage`,
-        expect.objectContaining({ body: JSON.stringify({ type: "purge-transients" }) }),
-      ),
-    );
   });
 
   test("empty tables render an EmptyState", () => {

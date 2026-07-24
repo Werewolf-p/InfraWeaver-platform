@@ -2,9 +2,10 @@
  * Database panel probe — per-table sizes, total database weight, autoloaded-option
  * weight and count, plus transient and revision counts, all read live over
  * core `wp-cli` (WP_SAFE, so a broken plugin can't sink a read-only DB query).
- * The two mutations this panel offers — Optimize tables and Purge transients —
- * route through the allow-listed `optimize-db` / `purge-transients` Manage actions,
- * not this probe.
+ * This is the READ-ONLY base layer of the fused Database cockpit — it works on
+ * every tier and on old connectors. All mutations flow through the cockpit's
+ * bounded, gated, preview-first signed `db.cleanup` engine, never this probe and
+ * never a raw `wp db optimize` / purge-all-transients path (those are retired).
  */
 import { WP_SAFE, kvLine, parseKv, parseJsonArray, toInt, toNum, fieldStr, fieldNum } from "../wp-probe";
 import type { PanelProbe, PanelProbeContext } from "./contract";

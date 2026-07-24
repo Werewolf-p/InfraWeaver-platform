@@ -56,6 +56,13 @@ import type {
   MediaTreeResponse,
 } from "./manage/media";
 import type {
+  DbAnalyzeResponse,
+  DbCleanupParams,
+  DbCleanupResponse,
+  DbScheduleParams,
+  DbScheduleResponse,
+} from "./manage/database";
+import type {
   BrandingGetResponse,
   BrandingSetParams,
   BrandingSetResult,
@@ -1412,4 +1419,71 @@ export async function duplicateContent(site: string, postId: number): Promise<Co
     post_id: postId,
   } as RpcParams["content.duplicate"]);
   return unwrapContentReply<ContentDuplicateResult>(reply, "content.duplicate");
+}
+
+// ── Database fusion (§ database) ────────────────────────────────────────────────
+// The console side of the three signed `db.*` commands behind the fused Database
+// cockpit. `db.analyze` is a read (commandable link only); `db.cleanup` /
+// `db.schedule` mutate and additionally require identity NOT to be in safe mode.
+// Every call rides the same signed exec transport; the plugin re-checks the
+// entitlement gate as statement one and answers with a signed `{ locked, gate }`
+// when unentitled — which the cockpit renders as the tier upsell, NOT an error.
+// The console never gets a raw `wp db optimize` / purge-all-transients path: the
+// only mutation surface is the bounded, preview-by-default optimizer these reach.
+
+/**
+ * Unwrap a `db.*` reply. An OLD connector (predating the db command surface)
+ * rejects it unsigned as `unknown-method`; surface that as an actionable 501 so
+ * the cockpit can tell the operator to update the connector (the base wp-cli
+ * probe keeps the sizes read-out working meanwhile). Unlike a hard error, a
+ * `locked`/`busy` summary is a VALID payload the UI must render — its own
+ * `ok`/`locked`/`reason` fields are the signal — so this never throws on
+ * `!reply.ok`; it only rejects a verification/transport failure.
+ */
+function unwrapDbReply<T>(reply: CommandReply, method: string): T {
+  if (reply.rejectedReason === "unknown-method") {
+    throw new AddonHttpError(
+      "This site's connector is too old for the Database cockpit — update the connector to use it.",
+      501,
+    );
+  }
+  if (reply.rejectedReason) {
+    throw new AddonHttpError(`Connector rejected ${method} (${reply.rejectedReason})`, 502);
+  }
+  return reply.result as T;
+}
+
+/** Bind the signed exec transport for a commandable managed link (db read). */
+async function dbReadTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** As `dbReadTransport`, but also refuses when the link is in identity safe mode (writes). */
+async function dbWriteTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  requireIdentityConfirmed(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** Signed `db.analyze` — the whole Database cockpit read-model (read-only, no params). */
+export async function analyzeDatabase(site: string): Promise<DbAnalyzeResponse> {
+  const reply = await callRpc(await dbReadTransport(site), "db.analyze", {});
+  return unwrapDbReply<DbAnalyzeResponse>(reply, "db.analyze");
+}
+
+/** Signed `db.cleanup` — one bounded, preview-by-default cleanup run (dry_run required). */
+export async function cleanupDatabase(site: string, params: DbCleanupParams): Promise<DbCleanupResponse> {
+  const reply = await callRpc(await dbWriteTransport(site), "db.cleanup", params as RpcParams["db.cleanup"]);
+  return unwrapDbReply<DbCleanupResponse>(reply, "db.cleanup");
+}
+
+/** Signed `db.schedule` — save the automated-cleanup policy (WP-Cron reconciled plugin-side). */
+export async function scheduleDatabase(site: string, params: DbScheduleParams): Promise<DbScheduleResponse> {
+  const reply = await callRpc(await dbWriteTransport(site), "db.schedule", params as RpcParams["db.schedule"]);
+  return unwrapDbReply<DbScheduleResponse>(reply, "db.schedule");
 }

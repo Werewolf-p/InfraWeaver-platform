@@ -42,7 +42,7 @@ import { PeoplePanel } from "./panels-people";
 import { ClientsPanel } from "./panels-clients";
 import { AlertsPanel } from "./panels-alerts";
 import { LogsPanel } from "./panels-logs";
-import { DataPanel } from "./panels-data";
+import { DatabaseCockpit } from "../../manage/database/database-cockpit";
 import { HealthPanel } from "./panels-health";
 
 /** Stable id of the single content region every section button controls. */
@@ -83,7 +83,7 @@ const PANEL_COMPONENTS: Record<ManagePanelId, (props: { site: string }) => React
   clients: ClientsPanel,
   alerts: AlertsPanel,
   logs: LogsPanel,
-  data: DataPanel,
+  data: DatabaseCockpit,
   health: HealthPanel,
 };
 
