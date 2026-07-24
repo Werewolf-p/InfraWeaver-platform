@@ -32,7 +32,7 @@ import { BackupsPanel } from "./panels-backups";
 import { StagingPanel } from "./panels-staging";
 import { SecurityPanel } from "./panels-security";
 import { AuditPanel } from "./panels-audit";
-import { PerformancePanel } from "./panels-performance";
+import { PerformancePanel } from "../../manage/performance/performance-panel";
 import { ResourcesPanel } from "./panels-resources";
 import { UptimePanel } from "./panels-uptime";
 import { MetricsPanel } from "./panels-metrics";

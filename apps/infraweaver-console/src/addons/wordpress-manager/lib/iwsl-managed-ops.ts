@@ -55,6 +55,19 @@ import type {
   MediaStatusResponse,
   MediaTreeResponse,
 } from "./manage/media";
+import type {
+  CacheConfigureParams,
+  CacheConfigureResponse,
+  CachePurgeParams,
+  CachePurgeResponse,
+  CacheWarmParams,
+  CacheWarmResponse,
+  PerfAuditParams,
+  PerfAuditResponse,
+  PerfSettingsParams,
+  PerfSettingsResponse,
+  PerfStatusResponse,
+} from "./manage/performance";
 
 export type { CommandReply } from "./rpc/registry";
 
@@ -1082,4 +1095,93 @@ export async function restoreMedia(site: string, params: MediaRestoreParams): Pr
 export async function mediaFolderOp(site: string, params: MediaFolderParams): Promise<RpcResult["media.folder"]> {
   const reply = await callRpc(await mediaWriteTransport(site), "media.folder", params as RpcParams["media.folder"]);
   return unwrapMediaReply<RpcResult["media.folder"]>(reply, "media.folder");
+}
+
+// ── Performance & cache surface (perf.* / cache.*) ─────────────────────────────
+// The console's Performance surface rides the SAME signed channel as media, but is
+// first-class on BOTH transports: an in-cluster managed pod (exec) OR an external
+// §5 site (HTTPS). The resolver picks the transport by link kind, so external sites
+// are not second-class here. Reads are gate-free (posture); writes additionally
+// refuse when identity is in safe mode. The plugin re-checks every entitlement gate
+// as statement one and answers with a signed `{ locked, gate }` when unentitled.
+
+/**
+ * A `perf.*` / `cache.*` reply an OLD connector (predating the surface) rejects
+ * unsigned as `unknown-method`. Surface that as an actionable 501 so the panel can
+ * tell the operator to update the connector — graceful degradation, not a 502.
+ */
+function unwrapPerfReply<T>(reply: CommandReply, method: string): T {
+  if (reply.rejectedReason === "unknown-method") {
+    throw new AddonHttpError(
+      "This site's connector is too old for the Performance surface — update the connector to use it.",
+      501,
+    );
+  }
+  if (reply.rejectedReason) {
+    throw new AddonHttpError(`Connector rejected ${method} (${reply.rejectedReason})`, 502);
+  }
+  if (!reply.ok) {
+    throw new AddonHttpError(`Connector could not complete ${method}`, 502);
+  }
+  return reply.result as T;
+}
+
+/**
+ * Bind the signed transport for a performance op — exec for an in-cluster managed
+ * pod, HTTPS for an external §5 site (external sites first-class). A single
+ * link-store read picks the kind. Writes (`write:true`) additionally refuse an
+ * identity-safe-mode link, exactly like the media write path.
+ */
+async function perfTransport(site: string, opts: { write: boolean }): Promise<RpcTransport> {
+  const sites = await listExternalSites();
+  const managed = sites.find((s) => s.managed && s.siteName === site) ?? null;
+  if (managed) {
+    requireCommandable(managed);
+    if (opts.write) requireIdentityConfirmed(managed);
+    const pod = await requireRunningPod(site);
+    return rpcTransport(managed, execDelivery(pod), "exec");
+  }
+  const external = sites.find((s) => s.siteId === site && !s.managed) ?? null;
+  if (external) {
+    requireCommandable(external);
+    if (opts.write) requireIdentityConfirmed(external);
+    return rpcTransport(external, httpDelivery(external.url, external.pinnedSpki), "https");
+  }
+  throw new AddonHttpError("This site has no connector link — enable the connector first", 404);
+}
+
+/** Signed `perf.status` — the ONE read-only composite feeding the whole surface. */
+export async function perfStatus(site: string): Promise<PerfStatusResponse> {
+  const reply = await callRpc(await perfTransport(site, { write: false }), "perf.status", {});
+  return unwrapPerfReply<PerfStatusResponse>(reply, "perf.status");
+}
+
+/** Signed `perf.audit` — the read-only Load-Time Audit report (FREE feature, capped rows). */
+export async function perfAudit(site: string, params: PerfAuditParams): Promise<PerfAuditResponse> {
+  const reply = await callRpc(await perfTransport(site, { write: false }), "perf.audit", params as RpcParams["perf.audit"]);
+  return unwrapPerfReply<PerfAuditResponse>(reply, "perf.audit");
+}
+
+/** Signed `cache.purge` — purge all, or specific URLs by path (host is the baked home). */
+export async function cachePurge(site: string, params: CachePurgeParams): Promise<CachePurgeResponse> {
+  const reply = await callRpc(await perfTransport(site, { write: true }), "cache.purge", params as RpcParams["cache.purge"]);
+  return unwrapPerfReply<CachePurgeResponse>(reply, "cache.purge");
+}
+
+/** Signed `cache.warm` — loopback-to-self warming, audit-fed default set (entitlement-gated). */
+export async function cacheWarm(site: string, params: CacheWarmParams): Promise<CacheWarmResponse> {
+  const reply = await callRpc(await perfTransport(site, { write: true }), "cache.warm", params as RpcParams["cache.warm"]);
+  return unwrapPerfReply<CacheWarmResponse>(reply, "cache.warm");
+}
+
+/** Signed `cache.configure` — TTL + exclusions + enable/disable (entitlement-gated by enable()). */
+export async function cacheConfigure(site: string, params: CacheConfigureParams): Promise<CacheConfigureResponse> {
+  const reply = await callRpc(await perfTransport(site, { write: true }), "cache.configure", params as RpcParams["cache.configure"]);
+  return unwrapPerfReply<CacheConfigureResponse>(reply, "cache.configure");
+}
+
+/** Signed `perf.settings.set` — flip lazy-load / speed-pack settings within an entitled feature. */
+export async function perfSettingsSet(site: string, params: PerfSettingsParams): Promise<PerfSettingsResponse> {
+  const reply = await callRpc(await perfTransport(site, { write: true }), "perf.settings.set", params as RpcParams["perf.settings.set"]);
+  return unwrapPerfReply<PerfSettingsResponse>(reply, "perf.settings.set");
 }

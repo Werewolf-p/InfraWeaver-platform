@@ -21,6 +21,9 @@ const AUTOLOAD_KB_CMD =
   `${WP_SAFE} db query "SELECT ROUND(SUM(LENGTH(option_value))/1024,2) FROM ` +
   `$(${WP_SAFE} db prefix)options WHERE autoload IN ('yes','on','auto','auto-on')" --skip-column-names`;
 
+/** Detected page-cache owner: our own IWSL drop-in ranks first, then a third-party plugin. */
+export type PageCacheOwner = "iwsl" | string | null;
+
 export interface PerformanceData {
   /** A `wp-content/object-cache.php` drop-in is present. */
   readonly objectCacheDropin: boolean;
@@ -28,7 +31,11 @@ export interface PerformanceData {
   readonly cacheType: string | null;
   /** True when a persistent object cache is actually in effect. */
   readonly persistentObjectCache: boolean;
-  /** Slug of the active page-cache plugin, or null when none is active. */
+  /** True when OUR `advanced-cache.php` drop-in (signature match) is installed. */
+  readonly iwslPageCache: boolean;
+  /** The page-cache owner, ranked: `"iwsl"` when our drop-in is live, else a third-party slug, else null. */
+  readonly pageCache: PageCacheOwner;
+  /** Slug of an active THIRD-PARTY page-cache plugin, or null (for the conflict note). */
   readonly pageCachePlugin: string | null;
   readonly autoloadKb: number | null;
   readonly php: string | null;
@@ -39,6 +46,7 @@ export interface PerformanceData {
 
 function buildRecommendations(input: {
   persistentObjectCache: boolean;
+  iwslPageCache: boolean;
   pageCachePlugin: string | null;
   autoloadKb: number | null;
   transients: number;
@@ -47,8 +55,11 @@ function buildRecommendations(input: {
   if (!input.persistentObjectCache) {
     recs.push("No persistent object cache detected — add Redis or Memcached to cut repeat database queries.");
   }
-  if (!input.pageCachePlugin) {
-    recs.push("No page-cache plugin is active — consider WP Rocket, W3 Total Cache or LiteSpeed Cache.");
+  // Only nudge toward a page cache when NEITHER our own drop-in NOR a third-party
+  // plugin is present. With our cache live we never recommend a competitor (the
+  // bug this fixes); a foreign plugin is surfaced by name in the panel, not here.
+  if (!input.iwslPageCache && !input.pageCachePlugin) {
+    recs.push("No page cache is active — turn on the built-in Page Cache to serve pages straight from cache.");
   }
   if (input.autoloadKb !== null && input.autoloadKb > AUTOLOAD_WARN_KB) {
     recs.push(`Autoloaded options weigh ${input.autoloadKb} KB — audit oversized autoloaded options.`);
@@ -63,6 +74,9 @@ export function parsePerformance(input: { scalars: string; plugins: string; auto
   const kv = parseKv(input.scalars);
   const active = activePluginSlugs(input.plugins);
   const pageCachePlugin = CACHE_PLUGIN_SLUGS.find((slug) => active.has(slug)) ?? null;
+  const iwslPageCache = (kv.get("IWSL_PAGE_CACHE_DROPIN") ?? "").trim() === "present";
+  // Our drop-in ranks first so the console recognises its OWN cache before any plugin.
+  const pageCache: PageCacheOwner = iwslPageCache ? "iwsl" : pageCachePlugin;
 
   const cacheType = toStr(kv.get("CACHE_TYPE"));
   const objectCacheDropin = (kv.get("OBJECT_CACHE_DROPIN") ?? "").trim() === "present";
@@ -75,18 +89,23 @@ export function parsePerformance(input: { scalars: string; plugins: string; auto
     objectCacheDropin,
     cacheType,
     persistentObjectCache,
+    iwslPageCache,
+    pageCache,
     pageCachePlugin,
     autoloadKb,
     php: toStr(kv.get("PHP_VERSION")),
     memoryLimit: toStr(kv.get("MEMORY_LIMIT")),
     transients,
-    recommendations: buildRecommendations({ persistentObjectCache, pageCachePlugin, autoloadKb, transients }),
+    recommendations: buildRecommendations({ persistentObjectCache, iwslPageCache, pageCachePlugin, autoloadKb, transients }),
   };
 }
 
 async function fetchPerformance(ctx: PanelProbeContext): Promise<PerformanceData> {
   const scalarsCmd = [
     kvLine("OBJECT_CACHE_DROPIN", `test -f wp-content/object-cache.php && echo present || echo absent`),
+    // Our OWN page-cache drop-in, matched by its baked signature (IWSL_Page_Cache::SIGNATURE).
+    // Batched into the same single exec as the other scalars — zero extra round-trips.
+    kvLine("IWSL_PAGE_CACHE_DROPIN", `grep -q "signature: iwsl-page-cache" wp-content/advanced-cache.php 2>/dev/null && echo present || echo absent`),
     kvLine("CACHE_TYPE", `${WP_SAFE} cache type`),
     kvLine("PHP_VERSION", `php -r 'echo PHP_VERSION;'`),
     kvLine("MEMORY_LIMIT", `php -r 'echo ini_get("memory_limit");'`),
