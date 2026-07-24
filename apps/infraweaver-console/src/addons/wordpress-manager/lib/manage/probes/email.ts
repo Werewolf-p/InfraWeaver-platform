@@ -1,17 +1,31 @@
 /**
- * Email panel probe — SMTP delivery posture read live from the site's mail plugin
- * (gated on the `smtp` capability). WP Mail SMTP and Post SMTP each keep their
- * config in a single option; we read ONLY the non-secret posture fields (mailer,
- * host, port, encryption, auth, from-address) and normalise them into one shape.
- * Other SMTP plugins are reported as active without config introspection. There is
- * no per-send delivery log on this read path (WP Mail SMTP Lite records none), so
- * the panel shows posture only and renders no test-send button.
+ * Email panel probe — the MERGED delivery read model. Primary source is the
+ * connector's OWN SMTP feature, read over the signed channel (`email.config.get`
+ * + `email.log.get`); the third-party SMTP-plugin posture (WP Mail SMTP / Post
+ * SMTP, read one non-secret field at a time via `wp option pluck`) is kept as the
+ * fallback for un-enrolled/unentitled sites AND for conflict detection when a
+ * plugin is active alongside connector delivery.
  *
- * Security: these option blobs also hold the SMTP password (`smtp.pass` /
- * `password`). We deliberately `wp option pluck` each posture field individually
- * rather than `option get`-ing the whole option, so the credential is never read
- * into console memory (nor into any log line) in the first place.
+ * This replaces the old probe that only read a third-party plugin and recommended
+ * installing wp-mail-smtp — a competitor to our own gated `email_delivery`
+ * feature. The connector path now leads.
+ *
+ * SECURITY: the SMTP password is never read on either path. The signed channel
+ * returns a STRIPPED snapshot (the engine drops the secret); the plugin path
+ * `pluck`s only non-secret posture leaves, so the sibling credential in the same
+ * option is never read into console memory. `EmailData` (in lib/manage/email.ts)
+ * has no field that could carry a secret to the browser.
  */
+import { getEmailConfig, getEmailLog } from "../../iwsl-managed-ops";
+import {
+  buildPluginPosture,
+  mergeEmailData,
+  type EmailConnectorConfig,
+  type EmailData,
+  type EmailLogResponse,
+  type EmailPluginPosture,
+  type EmailPluginPostureFields,
+} from "../email";
 import { WP_SAFE, activePluginSlugs } from "../wp-probe";
 import { SMTP_PLUGIN_SLUGS } from "../capabilities";
 import type { PanelProbe, PanelProbeContext } from "./contract";
@@ -20,34 +34,7 @@ import type { PanelProbe, PanelProbeContext } from "./contract";
 const WP_MAIL_SMTP_SLUG = "wp-mail-smtp";
 const POST_SMTP_SLUG = "post-smtp";
 
-export interface EmailData {
-  /** Active SMTP plugin slug (from SMTP_PLUGIN_SLUGS), or null. */
-  readonly plugin: string | null;
-  /** Transport/mailer type (e.g. "smtp", "sendmail", "mailgun"), or null. */
-  readonly mailer: string | null;
-  readonly host: string | null;
-  readonly port: number | null;
-  /** "none" | "ssl" | "tls" (raw from the plugin), or null. */
-  readonly encryption: string | null;
-  /** Whether SMTP authentication is enabled, or null when unknown. */
-  readonly auth: boolean | null;
-  readonly fromEmail: string | null;
-  readonly fromName: string | null;
-  /** True when the detected plugin's config was readable. */
-  readonly configured: boolean;
-}
-
-type EmailPosture = Omit<EmailData, "plugin" | "configured">;
-
-const EMPTY_POSTURE: EmailPosture = {
-  mailer: null,
-  host: null,
-  port: null,
-  encryption: null,
-  auth: null,
-  fromEmail: null,
-  fromName: null,
-};
+type EmailPosture = EmailPluginPostureFields;
 
 /** Trim a plucked scalar; empty (missing key / read failure) → null. */
 function strOrNull(raw: string | null): string | null {
@@ -121,16 +108,6 @@ async function readPostSmtp(ctx: PanelProbeContext): Promise<EmailPosture> {
   };
 }
 
-/** Assemble EmailData from the detected plugin and its (secret-free) posture. */
-export function buildEmailData(plugin: string | null, posture: EmailPosture | null): EmailData {
-  const base: EmailData = { plugin, ...EMPTY_POSTURE, configured: false };
-  if (!posture) return base;
-  // "configured" = the detected plugin's config was actually readable, i.e. at
-  // least one posture field came back (an all-null read is an empty/absent option).
-  const configured = Object.values(posture).some((v) => v !== null);
-  return { ...base, ...posture, configured };
-}
-
 /** Find the first active plugin whose slug is in `slugs`, lowercased-matched. */
 async function detectActivePlugin(ctx: PanelProbeContext, slugs: readonly string[]): Promise<string | null> {
   const stdout = await ctx
@@ -141,23 +118,50 @@ async function detectActivePlugin(ctx: PanelProbeContext, slugs: readonly string
   return slugs.find((slug) => active.has(slug)) ?? null;
 }
 
-async function fetchEmail(ctx: PanelProbeContext): Promise<EmailData> {
+/** Read the third-party SMTP plugin posture (fallback + conflict signal). */
+async function fetchPluginPosture(ctx: PanelProbeContext): Promise<EmailPluginPosture> {
   const plugin = await detectActivePlugin(ctx, SMTP_PLUGIN_SLUGS);
-
-  // Pluck only the non-secret posture fields for the detected plugin; others get a
-  // posture-less report. The SMTP password is never read into console memory.
   const posture =
     plugin === WP_MAIL_SMTP_SLUG
       ? await readWpMailSmtp(ctx)
       : plugin === POST_SMTP_SLUG
         ? await readPostSmtp(ctx)
         : null;
+  return buildPluginPosture(plugin, posture);
+}
 
-  return buildEmailData(plugin, posture);
+/**
+ * Read the connector's own email config over the signed channel. Returns the
+ * snapshot (+ log tail when unlocked), or null when the site is not a commandable
+ * connector link (an un-enrolled/old-connector site degrades to the plugin path
+ * rather than erroring the whole panel).
+ */
+async function fetchConnector(
+  ctx: PanelProbeContext,
+): Promise<{ connector: EmailConnectorConfig | null; log: EmailLogResponse | null }> {
+  if (!ctx.managed) return { connector: null, log: null };
+  try {
+    const connector = await getEmailConfig(ctx.site);
+    // The log read is only meaningful (and only permitted) when unlocked.
+    let log: EmailLogResponse | null = null;
+    if (!connector.locked) {
+      log = await getEmailLog(ctx.site).catch(() => null);
+    }
+    return { connector, log };
+  } catch {
+    // Old connector (501), not commandable, or a transient exec failure — fall
+    // back to the plugin posture. The panel still renders.
+    return { connector: null, log: null };
+  }
+}
+
+async function fetchEmail(ctx: PanelProbeContext): Promise<EmailData> {
+  const [{ connector, log }, plugin] = await Promise.all([fetchConnector(ctx), fetchPluginPosture(ctx)]);
+  return mergeEmailData({ connector, plugin, log });
 }
 
 export const emailProbe: PanelProbe<EmailData> = {
   id: "email",
-  requiresCapability: "smtp",
+  requiresCapability: "email",
   fetch: fetchEmail,
 };

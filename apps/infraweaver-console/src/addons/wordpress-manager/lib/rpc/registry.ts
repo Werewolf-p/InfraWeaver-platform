@@ -32,6 +32,17 @@ import {
   type MediaStatusResponse,
   type MediaTreeResponse,
 } from "../manage/media";
+import {
+  emailConfigSetParamsSchema,
+  emailTestParamsSchema,
+  type EmailConfigSetParams,
+  type EmailConfigSetResult,
+  type EmailConnectorConfig,
+  type EmailLogClearResult,
+  type EmailLogResponse,
+  type EmailTestParams,
+  type EmailTestResult,
+} from "../manage/email";
 
 /** Signed-command methods the Connector allow-lists (§7). Wire strings — never rename. */
 export type RpcMethod =
@@ -51,7 +62,13 @@ export type RpcMethod =
   | "media.optimize"
   | "media.offload"
   | "media.restore"
-  | "media.folder";
+  | "media.folder"
+  // ── email delivery (§ email) — the console's window onto the connector's own SMTP.
+  | "email.config.get"
+  | "email.config.set"
+  | "email.test"
+  | "email.log.get"
+  | "email.log.clear";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -73,6 +90,12 @@ export interface RpcParams {
   "media.offload": MediaOffloadParams;
   "media.restore": MediaRestoreParams;
   "media.folder": MediaFolderParams;
+  // ── email — reads carry no params; only config.set/test carry a (write-only) body.
+  "email.config.get": Record<string, never>;
+  "email.config.set": EmailConfigSetParams;
+  "email.test": EmailTestParams;
+  "email.log.get": Record<string, never>;
+  "email.log.clear": Record<string, never>;
 }
 
 /**
@@ -152,6 +175,12 @@ export interface RpcResult {
   };
   /** Terms-only folder mutation echo. */
   "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  // ── email — a secret NEVER appears in any of these read/write results.
+  "email.config.get": EmailConnectorConfig;
+  "email.config.set": EmailConfigSetResult;
+  "email.test": EmailTestResult;
+  "email.log.get": EmailLogResponse;
+  "email.log.clear": EmailLogClearResult;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -200,6 +229,14 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
   "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
   "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
+  // Email — read/clear carry no params; config.set/test validators reuse the
+  // isomorphic zod schemas that mirror the plugin's wire validators, so the two
+  // sides can never drift. The write-only password never rides a read method.
+  "email.config.get": { hasParams: false, validate: noParams },
+  "email.config.set": { hasParams: true, validate: (p) => emailConfigSetParamsSchema.safeParse(p).success },
+  "email.test": { hasParams: true, validate: (p) => emailTestParamsSchema.safeParse(p).success },
+  "email.log.get": { hasParams: false, validate: noParams },
+  "email.log.clear": { hasParams: false, validate: noParams },
 };
 
 /** The allow-listed method names, in registry order. */

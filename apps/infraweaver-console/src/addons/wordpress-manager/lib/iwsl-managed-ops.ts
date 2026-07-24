@@ -55,6 +55,15 @@ import type {
   MediaStatusResponse,
   MediaTreeResponse,
 } from "./manage/media";
+import type {
+  EmailConfigSetParams,
+  EmailConfigSetResult,
+  EmailConnectorConfig,
+  EmailLogClearResult,
+  EmailLogResponse,
+  EmailTestParams,
+  EmailTestResult,
+} from "./manage/email";
 
 export type { CommandReply } from "./rpc/registry";
 
@@ -1082,4 +1091,79 @@ export async function restoreMedia(site: string, params: MediaRestoreParams): Pr
 export async function mediaFolderOp(site: string, params: MediaFolderParams): Promise<RpcResult["media.folder"]> {
   const reply = await callRpc(await mediaWriteTransport(site), "media.folder", params as RpcParams["media.folder"]);
   return unwrapMediaReply<RpcResult["media.folder"]>(reply, "media.folder");
+}
+
+// ── email delivery ops (§ email) ────────────────────────────────────────────
+// The console's signed window onto the connector's own SMTP feature. Reads
+// (config.get/log.get) require a commandable link; writes (config.set/test/
+// clear-log) additionally require identity NOT in safe mode — a state change on a
+// site that reported a changed canonical URL is exactly what safe mode holds. The
+// SMTP password is WRITE-ONLY: it rides `email.config.set` params once and is
+// never in any reply (the engine strips it) — so nothing here returns a secret.
+// `email.config.get` works in the LOCKED state (returns the gate only) so the
+// panel can render the upgrade path, so getEmailConfig does NOT treat locked as
+// an error.
+
+/** Old-connector reply (predating the email command surface) → actionable 501 (mirrors media). */
+function unwrapEmailReply<T>(reply: CommandReply, method: string): T {
+  if (reply.rejectedReason === "unknown-method") {
+    throw new AddonHttpError(
+      "This site's connector is too old for console email management — update the connector to use it.",
+      501,
+    );
+  }
+  if (reply.rejectedReason) {
+    throw new AddonHttpError(`Connector rejected ${method} (${reply.rejectedReason})`, 502);
+  }
+  if (!reply.ok) {
+    throw new AddonHttpError(`Connector could not complete ${method}`, 502);
+  }
+  return reply.result as T;
+}
+
+/** Bind the signed exec transport for email reads (config.get / log.get). */
+async function emailReadTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** As `emailReadTransport`, but also refuses when the link is in identity safe mode (writes). */
+async function emailWriteTransport(site: string): Promise<RpcTransport> {
+  const record = await requireManagedRecord(site);
+  requireCommandable(record);
+  requireIdentityConfirmed(record);
+  const pod = await requireRunningPod(site);
+  return rpcTransport(record, execDelivery(pod), "exec");
+}
+
+/** Signed `email.config.get` — gate-aware, REDACTED config snapshot (never a secret). */
+export async function getEmailConfig(site: string): Promise<EmailConnectorConfig> {
+  const reply = await callRpc(await emailReadTransport(site), "email.config.get", {});
+  return unwrapEmailReply<EmailConnectorConfig>(reply, "email.config.get");
+}
+
+/** Signed `email.config.set` — WRITE-ONLY secret in, stripped settings out (engine authoritative). */
+export async function setEmailConfig(site: string, params: EmailConfigSetParams): Promise<EmailConfigSetResult> {
+  const reply = await callRpc(await emailWriteTransport(site), "email.config.set", params as RpcParams["email.config.set"]);
+  return unwrapEmailReply<EmailConfigSetResult>(reply, "email.config.set");
+}
+
+/** Signed `email.test` — send a test to a validated recipient (connector-side rate-limited). */
+export async function sendTestEmail(site: string, params: EmailTestParams): Promise<EmailTestResult> {
+  const reply = await callRpc(await emailWriteTransport(site), "email.test", params as RpcParams["email.test"]);
+  return unwrapEmailReply<EmailTestResult>(reply, "email.test");
+}
+
+/** Signed `email.log.get` — the bounded, redacted delivery log tail (gate-aware). */
+export async function getEmailLog(site: string): Promise<EmailLogResponse> {
+  const reply = await callRpc(await emailReadTransport(site), "email.log.get", {});
+  return unwrapEmailReply<EmailLogResponse>(reply, "email.log.get");
+}
+
+/** Signed `email.log.clear` — clear the delivery log (gate inside the engine). */
+export async function clearEmailLog(site: string): Promise<EmailLogClearResult> {
+  const reply = await callRpc(await emailWriteTransport(site), "email.log.clear", {});
+  return unwrapEmailReply<EmailLogClearResult>(reply, "email.log.clear");
 }

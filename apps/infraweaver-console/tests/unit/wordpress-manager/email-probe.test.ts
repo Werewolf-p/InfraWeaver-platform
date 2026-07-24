@@ -1,8 +1,11 @@
-import { buildEmailData } from "@/addons/wordpress-manager/lib/manage/probes/email";
+import { buildPluginPosture } from "@/addons/wordpress-manager/lib/manage/email";
 
-describe("buildEmailData", () => {
+// The merged Email probe keeps the third-party plugin posture builder (renamed
+// from buildEmailData → buildPluginPosture) as the fallback/conflict source. Its
+// shape is unchanged and still carries no credential field.
+describe("buildPluginPosture", () => {
   test("no detected plugin ⇒ unconfigured, all fields null", () => {
-    expect(buildEmailData(null, null)).toEqual({
+    expect(buildPluginPosture(null, null)).toEqual({
       plugin: null,
       mailer: null,
       host: null,
@@ -16,7 +19,7 @@ describe("buildEmailData", () => {
   });
 
   test("plugin detected but option empty (all-null posture) ⇒ NOT configured", () => {
-    const data = buildEmailData("wp-mail-smtp", {
+    const data = buildPluginPosture("wp-mail-smtp", {
       mailer: null,
       host: null,
       port: null,
@@ -30,7 +33,7 @@ describe("buildEmailData", () => {
   });
 
   test("readable posture ⇒ configured, fields carried through, no secret field exists on the shape", () => {
-    const data = buildEmailData("wp-mail-smtp", {
+    const data = buildPluginPosture("wp-mail-smtp", {
       mailer: "mailgun",
       host: "smtp.mailgun.org",
       port: 587,
@@ -56,7 +59,7 @@ describe("buildEmailData", () => {
   });
 
   test("a single readable field is enough to count as configured", () => {
-    const data = buildEmailData("post-smtp", {
+    const data = buildPluginPosture("post-smtp", {
       mailer: "smtp",
       host: null,
       port: null,
