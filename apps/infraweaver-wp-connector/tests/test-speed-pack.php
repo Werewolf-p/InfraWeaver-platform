@@ -443,6 +443,39 @@ iwsl_assert_same( true, $pf['ok'], 'purge (never configured): ok' );
 iwsl_assert_same( false, $pf['removed'], 'purge (never configured): nothing removed' );
 iwsl_assert_same( false, $pf['settings_deleted'], 'purge (never configured): no settings existed' );
 
+// ── 15. Settings save flushes the page cache (latent staleness bug) ────────────
+// A speed-pack save changes the HTML sent to visitors (minify / defer / hints /
+// server headers), so it MUST invalidate any cached page — exactly as lazy-load's
+// update_settings() already does. Before the fix, save_settings() skipped the
+// flush, so a Pro site with the page cache on kept serving pre-optimization HTML
+// until the next natural purge. A lightweight IWSL_Teardown double (the harness
+// never preloads the real one) records the call; this suite runs last, so the
+// double never reaches a sibling suite.
+if ( ! class_exists( 'IWSL_Teardown' ) ) {
+	class IWSL_Teardown {
+		/** @var int number of flush_page_cache() calls observed. */
+		public static $flush_calls = 0;
+		public static function flush_page_cache(): void {
+			self::$flush_calls++;
+		}
+	}
+}
+IWSL_Teardown::$flush_calls = 0;
+$store_flush = iwsl_sp_unlocked_store( $SP_NOW );
+$eng_flush   = iwsl_sp_engine( $store_flush, $SP_NOW );
+$eng_flush->save_settings( array( 'minify_html' => true ) );
+iwsl_assert_same( 1, IWSL_Teardown::$flush_calls, 'save: a settings save flushes the page cache (front-end HTML changed)' );
+
+// A locked save never runs (STATEMENT 1) so it must not flush either.
+IWSL_Teardown::$flush_calls = 0;
+$store_locked = new IWSL_Memory_Store();
+$store_locked->set( 'state', 'active' );
+$store_locked->set( 'last_verified_at', $SP_NOW - 60000 );
+$store_locked->set( 'entitlements', array( 'plus' => true ) ); // speed_pack ABSENT
+$eng_locked = iwsl_sp_engine( $store_locked, $SP_NOW );
+$eng_locked->save_settings( array( 'minify_html' => true ) );
+iwsl_assert_same( 0, IWSL_Teardown::$flush_calls, 'save: a locked save is refused before any flush' );
+
 // ── cleanup: unset the recorder global we installed ────────────────────────────
 
 unset( $GLOBALS['iwsl_sp_removed'] );

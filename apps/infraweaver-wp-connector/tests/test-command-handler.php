@@ -341,3 +341,80 @@ iwsl_assert( isset( $al['entries'] ) && is_array( $al['entries'] ), '(g) activit
 iwsl_assert_same( false, call_user_func( $allow['stats.summary'], (object) array( 'range_days' => 5 ) ), '(h) stats.summary validator rejects range_days=5' );
 iwsl_assert_same( true, call_user_func( $allow['stats.summary'], (object) array( 'range_days' => 30 ) ), '(h) stats.summary validator accepts range_days=30' );
 iwsl_assert_same( false, call_user_func( $allow['activity.log'], (object) array( 'limit' => 999 ) ), '(h) activity.log validator rejects limit=999' );
+
+// ── (e) Performance & cache signed methods (perf.*/cache.*) ────────────────────
+
+$perf_methods = array( 'perf.status', 'perf.audit', 'cache.purge', 'cache.warm', 'cache.configure', 'perf.settings.set' );
+$allowed      = IWSL_Plugin::allowed_methods();
+foreach ( $perf_methods as $pm ) {
+	iwsl_assert( isset( $registry[ $pm ] ), "(e) {$pm} registered in the command registry" );
+	iwsl_assert( array_key_exists( $pm, $allowed ), "(e) {$pm} present in the verifier allow-list (one source of truth)" );
+}
+
+/** Build a bare envelope carrying params (the runners read $envelope->params). */
+$perf_env = static function ( array $params = array() ): stdClass {
+	$env         = new stdClass();
+	$env->params = (object) $params;
+	return $env;
+};
+
+list( , $plugin ) = $fresh_plugin();
+
+// perf.status — one read-only composite carrying all four zones.
+list( $ok, $status ) = $registry['perf.status']->run( $plugin, $perf_env() );
+iwsl_assert_same( true, $ok, '(e) perf.status: ok' );
+iwsl_assert( isset( $status['page_cache'], $status['speed_pack'], $status['lazy_load'], $status['audit'] ), '(e) perf.status: composite carries page_cache + speed_pack + lazy_load + audit in one round-trip' );
+iwsl_assert( isset( $status['page_cache']['hit_rate'], $status['page_cache']['entries'] ), '(e) perf.status: page_cache zone carries hit-rate + counters' );
+iwsl_assert( isset( $status['speed_pack']['settings'], $status['speed_pack']['status'] ), '(e) perf.status: speed_pack zone carries settings + status' );
+iwsl_assert( isset( $status['audit']['avg_ms'], $status['audit']['total_samples'] ), '(e) perf.status: audit roll-up present' );
+
+// perf.audit — FREE, read-only; row cap enforced by the validator.
+list( $ok, $report ) = $registry['perf.audit']->run( $plugin, $perf_env( array( 'rows' => 5 ) ) );
+iwsl_assert_same( true, $ok, '(e) perf.audit: ok' );
+iwsl_assert( isset( $report['items'] ) && is_array( $report['items'] ), '(e) perf.audit: returns the build_report items array' );
+iwsl_assert_same( true, (bool) $allowed['perf.audit']( (object) array( 'rows' => 25 ) ), '(e) perf.audit validator: rows=25 accepted' );
+iwsl_assert_same( false, (bool) $allowed['perf.audit']( (object) array( 'rows' => 26 ) ), '(e) perf.audit validator: rows>25 rejected' );
+iwsl_assert_same( true, (bool) $allowed['perf.audit']( (object) array() ), '(e) perf.audit validator: empty params accepted (rows optional)' );
+iwsl_assert_same( false, (bool) $allowed['perf.audit']( (object) array( 'rows' => 5, 'x' => 1 ) ), '(e) perf.audit validator: unknown key rejected' );
+
+// cache.purge — {scope:all} read-safe; validator strict on scope/paths.
+list( $ok, $purge ) = $registry['cache.purge']->run( $plugin, $perf_env( array( 'scope' => 'all' ) ) );
+iwsl_assert_same( true, $ok, '(e) cache.purge: ok' );
+iwsl_assert( array_key_exists( 'purged', $purge ) && is_int( $purge['purged'] ), '(e) cache.purge: returns { purged:int }' );
+iwsl_assert_same( true, (bool) $allowed['cache.purge']( (object) array( 'scope' => 'all' ) ), '(e) cache.purge validator: {scope:all} accepted' );
+iwsl_assert_same( true, (bool) $allowed['cache.purge']( (object) array( 'scope' => 'paths', 'paths' => array( '/a', '/b' ) ) ), '(e) cache.purge validator: {scope:paths,paths[]} accepted' );
+iwsl_assert_same( false, (bool) $allowed['cache.purge']( (object) array( 'scope' => 'all', 'paths' => array( '/a' ) ) ), '(e) cache.purge validator: stray paths with scope=all rejected' );
+iwsl_assert_same( false, (bool) $allowed['cache.purge']( (object) array( 'scope' => 'paths', 'paths' => array() ) ), '(e) cache.purge validator: empty paths rejected' );
+$pc_too_many = array();
+for ( $pc_i = 0; $pc_i < 51; $pc_i++ ) {
+	$pc_too_many[] = '/p' . $pc_i;
+}
+iwsl_assert_same( false, (bool) $allowed['cache.purge']( (object) array( 'scope' => 'paths', 'paths' => $pc_too_many ) ), '(e) cache.purge validator: >50 paths rejected' );
+
+// cache.warm — entitlement-gated: an un-entitled site cannot warm (refused connector-side).
+list( $ok, $warm ) = $registry['cache.warm']->run( $plugin, $perf_env() );
+iwsl_assert_same( true, $ok, '(e) cache.warm: rpc ok (result carries the gate verdict)' );
+iwsl_assert_same( 'entitlement-locked', $warm['reason'], '(e) cache.warm: an un-entitled site is refused (page_cache-gated)' );
+iwsl_assert_same( true, $warm['locked'], '(e) cache.warm: locked flag set for the console' );
+iwsl_assert_same( true, (bool) $allowed['cache.warm']( (object) array() ), '(e) cache.warm validator: empty params accepted (audit-fed default set)' );
+iwsl_assert_same( false, (bool) $allowed['cache.warm']( (object) array( 'limit' => 99 ) ), '(e) cache.warm validator: limit>25 rejected' );
+iwsl_assert_same( false, (bool) $allowed['cache.warm']( (object) array( 'foo' => 1 ) ), '(e) cache.warm validator: unknown key rejected' );
+
+// cache.configure — enable is refused connector-side on a Basic store regardless of input.
+list( $ok, $conf ) = $registry['cache.configure']->run( $plugin, $perf_env( array( 'enabled' => true, 'ttl' => 1800 ) ) );
+iwsl_assert_same( true, $ok, '(e) cache.configure: rpc ok' );
+iwsl_assert_same( false, $conf['ok'], '(e) cache.configure: enable refused for an un-entitled site' );
+iwsl_assert_same( 'entitlement-locked', $conf['reason'], '(e) cache.configure: entitlement-locked (STATEMENT 1 inside enable)' );
+iwsl_assert_same( true, $conf['locked'], '(e) cache.configure: locked flag set' );
+iwsl_assert_same( false, (bool) $allowed['cache.configure']( (object) array( 'ttl' => 59 ) ), '(e) cache.configure validator: ttl below range rejected' );
+iwsl_assert_same( false, (bool) $allowed['cache.configure']( (object) array() ), '(e) cache.configure validator: empty params rejected (must set something)' );
+iwsl_assert_same( false, (bool) $allowed['cache.configure']( (object) array( 'nope' => 1 ) ), '(e) cache.configure validator: unknown key rejected' );
+
+// perf.settings.set — the signed channel may not switch ON an un-granted tier feature.
+list( $ok, $set ) = $registry['perf.settings.set']->run( $plugin, $perf_env( array( 'lazy_load' => (object) array( 'enabled' => true ) ) ) );
+iwsl_assert_same( true, $ok, '(e) perf.settings.set: rpc ok' );
+iwsl_assert_same( 'entitlement-locked', $set['lazy_load']['reason'], '(e) perf.settings.set: lazy-load save refused for an un-entitled site (no tier widening)' );
+iwsl_assert_same( true, $set['lazy_load']['locked'], '(e) perf.settings.set: locked flag set' );
+iwsl_assert_same( false, (bool) $allowed['perf.settings.set']( (object) array( 'lazy_load' => (object) array( 'bogus' => 1 ) ) ), '(e) perf.settings.set validator: unknown lazy_load key rejected' );
+iwsl_assert_same( false, (bool) $allowed['perf.settings.set']( (object) array( 'speed_pack' => (object) array( 'evil' => 1 ) ) ), '(e) perf.settings.set validator: unknown speed_pack key rejected' );
+iwsl_assert_same( true, (bool) $allowed['perf.settings.set']( (object) array( 'speed_pack' => (object) array( 'minify_html' => true ) ) ), '(e) perf.settings.set validator: known speed_pack key accepted' );

@@ -234,6 +234,9 @@ final class IWSL_Speed_Pack {
 		$settings = $this->sanitize_settings( $input );
 		$this->store->set( self::OPTION_KEY, $settings );
 		$server = $this->reconcile_server_config( $settings );
+		if ( class_exists( 'IWSL_Teardown' ) ) {
+			IWSL_Teardown::flush_page_cache(); // a settings change invalidates any cached HTML (mirrors IWSL_Lazy_Load).
+		}
 
 		return array( 'ok' => true, 'settings' => $settings, 'server_config' => $server );
 	}
