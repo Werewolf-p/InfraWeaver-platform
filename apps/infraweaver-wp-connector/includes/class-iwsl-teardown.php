@@ -104,6 +104,8 @@ final class IWSL_Teardown {
 				return new IWSL_Speed_Pack( $ent, $store );
 			case IWSL_Response_Scan::FEATURE:
 				return new IWSL_Response_Scan( $ent, $store );
+			case IWSL_Security_Headers::FEATURE:
+				return new IWSL_Security_Headers( $ent, $store );
 			case IWSL_CDN_Rewrite::FEATURE:
 				return new IWSL_CDN_Rewrite( $ent, $store );
 			case IWSL_Lazy_Load::FEATURE:

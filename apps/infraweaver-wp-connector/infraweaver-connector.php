@@ -116,6 +116,7 @@ require_once __DIR__ . '/includes/class-iwsl-seo-suite.php';
 require_once __DIR__ . '/includes/class-iwsl-seo-console.php';
 require_once __DIR__ . '/includes/class-iwsl-perf-audit.php';
 require_once __DIR__ . '/includes/class-iwsl-response-scan.php';
+require_once __DIR__ . '/includes/class-iwsl-security-headers.php';
 require_once __DIR__ . '/includes/class-iwsl-teardown.php';
 require_once __DIR__ . '/includes/class-iwsl-admin.php';
 
@@ -420,6 +421,15 @@ if ( $iwsl_switches->is_on( IWSL_Speed_Pack::FEATURE ) ) {
 // OWN public URLs via wp_remote_get; register() self-wires its two admin-post handlers.
 if ( $iwsl_switches->is_on( IWSL_Response_Scan::FEATURE ) ) {
 	( new IWSL_Response_Scan( $iwsl_ent, new IWSL_WP_Store() ) )->register();
+}
+
+// Security Headers (Pro, `security_headers`). register() wires a single `send_headers`
+// emitter whose FIRST statement is the entitlement gate, so a locked/revoked or
+// switched-off site emits nothing and behaves like stock WordPress. The emitter never
+// duplicates a header already present (peer plugin / PHP-visible upstream). The scan
+// + closed-set harden surface reaches the site over the signed command channel only.
+if ( $iwsl_switches->is_on( IWSL_Security_Headers::FEATURE ) ) {
+	( new IWSL_Security_Headers( $iwsl_ent, new IWSL_WP_Store() ) )->register();
 }
 
 // Site Statistics (Ultimate, `statistics`) + Cookie Consent (Ultimate,
