@@ -246,6 +246,139 @@ if ( ! function_exists( 'iwsl_pc_atomic_store' ) ) {
 	}
 }
 
+if ( ! function_exists( 'iwsl_pc_excluded' ) ) {
+	/**
+	 * Whether a request PATH matches an operator exclusion rule (pure). Two rule
+	 * shapes only — deliberately NO regex, because nothing operator-supplied is ever
+	 * eval'd in the pre-boot drop-in:
+	 *   - trailing `*`  → prefix match  (`/members/*` excludes `/members/anything`);
+	 *   - no wildcard   → exact match, trailing-slash-insensitive (`/checkout`
+	 *     excludes `/checkout` and `/checkout/`, but NOT `/checkout-thanks`).
+	 * An empty/blank pattern is ignored. Reads only its arguments.
+	 *
+	 * @param string   $path     Leading-slash request path (query already stripped).
+	 * @param string[] $patterns Operator exclusion patterns.
+	 */
+	function iwsl_pc_excluded( string $path, array $patterns ): bool {
+		if ( '' === $path ) {
+			return false;
+		}
+		foreach ( $patterns as $pattern ) {
+			if ( ! is_string( $pattern ) || '' === $pattern ) {
+				continue;
+			}
+			if ( '*' === substr( $pattern, -1 ) ) {
+				$prefix = substr( $pattern, 0, -1 );
+				if ( '' === $prefix || 0 === strncmp( $path, $prefix, strlen( $prefix ) ) ) {
+					return true;
+				}
+				continue;
+			}
+			if ( rtrim( $path, '/' ) === rtrim( $pattern, '/' ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+}
+
+if ( ! function_exists( 'iwsl_pc_bump' ) ) {
+	/**
+	 * Lock-free HIT/MISS counter: append ONE byte to a per-day counter file in the
+	 * contained cache dir (`stats-<type>-YYYYMMDD.cnt`). The count is the file SIZE
+	 * (filesize()), so there is no read-modify-write and no lock — O_APPEND single-
+	 * byte writes are atomic even under concurrency, and this stays cheap enough for
+	 * the drop-in's HIT path, which exits before WordPress boots. Fails OPEN: any
+	 * anomaly (bad type, unwritable dir) writes nothing and never throws.
+	 *
+	 * @param string   $dir    Contained cache dir.
+	 * @param string   $type   'hit' or 'miss'.
+	 * @param int|null $now_ts Unix seconds (injectable); defaults to time().
+	 */
+	function iwsl_pc_bump( string $dir, string $type, ?int $now_ts = null ): void {
+		if ( '' === $dir || ! is_dir( $dir ) ) {
+			return;
+		}
+		if ( 'hit' !== $type && 'miss' !== $type ) {
+			return;
+		}
+		$day  = gmdate( 'Ymd', null === $now_ts ? time() : $now_ts );
+		$file = $dir . '/stats-' . $type . '-' . $day . '.cnt';
+		$fp   = @fopen( $file, 'ab' );
+		if ( false === $fp ) {
+			return;
+		}
+		@fwrite( $fp, '.' );
+		@fclose( $fp );
+	}
+}
+
+if ( ! function_exists( 'iwsl_pc_count' ) ) {
+	/**
+	 * Sum a HIT/MISS counter over the last $days days (today inclusive). The per-day
+	 * count is the counter file's byte size. Pure read; a missing day counts zero.
+	 *
+	 * @param string   $dir    Contained cache dir.
+	 * @param string   $type   'hit' or 'miss'.
+	 * @param int      $days   Window in days (1 = today only).
+	 * @param int|null $now_ts Unix seconds (injectable); defaults to time().
+	 */
+	function iwsl_pc_count( string $dir, string $type, int $days = 1, ?int $now_ts = null ): int {
+		if ( '' === $dir || ! is_dir( $dir ) || ( 'hit' !== $type && 'miss' !== $type ) ) {
+			return 0;
+		}
+		$now   = null === $now_ts ? time() : $now_ts;
+		$days  = max( 1, $days );
+		$total = 0;
+		for ( $i = 0; $i < $days; $i++ ) {
+			$day  = gmdate( 'Ymd', $now - ( $i * 86400 ) );
+			$file = $dir . '/stats-' . $type . '-' . $day . '.cnt';
+			if ( is_file( $file ) ) {
+				$size = @filesize( $file );
+				if ( false !== $size ) {
+					$total += (int) $size;
+				}
+			}
+		}
+		return $total;
+	}
+}
+
+if ( ! function_exists( 'iwsl_pc_prune_stats' ) ) {
+	/**
+	 * Opportunistically remove counter files older than $keep_days. Contained by
+	 * construction (globs only within $dir) and never follows a symlink. Returns the
+	 * number of stale counter files removed.
+	 *
+	 * @param string   $dir       Contained cache dir.
+	 * @param int      $keep_days Days of history to retain.
+	 * @param int|null $now_ts    Unix seconds (injectable); defaults to time().
+	 */
+	function iwsl_pc_prune_stats( string $dir, int $keep_days = 7, ?int $now_ts = null ): int {
+		if ( '' === $dir || ! is_dir( $dir ) ) {
+			return 0;
+		}
+		$now     = null === $now_ts ? time() : $now_ts;
+		$cutoff  = (int) gmdate( 'Ymd', $now - ( max( 1, $keep_days ) * 86400 ) );
+		$removed = 0;
+		$files   = glob( $dir . '/stats-*-*.cnt' );
+		if ( ! is_array( $files ) ) {
+			return 0;
+		}
+		foreach ( $files as $file ) {
+			if ( is_link( $file ) || ! is_file( $file ) ) {
+				continue;
+			}
+			if ( preg_match( '/stats-(?:hit|miss)-(\d{8})\.cnt$/', $file, $m ) && (int) $m[1] < $cutoff ) {
+				if ( @unlink( $file ) ) {
+					$removed++;
+				}
+			}
+		}
+		return $removed;
+	}
+}
+
 if ( ! function_exists( 'iwsl_pc_store_cb' ) ) {
 	/**
 	 * The ob_start() shutdown callback the drop-in registers on a MISS. Reads the

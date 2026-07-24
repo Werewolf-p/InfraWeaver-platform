@@ -103,6 +103,131 @@ final class IWSL_Plugin {
 				&& array() === array_diff_key( $vars, array( 'rotation_id' => 1, 'new_kid' => 1 ) );
 		};
 
+		// ── Performance/cache validators (§6.3 strict: unknown keys are rejected) ──
+		$perf_audit_params = static function ( $params ): bool {
+			$vars = get_object_vars( $params );
+			if ( array() === $vars ) {
+				return true; // rows optional.
+			}
+			if ( array() !== array_diff_key( $vars, array( 'rows' => 1 ) ) ) {
+				return false;
+			}
+			return isset( $vars['rows'] ) && is_int( $vars['rows'] ) && $vars['rows'] >= 1 && $vars['rows'] <= 25;
+		};
+		$cache_purge_params = static function ( $params ): bool {
+			$vars = get_object_vars( $params );
+			if ( ! isset( $vars['scope'] ) || ! is_string( $vars['scope'] ) ) {
+				return false;
+			}
+			if ( 'all' === $vars['scope'] ) {
+				return array() === array_diff_key( $vars, array( 'scope' => 1 ) );
+			}
+			if ( 'paths' === $vars['scope'] ) {
+				if ( array() !== array_diff_key( $vars, array( 'scope' => 1, 'paths' => 1 ) ) ) {
+					return false;
+				}
+				if ( ! isset( $vars['paths'] ) || ! is_array( $vars['paths'] ) ) {
+					return false;
+				}
+				$n = count( $vars['paths'] );
+				if ( $n < 1 || $n > 50 ) {
+					return false;
+				}
+				foreach ( $vars['paths'] as $p ) {
+					if ( ! is_string( $p ) || '' === $p || strlen( $p ) > 1024 ) {
+						return false;
+					}
+				}
+				return true;
+			}
+			return false;
+		};
+		$cache_warm_params = static function ( $params ): bool {
+			$vars = get_object_vars( $params );
+			if ( array() !== array_diff_key( $vars, array( 'paths' => 1, 'limit' => 1 ) ) ) {
+				return false;
+			}
+			if ( isset( $vars['limit'] ) && ( ! is_int( $vars['limit'] ) || $vars['limit'] < 1 || $vars['limit'] > 25 ) ) {
+				return false;
+			}
+			if ( isset( $vars['paths'] ) ) {
+				if ( ! is_array( $vars['paths'] ) ) {
+					return false;
+				}
+				$n = count( $vars['paths'] );
+				if ( $n < 1 || $n > 25 ) {
+					return false;
+				}
+				foreach ( $vars['paths'] as $p ) {
+					if ( ! is_string( $p ) || '' === $p || strlen( $p ) > 1024 ) {
+						return false;
+					}
+				}
+			}
+			return true;
+		};
+		$cache_configure_params = static function ( $params ): bool {
+			$vars = get_object_vars( $params );
+			if ( array() === $vars ) {
+				return false; // must set at least one field.
+			}
+			if ( array() !== array_diff_key( $vars, array( 'enabled' => 1, 'ttl' => 1, 'exclusions' => 1 ) ) ) {
+				return false;
+			}
+			if ( isset( $vars['enabled'] ) && ! is_bool( $vars['enabled'] ) ) {
+				return false;
+			}
+			if ( isset( $vars['ttl'] ) && ( ! is_int( $vars['ttl'] ) || $vars['ttl'] < 600 || $vars['ttl'] > 86400 ) ) {
+				return false;
+			}
+			if ( isset( $vars['exclusions'] ) ) {
+				if ( ! is_array( $vars['exclusions'] ) || count( $vars['exclusions'] ) > 50 ) {
+					return false;
+				}
+				foreach ( $vars['exclusions'] as $pattern ) {
+					if ( ! is_string( $pattern ) || strlen( $pattern ) > 300 ) {
+						return false;
+					}
+				}
+			}
+			return true;
+		};
+		$perf_settings_params = static function ( $params ): bool {
+			$vars = get_object_vars( $params );
+			if ( array() === $vars ) {
+				return false; // must carry lazy_load and/or speed_pack.
+			}
+			if ( array() !== array_diff_key( $vars, array( 'lazy_load' => 1, 'speed_pack' => 1 ) ) ) {
+				return false;
+			}
+			if ( isset( $vars['lazy_load'] ) ) {
+				if ( ! $vars['lazy_load'] instanceof stdClass ) {
+					return false;
+				}
+				$ll = get_object_vars( $vars['lazy_load'] );
+				if ( array() !== array_diff_key( $ll, array( 'enabled' => 1, 'lazy_iframes' => 1, 'skip_images' => 1 ) ) ) {
+					return false;
+				}
+			}
+			if ( isset( $vars['speed_pack'] ) ) {
+				if ( ! $vars['speed_pack'] instanceof stdClass ) {
+					return false;
+				}
+				$allowed = array_flip(
+					array(
+						'minify_html', 'defer_js', 'delay_js', 'server_headers', 'resource_hints',
+						'remove_query_strings', 'disable_emojis', 'disable_embeds', 'instant_page',
+						'heartbeat_control', 'heartbeat_disable_frontend', 'heartbeat_frequency',
+						'prefetch_hosts', 'defer_exclusions',
+					)
+				);
+				if ( array() !== array_diff_key( get_object_vars( $vars['speed_pack'] ), $allowed ) ) {
+					return false;
+				}
+			}
+			return true;
+		};
+
 		$handlers = array(
 			new IWSL_Command_Handler(
 				'health.check',
@@ -225,6 +350,55 @@ final class IWSL_Plugin {
 					return array( true, array( 'entitlements' => $stored ) );
 				},
 				array( 'IWSL_Entitlements', 'validate_params' )
+			),
+
+			// ── Performance & cache surface (§7 signed methods; no new public/REST
+			// surface). All read-only methods take no state; every mutating method
+			// re-checks STATEMENT 1 inside the engine it delegates to, and the host
+			// is NEVER taken from the caller (purge/warm keys derive from the baked
+			// home host). perf.status is the console's single composite fetch.
+			new IWSL_Command_Handler(
+				'perf.status',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return array( true, $plugin->perf_status() );
+				}
+			),
+			new IWSL_Command_Handler(
+				'perf.audit',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$vars = get_object_vars( $envelope->params );
+					$rows = isset( $vars['rows'] ) ? (int) $vars['rows'] : IWSL_Perf_Audit::REPORT_ROWS;
+					return array( true, $plugin->perf_audit_report( $rows ) );
+				},
+				$perf_audit_params
+			),
+			new IWSL_Command_Handler(
+				'cache.purge',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return array( true, $plugin->cache_purge( $envelope->params ) );
+				},
+				$cache_purge_params
+			),
+			new IWSL_Command_Handler(
+				'cache.warm',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return array( true, $plugin->cache_warm( $envelope->params ) );
+				},
+				$cache_warm_params
+			),
+			new IWSL_Command_Handler(
+				'cache.configure',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return array( true, $plugin->cache_configure( $envelope->params ) );
+				},
+				$cache_configure_params
+			),
+			new IWSL_Command_Handler(
+				'perf.settings.set',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					return array( true, $plugin->perf_settings_set( $envelope->params ) );
+				},
+				$perf_settings_params
 			),
 		);
 
@@ -365,7 +539,14 @@ final class IWSL_Plugin {
 		$nonces  = $this->store->get( 'nonces', array() );
 		$pending = $this->store->get( 'pending_rotation' );
 		$reroll  = $this->rotation->last_reroll();
+		$gauges  = $this->cache_perf_gauges();
 		return array(
+			// Cache + load-time gauges (§US-11) so the Prometheus exporter gets
+			// speed history for free. Cheap integers; a fresh store yields zeros.
+			'cache_entries'      => (int) $gauges['cache_entries'],
+			'cache_hits_today'   => (int) $gauges['cache_hits_today'],
+			'cache_misses_today' => (int) $gauges['cache_misses_today'],
+			'perf_avg_ms'        => (int) $gauges['perf_avg_ms'],
 			'plugin'           => defined( 'IWSL_CONNECTOR_VERSION' ) ? IWSL_CONNECTOR_VERSION : 'dev',
 			'php'              => PHP_VERSION,
 			'wp'               => function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'version' ) : null,
@@ -384,6 +565,148 @@ final class IWSL_Plugin {
 			'last_reroll_at'   => is_array( $reroll ) ? (int) $reroll['at'] : 0,
 			'last_reroll_ok'   => is_array( $reroll ) && ! empty( $reroll['ok'] ) ? 1 : 0,
 		);
+	}
+
+	// ── performance & cache runners (delegate to engines; §7 signed methods) ────
+
+	/** Page cache engine over this plugin's gate + store (persists ttl/exclusions). */
+	private function page_cache(): IWSL_Page_Cache {
+		return new IWSL_Page_Cache( $this->entitlements, null, null, $this->now_ms, null, $this->store );
+	}
+
+	/** Speed Pack engine over this plugin's gate + store. */
+	private function speed_pack(): IWSL_Speed_Pack {
+		return new IWSL_Speed_Pack( $this->entitlements, $this->store, null, null, $this->now_ms );
+	}
+
+	/** Lazy Load engine over this plugin's gate + store. */
+	private function lazy_load(): IWSL_Lazy_Load {
+		return new IWSL_Lazy_Load( $this->entitlements, $this->store );
+	}
+
+	/** FREE Load-Time Audit engine over this plugin's store. */
+	private function perf_audit(): IWSL_Perf_Audit {
+		return new IWSL_Perf_Audit( $this->store, $this->now_ms );
+	}
+
+	/**
+	 * The console's ONE read-only composite (perf.status): page cache posture +
+	 * counters, speed-pack settings/status, lazy-load settings, and a trimmed audit
+	 * roll-up — one signed round-trip feeding the Manage → Performance surface, per
+	 * the console-slowness constraint (no per-panel exec fan-out).
+	 */
+	private function perf_status(): array {
+		$audit = $this->perf_audit()->report();
+		$sp    = $this->speed_pack();
+		return array(
+			'page_cache' => $this->page_cache()->status(),
+			'speed_pack' => array(
+				'settings' => $sp->settings(),
+				'status'   => $sp->status(),
+			),
+			'lazy_load'  => $this->lazy_load()->settings(),
+			'audit'      => array(
+				'enabled'       => (bool) $audit['enabled'],
+				'avg_ms'        => (int) $audit['avg_ms'],
+				'total_samples' => (int) $audit['total_samples'],
+				'slow_paths'    => (int) $audit['slow_paths'],
+			),
+		);
+	}
+
+	/** perf.audit runner: the read-only Load-Time Audit report (FREE feature, capped rows). */
+	private function perf_audit_report( int $rows ): array {
+		return $this->perf_audit()->report( $rows );
+	}
+
+	/** cache.purge runner: purge all, or specific URLs by path (host is the baked home, never the caller). */
+	private function cache_purge( stdClass $params ): array {
+		$scope = (string) $params->scope;
+		if ( 'paths' === $scope ) {
+			$res = $this->page_cache()->purge_paths( self::string_list( $params->paths ?? array() ) );
+		} else {
+			$res = $this->page_cache()->purge_all();
+		}
+		return array( 'purged' => (int) ( $res['purged'] ?? 0 ) );
+	}
+
+	/**
+	 * cache.warm runner: with no paths, warm the top-N most-visited URLs the FREE
+	 * Load-Time Audit already knows (home fallback) — the elegant tie, no sitemap.
+	 * The engine builds each URL from home_url() + a validated path, so the caller
+	 * can never steer the loopback off-host. Entitlement-gated inside warm().
+	 */
+	private function cache_warm( stdClass $params ): array {
+		$vars  = get_object_vars( $params );
+		$limit = isset( $vars['limit'] ) ? (int) $vars['limit'] : IWSL_Page_Cache::WARM_MAX;
+		$paths = isset( $vars['paths'] )
+			? self::string_list( $vars['paths'] )
+			: $this->warm_default_paths( $limit );
+		return self::with_lock_flag( $this->page_cache()->warm( $paths, $limit ) );
+	}
+
+	/** The audit-fed default warm set: most-visited tracked paths, `/` when the audit is empty. */
+	private function warm_default_paths( int $limit ): array {
+		$paths = $this->perf_audit()->top_paths( max( 1, $limit ) );
+		return array() === $paths ? array( '/' ) : $paths;
+	}
+
+	/** cache.configure runner: TTL + exclusions (baked) + enable/disable. Entitlement-gated by enable(). */
+	private function cache_configure( stdClass $params ): array {
+		return self::with_lock_flag( $this->page_cache()->configure( get_object_vars( $params ) ) );
+	}
+
+	/**
+	 * perf.settings.set runner: flip lazy-load / speed-pack SETTINGS within an
+	 * entitled feature. Delegates verbatim to the existing update_settings() /
+	 * save_settings() so every clamp/sanitize/gate/.htaccess reconcile is reused —
+	 * and the entitlement gate inside those refuses to widen a tier over the signed
+	 * channel (a locked feature returns entitlement-locked).
+	 */
+	private function perf_settings_set( stdClass $params ): array {
+		$vars = get_object_vars( $params );
+		$out  = array();
+		if ( isset( $vars['lazy_load'] ) && $vars['lazy_load'] instanceof stdClass ) {
+			$out['lazy_load'] = self::with_lock_flag( $this->lazy_load()->update_settings( get_object_vars( $vars['lazy_load'] ) ) );
+		}
+		if ( isset( $vars['speed_pack'] ) && $vars['speed_pack'] instanceof stdClass ) {
+			$out['speed_pack'] = self::with_lock_flag( $this->speed_pack()->save_settings( get_object_vars( $vars['speed_pack'] ) ) );
+		}
+		return $out;
+	}
+
+	/** The four cache/perf gauges folded into metrics.snapshot (cheap; zeros on a fresh store). */
+	private function cache_perf_gauges(): array {
+		$status = $this->page_cache()->status();
+		$audit  = $this->perf_audit()->report();
+		return array(
+			'cache_entries'      => (int) ( $status['entries'] ?? 0 ),
+			'cache_hits_today'   => (int) ( $status['hits_today'] ?? 0 ),
+			'cache_misses_today' => (int) ( $status['misses_today'] ?? 0 ),
+			'perf_avg_ms'        => (int) ( $audit['avg_ms'] ?? 0 ),
+		);
+	}
+
+	/** Tag a gated engine result with `locked` when it refused on the entitlement gate. */
+	private static function with_lock_flag( array $res ): array {
+		if ( isset( $res['reason'] ) && 'entitlement-locked' === $res['reason'] ) {
+			$res['locked'] = true;
+		}
+		return $res;
+	}
+
+	/** Coerce a decoded params array into a list of strings (drops non-strings). @return string[] */
+	private static function string_list( $value ): array {
+		if ( ! is_array( $value ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( $value as $item ) {
+			if ( is_string( $item ) ) {
+				$out[] = $item;
+			}
+		}
+		return $out;
 	}
 
 	/**

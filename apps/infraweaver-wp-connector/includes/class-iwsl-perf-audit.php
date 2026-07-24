@@ -406,6 +406,40 @@ final class IWSL_Perf_Audit {
 		return self::normalize_state( $this->store->get( self::OPTION, array() ) );
 	}
 
+	/**
+	 * Public read-only report accessor over the engine's OWN stored state — the
+	 * signed `perf.audit` / `perf.status` channel reads this (render_section() uses
+	 * the same build_report on the same state). Rows capped by build_report.
+	 */
+	public function report( int $rows = self::REPORT_ROWS ): array {
+		return self::build_report( $this->state(), $rows );
+	}
+
+	/**
+	 * The N most-visited tracked paths (by sample count, descending) — the audit-fed
+	 * default warm set for `cache.warm`, so warming targets the URLs real traffic
+	 * actually hits without any sitemap dependency. Empty when nothing is tracked.
+	 *
+	 * @return string[]
+	 */
+	public function top_paths( int $n ): array {
+		$rows = array();
+		foreach ( $this->state()['samples'] as $path => $agg ) {
+			$rows[] = array( 'path' => (string) $path, 'count' => (int) ( $agg['count'] ?? 0 ) );
+		}
+		usort(
+			$rows,
+			static function ( array $a, array $b ): int {
+				return $b['count'] <=> $a['count'];
+			}
+		);
+		$out = array();
+		foreach ( array_slice( $rows, 0, max( 1, $n ) ) as $row ) {
+			$out[] = $row['path'];
+		}
+		return $out;
+	}
+
 	/** Is passive collection switched on? Default true (missing key = on). */
 	public function is_enabled(): bool {
 		return (bool) $this->state()['enabled'];

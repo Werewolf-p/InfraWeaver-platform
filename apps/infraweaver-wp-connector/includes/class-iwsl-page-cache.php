@@ -55,8 +55,37 @@ final class IWSL_Page_Cache {
 	/** Default freshness TTL for a stored page (seconds). */
 	const DEFAULT_TTL_S = 3600;
 
+	/** Operator-selectable TTL bounds (seconds): 10 min .. 24 h. */
+	const TTL_MIN = 600;
+	const TTL_MAX = 86400;
+
 	/** Hard cap on distinct cached entries — bounds disk + directory size. */
 	const MAX_ENTRIES = 2000;
+
+	/** Upper bound on operator exclusion rules. */
+	const MAX_EXCLUSIONS = 50;
+
+	/** Longest single exclusion pattern (characters). */
+	const EXCLUSION_MAX_LEN = 300;
+
+	/** Days of hit/miss counter history retained before opportunistic pruning. */
+	const STATS_KEEP_DAYS = 7;
+
+	/**
+	 * Drop-in template version baked into every rendered drop-in (marker
+	 * `iwsl-pc-tpl: N`). Bumped whenever the template's baked-value shape changes so
+	 * status() can report an on-disk drop-in as stale and enable()/configure() can
+	 * re-render it. v2 adds exclusions + the counter markers over the original v1.
+	 */
+	const TEMPLATE_VERSION = 2;
+
+	/** IWSL_Store key persisting operator cache settings (ttl + exclusions). */
+	const SETTINGS_KEY = 'page_cache_settings';
+
+	/** Warming caps: URLs/call, per-request timeout (s), overall budget (s). */
+	const WARM_MAX       = 25;
+	const WARM_TIMEOUT_S = 3;
+	const WARM_BUDGET_S  = 30;
 
 	/** The exact wp-config line we insert/remove — carries our marker comment. */
 	const WPCONFIG_MARKER = "define( 'WP_CACHE', true ); // iwsl-page-cache";
@@ -82,19 +111,33 @@ final class IWSL_Page_Cache {
 	/** @var string Lowercased home host baked into the drop-in, '' outside WP. */
 	private $home_host;
 
+	/** @var string[] Operator exclusion patterns baked into the drop-in. */
+	private $exclusions = array();
+
+	/** @var IWSL_Store|null Optional store for persisting ttl/exclusions. */
+	private $store;
+
+	/** @var string Home URL base (scheme://host) for loopback warming, '' outside WP. */
+	private $home_url;
+
+	/** @var callable(string,int):int HTTP client for warming: (url, timeout_s) => status. */
+	private $http;
+
 	/**
 	 * @param IWSL_Entitlements $entitlements The gate.
 	 * @param string|null       $content_dir  Content dir; defaults WP_CONTENT_DIR. Injectable in the harness.
 	 * @param string|null       $config_path  wp-config path; defaults ABSPATH.'wp-config.php'. Injectable.
 	 * @param callable|null     $now_ms       Clock, mirrors IWSL_Entitlements.
-	 * @param array|null        $config       Optional { ttl:int, max_entries:int } overrides.
+	 * @param array|null        $config       Optional overrides { ttl, max_entries, exclusions[], home_url, http:callable }.
+	 * @param IWSL_Store|null   $store        Optional store; when present, ttl/exclusions persist under SETTINGS_KEY.
 	 */
 	public function __construct(
 		IWSL_Entitlements $entitlements,
 		?string $content_dir = null,
 		?string $config_path = null,
 		?callable $now_ms = null,
-		?array $config = null
+		?array $config = null,
+		?IWSL_Store $store = null
 	) {
 		$this->entitlements = $entitlements;
 		$this->content_dir  = null !== $content_dir ? $content_dir : self::default_content_dir();
@@ -102,9 +145,14 @@ final class IWSL_Page_Cache {
 		$this->now_ms       = $now_ms ?? static function (): int {
 			return (int) round( microtime( true ) * 1000 );
 		};
+		$this->store        = $store;
 
 		$this->ttl         = self::DEFAULT_TTL_S;
 		$this->max_entries = self::MAX_ENTRIES;
+		$this->home_url    = self::default_home_url();
+		$this->http        = static function ( string $url, int $timeout ): int {
+			return self::default_http_get( $url, $timeout );
+		};
 		if ( is_array( $config ) ) {
 			if ( isset( $config['ttl'] ) && (int) $config['ttl'] > 0 ) {
 				$this->ttl = (int) $config['ttl'];
@@ -112,9 +160,38 @@ final class IWSL_Page_Cache {
 			if ( isset( $config['max_entries'] ) && (int) $config['max_entries'] > 0 ) {
 				$this->max_entries = (int) $config['max_entries'];
 			}
+			if ( isset( $config['exclusions'] ) && is_array( $config['exclusions'] ) ) {
+				$this->exclusions = self::sanitize_exclusions( $config['exclusions'] );
+			}
+			if ( isset( $config['home_url'] ) && is_string( $config['home_url'] ) ) {
+				$this->home_url = $config['home_url'];
+			}
+			if ( isset( $config['http'] ) && is_callable( $config['http'] ) ) {
+				$this->http = $config['http'];
+			}
 		}
 
 		$this->home_host = self::default_home_host();
+
+		// Persisted operator settings (ttl/exclusions) are the source of truth when a
+		// store is present — they survive re-renders and are shared with wp-admin.
+		if ( null !== $store ) {
+			$this->load_persisted_settings();
+		}
+	}
+
+	/** Overlay persisted ttl/exclusions from the store onto the instance. */
+	private function load_persisted_settings(): void {
+		$saved = $this->store->get( self::SETTINGS_KEY, array() );
+		if ( ! is_array( $saved ) ) {
+			return;
+		}
+		if ( isset( $saved['ttl'] ) && self::valid_ttl( (int) $saved['ttl'] ) ) {
+			$this->ttl = (int) $saved['ttl'];
+		}
+		if ( isset( $saved['exclusions'] ) && is_array( $saved['exclusions'] ) ) {
+			$this->exclusions = self::sanitize_exclusions( $saved['exclusions'] );
+		}
 	}
 
 	/** Register purge hooks (self-gated) + the admin_init revocation check. */
@@ -204,6 +281,9 @@ final class IWSL_Page_Cache {
 
 		$this->set_wp_cache( false );
 		$purge = $this->purge_all();
+		// Teardown removes hit/miss history too — a disabled feature keeps no
+		// counters (purge_all deliberately does NOT, so history survives a purge).
+		$this->purge_stats();
 
 		return array(
 			'ok'      => true,
@@ -314,6 +394,295 @@ final class IWSL_Page_Cache {
 		);
 	}
 
+	/**
+	 * Purge specific URLs by path. The host is NEVER taken from the caller — keys
+	 * derive from the baked home host under BOTH schemes (http/https) with trailing-
+	 * slash normalization, mirroring the drop-in's key derivation, so a stale page is
+	 * fixable without dumping the whole cache. Each path runs the same hygiene gate as
+	 * the serve gauntlet; a malformed or unknown path purges nothing and still
+	 * succeeds (idempotent). Containment is re-checked before every unlink.
+	 *
+	 * @param string[] $paths Leading-slash request paths.
+	 * @return array{ ok:bool, purged:int }
+	 */
+	public function purge_paths( array $paths ): array {
+		$real = $this->contained_dir();
+		if ( false === $real ) {
+			return array( 'ok' => true, 'purged' => 0 );
+		}
+		$host = '' !== $this->home_host ? $this->home_host : self::host_of( $this->home_url );
+		if ( '' === $host ) {
+			return array( 'ok' => true, 'purged' => 0 );
+		}
+
+		$purged = 0;
+		foreach ( $paths as $raw ) {
+			$path = self::sanitize_warm_path( is_string( $raw ) ? $raw : '' );
+			if ( null === $path ) {
+				continue;
+			}
+			foreach ( array( 'http', 'https' ) as $scheme ) {
+				$key  = iwsl_pc_cache_key( $scheme, $host, $path );
+				$file = $real . '/' . $key . '.html';
+				if ( is_link( $file ) || ! is_file( $file ) ) {
+					continue;
+				}
+				if ( ! $this->contained( $file ) ) {
+					continue;
+				}
+				if ( @unlink( $file ) ) {
+					$purged++;
+				}
+			}
+		}
+		return array( 'ok' => true, 'purged' => $purged );
+	}
+
+	/**
+	 * Apply operator cache settings: TTL (600..86400 s) and exclusion rules (≤50
+	 * prefix / trailing-* patterns), and optionally toggle the cache on/off. TTL and
+	 * exclusions become new BAKED drop-in values (re-rendered atomically) and persist
+	 * to the store so wp-admin and the console share one settings source. A ttl/
+	 * exclusion change purges all (pages stored under the old rules must not be
+	 * served). The entitlement gate is enforced by enable() itself — a locked site
+	 * cannot enable regardless of input.
+	 *
+	 * @param array $input { enabled?:bool, ttl?:int, exclusions?:string[] }
+	 * @return array enable()/disable() result + { settings } (or { ok:false, reason } on invalid input).
+	 */
+	public function configure( array $input ): array {
+		$changed = false;
+
+		if ( array_key_exists( 'ttl', $input ) ) {
+			$ttl = (int) $input['ttl'];
+			if ( ! self::valid_ttl( $ttl ) ) {
+				return array( 'ok' => false, 'reason' => 'invalid-ttl' );
+			}
+			if ( $ttl !== $this->ttl ) {
+				$this->ttl = $ttl;
+				$changed   = true;
+			}
+		}
+
+		if ( array_key_exists( 'exclusions', $input ) ) {
+			if ( ! is_array( $input['exclusions'] ) ) {
+				return array( 'ok' => false, 'reason' => 'invalid-exclusions' );
+			}
+			$excl = self::sanitize_exclusions( $input['exclusions'] );
+			if ( $excl !== $this->exclusions ) {
+				$this->exclusions = $excl;
+				$changed          = true;
+			}
+		}
+
+		$this->persist_settings();
+
+		$target = array_key_exists( 'enabled', $input ) ? (bool) $input['enabled'] : $this->is_enabled();
+
+		if ( $target ) {
+			$res = $this->enable(); // re-renders the drop-in with the new baked ttl/exclusions.
+			if ( empty( $res['ok'] ) ) {
+				$res['settings'] = $this->settings();
+				return $res;
+			}
+			if ( $changed ) {
+				$this->purge_all(); // old-rule pages must not be served.
+			}
+			$res['settings'] = $this->settings();
+			return $res;
+		}
+
+		$res             = $this->disable();
+		$res['settings'] = $this->settings();
+		return $res;
+	}
+
+	/**
+	 * Warm the cache by fetching pages over an HTTP loopback to THIS site. SSRF-safe
+	 * by construction: the request URL is built connector-side from the site's own
+	 * home URL + a hygiene-validated path — the caller supplies paths only, never a
+	 * host, so a request can never be steered off-host. Because the Host matches the
+	 * baked host, each fetch flows through the drop-in as a real anonymous GET and
+	 * stores normally (wp-cli cannot warm — the drop-in early-returns under WP_CLI,
+	 * which is why this rides HTTP). Hard caps: ≤WARM_MAX URLs, ≤WARM_TIMEOUT_S each,
+	 * sequential under an overall ≤WARM_BUDGET_S budget. Entitlement-gated.
+	 *
+	 * @param string[] $paths Leading-slash paths to warm (already the caller's set or audit-fed).
+	 * @param int      $limit Max URLs this call may warm (clamped to WARM_MAX).
+	 * @return array{ warmed:int, skipped:int, failed:int, reason?:string, gate?:array }
+	 */
+	public function warm( array $paths, int $limit ): array {
+		$gate = $this->entitlements->evaluate( self::FEATURE );
+		if ( empty( $gate['unlocked'] ) ) {
+			return array( 'warmed' => 0, 'skipped' => 0, 'failed' => 0, 'reason' => 'entitlement-locked', 'gate' => $gate );
+		}
+
+		$base = $this->home_url_base();
+		if ( '' === $base ) {
+			return array( 'warmed' => 0, 'skipped' => 0, 'failed' => 0, 'reason' => 'no-home-url' );
+		}
+
+		$limit  = max( 1, min( self::WARM_MAX, $limit ) );
+		$warmed = 0;
+		$skipped = 0;
+		$failed = 0;
+		$count  = 0;
+		$start  = $this->now_s();
+
+		foreach ( $paths as $raw ) {
+			if ( $count >= $limit ) {
+				break;
+			}
+			if ( ( $this->now_s() - $start ) >= self::WARM_BUDGET_S ) {
+				break; // overall budget spent.
+			}
+			$path = self::sanitize_warm_path( is_string( $raw ) ? $raw : '' );
+			if ( null === $path ) {
+				$skipped++;
+				continue;
+			}
+			$count++;
+			$status = (int) ( $this->http )( $base . $path, self::WARM_TIMEOUT_S );
+			if ( $status >= 200 && $status < 400 ) {
+				$warmed++;
+			} else {
+				$failed++;
+			}
+		}
+
+		return array( 'warmed' => $warmed, 'skipped' => $skipped, 'failed' => $failed );
+	}
+
+	// ── settings persistence + validation helpers ──────────────────────────────
+
+	/** Persist ttl + exclusions to the store (no-op when no store was injected). */
+	private function persist_settings(): void {
+		if ( null === $this->store ) {
+			return;
+		}
+		$this->store->set(
+			self::SETTINGS_KEY,
+			array( 'ttl' => $this->ttl, 'exclusions' => $this->exclusions )
+		);
+	}
+
+	/** Whether a TTL is inside the operator-selectable window. */
+	private static function valid_ttl( int $ttl ): bool {
+		return $ttl >= self::TTL_MIN && $ttl <= self::TTL_MAX;
+	}
+
+	/**
+	 * Sanitize operator exclusion patterns: keep only non-empty leading-slash strings
+	 * (a trailing `*` wildcard is allowed) up to EXCLUSION_MAX_LEN, deduped, capped at
+	 * MAX_EXCLUSIONS. Nothing here is ever eval'd — patterns are matched literally by
+	 * iwsl_pc_excluded().
+	 *
+	 * @param array $patterns
+	 * @return string[]
+	 */
+	private static function sanitize_exclusions( array $patterns ): array {
+		$out = array();
+		foreach ( $patterns as $pattern ) {
+			if ( ! is_string( $pattern ) ) {
+				continue;
+			}
+			$pattern = trim( $pattern );
+			if ( '' === $pattern || '/' !== $pattern[0] ) {
+				continue;
+			}
+			if ( strlen( $pattern ) > self::EXCLUSION_MAX_LEN ) {
+				continue;
+			}
+			if ( false !== strpos( $pattern, "\0" ) || false !== strpos( $pattern, '..' ) ) {
+				continue;
+			}
+			if ( ! in_array( $pattern, $out, true ) ) {
+				$out[] = $pattern;
+			}
+			if ( count( $out ) >= self::MAX_EXCLUSIONS ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * The path-hygiene gate for a warm/purge target (shares the serve gauntlet's
+	 * rules): a leading-slash path with no query/fragment, no traversal/backslash/NUL,
+	 * at most 1024 bytes; trailing slash normalized (root `/` preserved). Returns the
+	 * normalized path, or null when the input is not a real page path.
+	 */
+	private static function sanitize_warm_path( string $path ): ?string {
+		$path = trim( $path );
+		if ( '' === $path || '/' !== $path[0] ) {
+			return null;
+		}
+		// Reject protocol-relative `//host` paths — a real page path never starts
+		// with `//`, and this keeps the loopback target unambiguously on-host.
+		if ( isset( $path[1] ) && '/' === $path[1] ) {
+			return null;
+		}
+		if ( strlen( $path ) > 1024 ) {
+			return null;
+		}
+		if ( false !== strpos( $path, '?' ) || false !== strpos( $path, '#' )
+			|| false !== strpos( $path, '..' ) || false !== strpos( $path, '\\' )
+			|| false !== strpos( $path, '%00' ) || false !== strpos( $path, "\0" ) ) {
+			return null;
+		}
+		$norm = rtrim( $path, '/' );
+		return '' === $norm ? '/' : $norm;
+	}
+
+	/** The loopback base `scheme://host` for warming, built from the site's own home URL. */
+	private function home_url_base(): string {
+		$url = $this->home_url;
+		if ( ! is_string( $url ) || '' === $url ) {
+			return '';
+		}
+		$parts = parse_url( $url );
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+			return '';
+		}
+		$scheme = isset( $parts['scheme'] ) && '' !== $parts['scheme'] ? strtolower( (string) $parts['scheme'] ) : 'https';
+		$base   = $scheme . '://' . strtolower( (string) $parts['host'] );
+		if ( isset( $parts['port'] ) ) {
+			$base .= ':' . (int) $parts['port'];
+		}
+		return $base;
+	}
+
+	/** Lowercased host of a URL, or '' when unparseable. */
+	private static function host_of( string $url ): string {
+		if ( '' === $url ) {
+			return '';
+		}
+		$parts = parse_url( $url );
+		return is_array( $parts ) && ! empty( $parts['host'] ) ? strtolower( (string) $parts['host'] ) : '';
+	}
+
+	/** Remove every hit/miss counter file from the contained dir (teardown only). */
+	private function purge_stats(): int {
+		$real = $this->contained_dir();
+		if ( false === $real ) {
+			return 0;
+		}
+		$removed = 0;
+		$files   = glob( $real . '/stats-*-*.cnt' );
+		if ( ! is_array( $files ) ) {
+			return 0;
+		}
+		foreach ( $files as $file ) {
+			if ( is_link( $file ) || ! is_file( $file ) ) {
+				continue;
+			}
+			if ( $this->contained( $file ) && @unlink( $file ) ) {
+				$removed++;
+			}
+		}
+		return $removed;
+	}
+
 	// ── status ─────────────────────────────────────────────────────────────────
 
 	/**
@@ -342,16 +711,85 @@ final class IWSL_Page_Cache {
 			}
 		}
 
+		// Hit/miss counters (lock-free counter files). Prune stale days opportunistically.
+		$now_s          = $this->now_s();
+		$hits_today     = 0;
+		$misses_today   = 0;
+		$hits_7d        = 0;
+		$misses_7d      = 0;
+		if ( false !== $real ) {
+			iwsl_pc_prune_stats( $real, self::STATS_KEEP_DAYS, $now_s );
+			$hits_today   = iwsl_pc_count( $real, 'hit', 1, $now_s );
+			$misses_today = iwsl_pc_count( $real, 'miss', 1, $now_s );
+			$hits_7d      = iwsl_pc_count( $real, 'hit', self::STATS_KEEP_DAYS, $now_s );
+			$misses_7d    = iwsl_pc_count( $real, 'miss', self::STATS_KEEP_DAYS, $now_s );
+		}
+
 		return array(
 			'enabled'            => $this->is_enabled(),
 			'dropin_present'     => $this->dropin_exists(),
 			'dropin_is_ours'     => $this->dropin_is_ours(),
+			'dropin_stale'       => $this->dropin_stale(),
+			'template_version'   => self::TEMPLATE_VERSION,
 			'wp_cache_defined'   => $this->wp_cache_in_config(),
 			'wp_config_writable' => $this->config_writable(),
 			'entries'            => $entries,
 			'total_bytes'        => $bytes,
 			'ttl'                => $this->ttl,
+			'exclusions'         => $this->exclusions,
+			'hits_today'         => $hits_today,
+			'misses_today'       => $misses_today,
+			'hits_7d'            => $hits_7d,
+			'misses_7d'          => $misses_7d,
+			'hit_rate'           => self::rate( $hits_today, $misses_today ),
+			'hit_rate_7d'        => self::rate( $hits_7d, $misses_7d ),
 		);
+	}
+
+	/** Effective operator cache settings (read-only echo). @return array{ttl:int,exclusions:string[],enabled:bool} */
+	public function settings(): array {
+		return array(
+			'ttl'        => $this->ttl,
+			'exclusions' => $this->exclusions,
+			'enabled'    => $this->is_enabled(),
+		);
+	}
+
+	/** Hit-rate as an integer percentage 0..100; 0 when there was no traffic. */
+	private static function rate( int $hits, int $misses ): int {
+		$total = $hits + $misses;
+		if ( $total <= 0 ) {
+			return 0;
+		}
+		return (int) round( ( $hits * 100 ) / $total );
+	}
+
+	/** Current clock in unix SECONDS (counter files are day-keyed in UTC). */
+	private function now_s(): int {
+		return (int) floor( ( $this->now_ms )() / 1000 );
+	}
+
+	/**
+	 * Whether the installed drop-in was rendered by an OLDER template than the one
+	 * this plugin ships (its `iwsl-pc-tpl: N` marker is below TEMPLATE_VERSION). A
+	 * stale drop-in still works (function_exists guards), but enable()/configure()
+	 * should re-render it to pick up new baked values. False when no drop-in of ours
+	 * is present or the marker already matches.
+	 */
+	private function dropin_stale(): bool {
+		if ( ! $this->dropin_is_ours() ) {
+			return false;
+		}
+		$fp = @fopen( $this->dropin_path(), 'rb' );
+		if ( false === $fp ) {
+			return false;
+		}
+		$head = (string) @fread( $fp, 512 );
+		@fclose( $fp );
+		if ( preg_match( '/iwsl-pc-tpl:\s*(\d+)/', $head, $m ) ) {
+			return (int) $m[1] < self::TEMPLATE_VERSION;
+		}
+		return true; // a v1 drop-in carried no marker → stale by definition.
 	}
 
 	/** True when our drop-in is installed AND WP_CACHE is defined true at runtime. */
@@ -433,7 +871,7 @@ final class IWSL_Page_Cache {
 		return is_string( $raw ) ? $raw : '';
 	}
 
-	/** Substitute the five baked values into the template. */
+	/** Substitute the baked values into the template. */
 	private function render_template( string $template ): string {
 		$helpers_path = __DIR__ . '/iwsl-page-cache-helpers.php';
 		return strtr(
@@ -444,8 +882,24 @@ final class IWSL_Page_Cache {
 				'%%IWSL_PC_HOST%%'         => self::php_str( $this->home_host ),
 				'%%IWSL_PC_TTL%%'          => (string) (int) $this->ttl,
 				'%%IWSL_PC_MAX_ENTRIES%%'  => (string) (int) $this->max_entries,
+				'%%IWSL_PC_EXCLUSIONS%%'   => self::exclusions_literal( $this->exclusions ),
+				'%%IWSL_PC_TPL%%'          => (string) self::TEMPLATE_VERSION,
 			)
 		);
+	}
+
+	/**
+	 * The exclusion list as a JSON string, escaped for the single-quoted PHP literal
+	 * the template decodes with json_decode(). JSON (not a PHP array literal) keeps the
+	 * raw template a syntactically valid PHP file; php_str() neutralizes any quote or
+	 * backslash a pattern might carry.
+	 */
+	private static function exclusions_literal( array $exclusions ): string {
+		$json = json_encode( array_values( $exclusions ) );
+		if ( false === $json ) {
+			$json = '[]';
+		}
+		return self::php_str( $json );
 	}
 
 	/** Escape a value for a single-quoted PHP string literal in the template. */
@@ -685,5 +1139,41 @@ final class IWSL_Page_Cache {
 			}
 		}
 		return '';
+	}
+
+	/** The site's own home URL (scheme+host) for loopback warming, '' outside WordPress. */
+	private static function default_home_url(): string {
+		if ( function_exists( 'home_url' ) ) {
+			$home = home_url();
+			if ( is_string( $home ) && '' !== $home ) {
+				return $home;
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Default warm HTTP client: a non-following loopback GET via wp_remote_get,
+	 * returning the numeric status (0 on any error / outside WordPress, so an
+	 * un-warmable environment simply counts a failure rather than throwing).
+	 */
+	private static function default_http_get( string $url, int $timeout ): int {
+		if ( ! function_exists( 'wp_remote_get' ) ) {
+			return 0;
+		}
+		$resp = wp_remote_get(
+			$url,
+			array(
+				'timeout'     => max( 1, $timeout ),
+				'blocking'    => true,
+				'sslverify'   => false,
+				'redirection' => 0,
+				'user-agent'  => 'InfraWeaver-CacheWarmer',
+			)
+		);
+		if ( function_exists( 'is_wp_error' ) && is_wp_error( $resp ) ) {
+			return 0;
+		}
+		return function_exists( 'wp_remote_retrieve_response_code' ) ? (int) wp_remote_retrieve_response_code( $resp ) : 0;
 	}
 }
