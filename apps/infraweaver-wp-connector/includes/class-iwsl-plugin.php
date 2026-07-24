@@ -226,6 +226,185 @@ final class IWSL_Plugin {
 				},
 				array( 'IWSL_Entitlements', 'validate_params' )
 			),
+
+			// ── media fusion (§ media) ────────────────────────────────────────────
+			// Seven signed methods behind the flagship fused Media Explorer. Every
+			// runner re-checks the entitlement gate as STATEMENT 1 and returns a
+			// signed { locked, gate } payload when the tier does not grant it — no
+			// media action ever rides a public/REST endpoint. Read methods
+			// (list/tree/status) never sign-with-current and never wipe. Bulk id-lists
+			// are re-validated inside the runner via IWSL_Media_Library::int_list, and
+			// the engines already treat ids as untrusted. Folder mutations touch TERMS
+			// ONLY; restore delegates to the offload engine's download-verify-then-drop
+			// un-offload so the last remaining copy is never deleted.
+			new IWSL_Command_Handler(
+				'media.list',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$lib = new IWSL_Media_Library( $plugin->entitlements() );
+					return array( true, $lib->list_assets( get_object_vars( $envelope->params ) ) );
+				},
+				array( 'IWSL_Media_Library', 'validate_list_params' )
+			),
+			new IWSL_Command_Handler(
+				'media.tree',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$gate = $plugin->entitlements()->evaluate( IWSL_Media_Library::FEATURE_FOLDERS );
+					if ( empty( $gate['unlocked'] ) ) {
+						return array( true, array( 'locked' => true, 'gate' => $gate ) );
+					}
+					$folders = new IWSL_Media_Folders( $plugin->entitlements(), $plugin->store() );
+					return array( true, array( 'locked' => false, 'tree' => $folders->folder_tree() ) );
+				}
+			),
+			new IWSL_Command_Handler(
+				'media.status',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$ent  = $plugin->entitlements();
+					$gate = $ent->evaluate( IWSL_Media_Library::FEATURE_OPT );
+					if ( empty( $gate['unlocked'] ) ) {
+						return array( true, array( 'locked' => true, 'gate' => $gate ) );
+					}
+					$optimizer = new IWSL_Media_Optimizer( $ent );
+					$offload   = new IWSL_Media_Offload( $ent, $plugin->store() );
+					$opt_stats = $optimizer->library_stats();
+					$off_stats = $offload->stats();
+					$cdn_gate  = $ent->evaluate( IWSL_Media_Library::FEATURE_CDN );
+					return array(
+						true,
+						array(
+							'locked'        => false,
+							'optimization'  => $opt_stats,
+							'offload'       => $off_stats,
+							'totals'        => array( 'attachments' => (int) ( $opt_stats['total'] ?? 0 ) ),
+							'non_lossless'  => (int) ( $opt_stats['remaining'] ?? 0 ),
+							'not_offloaded' => (int) ( $off_stats['remaining'] ?? 0 ),
+							// CDN host-swap is a site-wide banner, never a per-asset column.
+							'cdn_rewrite'   => array( 'unlocked' => ! empty( $cdn_gate['unlocked'] ) ),
+						),
+					);
+				}
+			),
+			new IWSL_Command_Handler(
+				'media.optimize',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$ent  = $plugin->entitlements();
+					$gate = $ent->evaluate( IWSL_Media_Library::FEATURE_OPT );
+					if ( empty( $gate['unlocked'] ) ) {
+						return array( true, array( 'locked' => true, 'gate' => $gate ) );
+					}
+					$p         = $envelope->params;
+					$ids       = IWSL_Media_Library::int_list( $p->ids, IWSL_Media_Library::REQUEST_MAX );
+					$converter = isset( $p->converter_id ) ? (string) $p->converter_id : 'webp_lossless';
+					$mode      = isset( $p->mode ) ? (string) $p->mode : 'copy';
+					$rewrite   = isset( $p->rewrite ) ? (bool) $p->rewrite : false;
+					$skip      = isset( $p->skip_optimized ) ? (bool) $p->skip_optimized : true;
+					$optimizer = new IWSL_Media_Optimizer( $ent );
+					// run() batches ≤ MAX_BATCH per call and reports `partial`; the
+					// console loops the signed command for a set larger than one batch.
+					$result = $optimizer->run( $converter, IWSL_Media_Optimizer::MAX_BATCH, $mode, false, 'auto', $ids, $rewrite, $skip );
+					return array( true, array( 'locked' => false, 'result' => $result ) );
+				},
+				array( 'IWSL_Media_Library', 'validate_optimize_params' )
+			),
+			new IWSL_Command_Handler(
+				'media.offload',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$ent  = $plugin->entitlements();
+					$gate = $ent->evaluate( IWSL_Media_Library::FEATURE_OPT );
+					if ( empty( $gate['unlocked'] ) ) {
+						return array( true, array( 'locked' => true, 'gate' => $gate ) );
+					}
+					$p       = $envelope->params;
+					$ids     = IWSL_Media_Library::int_list( $p->ids, IWSL_Media_Library::BULK_MAX );
+					$offload = new IWSL_Media_Offload( $ent, $plugin->store() );
+					$result  = $offload->bulk( (string) $p->op, $ids );
+					return array( true, array( 'locked' => false, 'result' => $result ) );
+				},
+				array( 'IWSL_Media_Library', 'validate_offload_params' )
+			),
+			new IWSL_Command_Handler(
+				'media.restore',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$ent  = $plugin->entitlements();
+					$gate = $ent->evaluate( IWSL_Media_Library::FEATURE_OPT );
+					if ( empty( $gate['unlocked'] ) ) {
+						return array( true, array( 'locked' => true, 'gate' => $gate ) );
+					}
+					$ids     = IWSL_Media_Library::int_list( $envelope->params->ids, IWSL_Media_Library::BULK_MAX );
+					$offload = new IWSL_Media_Offload( $ent, $plugin->store() );
+					$results = array();
+					$ok      = 0;
+					$failed  = 0;
+					foreach ( $ids as $id ) {
+						if ( $offload->is_offloaded( $id ) ) {
+							// download → HEAD-verify local → only then drop the remote.
+							$r       = $offload->unoffload_one( $id );
+							$r['id'] = $id;
+						} else {
+							$r = array( 'ok' => false, 'id' => $id, 'reason' => 'not-offloaded' );
+						}
+						$results[] = $r;
+						if ( ! empty( $r['ok'] ) ) {
+							++$ok;
+						} else {
+							++$failed;
+						}
+					}
+					return array(
+						true,
+						array(
+							'locked'  => false,
+							'op'      => 'restore',
+							'results' => $results,
+							'summary' => array( 'total' => count( $ids ), 'ok' => $ok, 'failed' => $failed ),
+						),
+					);
+				},
+				array( 'IWSL_Media_Library', 'validate_restore_params' )
+			),
+			new IWSL_Command_Handler(
+				'media.folder',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					$ent  = $plugin->entitlements();
+					$gate = $ent->evaluate( IWSL_Media_Library::FEATURE_FOLDERS );
+					if ( empty( $gate['unlocked'] ) ) {
+						return array( true, array( 'locked' => true, 'gate' => $gate ) );
+					}
+					$p       = $envelope->params;
+					$op      = (string) $p->op;
+					$folders = new IWSL_Media_Folders( $ent, $plugin->store() );
+					switch ( $op ) {
+						case 'create':
+							$r = $folders->create_folder( (string) $p->name, isset( $p->parent ) ? (int) $p->parent : 0 );
+							break;
+						case 'rename':
+							$r = $folders->rename_folder( (int) $p->id, (string) $p->name );
+							break;
+						case 'move':
+							$r = $folders->move_folder( (int) $p->id, (int) $p->parent, isset( $p->order ) ? (int) $p->order : null );
+							break;
+						case 'delete':
+							// Terms-only: removes the term + its relationships; every
+							// attachment is left byte-identical (files simply unfile).
+							$r = $folders->delete_folder( (int) $p->id );
+							break;
+						case 'assign':
+							$r = $folders->assign( IWSL_Media_Library::int_list( $p->ids, IWSL_Media_Library::FOLDER_IDS_MAX ), (int) $p->folder_id );
+							break;
+						case 'tag':
+							$r = $folders->tag(
+								IWSL_Media_Library::int_list( $p->ids, IWSL_Media_Library::FOLDER_IDS_MAX ),
+								IWSL_Media_Library::str_list( isset( $p->add ) ? $p->add : array() ),
+								IWSL_Media_Library::int_list( isset( $p->remove ) ? $p->remove : array(), IWSL_Media_Library::FOLDER_IDS_MAX )
+							);
+							break;
+						default:
+							$r = array( 'ok' => false, 'reason' => 'bad-op' );
+					}
+					return array( true, array( 'locked' => false, 'op' => $op, 'result' => $r ) );
+				},
+				array( 'IWSL_Media_Library', 'validate_folder_params' )
+			),
 		);
 
 		$by_method = array();
