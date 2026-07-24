@@ -32,6 +32,24 @@ import {
   type MediaStatusResponse,
   type MediaTreeResponse,
 } from "../manage/media";
+import {
+  cacheConfigureParamsSchema,
+  cachePurgeParamsSchema,
+  cacheWarmParamsSchema,
+  perfAuditParamsSchema,
+  perfSettingsParamsSchema,
+  type CacheConfigureParams,
+  type CacheConfigureResponse,
+  type CachePurgeParams,
+  type CachePurgeResponse,
+  type CacheWarmParams,
+  type CacheWarmResponse,
+  type PerfAuditParams,
+  type PerfAuditResponse,
+  type PerfSettingsParams,
+  type PerfSettingsResponse,
+  type PerfStatusResponse,
+} from "../manage/performance";
 
 /** Signed-command methods the Connector allow-lists (§7). Wire strings — never rename. */
 export type RpcMethod =
@@ -51,7 +69,14 @@ export type RpcMethod =
   | "media.optimize"
   | "media.offload"
   | "media.restore"
-  | "media.folder";
+  | "media.folder"
+  // ── performance & cache fusion (§ perf) — one composite read + audit + cache/optimization writes.
+  | "perf.status"
+  | "perf.audit"
+  | "cache.purge"
+  | "cache.warm"
+  | "cache.configure"
+  | "perf.settings.set";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -73,6 +98,13 @@ export interface RpcParams {
   "media.offload": MediaOffloadParams;
   "media.restore": MediaRestoreParams;
   "media.folder": MediaFolderParams;
+  // ── performance & cache — params mirror the connector's validator closures exactly.
+  "perf.status": Record<string, never>;
+  "perf.audit": PerfAuditParams;
+  "cache.purge": CachePurgeParams;
+  "cache.warm": CacheWarmParams;
+  "cache.configure": CacheConfigureParams;
+  "perf.settings.set": PerfSettingsParams;
 }
 
 /**
@@ -152,6 +184,13 @@ export interface RpcResult {
   };
   /** Terms-only folder mutation echo. */
   "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  // ── performance & cache — the plugin is the source of truth for every shape.
+  "perf.status": PerfStatusResponse;
+  "perf.audit": PerfAuditResponse;
+  "cache.purge": CachePurgeResponse;
+  "cache.warm": CacheWarmResponse;
+  "cache.configure": CacheConfigureResponse;
+  "perf.settings.set": PerfSettingsResponse;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -200,6 +239,14 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
   "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
   "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
+  // Performance & cache — validators reuse the isomorphic zod schemas that mirror
+  // the connector's param closures, so the two sides can never drift.
+  "perf.status": { hasParams: false, validate: noParams },
+  "perf.audit": { hasParams: true, validate: (p) => perfAuditParamsSchema.safeParse(p).success },
+  "cache.purge": { hasParams: true, validate: (p) => cachePurgeParamsSchema.safeParse(p).success },
+  "cache.warm": { hasParams: true, validate: (p) => cacheWarmParamsSchema.safeParse(p).success },
+  "cache.configure": { hasParams: true, validate: (p) => cacheConfigureParamsSchema.safeParse(p).success },
+  "perf.settings.set": { hasParams: true, validate: (p) => perfSettingsParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */
