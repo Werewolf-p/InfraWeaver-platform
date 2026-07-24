@@ -46,6 +46,14 @@ final class IWSL_Media_Editor {
 	const FLIP_AXES = array( 'horizontal', 'vertical' );
 	const TARGETS   = array( 'all', 'thumbnail' );
 
+	/**
+	 * Per-side ceiling for crop/scale dimensions (px) — mirrors
+	 * IWSL_Media_Optimizer::MAX_DIMENSION (also WebP's own 16383px limit). Caps the
+	 * allocation a single edit op can request, so a bounded write can't ask the
+	 * image editor for a multi-gigapixel canvas.
+	 */
+	const MAX_DIMENSION = 16383;
+
 	/** @var IWSL_Entitlements */
 	private $entitlements;
 
@@ -348,10 +356,10 @@ final class IWSL_Media_Editor {
 			case 'crop':
 				return array() === array_diff_key( $vars, array( 'type' => 1, 'x' => 1, 'y' => 1, 'width' => 1, 'height' => 1 ) )
 					&& self::non_neg_int( $vars, 'x' ) && self::non_neg_int( $vars, 'y' )
-					&& self::pos_int( $vars, 'width' ) && self::pos_int( $vars, 'height' );
+					&& self::dim_int( $vars, 'width' ) && self::dim_int( $vars, 'height' );
 			case 'scale':
 				return array() === array_diff_key( $vars, array( 'type' => 1, 'width' => 1, 'height' => 1 ) )
-					&& self::pos_int( $vars, 'width' ) && self::pos_int( $vars, 'height' );
+					&& self::dim_int( $vars, 'width' ) && self::dim_int( $vars, 'height' );
 		}
 		return false;
 	}
@@ -359,6 +367,15 @@ final class IWSL_Media_Editor {
 	/** @param array<string,mixed> $vars */
 	private static function non_neg_int( array $vars, string $key ): bool {
 		return isset( $vars[ $key ] ) && is_int( $vars[ $key ] ) && $vars[ $key ] >= 0;
+	}
+
+	/**
+	 * A positive int within the per-side dimension ceiling (1..MAX_DIMENSION). A
+	 * crop/scale edge above the ceiling is refused (alloc-DoS guard), mirroring the
+	 * optimizer's own bound. @param array<string,mixed> $vars
+	 */
+	private static function dim_int( array $vars, string $key ): bool {
+		return isset( $vars[ $key ] ) && is_int( $vars[ $key ] ) && $vars[ $key ] > 0 && $vars[ $key ] <= self::MAX_DIMENSION;
 	}
 
 	/** @param array<string,mixed> $vars */

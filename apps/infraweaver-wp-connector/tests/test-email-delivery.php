@@ -344,6 +344,14 @@ iwsl_assert_same( 'bad-port', $engine10->save_settings( array_merge( $good10, ar
 iwsl_assert_same( 'bad-port', $engine10->save_settings( array_merge( $good10, array( 'port' => 70000 ) ) )['reason'], 'validation: port 70000 → bad-port' );
 iwsl_assert_same( 'bad-secure', $engine10->save_settings( array_merge( $good10, array( 'secure' => 'starttls' ) ) )['reason'], 'validation: bogus secure → bad-secure' );
 
+// Internal IP literals are refused (SSRF/relay-abuse guard); hostnames + public IPs pass.
+iwsl_assert_same( 'bad-host', $engine10->save_settings( array_merge( $good10, array( 'host' => '127.0.0.1' ) ) )['reason'], 'validation: loopback IP host → bad-host' );
+iwsl_assert_same( 'bad-host', $engine10->save_settings( array_merge( $good10, array( 'host' => '192.168.1.25' ) ) )['reason'], 'validation: RFC1918 (192.168/16) host → bad-host' );
+iwsl_assert_same( 'bad-host', $engine10->save_settings( array_merge( $good10, array( 'host' => '10.0.0.5' ) ) )['reason'], 'validation: RFC1918 (10/8) host → bad-host' );
+iwsl_assert_same( 'bad-host', $engine10->save_settings( array_merge( $good10, array( 'host' => '169.254.169.254' ) ) )['reason'], 'validation: 169.254.169.254 metadata IP host → bad-host' );
+iwsl_assert_same( true, $engine10->save_settings( array_merge( $good10, array( 'host' => 'smtp.sendgrid.net' ) ) )['ok'], 'validation: a public SMTP hostname is accepted' );
+iwsl_assert_same( true, $engine10->save_settings( array_merge( $good10, array( 'host' => '8.8.8.8' ) ) )['ok'], 'validation: a public IP literal is accepted (only internal IPs are refused)' );
+
 $store10b = new IWSL_Memory_Store();
 $store10b->set( 'email_smtp_settings', iwsl_ed_valid_settings() );
 $store10b->set( 'email_log', array( array( 'at' => 1, 'type' => 'sent', 'to' => array( 'k@x.test' ), 'subject' => 'S' ) ) );

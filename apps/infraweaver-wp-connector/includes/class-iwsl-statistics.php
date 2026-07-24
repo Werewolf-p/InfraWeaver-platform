@@ -592,7 +592,8 @@ final class IWSL_Statistics {
 		if ( is_array( $consent ) && ! empty( $consent['active'] ) ) {
 			$payload['privacy']['consent_gated'] = 1;
 		}
-		return $payload;
+		// Runtime byte-budget backstop — the §6.2 ceiling survives future field growth.
+		return IWSL_Stats_Classifier::fit_summary_to_budget( $payload );
 	}
 
 	/**
@@ -612,7 +613,8 @@ final class IWSL_Statistics {
 		// is identical (sliced in the projection), so range only matters when days === 1.
 		$payload           = IWSL_Stats_Classifier::timeseries_payload( $this->dashboard( 1 === $days ? 1 : self::DEFAULT_RANGE ), $days );
 		$payload['locked'] = false;
-		return $payload;
+		// Runtime byte-budget backstop — the §6.2 ceiling survives future field growth.
+		return IWSL_Stats_Classifier::fit_timeseries_to_budget( $payload );
 	}
 
 	/** Validate `stats.summary` params: empty, or { range_days: 1|7|30 }. */

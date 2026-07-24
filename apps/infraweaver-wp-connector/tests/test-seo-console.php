@@ -28,6 +28,17 @@ if ( ! function_exists( 'get_post_meta' ) ) {
 		return $GLOBALS['iwsl_seoc_meta_store'][ (int) $post_id ][ (string) $key ] ?? '';
 	}
 }
+// Post-type oracle for the apply_fix gate: id 800 is a missing post (null); ids
+// 900+ model attachments; every other positive id is a normal post.
+if ( ! function_exists( 'get_post' ) ) {
+	function get_post( $id = null ) {
+		$id = (int) $id;
+		if ( $id <= 0 || 800 === $id ) {
+			return null;
+		}
+		return (object) array( 'ID' => $id, 'post_type' => $id >= 900 ? 'attachment' : 'post' );
+	}
+}
 
 // ── builder: an active, fresh, entitlement+switch-configurable console ─────────
 
@@ -225,6 +236,15 @@ iwsl_assert_same( '', $noidx_off['stored'], 'apply_fix noindex: empty value → 
 // Defensive re-validation inside the runner (belt-and-suspenders behind the wire validator).
 $bad = $c_fix->apply_fix( iwsl_seoc_params( array( 'post_id' => 42, 'field' => 'evil', 'value' => 'x' ) ) );
 iwsl_assert_same( false, $bad[0], 'apply_fix: an unknown field is refused even if it reaches the runner' );
+
+// Post-type gate: a non-post/page id can NEVER seed orphan _iwseo_* meta.
+$GLOBALS['iwsl_seoc_meta_writes'] = array();
+$attach = $c_fix->apply_fix( iwsl_seoc_params( array( 'post_id' => 950, 'field' => 'title', 'value' => 'x' ) ) );
+iwsl_assert_same( false, $attach[0], 'apply_fix: an attachment id is refused (ok=false)' );
+iwsl_assert_same( 'unknown-post', $attach[1]['reason'], 'apply_fix: attachment id → unknown-post reason' );
+$missing = $c_fix->apply_fix( iwsl_seoc_params( array( 'post_id' => 800, 'field' => 'title', 'value' => 'x' ) ) );
+iwsl_assert_same( 'unknown-post', $missing[1]['reason'], 'apply_fix: a missing post → unknown-post reason' );
+iwsl_assert_same( 0, count( $GLOBALS['iwsl_seoc_meta_writes'] ), 'apply_fix: a non-post id writes NO meta (no orphan row)' );
 
 // ── 8. validators: stray keys + type/range/enum enforcement ───────────────────
 

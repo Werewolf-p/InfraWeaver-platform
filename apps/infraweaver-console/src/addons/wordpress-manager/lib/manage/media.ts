@@ -27,6 +27,8 @@ export const FOLDER_IDS_MAX = 200;
 export const TAG_IDS_MAX = 100;
 export const SEARCH_MAX = 200;
 export const NAME_MAX = 100;
+/** Per-side crop/scale ceiling (px) — mirrors IWSL_Media_Editor::MAX_DIMENSION (WebP's 16383px limit). */
+export const EDIT_DIMENSION_MAX = 16383;
 /** Upper bound on ids the server returns for select-all-matching in one call. */
 export const MATCH_IDS_MAX = 1500;
 
@@ -368,9 +370,21 @@ const rotateOp = z
   .strict();
 const flipOp = z.object({ type: z.literal("flip"), axis: z.enum(["horizontal", "vertical"]) }).strict();
 const cropOp = z
-  .object({ type: z.literal("crop"), x: z.number().int().min(0), y: z.number().int().min(0), width: z.number().int().positive(), height: z.number().int().positive() })
+  .object({
+    type: z.literal("crop"),
+    x: z.number().int().min(0),
+    y: z.number().int().min(0),
+    width: z.number().int().positive().max(EDIT_DIMENSION_MAX),
+    height: z.number().int().positive().max(EDIT_DIMENSION_MAX),
+  })
   .strict();
-const scaleOp = z.object({ type: z.literal("scale"), width: z.number().int().positive(), height: z.number().int().positive() }).strict();
+const scaleOp = z
+  .object({
+    type: z.literal("scale"),
+    width: z.number().int().positive().max(EDIT_DIMENSION_MAX),
+    height: z.number().int().positive().max(EDIT_DIMENSION_MAX),
+  })
+  .strict();
 
 export const mediaEditParamsSchema = z
   .object({

@@ -111,6 +111,24 @@ const WRITE_RATE: Record<MediaWriteVerb, number> = {
   delete: 30,
 };
 
+/**
+ * Per-verb permission tier (mirrors email-handlers' `WRITE_PERMISSION`). Every
+ * write verb needs `wordpress:write` EXCEPT `delete`: a permanent
+ * `wp_delete_attachment(force)` + bucket removal is unrecoverable, so it demands
+ * `wordpress:admin`. A write-but-not-admin principal can optimize/offload/restore/
+ * protect/updateMeta/edit/folder but can NOT destroy an asset.
+ */
+const WRITE_PERMISSION: Record<MediaWriteVerb, WordpressPermission> = {
+  optimize: "wordpress:write",
+  offload: "wordpress:write",
+  restore: "wordpress:write",
+  folder: "wordpress:write",
+  updateMeta: "wordpress:write",
+  edit: "wordpress:write",
+  protect: "wordpress:write",
+  delete: "wordpress:admin",
+};
+
 function isReadVerb(v: string): v is MediaReadVerb {
   return (MEDIA_READ_VERBS as readonly string[]).includes(v);
 }
@@ -168,7 +186,7 @@ export async function mediaWriteHandler(req: NextRequest, site: string): Promise
   const verb = typeof body?.verb === "string" ? body.verb : "";
   if (!isWriteVerb(verb)) return fail("Unknown media action", 400);
 
-  const gate = await authorize("wordpress:write", site);
+  const gate = await authorize(WRITE_PERMISSION[verb], site);
   if (!gate.ok) return gate.error;
   const limited = rateLimited(`write-${verb}`, gate.username, WRITE_RATE[verb]);
   if (limited) return limited;

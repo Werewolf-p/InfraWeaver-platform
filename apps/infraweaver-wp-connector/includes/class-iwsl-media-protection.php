@@ -709,6 +709,19 @@ final class IWSL_Media_Protection {
 	const PROTECT_WIRE_MAX = 50;
 
 	/**
+	 * True when $id is a real attachment — the only post type that carries the
+	 * protection mark. Fails closed for a missing id, a non-attachment type, or when
+	 * get_post is unavailable.
+	 */
+	private static function is_attachment( int $id ): bool {
+		if ( $id <= 0 || ! function_exists( 'get_post' ) ) {
+			return false;
+		}
+		$post = get_post( $id );
+		return is_object( $post ) && isset( $post->post_type ) && 'attachment' === $post->post_type;
+	}
+
+	/**
 	 * Set (or clear) the protection mark on a bounded list of attachment ids — the
 	 * shared contract behind the signed `media.protect` command AND the security /
 	 * consent domain's protection surface (ONE method, not two). STATEMENT 1 is the
@@ -739,6 +752,12 @@ final class IWSL_Media_Protection {
 		$results = array();
 		$changed = 0;
 		foreach ( $clean as $id ) {
+			// Only real attachments carry the protection mark — skip any id that is
+			// not an attachment so `_iwsl_protected` can never be seeded on a post,
+			// page, or a since-deleted id (no orphan meta rows).
+			if ( ! self::is_attachment( $id ) ) {
+				continue;
+			}
 			if ( $protected && function_exists( 'update_post_meta' ) ) {
 				update_post_meta( $id, self::META_KEY, '1' );
 			} elseif ( ! $protected && function_exists( 'delete_post_meta' ) ) {

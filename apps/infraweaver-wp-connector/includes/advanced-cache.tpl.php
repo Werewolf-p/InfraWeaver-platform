@@ -48,9 +48,14 @@ if ( ! function_exists( 'iwsl_pc_is_cacheable' )
 }
 
 // Host pinning — refuse any request whose Host header is not the baked home
-// host. Kills Host-header cache poisoning and unbounded key growth.
+// host. Kills Host-header cache poisoning and unbounded key growth. FAIL CLOSED:
+// if no home host was baked into the drop-in, bypass the cache entirely rather
+// than trusting the caller's Host header for the pin check OR the cache key.
+if ( '' === $iwsl_pc_host ) {
+	return;
+}
 $iwsl_pc_req_host = isset( $_SERVER['HTTP_HOST'] ) ? strtolower( (string) $_SERVER['HTTP_HOST'] ) : '';
-if ( '' !== $iwsl_pc_host && $iwsl_pc_req_host !== strtolower( $iwsl_pc_host ) ) {
+if ( $iwsl_pc_req_host !== strtolower( $iwsl_pc_host ) ) {
 	return;
 }
 
@@ -81,7 +86,9 @@ if ( is_array( $iwsl_pc_excl ) && array() !== $iwsl_pc_excl
 	return;
 }
 
-$iwsl_pc_key_host = '' !== $iwsl_pc_host ? $iwsl_pc_host : $iwsl_pc_req_host;
+// The key host is ALWAYS the baked home host (guaranteed non-empty above) — the
+// caller's Host header never reaches the cache key.
+$iwsl_pc_key_host = $iwsl_pc_host;
 $iwsl_pc_key      = iwsl_pc_cache_key( $iwsl_pc_scheme, $iwsl_pc_key_host, $iwsl_pc_path );
 $iwsl_pc_file     = $iwsl_pc_dir . '/' . $iwsl_pc_key . '.html';
 

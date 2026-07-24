@@ -198,6 +198,11 @@ iwsl_assert( ! $E::validate_params( (object) array( 'id' => 1, 'ops' => array( (
 iwsl_assert( ! $E::validate_params( (object) array( 'id' => 1, 'ops' => array( (object) array( 'type' => 'rotate', 'angle' => 90, 'extra' => 1 ) ) ) ), 'edit validator: stray op key refused' );
 iwsl_assert( ! $E::validate_params( (object) array( 'id' => 0, 'ops' => array( (object) array( 'type' => 'rotate', 'angle' => 90 ) ) ) ), 'edit validator: id < 1 refused' );
 
+// Dimension ceiling (alloc-DoS guard): crop/scale edges capped at MAX_DIMENSION (16383px).
+iwsl_assert( $E::validate_params( (object) array( 'id' => 1, 'ops' => array( (object) array( 'type' => 'scale', 'width' => 16383, 'height' => 16383 ) ) ) ), 'edit validator: scale at the 16383 ceiling accepted' );
+iwsl_assert( ! $E::validate_params( (object) array( 'id' => 1, 'ops' => array( (object) array( 'type' => 'scale', 'width' => 16384, 'height' => 100 ) ) ) ), 'edit validator: scale width over 16383 refused (alloc-DoS)' );
+iwsl_assert( ! $E::validate_params( (object) array( 'id' => 1, 'ops' => array( (object) array( 'type' => 'crop', 'x' => 0, 'y' => 0, 'width' => 100, 'height' => 999999 ) ) ) ), 'edit validator: crop height over 16383 refused (alloc-DoS)' );
+
 @unlink( $me_inside );
 @unlink( $me_outside );
 @rmdir( $me_base );

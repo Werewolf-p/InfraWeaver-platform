@@ -23,7 +23,9 @@ export const REDIRECT_TYPES = [301, 302] as const;
 export type RedirectType = (typeof REDIRECT_TYPES)[number];
 
 /** How a rule matches the request path. `exact` is the legacy default. */
-export const REDIRECT_MATCHES = ["exact", "prefix", "regex"] as const;
+// Only the matchers the connector actually registers. There is deliberately no
+// "regex" matcher (a bad-match request fails closed), so it is not offered.
+export const REDIRECT_MATCHES = ["exact", "prefix"] as const;
 export type RedirectMatch = (typeof REDIRECT_MATCHES)[number];
 
 /** Import cap — mirrors `$redirects_import_params` (≤ 50 rows per call). */

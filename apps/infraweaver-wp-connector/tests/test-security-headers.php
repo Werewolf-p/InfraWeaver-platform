@@ -98,6 +98,17 @@ foreach ( $fa_csp['headers'] as $row ) {
 }
 iwsl_assert( $frame_good, 'A: CSP frame-ancestors satisfies frame protection' );
 
+// A REPORT-ONLY-only frame-ancestors is logged, not enforced → grades "weak", NOT
+// "good" (clickjacking is not actually blocked). Regression for the grader fix.
+$ro_fa = IWSL_Security_Headers::grade_headers( array( 'content-security-policy-report-only' => "default-src 'self'; frame-ancestors 'self'" ) );
+$ro_frame_state = '';
+foreach ( $ro_fa['headers'] as $row ) {
+	if ( 'X-Frame-Options' === $row['name'] ) {
+		$ro_frame_state = $row['state'];
+	}
+}
+iwsl_assert_same( 'weak', $ro_frame_state, 'A: report-only-only frame-ancestors grades "weak", never "good" (not enforced)' );
+
 $leaky = IWSL_Security_Headers::grade_headers( array( 'x-powered-by' => 'PHP/8.2.1', 'server' => 'nginx/1.25.3' ) );
 $leak_names = array_map( static function ( $l ) { return $l['name']; }, $leaky['leaks'] );
 iwsl_assert( in_array( 'X-Powered-By', $leak_names, true ), 'A: X-Powered-By is reported as an information leak' );

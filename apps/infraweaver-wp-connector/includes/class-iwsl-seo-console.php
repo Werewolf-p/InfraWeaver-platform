@@ -400,6 +400,12 @@ final class IWSL_SEO_Console {
 		if ( '' === $mapped['key'] ) {
 			return array( false, array( 'ok' => false, 'reason' => 'unknown-field' ) );
 		}
+		// Post-type gate: only real posts/pages carry `_iwseo_*` meta. Reject any
+		// other id (attachments, revisions, missing) so a numeric id can never seed
+		// an orphan meta row — mirrors the `unknown-field` rejection above.
+		if ( ! self::is_seo_post( $post_id ) ) {
+			return array( false, array( 'ok' => false, 'reason' => 'unknown-post' ) );
+		}
 		if ( function_exists( 'update_post_meta' ) && $post_id > 0 ) {
 			update_post_meta( $post_id, $mapped['key'], $mapped['value'] );
 		}
@@ -412,6 +418,22 @@ final class IWSL_SEO_Console {
 				'stored'  => (string) $mapped['value'],
 			),
 		);
+	}
+
+	/**
+	 * True when $post_id is a real post/page — the only object types that carry
+	 * SEO meta. Fails closed for a missing id, a non-post type (attachment,
+	 * revision, nav_menu_item, …), or when get_post is unavailable.
+	 */
+	private static function is_seo_post( int $post_id ): bool {
+		if ( $post_id <= 0 || ! function_exists( 'get_post' ) ) {
+			return false;
+		}
+		$post = get_post( $post_id );
+		if ( ! is_object( $post ) || ! isset( $post->post_type ) ) {
+			return false;
+		}
+		return in_array( (string) $post->post_type, array( 'post', 'page' ), true );
 	}
 
 	/**

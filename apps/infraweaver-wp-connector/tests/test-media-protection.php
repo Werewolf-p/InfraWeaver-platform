@@ -33,6 +33,17 @@ if ( ! function_exists( 'delete_post_meta' ) ) {
 		return true;
 	}
 }
+// Post-type oracle for set_protected's attachment guard: id 800 is missing (null);
+// id 70 models a normal post; every other positive id models an attachment.
+if ( ! function_exists( 'get_post' ) ) {
+	function get_post( $id ) {
+		$id = (int) $id;
+		if ( $id <= 0 || 800 === $id ) {
+			return null;
+		}
+		return (object) array( 'ID' => $id, 'post_type' => 70 === $id ? 'post' : 'attachment' );
+	}
+}
 
 // ── fixtures ──────────────────────────────────────────────────────────────────
 
@@ -428,3 +439,14 @@ $store_locked_flush = new IWSL_Memory_Store();
 $mp_locked_flush     = new IWSL_Media_Protection( iwsl_mp_entitlements( $MP_NOW, 'active', array( 'plus' => true ) ), $store_locked_flush );
 $mp_locked_flush->update_settings( array( 'enabled' => '1' ) );
 iwsl_assert_same( 0, IWSL_Teardown::$flush_calls, 'update_settings (locked): flush_page_cache() NOT called' );
+
+// ── set_protected: only real attachments are marked (no orphan _iwsl_protected) ─
+$mp_sp = new IWSL_Media_Protection( iwsl_mp_unlocked_entitlements( $MP_NOW ), new IWSL_Memory_Store() );
+$sp    = $mp_sp->set_protected( array( 60, 70, 800 ), true ); // 60 attachment, 70 post, 800 missing
+iwsl_assert_same( true, $sp['ok'], 'set_protected: ok' );
+iwsl_assert_same( 1, $sp['changed'], 'set_protected: only the one real attachment (60) is marked' );
+iwsl_assert_same( '1', get_post_meta( 60, IWSL_Media_Protection::META_KEY, true ), 'set_protected: attachment 60 marked protected' );
+iwsl_assert_same( '', get_post_meta( 70, IWSL_Media_Protection::META_KEY, true ), 'set_protected: a POST id is skipped (no orphan meta)' );
+iwsl_assert_same( '', get_post_meta( 800, IWSL_Media_Protection::META_KEY, true ), 'set_protected: a missing id is skipped (no orphan meta)' );
+$sp_ids = array_map( static function ( $r ) { return $r['id']; }, $sp['results'] );
+iwsl_assert_same( array( 60 ), $sp_ids, 'set_protected: results list only the attachment id' );

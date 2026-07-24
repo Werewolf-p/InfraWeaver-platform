@@ -318,14 +318,19 @@ final class IWSL_Security_Headers {
 			$rows[] = self::row( 'X-Content-Type-Options', 'missing', '', 'Without "nosniff" a browser may execute a mistyped response.' );
 		}
 
-		// Frame protection: X-Frame-Options OR CSP frame-ancestors (max weight 15).
-		$xfo             = strtolower( trim( $get( 'x-frame-options' ) ) );
-		$frame_ancestors = ( '' !== $csp && false !== stripos( $csp, 'frame-ancestors' ) )
-			|| ( '' !== $cspro && false !== stripos( $cspro, 'frame-ancestors' ) );
-		if ( 'deny' === $xfo || 'sameorigin' === $xfo || $frame_ancestors ) {
+		// Frame protection: X-Frame-Options OR an ENFORCED CSP frame-ancestors (max
+		// weight 15). A report-only CSP blocks nothing, so its frame-ancestors is
+		// logged-but-not-enforced — it grades "weak", never "good".
+		$xfo                        = strtolower( trim( $get( 'x-frame-options' ) ) );
+		$enforced_frame_ancestors   = '' !== $csp && false !== stripos( $csp, 'frame-ancestors' );
+		$reportonly_frame_ancestors = '' !== $cspro && false !== stripos( $cspro, 'frame-ancestors' );
+		if ( 'deny' === $xfo || 'sameorigin' === $xfo || $enforced_frame_ancestors ) {
 			$hint    = '' !== $xfo ? $get( 'x-frame-options' ) : 'CSP frame-ancestors';
 			$rows[]  = self::row( 'X-Frame-Options', 'good', $hint, 'Prevents the site being framed by another origin (clickjacking).' );
 			$score  += 15;
+		} elseif ( $reportonly_frame_ancestors ) {
+			$rows[]  = self::row( 'X-Frame-Options', 'weak', 'CSP frame-ancestors (report-only)', 'Only a report-only CSP declares frame-ancestors — framing is logged but not blocked. Enforce the policy or add X-Frame-Options to stop clickjacking.' );
+			$score  += 7;
 		} else {
 			$rows[] = self::row( 'X-Frame-Options', 'missing', '', 'The page can be embedded in a hostile frame (clickjacking).' );
 		}

@@ -859,6 +859,46 @@ iwsl_assert( ! isset( $sx_wsp['drill'], $sx_wsp['heatmap'], $sx_wsp['series'] ),
 $sx_wbytes = strlen( json_encode( $sx_wsp ) );
 iwsl_assert( $sx_wbytes <= IWSL_Stats_Classifier::SUMMARY_MAX_BYTES, 'summary_payload: worst-case ' . $sx_wbytes . ' bytes under SUMMARY_MAX_BYTES (' . IWSL_Stats_Classifier::SUMMARY_MAX_BYTES . ')' );
 
+// Byte-budget BACKSTOP (defense-in-depth): compact_pairs does not cap label length,
+// so a pathologically long label CAN push the (TOP_N-sliced) projection past the
+// ceiling. fit_summary_to_budget must shed list rows until it fits — the §6.2 bound
+// survives even that. Fixed KPI/privacy scalars are always kept.
+$sx_fat_pairs = static function ( int $n, int $len ): array {
+	$out = array();
+	for ( $i = 0; $i < $n; $i++ ) {
+		$out[] = array( 'label' => str_repeat( 'Z', $len ) . $i, 'count' => 1 );
+	}
+	return $out;
+};
+$sx_over    = array(
+	'range_days'    => 7,
+	'generated'     => 111,
+	'kpi'           => array( 'views' => 1 ),
+	'quality'       => array(),
+	'top_pages'     => $sx_fat_pairs( 5, 3000 ),
+	'top_referrers' => $sx_fat_pairs( 5, 3000 ),
+	'channels'      => $sx_fat_pairs( 5, 3000 ),
+	'devices'       => $sx_fat_pairs( 5, 3000 ),
+	'countries'     => $sx_fat_pairs( 5, 3000 ),
+	'searches'      => $sx_fat_pairs( 5, 3000 ),
+);
+$sx_over_sp = IWSL_Stats_Classifier::summary_payload( $sx_over );
+iwsl_assert( strlen( json_encode( $sx_over_sp ) ) > IWSL_Stats_Classifier::SUMMARY_MAX_BYTES, 'byte-budget: an oversized-label summary WOULD breach SUMMARY_MAX_BYTES without the backstop' );
+$sx_fit_sp = IWSL_Stats_Classifier::fit_summary_to_budget( $sx_over_sp );
+iwsl_assert( strlen( json_encode( $sx_fit_sp ) ) <= IWSL_Stats_Classifier::SUMMARY_MAX_BYTES, 'byte-budget: fit_summary_to_budget trims the projection under SUMMARY_MAX_BYTES' );
+iwsl_assert_same( 7, $sx_fit_sp['range_days'], 'byte-budget: fixed range_days survives the summary trim' );
+iwsl_assert( isset( $sx_fit_sp['kpi'], $sx_fit_sp['privacy'] ), 'byte-budget: kpi + privacy scalars survive the summary trim' );
+
+$sx_fat_series = array();
+for ( $sx_j = 0; $sx_j < 30; $sx_j++ ) {
+	$sx_fat_series[] = array( 'day' => str_repeat( 'y', 300 ), 'views' => $sx_j, 'visits' => $sx_j );
+}
+$sx_over_ts = IWSL_Stats_Classifier::timeseries_payload( array( 'series' => $sx_fat_series, 'hourly' => $sx_fat_series, 'hourly_prev' => $sx_fat_series ), 1 );
+iwsl_assert( strlen( json_encode( $sx_over_ts ) ) > IWSL_Stats_Classifier::TIMESERIES_MAX_BYTES, 'byte-budget: an oversized timeseries WOULD breach TIMESERIES_MAX_BYTES without the backstop' );
+$sx_fit_ts = IWSL_Stats_Classifier::fit_timeseries_to_budget( $sx_over_ts );
+iwsl_assert( strlen( json_encode( $sx_fit_ts ) ) <= IWSL_Stats_Classifier::TIMESERIES_MAX_BYTES, 'byte-budget: fit_timeseries_to_budget trims the projection under TIMESERIES_MAX_BYTES' );
+iwsl_assert_same( 1, $sx_fit_ts['days'], 'byte-budget: timeseries days scalar survives the trim' );
+
 // ── 14. timeseries_payload projection ──────────────────────────────────────────
 
 $sx_ts_model = array( 'series' => array(), 'hourly' => array(), 'hourly_prev' => array() );

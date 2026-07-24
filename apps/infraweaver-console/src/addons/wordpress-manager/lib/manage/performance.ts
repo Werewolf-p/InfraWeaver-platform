@@ -30,9 +30,9 @@ export const TTL_MIN = 600;
 export const TTL_MAX = 86_400;
 export const EXCLUSIONS_MAX = 50;
 export const EXCLUSION_LEN_MAX = 300;
-/** Speed-pack heartbeat clamp (IWSL_Speed_Pack::clamp_heartbeat window). */
+/** Speed-pack heartbeat clamp (IWSL_Speed_Pack::clamp_heartbeat window; WP accepts 15..120s). */
 export const HEARTBEAT_MIN = 15;
-export const HEARTBEAT_MAX = 300;
+export const HEARTBEAT_MAX = 120;
 /** Lazy-load skip-first-N eager images clamp (IWSL_Lazy_Load::clamp_skip). */
 export const SKIP_IMAGES_MAX = 20;
 
@@ -255,7 +255,7 @@ export const speedPackSettingsSchema = z
     heartbeat_control: z.boolean().optional(),
     heartbeat_disable_frontend: z.boolean().optional(),
     heartbeat_frequency: z.number().int().min(HEARTBEAT_MIN).max(HEARTBEAT_MAX).optional(),
-    prefetch_hosts: z.array(z.string().max(200)).max(50).optional(),
+    prefetch_hosts: z.array(z.string().max(200)).max(20).optional(),
     defer_exclusions: z.array(z.string().max(200)).max(50).optional(),
   })
   .strict();

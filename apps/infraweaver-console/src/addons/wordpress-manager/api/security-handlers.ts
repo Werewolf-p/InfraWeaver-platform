@@ -85,6 +85,16 @@ async function guard(action: () => Promise<NextResponse>): Promise<NextResponse>
 const READ_RATE: Record<SecurityReadVerb, number> = { scan: 30, status: 120, consent: 120 };
 const WRITE_RATE: Record<SecurityWriteVerb, number> = { harden: 30, consent: 30 };
 
+/**
+ * Per-verb permission tier. `harden` writes site-wide security headers (a bad CSP
+ * can break every page) ⇒ `wordpress:admin`; `consent` toggles a banner ⇒
+ * `wordpress:write`. (Mirrors email-handlers' `WRITE_PERMISSION`.)
+ */
+const WRITE_PERMISSION: Record<SecurityWriteVerb, WordpressPermission> = {
+  harden: "wordpress:admin",
+  consent: "wordpress:write",
+};
+
 function isReadVerb(v: string): v is SecurityReadVerb {
   return (SECURITY_READ_VERBS as readonly string[]).includes(v);
 }
@@ -121,7 +131,7 @@ export async function securityWriteHandler(req: NextRequest, site: string): Prom
   const verb = typeof body?.verb === "string" ? body.verb : "";
   if (!isWriteVerb(verb)) return fail("Unknown security action", 400);
 
-  const gate = await authorize("wordpress:write", site);
+  const gate = await authorize(WRITE_PERMISSION[verb], site);
   if (!gate.ok) return gate.error;
   const limited = rateLimited(`write-${verb}`, gate.username, WRITE_RATE[verb]);
   if (limited) return limited;

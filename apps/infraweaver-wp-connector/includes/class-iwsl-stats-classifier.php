@@ -1085,6 +1085,54 @@ final class IWSL_Stats_Classifier {
 		return $out;
 	}
 
+	/**
+	 * Runtime byte-budget BACKSTOP for the `stats.summary` projection. The payload is
+	 * already bounded by construction (SUMMARY_TOP_N / SUMMARY_CHANNELS_N etc.), but
+	 * this survives future field additions or an oversized label: if the encoded
+	 * payload exceeds SUMMARY_MAX_BYTES it sheds the variable-length list rows
+	 * (least-important list first) until it fits — mirroring wire_log's running byte
+	 * budget. The fixed KPI / quality / privacy scalars are always kept.
+	 */
+	public static function fit_summary_to_budget( array $payload ): array {
+		return self::fit_to_budget(
+			$payload,
+			self::SUMMARY_MAX_BYTES,
+			array( 'searches', 'countries', 'devices', 'channels', 'top_referrers', 'top_pages' )
+		);
+	}
+
+	/** Runtime byte-budget BACKSTOP for the `stats.timeseries` projection (TIMESERIES_MAX_BYTES). */
+	public static function fit_timeseries_to_budget( array $payload ): array {
+		return self::fit_to_budget( $payload, self::TIMESERIES_MAX_BYTES, array( 'hourly_prev', 'hourly', 'series' ) );
+	}
+
+	/**
+	 * Shrink $payload under $max_bytes by popping trailing entries from each list in
+	 * $trim_keys order (each list exhausted before the next). A running json_encode
+	 * check is the authority — the projection can never breach the §6.2 byte ceiling
+	 * even if an upstream shape grows. @param string[] $trim_keys
+	 */
+	private static function fit_to_budget( array $payload, int $max_bytes, array $trim_keys ): array {
+		foreach ( $trim_keys as $key ) {
+			if ( self::encoded_len( $payload ) <= $max_bytes ) {
+				return $payload;
+			}
+			if ( ! isset( $payload[ $key ] ) || ! is_array( $payload[ $key ] ) ) {
+				continue;
+			}
+			while ( array() !== $payload[ $key ] && self::encoded_len( $payload ) > $max_bytes ) {
+				array_pop( $payload[ $key ] );
+			}
+		}
+		return $payload;
+	}
+
+	/** Encoded byte length of a payload (wp_json_encode when available). */
+	private static function encoded_len( array $payload ): int {
+		$json = function_exists( 'wp_json_encode' ) ? wp_json_encode( $payload ) : json_encode( $payload );
+		return strlen( (string) $json );
+	}
+
 	/** Flatten the first $n {label,count} rows into compact [label,count] pairs. */
 	private static function compact_pairs( $rows, int $n ): array {
 		$out = array();

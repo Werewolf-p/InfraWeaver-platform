@@ -5449,9 +5449,11 @@ JS;
 
 	/**
 	 * admin-post handler for the SMTP test send. Same gate discipline as the
-	 * other email actions: capability + nonce + re-checked entitlement, then a
-	 * validated recipient and a plain wp_mail() (routed through the configured
-	 * SMTP by the registered phpmailer_init hook). PRG via the shared transient.
+	 * other email actions: capability + nonce, then the send is routed through
+	 * IWSL_Email_Delivery::send_test() so it inherits the SAME 30s throttle,
+	 * CRLF/recipient validation, entitlement re-check, and capture-log as the
+	 * signed `email.test` command (one send path, not two). PRG via the shared
+	 * transient.
 	 */
 	public function handle_email_test(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -5460,28 +5462,19 @@ JS;
 		check_admin_referer( self::EMAIL_TEST_NONCE );
 		$redirect = self::iwsl_plus_return_url( 'email' );
 
-		$gate = $this->plugin->entitlements()->evaluate( IWSL_Email_Delivery::FEATURE );
-		if ( empty( $gate['unlocked'] ) ) {
+		$to     = isset( $_POST['test_to'] ) ? sanitize_email( wp_unslash( $_POST['test_to'] ) ) : '';
+		$result = $this->email_delivery()->send_test( $to );
+
+		if ( 'entitlement-locked' === ( $result['reason'] ?? '' ) ) {
 			wp_safe_redirect( add_query_arg( 'iwsl_ed_locked', '1', $redirect ) );
 			exit;
 		}
-
-		$to = isset( $_POST['test_to'] ) ? sanitize_email( wp_unslash( $_POST['test_to'] ) ) : '';
-		if ( '' === $to || ( function_exists( 'is_email' ) && ! is_email( $to ) ) ) {
-			$this->stash_email_result( array( 'ok' => false, 'reason' => 'invalid-recipient' ) );
-			wp_safe_redirect( $redirect );
-			exit;
+		if ( ! empty( $result['sent'] ) ) {
+			$this->stash_email_result( array( 'ok' => true, 'tested' => true, 'to' => $to ) );
+		} else {
+			$reason = '' !== (string) ( $result['reason'] ?? '' ) ? (string) $result['reason'] : 'send-failed';
+			$this->stash_email_result( array( 'ok' => false, 'reason' => $reason ) );
 		}
-
-		$subject = 'InfraWeaver SMTP test';
-		$body    = "This is a test email from the InfraWeaver Connector, sent to verify your SMTP settings.\n\nIf you received it, outgoing mail is working.";
-		$sent    = function_exists( 'wp_mail' ) ? (bool) wp_mail( $to, $subject, $body ) : false;
-
-		$this->stash_email_result(
-			$sent
-				? array( 'ok' => true, 'tested' => true, 'to' => $to )
-				: array( 'ok' => false, 'reason' => 'send-failed' )
-		);
 		wp_safe_redirect( $redirect );
 		exit;
 	}

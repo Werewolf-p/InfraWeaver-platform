@@ -511,3 +511,52 @@ iwsl_assert( ! is_file( $dir . '/' . str_repeat( 'a', 40 ) . '.html' ), 'counter
 iwsl_assert_same( 0, $pc->status()['entries'], 'counters: .cnt files are excluded from the entry count/cap' );
 $pc->disable();
 iwsl_assert_same( 0, iwsl_pc_count( $dir, 'hit', 1, 30000 ), 'counters: disable() teardown removes hit/miss history' );
+
+// ── 15. Host-pin FAIL-CLOSED: the rendered drop-in never trusts the caller Host ─
+// The drop-in is pre-WP procedural code, so we assert on the rendered ARTIFACT
+// (the template's structural PHP is copied verbatim — only %%…%% placeholders are
+// substituted). A revert to the fail-OPEN pattern would trip these regressions.
+$content = iwsl_pc_tempdir();
+$config  = iwsl_pc_write_config( $content );
+$pc      = new IWSL_Page_Cache( iwsl_pc_ent( iwsl_pc_unlocked_store( $PC_NOW ), $PC_NOW ), $content, $config, iwsl_pc_clock( $PC_NOW ) );
+$pc->enable();
+$dropin = (string) file_get_contents( $content . '/advanced-cache.php' );
+iwsl_assert( false !== strpos( $dropin, "'' === \$iwsl_pc_host" ), 'host-pin: rendered drop-in bakes the fail-closed empty-host bypass guard' );
+iwsl_assert( false !== strpos( $dropin, '$iwsl_pc_key_host = $iwsl_pc_host;' ), 'host-pin: cache key host is ALWAYS the baked home host' );
+iwsl_assert( false === strpos( $dropin, '? $iwsl_pc_host : $iwsl_pc_req_host' ), 'host-pin: cache key never falls back to the caller HTTP_HOST (no fail-open ternary)' );
+
+// ── 16. default_http_get: TLS verify only skipped for a literal loopback host ───
+// warm()'s DEFAULT client (no injected http) MUST verify TLS for any non-loopback
+// host so an on-path actor can't feed the warmer poisoned HTML. Stub WP's HTTP so
+// we can read back the exact wp_remote_get args. (These stubs live only in THIS
+// isolated suite process.)
+$GLOBALS['iwsl_pc_wp_get_args'] = array();
+if ( ! function_exists( 'wp_remote_get' ) ) {
+	function wp_remote_get( string $url, array $args = array() ) {
+		$GLOBALS['iwsl_pc_wp_get_args'][] = array( 'url' => $url, 'args' => $args );
+		return array( 'code' => 200 );
+	}
+}
+if ( ! function_exists( 'is_wp_error' ) ) {
+	function is_wp_error( $thing ): bool {
+		return false;
+	}
+}
+if ( ! function_exists( 'wp_remote_retrieve_response_code' ) ) {
+	function wp_remote_retrieve_response_code( $resp ): int {
+		return is_array( $resp ) && isset( $resp['code'] ) ? (int) $resp['code'] : 0;
+	}
+}
+$iwsl_pc_http = new ReflectionMethod( 'IWSL_Page_Cache', 'default_http_get' );
+$iwsl_pc_http->setAccessible( true );
+$iwsl_pc_ssl = static function ( string $url ) use ( $iwsl_pc_http ): array {
+	$GLOBALS['iwsl_pc_wp_get_args'] = array();
+	$iwsl_pc_http->invoke( null, $url, 5 );
+	return $GLOBALS['iwsl_pc_wp_get_args'][0]['args'];
+};
+iwsl_assert_same( false, $iwsl_pc_ssl( 'http://127.0.0.1/' )['sslverify'], 'warm http: sslverify OFF for 127.0.0.1 loopback' );
+iwsl_assert_same( false, $iwsl_pc_ssl( 'https://[::1]:8080/' )['sslverify'], 'warm http: sslverify OFF for [::1] loopback' );
+iwsl_assert_same( false, $iwsl_pc_ssl( 'http://localhost/' )['sslverify'], 'warm http: sslverify OFF for localhost' );
+$iwsl_pc_remote = $iwsl_pc_ssl( 'https://fixture-site.test/blog' );
+iwsl_assert_same( true, $iwsl_pc_remote['sslverify'], 'warm http: sslverify ON for a non-loopback host (MITM-safe)' );
+iwsl_assert_same( 0, $iwsl_pc_remote['redirection'], 'warm http: redirection stays pinned to 0' );

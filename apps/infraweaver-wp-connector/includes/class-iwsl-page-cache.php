@@ -1161,12 +1161,19 @@ final class IWSL_Page_Cache {
 		if ( ! function_exists( 'wp_remote_get' ) ) {
 			return 0;
 		}
-		$resp = wp_remote_get(
+		// TLS verification is only skipped for a literal loopback host (a
+		// self-signed cert on 127.0.0.1/::1/localhost). Any other host — including
+		// one that resolves through the cluster network — MUST verify TLS, or an
+		// on-path actor could feed the warmer poisoned HTML.
+		$host        = function_exists( 'wp_parse_url' ) ? wp_parse_url( $url, PHP_URL_HOST ) : parse_url( $url, PHP_URL_HOST );
+		$host        = strtolower( trim( is_string( $host ) ? $host : '', '[]' ) );
+		$is_loopback = in_array( $host, array( '127.0.0.1', '::1', 'localhost' ), true );
+		$resp        = wp_remote_get(
 			$url,
 			array(
 				'timeout'     => max( 1, $timeout ),
 				'blocking'    => true,
-				'sslverify'   => false,
+				'sslverify'   => ! $is_loopback,
 				'redirection' => 0,
 				'user-agent'  => 'InfraWeaver-CacheWarmer',
 			)

@@ -882,10 +882,32 @@ final class IWSL_Email_Delivery {
 		return $copy;
 	}
 
+	/**
+	 * True when $host is an IP LITERAL in a private / loopback / reserved range
+	 * (RFC1918, 127.0.0.0/8, 169.254.0.0/16 link-local incl. the metadata IP). A
+	 * hostname (anything not parseable as a bare IP) returns false — resolution is
+	 * out of scope. IPv6 literals never reach here (the host regex has no ':').
+	 */
+	private static function is_internal_ip_literal( string $host ): bool {
+		if ( false === filter_var( $host, FILTER_VALIDATE_IP ) ) {
+			return false; // not an IP literal → a hostname, allowed.
+		}
+		// A PUBLIC IP survives NO_PRIV_RANGE|NO_RES_RANGE; a private/reserved one
+		// (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, …) fails it → internal.
+		return false === filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE );
+	}
+
 	/** Validate raw settings input; returns { ok, reason } or { ok, settings }. */
 	private static function validate_settings_input( array $input ): array {
 		$host = isset( $input['host'] ) ? trim( (string) $input['host'] ) : '';
 		if ( self::has_crlf( $host ) || 1 !== preg_match( '/^[A-Za-z0-9.\-]{1,254}$/', $host ) ) {
+			return array( 'ok' => false, 'reason' => 'bad-host' );
+		}
+		// Reject an INTERNAL IP literal (RFC1918 / loopback / link-local incl. the
+		// 169.254.169.254 metadata address). A real SMTP relay is a hostname or a
+		// public IP — never an in-cluster or metadata endpoint. Hostnames are
+		// unaffected (name resolution is the network's job, not this validator's).
+		if ( self::is_internal_ip_literal( $host ) ) {
 			return array( 'ok' => false, 'reason' => 'bad-host' );
 		}
 

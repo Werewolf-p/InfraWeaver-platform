@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSameOrigin } from "@/lib/api-helpers";
 import { AddonHttpError } from "../lib/errors";
 import { WpPodExecError } from "../lib/k8s-exec";
 import {
@@ -301,6 +302,9 @@ export async function getMaintenanceHandler(site: string): Promise<NextResponse>
 /** PUT — turn the maintenance page on or off. */
 export async function setMaintenanceHandler(req: NextRequest, site: string): Promise<NextResponse> {
   if (!isValidSiteId(site)) return fail("Invalid site name", 400);
+  // CSRF: this state-changing write (branded 503 + IP allowlist + engine) must
+  // come from our own origin (fails closed) — mirrors siteHealthWriteHandler.
+  if (!checkSameOrigin(req)) return fail("Bad origin", 403);
   const gate = await authorize("wordpress:write", site);
   if (!gate.ok) return gate.error;
   const limited = rateLimited("maintenance", gate.ctx.username, 20);
@@ -310,19 +314,23 @@ export async function setMaintenanceHandler(req: NextRequest, site: string): Pro
   // Orchestrated write with mutual exclusion (signed connector engine preferred,
   // mu-plugin fallback) — the one place the legacy toggle turns into a mutation.
   const d = parsed.data;
-  return guard(async () =>
-    json({
-      site,
-      ...(await setSiteMaintenance(site, {
-        enabled: d.enabled,
-        headline: d.headline,
-        message: d.message,
-        retry_after: d.retryAfter,
-        until: d.until,
-        allow_ips: d.allowIps,
-      })),
-    }),
-  );
+  return guard(async () => {
+    const result = await setSiteMaintenance(site, {
+      enabled: d.enabled,
+      headline: d.headline,
+      message: d.message,
+      retry_after: d.retryAfter,
+      until: d.until,
+      allow_ips: d.allowIps,
+    });
+    await auditLog(
+      "wordpress:maintenance-set",
+      gate.ctx.username,
+      `site ${site} maintenance ${d.enabled ? "enabled" : "disabled"}`,
+      { result: "success", resource: `wordpress/${site}` },
+    );
+    return json({ site, ...result });
+  });
 }
 
 export async function enableSsoHandler(req: NextRequest, site: string): Promise<NextResponse> {
