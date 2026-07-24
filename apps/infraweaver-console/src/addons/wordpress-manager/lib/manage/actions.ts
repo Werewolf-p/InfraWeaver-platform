@@ -80,7 +80,10 @@ export const manageActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("activate-theme"), slug: slugSchema }),
   z.object({ type: z.literal("delete-theme"), slug: slugSchema }),
   // Maintenance / DB / cache
-  z.object({ type: z.literal("optimize-db") }),
+  // NOTE: raw `optimize-db` (whole-DB `wp db optimize`) is RETIRED — table
+  // optimization now flows through the fused Database cockpit's bounded, gated
+  // signed `db.cleanup(['optimize_tables'], dry_run: false)` engine. `purge-
+  // transients` remains for the cache surface (expired+all, cache domain).
   z.object({ type: z.literal("purge-transients") }),
   z.object({ type: z.literal("flush-cache") }),
   z.object({ type: z.literal("flush-rewrites") }),
@@ -211,8 +214,6 @@ export function commandFor(action: ManageAction): BuiltCommand | null {
       return { command: `${WP} theme activate ${safeWpArg(action.slug)}` };
     case "delete-theme":
       return { command: `${WP} theme delete ${safeWpArg(action.slug)}` };
-    case "optimize-db":
-      return { command: `${WP_SAFE} db optimize` };
     case "purge-transients":
       return { command: `${WP_SAFE} transient delete --expired && ${WP_SAFE} transient delete --all` };
     case "flush-cache":
@@ -301,7 +302,6 @@ const SUCCESS_MESSAGE: Record<ManageAction["type"], string> = {
   "delete-plugin": "Plugin deleted.",
   "activate-theme": "Theme activated.",
   "delete-theme": "Theme deleted.",
-  "optimize-db": "Database optimized.",
   "purge-transients": "Transients purged.",
   "flush-cache": "Object cache flushed.",
   "flush-rewrites": "Permalinks flushed.",

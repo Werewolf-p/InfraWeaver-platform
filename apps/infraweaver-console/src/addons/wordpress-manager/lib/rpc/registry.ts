@@ -18,6 +18,15 @@
 
 import { validateEntitlementsParams } from "../entitlements";
 import {
+  dbCleanupParamsSchema,
+  dbScheduleParamsSchema,
+  type DbAnalyzeResponse,
+  type DbCleanupParams,
+  type DbCleanupResponse,
+  type DbScheduleParams,
+  type DbScheduleResponse,
+} from "../manage/database";
+import {
   mediaFolderParamsSchema,
   mediaListParamsSchema,
   mediaOffloadParamsSchema,
@@ -51,7 +60,11 @@ export type RpcMethod =
   | "media.optimize"
   | "media.offload"
   | "media.restore"
-  | "media.folder";
+  | "media.folder"
+  // ── database fusion (§ database) — the fused Database cockpit's read + act methods.
+  | "db.analyze"
+  | "db.cleanup"
+  | "db.schedule";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -73,6 +86,10 @@ export interface RpcParams {
   "media.offload": MediaOffloadParams;
   "media.restore": MediaRestoreParams;
   "media.folder": MediaFolderParams;
+  // ── database fusion — params mirror the plugin's db.* validators exactly.
+  "db.analyze": Record<string, never>;
+  "db.cleanup": DbCleanupParams;
+  "db.schedule": DbScheduleParams;
 }
 
 /**
@@ -152,6 +169,10 @@ export interface RpcResult {
   };
   /** Terms-only folder mutation echo. */
   "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  // ── database fusion — the read-model + bounded run summaries (plugin is source of truth).
+  "db.analyze": DbAnalyzeResponse;
+  "db.cleanup": DbCleanupResponse;
+  "db.schedule": DbScheduleResponse;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -200,6 +221,13 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
   "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
   "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
+  // Database fusion — db.analyze is paramless; the two write validators reuse the
+  // isomorphic zod schemas that mirror the plugin's db.cleanup / db.schedule
+  // validators (dry_run must be a real boolean; frequency clamped), so the two
+  // sides can never drift.
+  "db.analyze": { hasParams: false, validate: noParams },
+  "db.cleanup": { hasParams: true, validate: (p) => dbCleanupParamsSchema.safeParse(p).success },
+  "db.schedule": { hasParams: true, validate: (p) => dbScheduleParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */

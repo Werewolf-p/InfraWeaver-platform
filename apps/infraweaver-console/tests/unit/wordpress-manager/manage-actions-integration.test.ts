@@ -91,7 +91,7 @@ const EXEC_ACTIONS: ReadonlyArray<{ action: ManageAction; contains: string }> = 
   { action: { type: "delete-plugin", slug: "hello" }, contains: "plugin delete hello" },
   { action: { type: "activate-theme", slug: "twentytwentyone" }, contains: "theme activate twentytwentyone" },
   { action: { type: "delete-theme", slug: "twentytwentyone" }, contains: "theme delete twentytwentyone" },
-  { action: { type: "optimize-db" }, contains: "db optimize" },
+  // `optimize-db` retired — table optimization moved to the signed db.cleanup engine.
   { action: { type: "purge-transients" }, contains: "transient delete --all" },
   { action: { type: "flush-cache" }, contains: "cache flush" },
   { action: { type: "flush-rewrites" }, contains: "rewrite flush" },
