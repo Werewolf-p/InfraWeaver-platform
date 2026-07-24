@@ -59,7 +59,7 @@ final class IWSL_Media_Library {
 	const OFF_FILTERS = array( 'all', 'offloaded', 'local' );
 	const ORDERBYS    = array( 'date', 'title', 'filename', 'size' );
 	const ORDERS      = array( 'desc', 'asc' );
-	const FOLDER_OPS  = array( 'create', 'rename', 'move', 'delete', 'assign', 'tag' );
+	const FOLDER_OPS  = array( 'create', 'rename', 'move', 'delete', 'assign', 'tag', 'tag_rename', 'tag_delete', 'tag_merge' );
 
 	/** @var IWSL_Entitlements */
 	private $entitlements;
@@ -555,6 +555,20 @@ final class IWSL_Media_Library {
 					&& self::id_array_ok( $vars['ids'], self::FOLDER_IDS_MAX, false )
 					&& ( ! isset( $vars['add'] ) || self::name_array_ok( $vars['add'] ) )
 					&& ( ! isset( $vars['remove'] ) || self::id_array_ok( $vars['remove'], self::FOLDER_IDS_MAX, true ) );
+			case 'tag_rename':
+				// Tag vocabulary CRUD (terms only): rename a tag term. {op,id,name}.
+				return self::keys_exact( $vars, array( 'op', 'id', 'name' ), array() )
+					&& is_int( $vars['id'] ) && $vars['id'] > 0 && self::name_ok( $vars['name'] );
+			case 'tag_delete':
+				// Delete a tag term (attachments keep their files; lose only the tag). {op,id}.
+				return self::keys_exact( $vars, array( 'op', 'id' ), array() )
+					&& is_int( $vars['id'] ) && $vars['id'] > 0;
+			case 'tag_merge':
+				// Merge tag `from` into `into` (files gain `into`, `from` deleted). {op,from,into}.
+				return self::keys_exact( $vars, array( 'op', 'from', 'into' ), array() )
+					&& is_int( $vars['from'] ) && $vars['from'] > 0
+					&& is_int( $vars['into'] ) && $vars['into'] > 0
+					&& $vars['from'] !== $vars['into'];
 		}
 		return false;
 	}

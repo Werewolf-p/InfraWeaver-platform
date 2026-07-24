@@ -104,6 +104,9 @@ iwsl_assert( IWSL_Media_Library::validate_folder_params( (object) array( 'op' =>
 iwsl_assert( IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'move', 'id' => 1, 'parent' => 0, 'order' => 3 ) ), 'folder validator: move (with order) accepted' );
 iwsl_assert( IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'assign', 'ids' => array( 1, 2 ), 'folder_id' => 0 ) ), 'folder validator: assign accepted' );
 iwsl_assert( IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'tag', 'ids' => array( 1 ), 'add' => array( 'hero' ), 'remove' => array( 5 ) ) ), 'folder validator: tag accepted' );
+iwsl_assert( IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'tag_rename', 'id' => 3, 'name' => 'Paintings' ) ), 'folder validator: tag_rename accepted' );
+iwsl_assert( IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'tag_delete', 'id' => 3 ) ), 'folder validator: tag_delete accepted' );
+iwsl_assert( IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'tag_merge', 'from' => 3, 'into' => 4 ) ), 'folder validator: tag_merge accepted' );
 
 // ── 3. validators — refuse strays, bad enums, over-cap, wrong types ────────────
 
@@ -133,6 +136,10 @@ iwsl_assert( ! IWSL_Media_Library::validate_folder_params( (object) array( 'op' 
 iwsl_assert( ! IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'delete' ) ), 'folder validator: delete without id refused' );
 iwsl_assert( ! IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'assign', 'ids' => range( 1, 201 ), 'folder_id' => 0 ) ), 'folder validator: assign ids over cap refused' );
 iwsl_assert( ! IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'tag', 'ids' => array( 1 ), 'add' => array( 5 ) ) ), 'folder validator: tag with non-string add refused' );
+iwsl_assert( ! IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'tag_rename', 'id' => 3 ) ), 'folder validator: tag_rename without name refused' );
+iwsl_assert( ! IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'tag_delete', 'id' => 3, 'name' => 'x' ) ), 'folder validator: tag_delete with stray key refused' );
+iwsl_assert( ! IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'tag_merge', 'from' => 3, 'into' => 3 ) ), 'folder validator: tag_merge into itself refused' );
+iwsl_assert( ! IWSL_Media_Library::validate_folder_params( (object) array( 'op' => 'tag_merge', 'from' => 3 ) ), 'folder validator: tag_merge without into refused' );
 
 // ── 4. STATEMENT-1 gate — every runner returns a signed {locked,gate} when locked ─
 
@@ -261,6 +268,20 @@ $only_folder_tax = array( 'iwsl_media_folder' ) === array_values( array_unique( 
 iwsl_assert( $only_folder_tax, 'INVARIANT: every deletion targeted the folder TAXONOMY, never an attachment' );
 iwsl_assert_same( false, $GLOBALS['mc_attachment_delete_called'], 'INVARIANT: no attachment-delete function was ever called' );
 iwsl_assert_same( $sacred_before, $GLOBALS['mc_sacred_attachment'], 'INVARIANT: the attachment record is byte-identical after a folder delete' );
+
+// ── 5b. INVARIANT — media.folder tag_delete is a TERMS-ONLY tag-vocabulary op ───
+// A NEW op on the SAME signed method: it must delete a tag TERM (not a folder, never
+// an attachment). Seed a tag term, run the runner arm, and re-assert the fences.
+$GLOBALS['mc_terms'][950]     = new MC_Term( 950, 'oldtag', 'iwsl_media_tag', 0, 3 );
+$GLOBALS['mc_deleted_tax']    = array();
+$sacred_before_tag           = $GLOBALS['mc_sacred_attachment'];
+list( $tok, $tres ) = $fh['media.folder']->run( $folder_plugin, mc_env( 'media.folder', array( 'op' => 'tag_delete', 'id' => 950 ) ) );
+iwsl_assert_same( true, $tok, 'tag_delete runner: answers ok' );
+iwsl_assert_same( 'tag_delete', (string) ( $tres['op'] ?? '' ), 'tag_delete runner: op echoed back' );
+iwsl_assert_same( true, (bool) ( $tres['result']['ok'] ?? false ), 'tag_delete runner: delegated delete_tag succeeded' );
+iwsl_assert_same( array( 'iwsl_media_tag' ), array_values( array_unique( $GLOBALS['mc_deleted_tax'] ) ), 'INVARIANT: tag_delete removed a TAG TERM, never an attachment' );
+iwsl_assert_same( false, $GLOBALS['mc_attachment_delete_called'], 'INVARIANT: tag_delete never called an attachment-delete function' );
+iwsl_assert_same( $sacred_before_tag, $GLOBALS['mc_sacred_attachment'], 'INVARIANT: attachment record byte-identical after tag_delete' );
 
 // ── 6. INVARIANT — media.restore never deletes a never-offloaded local copy ────
 // With no _iwsl_offload meta, is_offloaded() is false, so the runner classifies the
