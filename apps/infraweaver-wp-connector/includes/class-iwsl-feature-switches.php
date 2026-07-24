@@ -63,6 +63,7 @@ final class IWSL_Feature_Switches {
 			'db_optimization'      => true,
 			'scheduled_db_cleanup' => true,
 			'email_delivery'       => true,
+			'security_headers'     => true,
 		);
 	}
 

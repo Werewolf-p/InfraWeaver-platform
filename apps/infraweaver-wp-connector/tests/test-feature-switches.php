@@ -45,7 +45,8 @@ iwsl_assert_same( true, IWSL_Feature_Switches::is_switchable( 'speed_pack' ), 's
 iwsl_assert_same( true, IWSL_Feature_Switches::is_switchable( 'white_label' ), 'white_label is switchable' );
 iwsl_assert_same( false, IWSL_Feature_Switches::is_switchable( 'wp_config_editor' ), 'config editor (no tier gate) is NOT switchable' );
 iwsl_assert_same( false, IWSL_Feature_Switches::is_switchable( 'nonsense' ), 'unknown flag not switchable' );
-iwsl_assert_same( 24, count( IWSL_Feature_Switches::switchable() ), 'exactly 24 switchable features' );
+iwsl_assert_same( 25, count( IWSL_Feature_Switches::switchable() ), 'exactly 25 switchable features' );
+iwsl_assert_same( true, IWSL_Feature_Switches::is_switchable( 'security_headers' ), 'security_headers is switchable' );
 iwsl_assert_same( true, IWSL_Feature_Switches::is_switchable( 'elementor_blocks' ), 'elementor_blocks is switchable' );
 
 // ── turning OFF is always allowed (even the ungranted) ─────────────────────────

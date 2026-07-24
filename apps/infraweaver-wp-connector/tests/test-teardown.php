@@ -84,7 +84,7 @@ iwsl_assert( true, 'flush_page_cache() returned safely with no plugin/cache pres
 
 // ── flags(): the switchable set plus the FREE perf audit ───────────────────────
 $flags = IWSL_Teardown::flags();
-iwsl_assert_same( 25, count( $flags ), 'flags() = 24 switchable + perf_audit' );
+iwsl_assert_same( 26, count( $flags ), 'flags() = 25 switchable + perf_audit' );
 iwsl_assert( in_array( 'response_scan', $flags, true ), 'flags() includes response_scan' );
 iwsl_assert( in_array( 'media_protection', $flags, true ), 'flags() includes media_protection' );
 iwsl_assert( in_array( IWSL_Teardown::FLAG_PERF_AUDIT, $flags, true ), 'flags() includes the FREE perf_audit' );

@@ -226,6 +226,126 @@ final class IWSL_Plugin {
 				},
 				array( 'IWSL_Entitlements', 'validate_params' )
 			),
+			// ── Security / Consent / Protection domain (signed; read + closed-set write) ──
+			// All five follow the invariant: no public endpoint, STATEMENT-1 entitlement
+			// gate, strict validators. No raw consent-log row ever crosses the wire.
+			new IWSL_Command_Handler(
+				'security.scan',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Read-only HTTP security-header grade + tracker detection from a
+					// loopback fetch of the site's OWN home URL behind the shared SSRF
+					// anchor. STATEMENT 1 (inside scan()) is the entitlement gate; a
+					// locked site returns { locked, gate } and no fetch happens.
+					$engine = new IWSL_Security_Headers( $plugin->entitlements(), $plugin->store() );
+					$res    = $engine->scan();
+					if ( empty( $res['ok'] ) && 'entitlement-locked' === ( $res['reason'] ?? '' ) ) {
+						return array( false, array( 'locked' => true, 'gate' => $res['gate'] ?? null ) );
+					}
+					return array( true, $res );
+				}
+			),
+			new IWSL_Command_Handler(
+				'security.harden',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Write: apply an allow-listed hardening config. The params validator
+					// (a CLOSED key/enum set) already refused any free-form header name or
+					// value before dispatch, so header injection is foreclosed by
+					// construction. STATEMENT 1 inside apply_config() is the entitlement
+					// gate; CSP is only ever emitted report-only until an explicit enforce.
+					$engine = new IWSL_Security_Headers( $plugin->entitlements(), $plugin->store() );
+					$res    = $engine->apply_config( $envelope->params );
+					if ( empty( $res['ok'] ) ) {
+						return array( false, array( 'locked' => true, 'gate' => $res['gate'] ?? null, 'reason' => $res['reason'] ?? 'locked' ) );
+					}
+					return array( true, array( 'applied' => $res['applied'] ) );
+				},
+				array( 'IWSL_Security_Headers', 'validate_params' )
+			),
+			new IWSL_Command_Handler(
+				'consent.getConfig',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Read-only consent config + PRIVACY-SAFE aggregates. The pseudonymous
+					// consent-log ring NEVER crosses the wire — only counts by method/region.
+					$gate = $plugin->entitlements()->evaluate( IWSL_Cookie_Consent::FEATURE );
+					if ( empty( $gate['unlocked'] ) ) {
+						return array( false, array( 'locked' => true, 'gate' => $gate ) );
+					}
+					$cc       = new IWSL_Cookie_Consent( $plugin->entitlements(), $plugin->store() );
+					$settings = $cc->settings();
+					return array(
+						true,
+						array(
+							'settings'   => $settings,
+							'enabled'    => ! empty( $settings['enabled'] ),
+							'aggregates' => $cc->aggregates(),
+						),
+					);
+				}
+			),
+			new IWSL_Command_Handler(
+				'consent.setConfig',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Write: route the console's settings through the SAME sanitize_settings()
+					// gauntlet as the wp-admin save (one gauntlet, two callers). `enabled`
+					// obeys the default-OFF rule (absent ⇒ off), so enabling is always an
+					// explicit operator action. STATEMENT 1 inside save_settings() is the gate.
+					$cc       = new IWSL_Cookie_Consent( $plugin->entitlements(), $plugin->store() );
+					$settings = self::stdclass_to_array( $envelope->params->settings );
+					$res      = $cc->save_settings( $settings );
+					if ( empty( $res['ok'] ) ) {
+						return array( false, array( 'locked' => true, 'gate' => $res['gate'] ?? null, 'reason' => $res['reason'] ?? 'locked' ) );
+					}
+					return array( true, array( 'settings' => $res['settings'] ) );
+				},
+				static function ( $params ): bool {
+					if ( ! $params instanceof stdClass ) {
+						return false;
+					}
+					$vars = get_object_vars( $params );
+					return array() === array_diff_key( $vars, array( 'settings' => 1 ) )
+						&& isset( $vars['settings'] ) && $vars['settings'] instanceof stdClass;
+				}
+			),
+			new IWSL_Command_Handler(
+				'protection.status',
+				static function ( IWSL_Plugin $plugin, stdClass $envelope ): array {
+					// Read-only cross-feature status aggregate for the console's Site
+					// Security surface. Per-feature `entitled` is the raw flag grant; each
+					// section reports only benign booleans/counts — no secrets, no log rows,
+					// no sanitizer knobs (SVG status is read-only by design).
+					$ent         = $plugin->entitlements();
+					$store       = $plugin->store();
+					$mp          = new IWSL_Media_Protection( $ent, $store );
+					$svg         = new IWSL_SVG_Upload( $ent, $store );
+					$cc          = new IWSL_Cookie_Consent( $ent, $store );
+					$sh          = new IWSL_Security_Headers( $ent, $store );
+					$mp_settings = $mp->settings();
+					return array(
+						true,
+						array(
+							'media_protection' => array(
+								'entitled'        => $ent->has( IWSL_Media_Protection::FEATURE ),
+								'enabled'         => ! empty( $mp_settings['enabled'] ),
+								'protect_all'     => ! empty( $mp_settings['protect_all'] ),
+								'protected_count' => $mp->protected_count(),
+							),
+							'svg_upload'       => array(
+								'entitled' => $ent->has( IWSL_SVG_Upload::FEATURE ),
+								'enabled'  => $svg->is_enabled(),
+							),
+							'cookie_consent'   => array(
+								'entitled'       => $ent->has( IWSL_Cookie_Consent::FEATURE ),
+								'enabled'        => ! empty( $cc->settings()['enabled'] ),
+								'policy_version' => $cc->policy_version(),
+							),
+							'security_headers' => array(
+								'entitled' => $ent->has( IWSL_Security_Headers::FEATURE ),
+								'config'   => $sh->config(),
+							),
+						),
+					);
+				}
+			),
 		);
 
 		$by_method = array();
@@ -247,6 +367,24 @@ final class IWSL_Plugin {
 			$out[ $method ] = $handler->validator;
 		}
 		return $out;
+	}
+
+	/**
+	 * Recursively convert a decoded-JSON stdClass value into a nested associative
+	 * array, so a signed-command params object can feed an array<string,mixed>-typed
+	 * settings sanitizer (e.g. IWSL_Cookie_Consent::sanitize_settings). Round-trips
+	 * through json so nested objects (categories, vendor_overrides) become arrays.
+	 *
+	 * @param mixed $value
+	 * @return array<string,mixed>
+	 */
+	private static function stdclass_to_array( $value ): array {
+		if ( ! $value instanceof stdClass && ! is_array( $value ) ) {
+			return array();
+		}
+		$json    = json_encode( $value );
+		$decoded = false === $json ? null : json_decode( $json, true );
+		return is_array( $decoded ) ? $decoded : array();
 	}
 
 	/**

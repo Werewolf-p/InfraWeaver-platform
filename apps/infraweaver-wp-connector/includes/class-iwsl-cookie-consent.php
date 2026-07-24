@@ -290,6 +290,35 @@ final class IWSL_Cookie_Consent {
 	}
 
 	/**
+	 * Privacy-safe aggregate view of the consent log for the console. Folds the
+	 * pseudonymous record ring into COUNTS ONLY — total records, a per-method tally,
+	 * a per-region tally, and the current policy version. The raw records (even
+	 * pseudonymous — salted hash id, no IP) NEVER leave the plugin through this:
+	 * no id, no timestamp, no per-visitor row is ever returned, so the console can
+	 * show compliance posture without becoming a consent-record honeypot. Pure read.
+	 *
+	 * @return array{ records:int, by_method:array<string,int>, by_region:array<string,int>, policy_version:int }
+	 */
+	public function aggregates(): array {
+		$by_method = array();
+		$by_region = array();
+		$records   = 0;
+		foreach ( $this->log_entries() as $entry ) {
+			++$records;
+			$method               = isset( $entry['method'] ) && is_string( $entry['method'] ) ? $entry['method'] : 'unknown';
+			$region               = isset( $entry['region'] ) && is_string( $entry['region'] ) ? $entry['region'] : 'unknown';
+			$by_method[ $method ] = ( $by_method[ $method ] ?? 0 ) + 1;
+			$by_region[ $region ] = ( $by_region[ $region ] ?? 0 ) + 1;
+		}
+		return array(
+			'records'        => $records,
+			'by_method'      => $by_method,
+			'by_region'      => $by_region,
+			'policy_version' => $this->policy_version(),
+		);
+	}
+
+	/**
 	 * The effective tracker signatures with the admin's per-vendor category overrides
 	 * applied. Extensible: an override retags a known vendor into another category.
 	 *
