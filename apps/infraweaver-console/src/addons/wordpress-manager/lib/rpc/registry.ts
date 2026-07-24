@@ -32,6 +32,17 @@ import {
   type MediaStatusResponse,
   type MediaTreeResponse,
 } from "../manage/media";
+import {
+  activityLogParamsSchema,
+  statsSummaryParamsSchema,
+  statsTimeseriesParamsSchema,
+  type ActivityLogParams,
+  type ActivityLogResponse,
+  type StatsSummaryParams,
+  type StatsSummaryResponse,
+  type StatsTimeseriesParams,
+  type StatsTimeseriesResponse,
+} from "../manage/insights";
 
 /** Signed-command methods the Connector allow-lists (§7). Wire strings — never rename. */
 export type RpcMethod =
@@ -51,7 +62,14 @@ export type RpcMethod =
   | "media.optimize"
   | "media.offload"
   | "media.restore"
-  | "media.folder";
+  | "media.folder"
+  // ── analytics/insights (§ analytics) — three READ-ONLY methods behind the
+  // console's Insights surface (traffic summary, daily/hourly series, admin
+  // activity trail). Aggregates only; every result is a signed { locked, gate }
+  // when the site isn't entitled.
+  | "stats.summary"
+  | "stats.timeseries"
+  | "activity.log";
 
 /** Params each method carries on the wire. `Record<string, never>` = no params (§6.3). */
 export interface RpcParams {
@@ -73,6 +91,10 @@ export interface RpcParams {
   "media.offload": MediaOffloadParams;
   "media.restore": MediaRestoreParams;
   "media.folder": MediaFolderParams;
+  // ── insights — params mirror IWSL_Statistics / IWSL_Activity_Log validators.
+  "stats.summary": StatsSummaryParams;
+  "stats.timeseries": StatsTimeseriesParams;
+  "activity.log": ActivityLogParams;
 }
 
 /**
@@ -152,6 +174,10 @@ export interface RpcResult {
   };
   /** Terms-only folder mutation echo. */
   "media.folder": { locked: boolean; op?: string; result?: Record<string, unknown>; gate?: Record<string, unknown> };
+  // ── insights — compact aggregate projections (or a signed { locked, gate }).
+  "stats.summary": StatsSummaryResponse;
+  "stats.timeseries": StatsTimeseriesResponse;
+  "activity.log": ActivityLogResponse;
 }
 
 /** Client-side sanity check for a method's params — mirrors the plugin allow-list validator. */
@@ -200,6 +226,12 @@ export const RPC_REGISTRY: Record<RpcMethod, RpcMethodSpec> = {
   "media.offload": { hasParams: true, validate: (p) => mediaOffloadParamsSchema.safeParse(p).success },
   "media.restore": { hasParams: true, validate: (p) => mediaRestoreParamsSchema.safeParse(p).success },
   "media.folder": { hasParams: true, validate: (p) => mediaFolderParamsSchema.safeParse(p).success },
+  // Insights — validators reuse the isomorphic zod schemas that mirror the
+  // connector's IWSL_Statistics / IWSL_Activity_Log validators (params optional,
+  // so an empty object also passes — the plugin defaults the range/days/limit).
+  "stats.summary": { hasParams: true, validate: (p) => statsSummaryParamsSchema.safeParse(p).success },
+  "stats.timeseries": { hasParams: true, validate: (p) => statsTimeseriesParamsSchema.safeParse(p).success },
+  "activity.log": { hasParams: true, validate: (p) => activityLogParamsSchema.safeParse(p).success },
 };
 
 /** The allow-listed method names, in registry order. */

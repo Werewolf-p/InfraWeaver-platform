@@ -149,7 +149,11 @@ export function resolveCapabilities(facts: SiteCapabilityFacts): Record<ManageCa
     smtp: anyActive(facts, SMTP_PLUGIN_SLUGS),
     staging: anyActive(facts, STAGING_PLUGIN_SLUGS),
     seo: anyActive(facts, SEO_PLUGIN_SLUGS),
-    audience: anyActive(facts, SEO_PLUGIN_SLUGS) || anyActive(facts, ANALYTICS_PLUGIN_SLUGS),
+    // Traffic & SEO is available when an SEO/analytics plugin is active OR when the
+    // signed Connector is live — the Connector's own first-party analytics engine
+    // powers the traffic module even on a site with no third-party plugin at all.
+    audience:
+      anyActive(facts, SEO_PLUGIN_SLUGS) || anyActive(facts, ANALYTICS_PLUGIN_SLUGS) || facts.connectorActive,
     connector: facts.connectorActive,
   };
 }
@@ -324,11 +328,11 @@ export const MANAGE_PANELS: readonly ManagePanelDef[] = [
     id: "audience",
     label: "Traffic & SEO",
     icon: "TrendingUp",
-    summary: "Search visibility and traffic signals from your SEO/analytics plugin.",
+    summary: "First-party traffic from the Connector's analytics engine, fused with on-page SEO coverage.",
     requires: {
       capability: "audience",
-      label: "an SEO or analytics plugin",
-      hint: "Activate Yoast SEO, Rank Math or an analytics plugin to report traffic and search data.",
+      label: "the Connector or an SEO/analytics plugin",
+      hint: "Enable the InfraWeaver Connector for first-party traffic, or activate Yoast SEO/Rank Math for on-page SEO coverage.",
       installSlug: "wordpress-seo",
     },
   },
