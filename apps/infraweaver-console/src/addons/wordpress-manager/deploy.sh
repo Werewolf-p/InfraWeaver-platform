@@ -26,6 +26,17 @@ WP_HEALTH_CRON_BAO_PATH="${WP_HEALTH_CRON_BAO_PATH:-platform/infraweaver-console
 WP_HEALTH_CRON_BAO_PROP="${WP_HEALTH_CRON_BAO_PROP:-wordpress-health-cron-token}"
 WP_HEALTH_CRON_SECRET="${WP_HEALTH_CRON_SECRET:-wordpress-health-cron}"
 
+# ── WordPress Manage-snapshot sweep wiring (durable cache warm) ───────────────
+# The 30-min Manage sweep CronJob and the console must present the SAME token
+# (the console's WORDPRESS_METRICS_CRON_TOKEN env). It is its own dedicated token,
+# distinct from the health/rotation tokens, so read it from the same OpenBao origin
+# ExternalSecrets projects into the console. Set SKIP_MANAGE_SWEEP=1 to skip.
+SKIP_MANAGE_SWEEP="${SKIP_MANAGE_SWEEP:-0}"
+WP_MANAGE_CRON_BAO_MOUNT="${WP_MANAGE_CRON_BAO_MOUNT:-secret}"
+WP_MANAGE_CRON_BAO_PATH="${WP_MANAGE_CRON_BAO_PATH:-platform/infraweaver-console}"
+WP_MANAGE_CRON_BAO_PROP="${WP_MANAGE_CRON_BAO_PROP:-wordpress-metrics-cron-token}"
+WP_MANAGE_CRON_SECRET="${WP_MANAGE_CRON_SECRET:-wordpress-manage-cron}"
+
 # ── WordPress Connector metrics wiring (Prometheus scrape token) ──────────────
 # The ServiceMonitor scrapes /api/wordpress/metrics with a Bearer token that MUST
 # match the console's WORDPRESS_METRICS_TOKEN env — sourced from the same OpenBao
@@ -103,6 +114,23 @@ else
   kubectl apply -f "${here}/k8s/health-sweep-netpol.yaml"
   kubectl apply -f "${here}/k8s/health-sweep-cronjob.yaml"
   echo "health sweep wired: CronJob wordpress-connector-health-sweep (0 * * * *)"
+fi
+
+if [[ "${SKIP_MANAGE_SWEEP}" == "1" ]]; then
+  echo "==> Manage-snapshot sweep — SKIPPED (SKIP_MANAGE_SWEEP=1)"
+else
+  echo "==> wire the 30-min Manage-snapshot sweep (warms the durable cache; cron token from OpenBao)"
+  # Same-origin token as the console's WORDPRESS_METRICS_CRON_TOKEN env, so the
+  # sweep and the console agree (a committed literal never matches → 401/403).
+  manage_token="$(read_openbao_field "${WP_MANAGE_CRON_BAO_MOUNT}" "${WP_MANAGE_CRON_BAO_PATH}" "${WP_MANAGE_CRON_BAO_PROP}")"
+  kubectl -n "${CONSOLE_NAMESPACE}" create secret generic "${WP_MANAGE_CRON_SECRET}" \
+    --from-literal=token="${manage_token}" --dry-run=client -o yaml \
+    | kubectl -n "${CONSOLE_NAMESPACE}" apply -f -
+  # No dedicated NetworkPolicy: the sweep pods carry the iwsl labels the
+  # health-sweep-netpol.yaml already selects (egress to CoreDNS + console, ingress
+  # to the console pod). Just apply the CronJob.
+  kubectl apply -f "${here}/k8s/manage-sweep-cronjob.yaml"
+  echo "manage sweep wired: CronJob wordpress-manage-snapshot-sweep (15,45 * * * *)"
 fi
 
 if [[ "${SKIP_METRICS}" == "1" ]]; then

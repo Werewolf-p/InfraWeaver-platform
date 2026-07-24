@@ -6,16 +6,19 @@ jest.mock("server-only", () => ({}), { virtual: true });
 
 jest.mock("@/addons/wordpress-manager/lib/provision", () => ({ listSites: jest.fn() }));
 jest.mock("@/addons/wordpress-manager/lib/iwsl-enrollment", () => ({ listExternalSiteViews: jest.fn() }));
-jest.mock("@/addons/wordpress-manager/lib/manage/overview", () => ({ getManageOverview: jest.fn() }));
+// The rollup now reads through loadManageOverview (durable snapshot + SWR), not a
+// raw uncached getManageOverview — so mock the cached loader, which returns a
+// Cached<ManageOverview> ({ value, cachedAt, stale }).
+jest.mock("@/addons/wordpress-manager/lib/manage/overview", () => ({ loadManageOverview: jest.fn() }));
 
 import { aggregateFleet } from "@/addons/wordpress-manager/lib/fleet/aggregate";
 import { listSites } from "@/addons/wordpress-manager/lib/provision";
 import { listExternalSiteViews } from "@/addons/wordpress-manager/lib/iwsl-enrollment";
-import { getManageOverview } from "@/addons/wordpress-manager/lib/manage/overview";
+import { loadManageOverview } from "@/addons/wordpress-manager/lib/manage/overview";
 
 const sitesMock = listSites as jest.Mock;
 const linksMock = listExternalSiteViews as jest.Mock;
-const overviewMock = getManageOverview as jest.Mock;
+const overviewMock = loadManageOverview as jest.Mock;
 
 function site(name: string, ready = true) {
   return { site: name, host: `${name}.example`, ready, replicas: 1 };
@@ -32,19 +35,25 @@ function link(siteName: string, over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+// Returns a Cached<ManageOverview> wrapper — the shape loadManageOverview resolves
+// to — so aggregate's `.value` extraction is exercised exactly as in production.
 function overview(over: Record<string, unknown> = {}) {
   return {
-    wpVersion: "6.5",
-    phpVersion: "8.3",
-    coreUpdate: false,
-    pendingUpdates: 0,
-    pluginUpdates: 0,
-    themeUpdates: 0,
-    activePlugins: 5,
-    dbSizeMb: 40,
-    health: 95,
-    connector: { active: true, lastRoundtripMs: 2663, lastCheckIso: null, connectorVersion: "0.4.2" },
-    ...over,
+    value: {
+      wpVersion: "6.5",
+      phpVersion: "8.3",
+      coreUpdate: false,
+      pendingUpdates: 0,
+      pluginUpdates: 0,
+      themeUpdates: 0,
+      activePlugins: 5,
+      dbSizeMb: 40,
+      health: 95,
+      connector: { active: true, lastRoundtripMs: 2663, lastCheckIso: null, connectorVersion: "0.4.2" },
+      ...over,
+    },
+    cachedAt: Date.now(),
+    stale: false,
   };
 }
 
@@ -115,4 +124,28 @@ test("avgResponse is null when no link has a round-trip", async () => {
   const data = await aggregateFleet();
   expect(data.sites[0].responseMs).toBeNull();
   expect(data.summary.avgResponse).toBeNull();
+});
+
+test("bounds overview fan-out so one open tab cannot stampede every pod", async () => {
+  const names = Array.from({ length: 12 }, (_, i) => `s${i}`);
+  sitesMock.mockResolvedValue(names.map((n) => site(n)));
+  linksMock.mockResolvedValue(names.map((n) => link(n)));
+
+  let inFlight = 0;
+  let peak = 0;
+  overviewMock.mockImplementation(async () => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    // Defer a macrotask so all admitted lanes overlap before any resolves.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    inFlight -= 1;
+    return overview();
+  });
+
+  const data = await aggregateFleet();
+
+  expect(data.sites).toHaveLength(12);
+  // Bounded at FLEET_ROLLUP_CONCURRENCY (3) — never all 12 at once.
+  expect(peak).toBeLessThanOrEqual(3);
+  expect(overviewMock).toHaveBeenCalledTimes(12);
 });

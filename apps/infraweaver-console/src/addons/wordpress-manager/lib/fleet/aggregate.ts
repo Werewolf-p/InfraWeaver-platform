@@ -1,8 +1,9 @@
 import "server-only";
 import { listSites, type SiteSummary } from "../provision";
 import { listExternalSiteViews, type ExternalSiteView } from "../iwsl-enrollment";
-import { getManageOverview } from "../manage/overview";
+import { loadManageOverview } from "../manage/overview";
 import { withCache, type Cached } from "../manage/snapshot-cache";
+import { mapWithConcurrency } from "../concurrency";
 import type { FleetData, FleetSiteRow, FleetSiteStatus, FleetSummary } from "./types";
 
 /**
@@ -21,6 +22,15 @@ import type { FleetData, FleetSiteRow, FleetSiteStatus, FleetSummary } from "./t
  */
 
 const FLEET_FRESH_MS = 30_000;
+
+/**
+ * Max sites rolled up at once. Opening a single site's Overview live-pulls the
+ * whole fleet through this path (via the /fleet insights card), so an unbounded
+ * fan-out was a thundering herd of wp-cli execs against every pod. Bounded like
+ * the panel-capture sweep (PANEL_CAPTURE_CONCURRENCY = 3) so one open tab can
+ * never stampede the cluster or the console event loop.
+ */
+const FLEET_ROLLUP_CONCURRENCY = 3;
 
 /** Health thresholds for the rollup status (composite Site-Health score 0–100). */
 const CRITICAL_BELOW = 55;
@@ -51,6 +61,9 @@ async function rollupSite(site: SiteSummary, links: ExternalSiteView[]): Promise
 
   // The in-pod wp-cli overview is the source for health/versions/updates. It can
   // fail (pod restarting, DB blip) — that's a real "offline" signal, not an error.
+  // Read through loadManageOverview: the durable cross-replica snapshot first (kept
+  // warm by the manage-sweep cron), falling back to the per-site SWR cache — never
+  // a raw uncached live pull, which is what stampeded every pod on a single view.
   let health: number | null = null;
   let php: string | null = null;
   let wp: string | null = null;
@@ -60,7 +73,7 @@ async function rollupSite(site: SiteSummary, links: ExternalSiteView[]): Promise
   let coreUpdate = false;
   let overviewFailed = false;
   try {
-    const ov = await getManageOverview(site.site);
+    const ov = (await loadManageOverview(site.site)).value;
     health = ov.health;
     php = ov.phpVersion;
     wp = ov.wpVersion;
@@ -95,6 +108,27 @@ async function rollupSite(site: SiteSummary, links: ExternalSiteView[]): Promise
   };
 }
 
+/** A fully-offline row for a site whose rollup could not be produced at all. */
+function offlineRow(site: SiteSummary): FleetSiteRow {
+  return {
+    id: site.site,
+    name: site.site,
+    url: site.host,
+    status: "offline",
+    health: null,
+    responseMs: null,
+    updates: { core: 0, plugins: 0, themes: 0 },
+    php: null,
+    wp: null,
+    connectorVersion: null,
+    connectorState: null,
+    lastHealthAt: null,
+    lastHealthOk: null,
+    rejections: 0,
+    offline: true,
+  };
+}
+
 function summarize(rows: FleetSiteRow[], links: ExternalSiteView[]): FleetSummary {
   const responseValues = rows.map((r) => r.responseMs).filter((v): v is number => typeof v === "number");
   return {
@@ -114,30 +148,14 @@ function summarize(rows: FleetSiteRow[], links: ExternalSiteView[]): FleetSummar
 /** Aggregate the whole fleet from live secure sources (uncached). */
 export async function aggregateFleet(): Promise<FleetData> {
   const [sites, links] = await Promise.all([listSites(), listExternalSiteViews()]);
-  const settled = await Promise.allSettled(sites.map((site) => rollupSite(site, links)));
-  const rows: FleetSiteRow[] = settled
-    .map((outcome, i) =>
-      outcome.status === "fulfilled"
-        ? outcome.value
-        : ({
-            id: sites[i].site,
-            name: sites[i].site,
-            url: sites[i].host,
-            status: "offline" as const,
-            health: null,
-            responseMs: null,
-            updates: { core: 0, plugins: 0, themes: 0 },
-            php: null,
-            wp: null,
-            connectorVersion: null,
-            connectorState: null,
-            lastHealthAt: null,
-            lastHealthOk: null,
-            rejections: 0,
-            offline: true,
-          } satisfies FleetSiteRow),
+  // Bounded fan-out (FLEET_ROLLUP_CONCURRENCY): rollupSite already folds its own
+  // failures into an offline row, and the .catch guards the pool against an
+  // unexpected throw so one bad site never rejects the whole roll-up.
+  const rows: FleetSiteRow[] = (
+    await mapWithConcurrency(sites, FLEET_ROLLUP_CONCURRENCY, (site) =>
+      rollupSite(site, links).catch(() => offlineRow(site)),
     )
-    .sort((a, b) => (a.health ?? -1) - (b.health ?? -1)); // worst first — attention rises to the top
+  ).sort((a, b) => (a.health ?? -1) - (b.health ?? -1)); // worst first — attention rises to the top
 
   return {
     summary: summarize(rows, links),

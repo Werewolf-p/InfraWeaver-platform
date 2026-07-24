@@ -84,14 +84,37 @@ async function readKeysSecret(): Promise<LoadedIwKeys | null> {
 }
 
 /**
+ * In-process memo of the loaded keypair. The IW cluster key is static for the
+ * process lifetime — OpenBao owns it and it only changes on a (phase-7) rotation
+ * — yet `loadOrCreateIwKeys` is on nearly every addon code path (every managed
+ * command, tier/channel read, fleet rollup), so reading the Secret from the k8s
+ * API per call adds a redundant round trip to almost every request. Memoize the
+ * parsed keypair, mirroring `loadKubeConfig`'s KubeConfig cache. Only successful
+ * loads are cached (a missing/not-yet-seeded Secret keeps retrying); call
+ * `invalidateIwKeysCache()` when a rotation lands to force a re-read.
+ */
+let cachedKeys: LoadedIwKeys | null = null;
+
+/** Drop the memoized keypair so the next load re-reads the Secret (rotation hook). */
+export function invalidateIwKeysCache(): void {
+  cachedKeys = null;
+}
+
+/**
  * The cluster IW keypair, loaded from the ESO-projected Secret. The name is
  * kept for call-site compatibility (enrollment, public-key loading) but this no
  * longer creates a key: OpenBao owns it now (see module docstring). A missing
  * Secret means it has not been seeded/synced — fail loud, never self-mint.
+ * The successful result is memoized (see `cachedKeys`); the failure path never
+ * caches so a Secret that appears later is picked up on the next call.
  */
 export async function loadOrCreateIwKeys(): Promise<LoadedIwKeys> {
+  if (cachedKeys) return cachedKeys;
   const loaded = await readKeysSecret();
-  if (loaded) return loaded;
+  if (loaded) {
+    cachedKeys = loaded;
+    return loaded;
+  }
   throw new Error(
     `IWSL signing key not available: Secret '${SECRET_NAME}' not found in namespace ` +
       `'${CONSOLE_NAMESPACE}'. The key is now provisioned by OpenBao via External Secrets ` +
